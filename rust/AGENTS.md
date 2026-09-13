@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 348 passed, 0
-failed, 348 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 349 passed, 0
+failed, 349 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -158,8 +158,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 348 passed, 0 failed,
-348 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 349 passed, 0 failed,
+349 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -188,6 +188,25 @@ instructions.
   iterator sugar, `?`, `if let`) expands into universal `std`/`std_collections` calls, exactly
   like the Dart encoder's cascade/null-aware-access/spread expansion. This is invariant, not
   optional — see `ball-lang-encoder`'s module doc comment (`rust/encoder/src/lib.rs`).
+- **`try` dispatches EVERY catch clause, in source order** (issue #615). `compile_try` emits an
+  `if`/`else if` chain over the recovered payload: an `on <Type> catch` clause runs only when
+  `ball_catch_matches(&__err, "<Type>")` accepts the thrown value's type tag (a
+  `BallValue::Message`'s `type_name` or a `BallValue::Map`'s `__type__`, matched by FULL
+  `main:StateError` or BARE `StateError` spelling, as `_evalLazyTry` does in
+  `dart/engine/lib/engine_control_flow.dart`); the first untyped `catch (e)` is the `else`; and a
+  clause list where every typed clause misses runs `finally` then `ball_throw(__err)`, so an
+  enclosing `try` sees the original value. Before #615 only `catches.first()` was compiled, as an
+  unconditional catch-all, so `throw StateError(...)` ran an `on ArgumentError catch` body —
+  silently wrong output, never an error. `ball_throw` also mirrors `std.throw`'s
+  `arg0` -> `message` rename (`engine_std.dart`), so a caught `e.message` reads the constructor
+  argument rather than null; `_ball_rethrow_err` still binds the ORIGINALLY caught value, bound
+  once before any clause binds its own variable. Guards:
+  `tests/conformance/464_typed_catch_clause_dispatch` and `146_nested_try_catch_types`
+  cross-target, plus the PR-gated `rust/compiler/tests/catch_clause_dispatch.rs` and
+  `runtime.rs`'s `catch_matches_*`/`throw_aliases_arg0_as_message`. Those are what gate the SHAPE:
+  the `rust-compiler` leg that compiles the whole corpus is a PR gate since #619, but it is a
+  RATCHET on a passing count (`RUST_COMPILER_FLOOR`), and 146 had been failing there — inside the
+  floor, so green — since that leg came online.
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a

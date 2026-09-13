@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 348 passed,
-0 failed, 348 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 349 passed,
+0 failed, 349 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -191,6 +191,27 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `go/runtime/list_find_contract_test.go` (`ListFind` throws via `dartError`, so the payload is a typed `*Message`) and `go/compiler/list_find_contract_test.go` (compiles the fixture and runs it) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
+  emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
+  `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`
+  accepts the thrown value's type tag (matching its FULL `main:StateError` or
+  BARE `StateError` spelling, like `_evalLazyTry` in the reference engine), the
+  first untyped `catch (e)` is the unconditional fallback, and a clause list
+  where every typed clause misses ends in `ballrt.Rethrow()` so an enclosing
+  `try` sees the original value. Before #615 only `catches[0]` was compiled — as
+  an unconditional catch-all — so `throw StateError(...)` ran an
+  `on ArgumentError catch` body: silently wrong output, never an error. The
+  dispatch is compiled into the emitted closure on purpose; `ballrt.TryCatch`'s
+  `(body, catch, finally)` signature is public API of `go/runtime`.
+  `ballrt.Throw` also mirrors `std.throw`'s `arg0` -> `message` rename, so a
+  caught `e.message` reads the constructor argument instead of `null`. Guards:
+  `tests/conformance/464_typed_catch_clause_dispatch` +
+  `146_nested_try_catch_types` (cross-target),
+  `go/compiler/catch_clause_dispatch_test.go` and
+  `go/runtime/catch_match_test.go`. Those two are what gate the SHAPE: the
+  `go-compiler` matrix row is a PR gate since #619, but it is a RATCHET on a
+  passing count, and 146's failure sat inside its floor from day one.
+
 ### Encoder
 
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks declarations → statements →
@@ -218,7 +239,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 348 passed, 0 failed, 348 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 349 passed, 0 failed, 349 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the

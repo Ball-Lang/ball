@@ -30,8 +30,38 @@ public sealed class BallThrow : Exception
     public BallThrow(BallValue payload)
         : base(payload.ToString())
     {
-        Payload = payload;
+        Payload = NormalizePayload(payload);
         TypeName = null;
+    }
+
+    /// <summary>
+    /// Mirror the reference engine's <c>std.throw</c> (engine_std.dart): the
+    /// encoder stores a built-in exception's constructor argument positionally
+    /// (<c>FormatException('bad')</c> → <c>{arg0: 'bad'}</c>) while Dart source
+    /// reads it back as <c>e.message</c>, so a thrown instance carrying
+    /// <c>arg0</c> and no <c>message</c> gains a <c>message</c> alias. Without
+    /// it, <c>on FormatException catch (e)</c> bound a value whose
+    /// <c>.message</c> read null (issue #615).
+    /// </summary>
+    private static BallValue NormalizePayload(BallValue payload)
+    {
+        BallMap? fields = payload switch
+        {
+            BallMessage message => message.Fields,
+            BallMap map => map,
+            _ => null,
+        };
+        if (fields is null || fields.ContainsKey("message"))
+        {
+            return payload;
+        }
+
+        if (fields.Get("arg0") is { } arg0)
+        {
+            fields.Set("message", arg0);
+        }
+
+        return payload;
     }
 
     /// <summary>

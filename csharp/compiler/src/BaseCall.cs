@@ -918,10 +918,15 @@ public sealed partial class CSharpCompiler
 
     /// <summary>
     /// <c>try(body, catches, finally?)</c> → a native C# <c>try/catch/finally</c>.
-    /// Dispatches only the first <c>catch</c> clause (no exception-type matching
-    /// yet — a documented gap shared with the Rust sibling). A Ball
-    /// <c>throw value</c> is a <see cref="BallThrow"/>; the clause variable binds
-    /// its payload.
+    /// The clause list is walked in SOURCE ORDER inside a single
+    /// <c>catch (BallThrow)</c>: an <c>on &lt;Type&gt; catch</c> clause runs only
+    /// when <see cref="BallRuntime.CatchMatches"/> accepts the thrown exception's
+    /// type tag, and the first untyped <c>catch (e)</c> is the unconditional
+    /// fallback. When every clause is typed and none matches, the emitted
+    /// <c>else</c> rethrows so an enclosing <c>try</c> sees the original value —
+    /// the reference engine's <c>if (!caught) rethrow</c> (issue #615).
+    /// A Ball <c>throw value</c> is a <see cref="BallThrow"/>; each clause's
+    /// variable binds its payload.
     /// </summary>
     private string CompileTryStatement(FunctionCall call)
     {
@@ -932,28 +937,62 @@ public sealed partial class CSharpCompiler
         var catches = MessageList(f, "catches");
         if (catches.Count > 0)
         {
-            var cf = MessageCreationFields(catches[0]);
-            var variable = StringField(cf, "variable");
-            var stackVariable = StringField(cf, "stack_trace");
-            PushScope();
             sb.Append("catch (BallThrow __ballEx)\n{\n");
-            if (!string.IsNullOrEmpty(variable))
+            var hasUntyped = false;
+            var first = true;
+            foreach (var catchClause in catches)
             {
-                sb.Append($"var {BindLocal(variable)} = __ballEx.Payload;\n");
+                var cf = MessageCreationFields(catchClause);
+                var clauseType = StringField(cf, "type");
+                var variable = StringField(cf, "variable");
+                var stackVariable = StringField(cf, "stack_trace");
+                PushScope();
+                if (!string.IsNullOrEmpty(clauseType))
+                {
+                    var keyword = first ? "if" : "else if";
+                    sb.Append($"{keyword} (BallRuntime.CatchMatches(__ballEx, {Naming.StringLiteral(clauseType!)}))\n{{\n");
+                }
+                else
+                {
+                    // An untyped clause matches anything. Dart rejects a clause
+                    // after an untyped `catch`, so this is always the last one.
+                    hasUntyped = true;
+                    sb.Append(first ? "{\n" : "else\n{\n");
+                }
+
+                if (!string.IsNullOrEmpty(variable))
+                {
+                    sb.Append($"var {BindLocal(variable)} = __ballEx.Payload;\n");
+                }
+
+                // A two-variable `catch (e, stackTrace)` binds the caught trace too —
+                // the C# analog of Dart's StackTrace (the CLR-populated one on the
+                // caught BallThrow), so a reference to it inside the body resolves
+                // instead of falling through to an UnresolvedReference (issue #383).
+                if (!string.IsNullOrEmpty(stackVariable))
+                {
+                    sb.Append($"var {BindLocal(stackVariable)} = BallRuntime.CaughtStackTrace(__ballEx);\n");
+                }
+
+                sb.Append(cf.TryGetValue("body", out var cb) ? EmitStatementUnwrapped(cb) : ";");
+                sb.Append("\n}\n");
+                PopScope();
+                first = false;
+                if (hasUntyped)
+                {
+                    break;
+                }
             }
 
-            // A two-variable `catch (e, stackTrace)` binds the caught trace too —
-            // the C# analog of Dart's StackTrace (the CLR-populated one on the
-            // caught BallThrow), so a reference to it inside the body resolves
-            // instead of falling through to an UnresolvedReference (issue #383).
-            if (!string.IsNullOrEmpty(stackVariable))
+            if (!hasUntyped)
             {
-                sb.Append($"var {BindLocal(stackVariable)} = BallRuntime.CaughtStackTrace(__ballEx);\n");
+                // Every clause was typed and none matched: re-raise the original
+                // exception (Dart's implicit propagation out of a `try` whose
+                // `on` clauses all missed).
+                sb.Append("else\n{\nthrow;\n}\n");
             }
 
-            sb.Append(cf.TryGetValue("body", out var cb) ? EmitStatementUnwrapped(cb) : ";");
-            sb.Append("\n}\n");
-            PopScope();
+            sb.Append("}\n");
         }
 
         if (f.TryGetValue("finally", out var fin))

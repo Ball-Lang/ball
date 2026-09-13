@@ -1356,12 +1356,15 @@ impl Compiler<'_> {
     /// `BallValue` as the panic payload via `std::panic::panic_any`, which
     /// `ball_catch_payload` recovers on the catching side.
     ///
-    /// **Known limitation:** only the *first* `catches` clause is compiled
-    /// (bound as a catch-all, ignoring `CatchClause.type` — real
-    /// exception-type dispatch needs the class hierarchy #38 adds); multiple
-    /// typed catch clauses are a documented gap, not a silent one. An
-    /// uncaught exception (no `catches` at all) re-panics with the
-    /// recovered value's `Debug` text.
+    /// The `catches` list is walked in **source order**: an `on <Type> catch`
+    /// clause runs only when
+    /// [`ball_lang_shared::runtime::ball_catch_matches`] accepts the recovered
+    /// value's type tag, and the first untyped `catch (e)` is the unconditional
+    /// fallback. When every clause is typed and none matches, the chain's
+    /// trailing `else` runs `finally` and re-throws the original value so an
+    /// enclosing `try` sees it — the reference engine's `if (!caught) rethrow`
+    /// (issue #615). An uncaught exception (no `catches` at all) re-panics with
+    /// the original payload.
     fn compile_try(&self, call: &FunctionCall) -> String {
         let f = extract_fields(call);
         // The body runs inside the `catch_unwind` closure (to catch Ball
@@ -1398,60 +1401,99 @@ impl Compiler<'_> {
         ));
         out.push_str("Err(__payload) => {\n");
 
-        if let Some(first_catch) = catches.first() {
-            let cf = match &first_catch.expr {
-                Some(Expr::MessageCreation(mc)) => self.message_creation_fields(mc),
-                _ => IndexMap::new(),
-            };
-            let var_name = self
-                .string_field(&cf, "variable")
-                .unwrap_or_else(|| "_ball_err".to_string());
-            // A `catch (e, st)` clause names a second variable in `stack_trace`
-            // (`dart/encoder/lib/encoder.dart`'s `_encodeCatchClause`); the
-            // handler body reads it as a bare `st` reference. The by-value Rust
-            // model captures no real trace, so it binds the caught error's
-            // string form — the closest faithful value.
-            let stack_var = self
-                .string_field(&cf, "stack_trace")
-                .filter(|s| !s.is_empty());
-            // The catch handler runs *outside* the `catch_unwind` closure (in
-            // this match arm), so its own `return`/`break`/`continue` reflect the
-            // enclosing scope directly — compile it with this try's scope popped.
-            self.push_scope();
-            self.bind_local(&var_name);
-            if let Some(stack_var) = &stack_var {
-                self.bind_local(stack_var);
-            }
-            // Compile the handler with a catch in scope so a `std.rethrow`
-            // (Dart `rethrow`) re-raises `_ball_rethrow_err` (issue #39/#300).
-            self.enter_catch();
-            let catch_body = cf
-                .get("body")
-                .map(|b| self.compile_expression(b))
-                .unwrap_or_else(|| "BallValue::Null".to_string());
-            self.exit_catch();
-            self.pop_scope();
+        if !catches.is_empty() {
             out.push_str("let __err = ball_catch_payload(__payload);\n");
             // Stable rethrow target: `rethrow` re-raises the *originally caught*
             // exception even if the handler reassigns its `catch (e)` variable,
-            // so bind it before `__err` is moved into `var_name`. The leading
-            // underscore keeps it warning-free when the handler never rethrows.
+            // so bind it before any clause binds its own variable. The leading
+            // underscore keeps it warning-free when no handler rethrows.
             out.push_str("let _ball_rethrow_err = __err.clone();\n");
-            // Bind the stack-trace variable first (it reads `__err` by clone)
-            // so the exception binding can then move `__err` into `var_name`.
-            if let Some(stack_var) = &stack_var {
+
+            let mut has_untyped = false;
+            let mut first = true;
+            for catch in &catches {
+                let cf = match &catch.expr {
+                    Some(Expr::MessageCreation(mc)) => self.message_creation_fields(mc),
+                    _ => IndexMap::new(),
+                };
+                let clause_type = self.string_field(&cf, "type").filter(|s| !s.is_empty());
+                let var_name = self
+                    .string_field(&cf, "variable")
+                    .unwrap_or_else(|| "_ball_err".to_string());
+                // A `catch (e, st)` clause names a second variable in `stack_trace`
+                // (`dart/encoder/lib/encoder.dart`'s `_encodeCatchClause`); the
+                // handler body reads it as a bare `st` reference. The by-value Rust
+                // model captures no real trace, so it binds the caught error's
+                // string form — the closest faithful value.
+                let stack_var = self
+                    .string_field(&cf, "stack_trace")
+                    .filter(|s| !s.is_empty());
+                // The catch handler runs *outside* the `catch_unwind` closure (in
+                // this match arm), so its own `return`/`break`/`continue` reflect the
+                // enclosing scope directly — compile it with this try's scope popped.
+                self.push_scope();
+                self.bind_local(&var_name);
+                if let Some(stack_var) = &stack_var {
+                    self.bind_local(stack_var);
+                }
+                // Compile the handler with a catch in scope so a `std.rethrow`
+                // (Dart `rethrow`) re-raises `_ball_rethrow_err` (issue #39/#300).
+                self.enter_catch();
+                let catch_body = cf
+                    .get("body")
+                    .map(|b| self.compile_expression(b))
+                    .unwrap_or_else(|| "BallValue::Null".to_string());
+                self.exit_catch();
+                self.pop_scope();
+
+                let mut block = String::new();
+                // Bind the stack-trace variable first (it reads `__err` by clone)
+                // so the exception binding reads an untouched value.
+                if let Some(stack_var) = &stack_var {
+                    block.push_str(&format!(
+                        "let {} = ball_to_string(__err.clone());\n",
+                        crate::sanitize_ident(stack_var)
+                    ));
+                }
+                block.push_str(&format!(
+                    "let {} = __err.clone();\n",
+                    crate::sanitize_ident(&var_name)
+                ));
+                block.push_str(&format!(
+                    "let __flow = BallFlow::Normal({{\n{catch_body}\n}});\n{finally_snippet}{propagate}\n"
+                ));
+
+                match clause_type {
+                    Some(type_name) => {
+                        let keyword = if first { "if" } else { "else if" };
+                        out.push_str(&format!(
+                            "{keyword} ball_catch_matches(&__err, {type_name:?}) {{\n{block}}}\n"
+                        ));
+                        first = false;
+                    }
+                    None => {
+                        // An untyped clause matches anything. Dart rejects a clause
+                        // after an untyped `catch`, so this is always the last one.
+                        has_untyped = true;
+                        if first {
+                            out.push_str(&format!("{{\n{block}}}\n"));
+                        } else {
+                            out.push_str(&format!("else {{\n{block}}}\n"));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if !has_untyped {
+                // Every clause was typed and none matched: run `finally`, then
+                // re-raise the original value so an *outer* `try` catches it
+                // (Dart's implicit propagation out of a `try` whose `on` clauses
+                // all missed).
                 out.push_str(&format!(
-                    "let {} = ball_to_string(__err.clone());\n",
-                    crate::sanitize_ident(stack_var)
+                    "else {{\n{finally_snippet}ball_throw(__err)\n}}\n"
                 ));
             }
-            out.push_str(&format!(
-                "let {} = __err;\n",
-                crate::sanitize_ident(&var_name)
-            ));
-            out.push_str(&format!(
-                "let __flow = BallFlow::Normal({{\n{catch_body}\n}});\n{finally_snippet}{propagate}\n"
-            ));
         } else {
             // No `catch`: run `finally`, then re-raise the original panic
             // (preserving the thrown Ball value so an *outer* `try` catches it).

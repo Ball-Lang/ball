@@ -6317,13 +6317,15 @@ func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 									return ballrt.Value(nil)
 								}()
 							}, func(__ex ballrt.Value) ballrt.Value {
-								e := __ex
-								_ = e
-								return func() ballrt.Value {
-									_ = ballrt.FieldSet(__self, "_currentModule", prevModule)
-									_ = ballrt.Return(_ballFutureError(e))
-									return ballrt.Value(nil)
-								}()
+								{
+									e := __ex
+									_ = e
+									return func() ballrt.Value {
+										_ = ballrt.FieldSet(__self, "_currentModule", prevModule)
+										_ = ballrt.Return(_ballFutureError(e))
+										return ballrt.Value(nil)
+									}()
+								}
 							}, nil)
 							return ballrt.Value(nil)
 						}()
@@ -8489,11 +8491,13 @@ func BallEngine___tryLazyResolve(input ballrt.Value) (__ret ballrt.Value) {
 														return __m
 													}()))
 												}, func(__ex ballrt.Value) ballrt.Value {
-													ball_blank := __ex
-													_ = ball_blank
-													return func() ballrt.Value {
-														return ballrt.Value(nil)
-													}()
+													{
+														ball_blank := __ex
+														_ = ball_blank
+														return func() ballrt.Value {
+															return ballrt.Value(nil)
+														}()
+													}
 												}, nil)
 												return ballrt.Value(nil)
 											}()
@@ -11858,9 +11862,11 @@ func BallEngine___evalReference(input ballrt.Value) (__ret ballrt.Value) {
 							return __v
 						}()
 					}, func(__ex ballrt.Value) ballrt.Value {
-						ball_blank := __ex
-						_ = ball_blank
-						return func() ballrt.Value { __v := ballrt.Value(nil); selfRef = __v; return __v }()
+						{
+							ball_blank := __ex
+							_ = ball_blank
+							return func() ballrt.Value { __v := ballrt.Value(nil); selfRef = __v; return __v }()
+						}
 					}, nil)
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.Neq(selfRef, ballrt.Value(nil))) {
@@ -12060,9 +12066,11 @@ func BallEngine___evalReference(input ballrt.Value) (__ret ballrt.Value) {
 				return __v
 			}()
 		}, func(__ex ballrt.Value) ballrt.Value {
-			ball_blank := __ex
-			_ = ball_blank
-			return func() ballrt.Value { __v := ballrt.Value(nil); selfForGetter = __v; return __v }()
+			{
+				ball_blank := __ex
+				_ = ball_blank
+				return func() ballrt.Value { __v := ballrt.Value(nil); selfForGetter = __v; return __v }()
+			}
 		}, nil)
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.Neq(selfForGetter, ballrt.Value(nil))) {
@@ -14070,11 +14078,13 @@ func BallEngine___syncFieldToSelf(input ballrt.Value) (__ret ballrt.Value) {
 				return ballrt.Value(nil)
 			}()
 		}, func(__ex ballrt.Value) ballrt.Value {
-			ball_blank := __ex
-			_ = ball_blank
-			return func() ballrt.Value {
-				return ballrt.Value(nil)
-			}()
+			{
+				ball_blank := __ex
+				_ = ball_blank
+				return func() ballrt.Value {
+					return ballrt.Value(nil)
+				}()
+			}
 		}, nil)
 		return ballrt.Value(nil)
 	}()
@@ -20022,83 +20032,62 @@ func BallEngine___evalLazyTry(input ballrt.Value) (__ret ballrt.Value) {
 				return __v
 			}()
 		}, func(__ex ballrt.Value) ballrt.Value {
-			e := __ex
-			_ = e
-			stackTrace := ballrt.CaughtStackTrace()
-			_ = stackTrace
-			return func() ballrt.Value {
-				_ = func() ballrt.Value { __v := ballrt.Value(nil); result = __v; return __v }()
-				_ = func() ballrt.Value {
-					if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(catches, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Eq(ballrt.WhichExpr(catches), ballrt.FieldGet(ballOneof_Expression_Expr, "literal"))))) && ballrt.Truthy(ballrt.Eq(ballrt.WhichValue(ballrt.FieldGet(catches, "literal")), ballrt.FieldGet(ballOneof_Literal_Value, "listValue"))))) {
-						return func() ballrt.Value {
-							var caught ballrt.Value = false
-							_ = caught
-							_ = func() ballrt.Value {
-								for _, catchExpr := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(ballrt.FieldGet(catches, "literal"), "listValue"), "elements")) {
-									_ = catchExpr
-									if ballrt.RunLoopBody("", func() {
-										_ = func() ballrt.Value {
+			{
+				e := __ex
+				_ = e
+				stackTrace := ballrt.CaughtStackTrace()
+				_ = stackTrace
+				return func() ballrt.Value {
+					_ = func() ballrt.Value { __v := ballrt.Value(nil); result = __v; return __v }()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(catches, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Eq(ballrt.WhichExpr(catches), ballrt.FieldGet(ballOneof_Expression_Expr, "literal"))))) && ballrt.Truthy(ballrt.Eq(ballrt.WhichValue(ballrt.FieldGet(catches, "literal")), ballrt.FieldGet(ballOneof_Literal_Value, "listValue"))))) {
+							return func() ballrt.Value {
+								var caught ballrt.Value = false
+								_ = caught
+								_ = func() ballrt.Value {
+									for _, catchExpr := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(ballrt.FieldGet(catches, "literal"), "listValue"), "elements")) {
+										_ = catchExpr
+										if ballrt.RunLoopBody("", func() {
 											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.Neq(ballrt.WhichExpr(catchExpr), ballrt.FieldGet(ballOneof_Expression_Expr, "messageCreation"))) {
-													return func() ballrt.Value {
-														_ = ballrt.Continue("")
-														return ballrt.Value(nil)
-													}()
-												}
-												return ballrt.Value(nil)
-											}()
-											var cf ballrt.Value = func() ballrt.Value {
-												__map60 := ballrt.NewMap()
-												return __map60
-											}()
-											_ = cf
-											_ = func() ballrt.Value {
-												for _, f := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(catchExpr, "messageCreation"), "fields")) {
-													_ = f
-													if ballrt.RunLoopBody("", func() { _ = ballrt.IndexSet(cf, ballrt.FieldGet(f, "name"), ballrt.FieldGet(f, "value")) }) {
-														break
+												_ = func() ballrt.Value {
+													if ballrt.Truthy(ballrt.Neq(ballrt.WhichExpr(catchExpr), ballrt.FieldGet(ballOneof_Expression_Expr, "messageCreation"))) {
+														return func() ballrt.Value {
+															_ = ballrt.Continue("")
+															return ballrt.Value(nil)
+														}()
 													}
-												}
-												return ballrt.Value(nil)
-											}()
-											var catchType ballrt.Value = _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", cf)
-												__m.Set("arg1", "type")
-												return __m
-											}(), __self))
-											_ = catchType
-											_ = func() ballrt.Value {
-												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(catchType, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(catchType))))) {
-													return func() ballrt.Value {
-														var matches ballrt.Value = ballrt.Value(nil)
-														_ = matches
-														_ = func() ballrt.Value {
-															if ballrt.Truthy(ballrt.IsType(e, "BallException")) {
-																return func() ballrt.Value {
-																	var eType ballrt.Value = ballrt.FieldGet(e, "typeName")
-																	_ = eType
-																	var eColonIdx ballrt.Value = ballrt.ListIndexOf(eType, ":")
-																	_ = eColonIdx
-																	var eBare ballrt.Value = func() ballrt.Value {
-																		if ballrt.Truthy(ballrt.Gte(eColonIdx, int64(0))) {
-																			return ballrt.Substring(eType, ballrt.Add(eColonIdx, int64(1)), ballrt.Value(nil))
-																		}
-																		return eType
-																	}()
-																	_ = eBare
-																	_ = func() ballrt.Value {
-																		__v := (ballrt.Truthy(ballrt.Eq(eType, catchType)) || ballrt.Truthy(ballrt.Eq(eBare, catchType)))
-																		matches = __v
-																		return __v
-																	}()
-																	return ballrt.Value(nil)
-																}()
-															}
-															return func() ballrt.Value {
-																if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(e, "Map")) && ballrt.Truthy(ballrt.Neq(ballrt.IndexGet(e, "__type__"), ballrt.Value(nil))))) {
+													return ballrt.Value(nil)
+												}()
+												var cf ballrt.Value = func() ballrt.Value {
+													__map60 := ballrt.NewMap()
+													return __map60
+												}()
+												_ = cf
+												_ = func() ballrt.Value {
+													for _, f := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(catchExpr, "messageCreation"), "fields")) {
+														_ = f
+														if ballrt.RunLoopBody("", func() { _ = ballrt.IndexSet(cf, ballrt.FieldGet(f, "name"), ballrt.FieldGet(f, "value")) }) {
+															break
+														}
+													}
+													return ballrt.Value(nil)
+												}()
+												var catchType ballrt.Value = _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
+													__m := ballrt.NewMap()
+													__m.Set("arg0", cf)
+													__m.Set("arg1", "type")
+													return __m
+												}(), __self))
+												_ = catchType
+												_ = func() ballrt.Value {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(catchType, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(catchType))))) {
+														return func() ballrt.Value {
+															var matches ballrt.Value = ballrt.Value(nil)
+															_ = matches
+															_ = func() ballrt.Value {
+																if ballrt.Truthy(ballrt.IsType(e, "BallException")) {
 																	return func() ballrt.Value {
-																		var eType ballrt.Value = ballrt.ToStr(ballrt.IndexGet(e, "__type__"))
+																		var eType ballrt.Value = ballrt.FieldGet(e, "typeName")
 																		_ = eType
 																		var eColonIdx ballrt.Value = ballrt.ListIndexOf(eType, ":")
 																		_ = eColonIdx
@@ -20117,121 +20106,144 @@ func BallEngine___evalLazyTry(input ballrt.Value) (__ret ballrt.Value) {
 																		return ballrt.Value(nil)
 																	}()
 																}
-																return func() ballrt.Value { __v := ballrt.Eq(ballrt.TypeOf(e), catchType); matches = __v; return __v }()
-															}()
-														}()
-														_ = func() ballrt.Value {
-															if ballrt.Truthy(ballrt.Not(matches)) {
 																return func() ballrt.Value {
-																	_ = ballrt.Continue("")
-																	return ballrt.Value(nil)
+																	if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(e, "Map")) && ballrt.Truthy(ballrt.Neq(ballrt.IndexGet(e, "__type__"), ballrt.Value(nil))))) {
+																		return func() ballrt.Value {
+																			var eType ballrt.Value = ballrt.ToStr(ballrt.IndexGet(e, "__type__"))
+																			_ = eType
+																			var eColonIdx ballrt.Value = ballrt.ListIndexOf(eType, ":")
+																			_ = eColonIdx
+																			var eBare ballrt.Value = func() ballrt.Value {
+																				if ballrt.Truthy(ballrt.Gte(eColonIdx, int64(0))) {
+																					return ballrt.Substring(eType, ballrt.Add(eColonIdx, int64(1)), ballrt.Value(nil))
+																				}
+																				return eType
+																			}()
+																			_ = eBare
+																			_ = func() ballrt.Value {
+																				__v := (ballrt.Truthy(ballrt.Eq(eType, catchType)) || ballrt.Truthy(ballrt.Eq(eBare, catchType)))
+																				matches = __v
+																				return __v
+																			}()
+																			return ballrt.Value(nil)
+																		}()
+																	}
+																	return func() ballrt.Value { __v := ballrt.Eq(ballrt.TypeOf(e), catchType); matches = __v; return __v }()
 																}()
-															}
+															}()
+															_ = func() ballrt.Value {
+																if ballrt.Truthy(ballrt.Not(matches)) {
+																	return func() ballrt.Value {
+																		_ = ballrt.Continue("")
+																		return ballrt.Value(nil)
+																	}()
+																}
+																return ballrt.Value(nil)
+															}()
 															return ballrt.Value(nil)
 														}()
-														return ballrt.Value(nil)
-													}()
-												}
-												return ballrt.Value(nil)
-											}()
-											var variable ballrt.Value = func() ballrt.Value {
-												__l := _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
+													}
+													return ballrt.Value(nil)
+												}()
+												var variable ballrt.Value = func() ballrt.Value {
+													__l := _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
+														__m := ballrt.NewMap()
+														__m.Set("arg0", cf)
+														__m.Set("arg1", "variable")
+														return __m
+													}(), __self))
+													if __l != nil {
+														return __l
+													}
+													return "e"
+												}()
+												_ = variable
+												var stackVariable ballrt.Value = _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
 													__m := ballrt.NewMap()
 													__m.Set("arg0", cf)
-													__m.Set("arg1", "variable")
+													__m.Set("arg1", "stack_trace")
 													return __m
 												}(), __self))
-												if __l != nil {
-													return __l
-												}
-												return "e"
-											}()
-											_ = variable
-											var stackVariable ballrt.Value = _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", cf)
-												__m.Set("arg1", "stack_trace")
-												return __m
-											}(), __self))
-											_ = stackVariable
-											var catchBody ballrt.Value = ballrt.IndexGet(cf, "body")
-											_ = catchBody
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.Neq(catchBody, ballrt.Value(nil))) {
-													return func() ballrt.Value {
-														var catchScope ballrt.Value = child(func() ballrt.Value {
-															__m := ballrt.NewMap()
-															__m.Set("self", scope)
-															return __m
-														}())
-														_ = catchScope
-														_ = bind(func() ballrt.Value {
-															__m := ballrt.NewMap()
-															__m.Set("self", catchScope)
-															__m.Set("arg0", variable)
-															__m.Set("arg1", func() ballrt.Value {
-																if ballrt.Truthy(ballrt.IsType(e, "BallException")) {
-																	return ballrt.FieldGet(e, "value")
-																}
-																return ballrt.ToStr(e)
+												_ = stackVariable
+												var catchBody ballrt.Value = ballrt.IndexGet(cf, "body")
+												_ = catchBody
+												_ = func() ballrt.Value {
+													if ballrt.Truthy(ballrt.Neq(catchBody, ballrt.Value(nil))) {
+														return func() ballrt.Value {
+															var catchScope ballrt.Value = child(func() ballrt.Value {
+																__m := ballrt.NewMap()
+																__m.Set("self", scope)
+																return __m
 															}())
-															return __m
-														}())
-														_ = func() ballrt.Value {
-															if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(stackVariable, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(stackVariable))))) {
-																return bind(func() ballrt.Value {
-																	__m := ballrt.NewMap()
-																	__m.Set("self", catchScope)
-																	__m.Set("arg0", stackVariable)
-																	__m.Set("arg1", stackTrace)
-																	return __m
+															_ = catchScope
+															_ = bind(func() ballrt.Value {
+																__m := ballrt.NewMap()
+																__m.Set("self", catchScope)
+																__m.Set("arg0", variable)
+																__m.Set("arg1", func() ballrt.Value {
+																	if ballrt.Truthy(ballrt.IsType(e, "BallException")) {
+																		return ballrt.FieldGet(e, "value")
+																	}
+																	return ballrt.ToStr(e)
 																}())
-															}
+																return __m
+															}())
+															_ = func() ballrt.Value {
+																if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(stackVariable, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(stackVariable))))) {
+																	return bind(func() ballrt.Value {
+																		__m := ballrt.NewMap()
+																		__m.Set("self", catchScope)
+																		__m.Set("arg0", stackVariable)
+																		__m.Set("arg1", stackTrace)
+																		return __m
+																	}())
+																}
+																return ballrt.Value(nil)
+															}()
+															var previousActive ballrt.Value = ballrt.FieldGet(__self, "_activeException")
+															_ = previousActive
+															_ = ballrt.FieldSet(__self, "_activeException", e)
+															_ = ballrt.TryCatch(func() ballrt.Value {
+																return func() ballrt.Value {
+																	__v := _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+																		__m := ballrt.NewMap()
+																		__m.Set("arg0", catchBody)
+																		__m.Set("arg1", catchScope)
+																		return __m
+																	}(), __self))
+																	result = __v
+																	return __v
+																}()
+															}, nil, func() { _ = ballrt.FieldSet(__self, "_activeException", previousActive) })
+															_ = func() ballrt.Value { __v := true; caught = __v; return __v }()
+															_ = ballrt.Break("")
 															return ballrt.Value(nil)
 														}()
-														var previousActive ballrt.Value = ballrt.FieldGet(__self, "_activeException")
-														_ = previousActive
-														_ = ballrt.FieldSet(__self, "_activeException", e)
-														_ = ballrt.TryCatch(func() ballrt.Value {
-															return func() ballrt.Value {
-																__v := _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-																	__m := ballrt.NewMap()
-																	__m.Set("arg0", catchBody)
-																	__m.Set("arg1", catchScope)
-																	return __m
-																}(), __self))
-																result = __v
-																return __v
-															}()
-														}, nil, func() { _ = ballrt.FieldSet(__self, "_activeException", previousActive) })
-														_ = func() ballrt.Value { __v := true; caught = __v; return __v }()
-														_ = ballrt.Break("")
-														return ballrt.Value(nil)
-													}()
-												}
+													}
+													return ballrt.Value(nil)
+												}()
 												return ballrt.Value(nil)
 											}()
-											return ballrt.Value(nil)
-										}()
-									}) {
-										break
+										}) {
+											break
+										}
 									}
-								}
+									return ballrt.Value(nil)
+								}()
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Not(caught)) {
+										return ballrt.Rethrow()
+									}
+									return ballrt.Value(nil)
+								}()
 								return ballrt.Value(nil)
 							}()
-							_ = func() ballrt.Value {
-								if ballrt.Truthy(ballrt.Not(caught)) {
-									return ballrt.Rethrow()
-								}
-								return ballrt.Value(nil)
-							}()
-							return ballrt.Value(nil)
-						}()
-					}
-					return ballrt.Rethrow()
+						}
+						return ballrt.Rethrow()
+					}()
+					return ballrt.Value(nil)
 				}()
-				return ballrt.Value(nil)
-			}()
+			}
 		}, func() {
 			_ = func() ballrt.Value {
 				if ballrt.Truthy(ballrt.Neq(finallyBlock, ballrt.Value(nil))) {
@@ -24262,19 +24274,21 @@ func BallEngine___evalLabel(input ballrt.Value) (__ret ballrt.Value) {
 								return __v
 							}()
 						}, func(__ex ballrt.Value) ballrt.Value {
-							e := __ex
-							_ = e
-							return func() ballrt.Value {
-								var signal ballrt.Value = e
-								_ = signal
-								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.Eq(_gotoSignalLabel(ballrt.Arg0WithSelf(signal, __self)), label)) {
-										return func() ballrt.Value { __v := true; repeat = __v; return __v }()
-									}
-									return ballrt.Rethrow()
+							{
+								e := __ex
+								_ = e
+								return func() ballrt.Value {
+									var signal ballrt.Value = e
+									_ = signal
+									_ = func() ballrt.Value {
+										if ballrt.Truthy(ballrt.Eq(_gotoSignalLabel(ballrt.Arg0WithSelf(signal, __self)), label)) {
+											return func() ballrt.Value { __v := true; repeat = __v; return __v }()
+										}
+										return ballrt.Rethrow()
+									}()
+									return ballrt.Value(nil)
 								}()
-								return ballrt.Value(nil)
-							}()
+							}
 						}, nil)
 						_ = func() ballrt.Value {
 							if ballrt.Truthy((ballrt.Truthy(ballrt.Not(repeat)) && ballrt.Truthy(ballrt.Eq(_gotoSignalLabel(ballrt.Arg0WithSelf(result, __self)), label)))) {
@@ -34412,11 +34426,13 @@ func BallEngine___ballToStringAsync(input ballrt.Value) (__ret ballrt.Value) {
 													return ballrt.Value(nil)
 												}()
 											}, func(__ex ballrt.Value) ballrt.Value {
-												ball_blank := __ex
-												_ = ball_blank
-												return func() ballrt.Value {
-													return ballrt.Value(nil)
-												}()
+												{
+													ball_blank := __ex
+													_ = ball_blank
+													return func() ballrt.Value {
+														return ballrt.Value(nil)
+													}()
+												}
 											}, func() {
 												_ = ballrt.CallMethod("remove", func() ballrt.Value {
 													__m := ballrt.NewMap()

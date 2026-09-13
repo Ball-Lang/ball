@@ -182,7 +182,7 @@ jobs:
       # decision below is measured against this snapshot plus the versions this
       # run has already decided — never against the repo tree, which the sweep
       # keeps consistent whether or not the packages in it were published.
-      - name: Snapshot the live pub.dev graph (lockstep baseline, #566)
+      - name: "Snapshot the live pub.dev graph (lockstep baseline, #566)"
         env:
           SR_LOCKSTEP_PUBLISHED: ${{ runner.temp }}/pubdev-published.json
         run: node tools/release/lockstep_plan.mjs --fetch-published

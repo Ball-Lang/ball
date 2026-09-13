@@ -231,8 +231,9 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_ball_dart_error_to_string` in `cpp/shared/include/ball_emit_runtime.h`
   (#616's closed table: `StateError` → `Bad state`, `FormatException`,
   `RangeError`, nothing else — the same three rows as Go's `dartErrorToString`
-  and C#'s `DartErrorToString`; Rust's `dart_error_to_string` has a fourth
-  `TypeError` row and is the OPEN divergence #641, so do NOT copy it here).
+  and C#'s `DartErrorToString`; the siblings also carry a `TypeError` row, which
+  this table deliberately does not — see the #641 bullet below for why there is
+  no prefix for it to hold).
   Key on the `message` FIELD, never on the type
   name alone: a literal `throw StateError('boom')` keeps its ctor argument in
   `fields` with `what()` = the bare type name, while `_ball_make_exception`
@@ -241,6 +242,31 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   header, never the spliced copies (`*_embed.h` are generated at configure time,
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
+
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. The emitted `ball_cast_assert` takes the subject as a `BallDyn` now.
+  C++ needs no `TypeError` ROW in the #640 table above: `ball_cast_assert` uses
+  the 2-argument, no-`fields` ctor, so the `message` lookup misses and
+  `ball_to_string(const BallException&)` returns `what()` — the canonical string
+  the THROWER already carried. That also means there is nothing for a row to
+  hold, since Dart spells this one with no prefix at all.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one. C++ is the single target it marks
+  `coverage_exempt`, and that exemption is narrow: it excuses C++ from needing a
+  row for a name whose thrower carries the string, and excuses it from NOTHING
+  else — the three rows the table does hold are checked against Dart's spellings
+  exactly like Go's, C#'s, Rust's and TS's, with a negative control in the
+  self-test proving that check fires. Add a new built-in error here and to that
+  contract in the same PR, or the checker fails.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
@@ -311,7 +337,7 @@ it, so the Windows leg compiled everything uncached for months while staying
 green (main run 33673078770's `Post ccache` reported `Compile requests 0`; the
 parent build's `-DCMAKE_CXX_COMPILER_LAUNCHER=sccache` was a no-op there too).
 
-Three things had to be true, and each is now pinned by CI rather than by prose:
+Five things have to be true, and each is now pinned by CI rather than by prose:
 
 1. **Windows configures with `-G Ninja`** (`ilammy/msvc-dev-cmd` supplies the
    MSVC environment Ninja needs; `ninja` is preinstalled on the runner image).
@@ -333,13 +359,48 @@ Three things had to be true, and each is now pinned by CI rather than by prose:
 4. **The same gate asserts the cache does not DECLINE every compile** (#599).
    Point 2's failure shape leaves requests/hits/misses looking healthy while
    nothing is cached, so point 3's check is blind to it. The ceiling on
-   non-cacheable compilations (sccache's `Non-cacheable compilations`, ccache's
-   `Cacheable calls: <n> / <total>` shortfall) is **0 on all three legs**,
-   measured from the gate's own step in three consecutive green main runs and
-   recorded with those run ids in the script's header. Move it only against a
-   fresh measurement. Read the number from the gate's step: ubuntu's *post-job*
-   `ccache -s` shows 4 uncacheable calls, which accrue later from
-   `full_e2e.sh`'s compile-and-link smoke and are not the gate's input.
+   non-cacheable compilations is **0 on all three legs**, measured from the
+   gate's own step in three consecutive green main runs and recorded with those
+   run ids in the script's header. Move it only against a fresh measurement.
+
+   Both numbers come from a **machine-readable** form, never a human summary
+   (#660): sccache's `Non-cacheable compilations <int>` line, and for ccache the
+   sum of `ccache --print-stats`'s `FLAG_UNCACHEABLE` + `FLAG_ERROR` counters —
+   which is exactly `total_calls - (hits + misses)`, the shortfall ccache itself
+   derives its `Cacheable calls: <n> / <total>` line from. Parsing that human
+   line is what the gate used to do — regex over the rendered row, then the
+   first two numeric runs of `split($0, a, /[^0-9]+/)`. That is a required gate
+   reading a **presentation layer**: `TextTable` sizes each column to the widest
+   cell across *all* rows, so the row's rendering depends on unrelated rows, and
+   ccache re-cuts the summary between releases. Any re-render the regex does not
+   expect takes the C++ leg red with `could not read a non-cacheable compilation
+   count` — red for a non-cache reason. (It is *not* a thousands-separator
+   mis-count: ccache renders those cells with `fmt::format("{}", number)` and
+   never groups them. That claim was written into this rule and the gate's own
+   header before either was checked against ccache's source — `Cell::Cell(uint64_t)`
+   in `src/util/TextTable.cpp` 4.9.1 / `src/ccache/util/texttable.cpp` 4.14.)
+   The counter classification is
+   version-pinned to the ccache the runners install — **4.9.1 on ubuntu-latest,
+   4.14 on macos-latest**, whose tables differ by exactly one id — and lives in
+   three lists at the top of the script; a counter id in none of them **fails
+   the gate loud**, because a new uncacheable reason silently left out of the
+   sum is the very state the ceiling exists to catch. `ccache -s` is still run,
+   purely so the human numbers reach the log, and its failure is a hard error.
+
+5. **The gate step must run BEFORE the e2e smoke steps, and that is gated too**
+   (#660). ubuntu's *post-job* `ccache -s` shows 4 uncacheable calls, which
+   accrue later from `full_e2e.sh`'s compile-and-link smoke (a link is
+   uncacheable by construction) and are not the gate's input — so the ceiling of
+   0 is only correct because of the step order.
+   `cpp/test/test_cache_gate_step_order.sh` (ci.yml's always-on `proto` job)
+   asserts that order from ci.yml, plus that exactly one step runs the gate
+   under the documented name, that at least one `full_e2e.sh` step exists (or
+   the order assertion is vacuous), that the job is still one steps list over
+   the 3-OS matrix, and that it carries no `continue-on-error`. It proves itself
+   with negative controls on relocated / renamed / smoke-less copies of the real
+   workflow. A reorder would red the ubuntu/macOS legs at 4 against a ceiling of
+   0, with a cause that points at build types and shared PDBs while nothing has
+   regressed.
 
 Parallelism must never shrink coverage, so each harness asserts its own count:
 `test_e2e` compares executed tests against `e2e_fixture_list.h` + 3 inline
@@ -397,12 +458,16 @@ This covers `test_compiler` only. The compiled-fixture e2e and the self-hosted
 engine still need the real build (CI), so it shortens the loop rather than
 replacing the gate.
 
-Two CI-plumbing shell tests need no C++ toolchain at all (sub-second, and run in
-ci.yml's always-on `proto` job, so they gate every PR):
+Four CI-plumbing shell tests need no C++ toolchain at all (sub-second, and run
+in ci.yml's always-on `proto` job, so they gate every PR). Each prints a
+`Results: N passed, M failed, T total` line and refuses to report success on
+zero cases:
 
 ```bash
-bash cpp/test/test_build_cov_floor_parsing.sh   # build-cov-floor.sh's parser + exit codes
-bash cpp/test/test_cov_floor_ci_wiring.sh       # that coverage.yml actually RUNS it (#63/#59)
+bash cpp/test/test_build_cov_floor_parsing.sh          # build-cov-floor.sh's parser + exit codes
+bash cpp/test/test_cov_floor_ci_wiring.sh              # that coverage.yml actually RUNS it (#63/#59)
+bash cpp/test/check_compiler_cache_applied.sh --self-test  # the cache gate's parsers + ceiling (#594/#599/#660)
+bash cpp/test/test_cache_gate_step_order.sh            # that ci.yml runs the gate BEFORE the e2e smoke (#660)
 ```
 
 ## Coverage floors

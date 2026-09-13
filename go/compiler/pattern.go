@@ -208,23 +208,22 @@ func (c *Compiler) compileCastPattern(subj string, f map[string]*ballv1.Expressi
 	// once the outer shape matched: `[var x as int, var y as int]` must return the
 	// default arm for the subject 'hi', not throw (302_cast_patterns).
 	return patternResult{
-		cond:     fmt.Sprintf("(%s && %s)", sub.cond, c.castAssert(c.typeCheckCond(t, subj), t)),
+		cond:     fmt.Sprintf("(%s && %s)", sub.cond, c.castAssert(c.typeCheckCond(t, subj), subj, t)),
 		bindings: sub.bindings,
 	}
 }
 
 // castAssert returns a bool expression that is true when ok holds and otherwise
 // throws a catchable Ball TypeError (Dart's failed `as`).
-func (c *Compiler) castAssert(ok, typeName string) string {
-	uid := c.uid()
-	var b strings.Builder
-	b.WriteString("func() bool {\n")
-	fmt.Fprintf(&b, "\t\tif !(%s) {\n", ok)
-	fmt.Fprintf(&b, "\t\t\t__cast%d := ballrt.NewMap()\n", uid)
-	fmt.Fprintf(&b, "\t\t\t__cast%d.Set(\"message\", %q)\n", uid, "type cast failed: not a "+typeName)
-	fmt.Fprintf(&b, "\t\t\tballrt.Throw(ballrt.NewMessage(\"TypeError\", __cast%d))\n", uid)
-	b.WriteString("\t\t}\n\t\treturn true\n\t}()")
-	return b.String()
+//
+// It delegates to ballrt.CastAssert rather than inlining the throw (issue #641):
+// Dart's cast-failure message names the SUBJECT's runtime type before the target
+// type, so the assert needs the value, and putting the one canonical spelling in
+// the runtime is what lets go/runtime's own test observe it. The inlined form
+// spelled `type cast failed: not a int` and, being a `*Message` no rendering arm
+// covered, printed as the bare tag "TypeError" when a program caught it.
+func (c *Compiler) castAssert(ok, subj, typeName string) string {
+	return fmt.Sprintf("ballrt.CastAssert(%s, %s, %q)", ok, subj, typeName)
 }
 
 // compileListPattern compiles `[a, b]` and `[a, ...rest, z]`. Only the first

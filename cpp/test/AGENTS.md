@@ -39,8 +39,12 @@ All C++ test executables: compiler unit tests, encoder unit tests, self-hosted e
 ## CI time budget + the e2e build knobs (issue #521)
 
 `test_e2e` dominates ci.yml's `cpp` job: it writes ONE scratch CMake project
-with an `add_executable` per fixture (~269 targets from `e2e_fixture_list.h`)
-and builds it in a nested `cmake --build`. Until #521 that nested build was
+with an `add_executable` per fixture (~297 targets from `e2e_fixture_list.h`)
+and builds it in a nested `cmake --build`. Every `~297` in this file and in
+ci.yml is an order of magnitude, not a pin — the corpus grows. The live number
+is printed by every `Run tests` log: `Fixtures: N from e2e_fixture_list.h + 3
+inline (2 std_fs, 1 std_time) = N+3 expected, N+3 executed`. (It read `~269`
+here for months after the corpus passed 296; #599 is what noticed.) Until #521 that nested build was
 serial and uncached — 28 of the Windows job's 32 minutes. Two env knobs, honoured
 identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
 
@@ -66,11 +70,18 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   against MSVC 14.50 + sccache 0.14.0: default -> non-cacheable; empty build
   type -> cacheable, and a fresh scratch build directory is a 100% hit.
 - `ci.yml`'s `Compiler cache applied (#594)` step
-  (`cpp/test/check_compiler_cache_applied.sh`) fails the job when it compiled
-  cacheable TUs and the cache recorded zero requests. If you change how the
-  scratch project is configured, watch `Non-cacheable compilations` in the
-  printed statistics: the gate catches "no cache at all", not "cache silently
-  declined every compile".
+  (`cpp/test/check_compiler_cache_applied.sh`) fails the job on EITHER failure
+  mode: it compiled cacheable TUs and the cache recorded zero requests ("no
+  cache at all", #594), or the cache was consulted and declined more compiles
+  than the measured per-OS ceiling ("cache silently declined every compile",
+  #599 — sccache's `Non-cacheable compilations`, ccache's
+  `Cacheable calls: <n> / <total>` shortfall). That ceiling is **0 on all three
+  legs**, read out of this gate's own step in three consecutive green main runs
+  (34749011196 / 34746079068 / 34743380631) and documented with them in the
+  script's header; raise it only against a fresh measurement, never to quiet a
+  red run. Read the number from the GATE's step — ubuntu's post-job `ccache -s`
+  block shows 4 uncacheable calls that accrue afterwards, from `full_e2e.sh`'s
+  compile-and-link smoke.
 - `ctest` runs with `-j <runner CPUs> --no-tests=error`. Safe because each CTest
   test is its own process with a distinct temp-path prefix, and because this
   build never registers the `selfhost` label (engine_rt is gitignored, no Dart in
@@ -84,14 +95,14 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   cache applied (run 34728878760) -> 1m12s warm at 318/318 hits (run
   34729468858), and 13 is ~47% over the COLD number. It is
   still the loosest of the three by measurement — each fixture is a ~278 KB TU
-  pulling 29 standard headers and MSVC needs ~1000s of front-end CPU for ~296 of
+  pulling 29 standard headers and MSVC needs ~1000s of front-end CPU for ~297 of
   them uncached — and the generator was never the cost (a Ninja scratch build
   measured 590s vs MSBuild's 591s); the cache is.
   **Size these against the COLD-cache run, not the warm one.** Warm, the
   Linux/macOS step is 11s / 19s; cold it is 5m19s / 4m57s (measured on this
   branch's run 33698642352, `ccache -s`: 22 hits of 292 cacheable calls). Cold
   is blameless and routine — any PR touching the Ball->C++ emitter or
-  `cpp/shared/include/ball_dyn.h` changes all ~269 generated TUs, and so does a
+  `cpp/shared/include/ball_dyn.h` changes all ~297 generated TUs, and so does a
   cache eviction or a first run on a new key. 8 min is ~50% over the cold
   number while still failing a regression to the pre-fix 12m12s / 9m56s.
 - `test_e2e` prints `Scratch configure:` and `Scratch compile+link:` timings,

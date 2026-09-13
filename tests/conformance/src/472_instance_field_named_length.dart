@@ -24,12 +24,32 @@
 // The tail is the control: `.length` must still answer for REAL collections — a
 // list, a string and a map.
 //
-// Deliberately NOT here, because they are wrong on EVERY target rather than on
-// these two, and so belong to their own issue (#697): an instance field named
-// `isEmpty` (the Dart encoder rewrites any `.isEmpty` to `std.string_is_empty`
-// without consulting the receiver's type), instance fields named `keys` /
-// `values` / `entries`, and `.length` on a map that carries a `'length'` KEY
-// (every engine returns the key's value instead of the entry count).
+// Three neighbouring shapes are deliberately NOT here. Each belongs to its own
+// issue (#697), and each has a DIFFERENT measured failure set — two are broader
+// than the two targets above, one is narrower:
+//
+//   * an instance field named `isEmpty` / `isNotEmpty` (#697 section A) is wrong
+//     on EVERY target, the Dart reference engine included: the Dart encoder
+//     rewrites any `.isEmpty` into a `std.string_is_empty` call without
+//     consulting the receiver's type, so every engine faithfully runs the same
+//     wrong program. An encoder bug, in #488's receiver-type family.
+//   * `.length` on a MAP that carries a `'length'` KEY (#697 section B) is
+//     likewise wrong on every engine — `engine_eval.dart` answers the key
+//     instead of the entry count. That is THIS fixture's precedence rule read at
+//     the opposite site and in the opposite direction: an instance's own field
+//     must beat the emulation, a map's key must not.
+//   * instance fields named `keys` / `values` / `entries` (#697 section C) read
+//     back CORRECTLY on the Dart reference engine and on every self-hosted
+//     engine row — they are wrong on the `C++ Compiled` leg SPECIFICALLY, which
+//     is one of the two targets this fixture pins. Measured on this branch's
+//     first Conformance Matrix run (34768683903), where an earlier draft of this
+//     fixture still carried them: `C++ Compiled` alone reported
+//     `Results: 351 passed, 1 failed, 352 total` while `Dart Engine` and the
+//     Rust / C# / Go / Python rows all passed. `cpp/compiler/src/compiler.cpp`
+//     still emits `.keys` / `.entries` / `.values` unconditionally at this head:
+//     #681's fix teaches that block the receiver-scoped proof for `length` /
+//     `isEmpty` / `isNotEmpty` only, the three names measured below. Extending
+//     it needs its own fixture first, which is what #697's C-half asks for.
 
 class Holder {
   int length;

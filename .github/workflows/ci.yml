@@ -334,6 +334,28 @@ jobs:
       - name: Compiler-cache gate self-test (#594)
         run: bash cpp/test/check_compiler_cache_applied.sh --self-test
 
+      # conformance-matrix.yml is a PR gate since #619, and BOTH of its triggers
+      # (`push` to main and `pull_request`) share ONE path filter via a YAML
+      # anchor. If a future edit turns that alias back into two literal lists and
+      # they drift, a PR touching only the dropped path gets NO matrix rows — and
+      # an absent check reads as green. This compares the two lists AFTER the
+      # YAML parser expands the alias, so it still bites on the copy-paste shape.
+      # `--self-test` first: a guard that stopped comparing must not pass.
+      - name: Conformance-matrix path-filter drift guard (#619)
+        run: |
+          bash tools/ci/check_matrix_paths.sh --self-test
+          bash tools/ci/check_matrix_paths.sh
+
+      # tools/ci/apply_regenerated.sh is how a lane applies the artifacts the
+      # `Ball Artifact Freshness` job regenerates and uploads (#619), i.e. the
+      # script that replaces the whole local Dart/TS/Go regen chain. It is only
+      # ever exercised on a RED freshness run, which is exactly the moment it
+      # must not be broken — so its cases (apply + stage, byte-exact LF, the
+      # empty-artifact floor, the path-traversal refusal, and the head-SHA
+      # equality guard) run here, offline, on every PR.
+      - name: Regenerated-artifact apply script self-test (#619)
+        run: bash tools/ci/apply_regenerated.sh --self-test
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────
@@ -850,6 +872,218 @@ jobs:
             exit 1
           fi
           echo "Compiled Go self-hosted engine and CLI core are up to date."
+
+      # ──────────────────────────────────────────────────────────────────────
+      # CI PRODUCES THE FIX (issue #619).
+      #
+      # Every "Assert …" step above is a regenerate-then-`git diff --exit-code`
+      # gate, and until now its only remedy was "go run the Dart + TS + Go regen
+      # chain locally and commit" — the single most expensive local step a lane
+      # has, on a machine that may not even have the toolchains. But this job
+      # has ALREADY produced the correct bytes: they are sitting in the working
+      # tree, which is exactly what the diff just complained about. So upload
+      # them.
+      #
+      # `if: failure()` on each step, so nothing here runs (or costs anything)
+      # on a green job. Note that a `git diff --exit-code` failure stops the
+      # job at that step, so the artifact carries the files regenerated UP TO
+      # the first failing gate — apply, push, and the next run produces the
+      # next family if there is one. The gates themselves are untouched: same
+      # fail-loud shape, same exit 1, no continue-on-error anywhere.
+      #
+      # The collected set is an EXPLICIT pathspec list, not a bare
+      # `git diff --name-only`: `dart pub get` / `npm ci` / `go run` can touch
+      # lockfiles and caches, and an artifact that quietly carried one of those
+      # into a lane's commit would be worse than no artifact at all.
+      - name: Collect the regenerated artifacts (on drift)
+        id: collect
+        if: failure()
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/regenerated"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+
+          # Every committed artifact this job regenerates, by repo-relative
+          # path. The `.bin` siblings are included deliberately: each generator
+          # writes them in the same run as the `.json` it is gated on, so a
+          # commit that applied only the `.json` would be half a fix.
+          mapfile -t drifted < <(git diff --name-only -- \
+            dart/shared/std.json \
+            dart/shared/std.bin \
+            dart/shared/ball_proto.json \
+            dart/shared/ball_proto.bin \
+            dart/shared/ball_protobuf.json \
+            dart/shared/ball_protobuf.bin \
+            'tests/conformance/*.ball.json' \
+            tests/conformance/std_coverage.json \
+            tests/conformance/STD_COVERAGE.md \
+            ts/engine/src/compiled_engine.ts \
+            ts/cli/src/compiled_cli.ts \
+            go/engine/compiled/compiled_engine.go \
+            go/cli/compiled/compiled_cli.go)
+
+          count="${#drifted[@]}"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          if [ "$count" -eq 0 ]; then
+            echo "No regenerated artifact drifted — this job failed for some other reason."
+            exit 0
+          fi
+
+          for f in "${drifted[@]}"; do
+            mkdir -p "$dest/$(dirname "$f")"
+            cp -- "$f" "$dest/$f"
+          done
+
+          echo "Collected $count regenerated file(s) for the 'regenerated-artifacts' upload:"
+          printf '  %s\n' "${drifted[@]}"
+
+      - name: Upload the regenerated artifacts
+        if: failure() && steps.collect.outputs.count > 0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: regenerated-artifacts
+          # The staging directory's contents are uploaded at their repo-relative
+          # paths (ts/cli/src/compiled_cli.ts, …), byte-for-byte as this Linux
+          # runner generated them — LF endings preserved — so applying them is a
+          # copy into the checkout root and nothing else.
+          path: ${{ runner.temp }}/regenerated
+          if-no-files-found: error
+          retention-days: 7
+
+      # Secrets are NOT available to a step-level `if:` (the `secrets` context is
+      # not in the availability table for `jobs.<id>.steps.<id>.if`), so the
+      # presence of the optional PAT is reduced to a plain env flag here.
+      - name: Detect the regeneration PAT
+        if: failure()
+        env:
+          REGEN_PAT: ${{ secrets.REGEN_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REGEN_PAT:-}" ]; then
+            echo "HAS_REGEN_PAT=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_REGEN_PAT=false" >> "$GITHUB_ENV"
+          fi
+
+      # OPTIONAL FULL AUTOMATION — off unless the owner adds the secret.
+      #
+      # WHY A PAT AND NOT `GITHUB_TOKEN`: "When you use the repository's
+      # GITHUB_TOKEN to perform tasks, events triggered by the GITHUB_TOKEN will
+      # not create a new workflow run", with only `workflow_dispatch` /
+      # `repository_dispatch` (and an approval-gated `pull_request`
+      # opened/synchronize/reopened) excepted —
+      # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow
+      # A regeneration commit pushed with GITHUB_TOKEN would therefore leave the
+      # PR sitting on a commit with NO CI at all, i.e. a PR that looks settled
+      # and was never checked. A fine-grained PAT is a real user credential, so
+      # its push triggers the workflows normally.
+      #
+      # ONE-TIME OWNER SETUP (see docs/TESTING_STRATEGY.md, "CI produces the
+      # fix"): create a fine-grained personal access token scoped to THIS
+      # repository only, with Repository permissions -> Contents: Read and
+      # write, then `gh secret set REGEN_PAT --repo Ball-Lang/ball`. Without it
+      # this step is skipped and the lane applies the artifact by hand with
+      # tools/ci/apply_regenerated.sh — which is the whole point of the upload
+      # above: the automation is a convenience, never the only path.
+      #
+      # NEVER PUSHES TO A FORK: `github.event.pull_request.head.repo.full_name
+      # == github.repository` is the guard, and it is also why this step cannot
+      # fire on a `push` event (the expression is empty there).
+      - name: Commit and push the regenerated artifacts (needs REGEN_PAT)
+        if: failure() && github.event.pull_request.head.repo.full_name == github.repository && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0
+        env:
+          REGEN_PAT: ${{ secrets.REGEN_PAT }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # A pull_request checkout is the detached MERGE commit, so move onto
+          # the PR's own branch before committing. `-f` discards the working
+          # tree's regenerated copies on purpose — the authoritative ones were
+          # already staged into $RUNNER_TEMP/regenerated by the collect step.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # actions/checkout persists GITHUB_TOKEN as an
+          # `http.https://github.com/.extraheader` Authorization header, and that
+          # header WINS over credentials embedded in a remote URL. Leaving it in
+          # place would silently push as GITHUB_TOKEN — which is the one thing
+          # this step exists to avoid, and it would fail quietly in the way that
+          # matters (a commit on the PR with no CI). Clear it first.
+          if git config --get-all http."https://github.com/".extraheader >/dev/null 2>&1; then
+            git config --unset-all http."https://github.com/".extraheader
+          fi
+
+          git remote set-url origin \
+            "https://x-access-token:${REGEN_PAT}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin "$HEAD_REF"
+          git checkout -f -B "$HEAD_REF" FETCH_HEAD
+
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "::warning::the PR head moved ($(git rev-parse HEAD) != $HEAD_SHA) while this job ran — not pushing a regeneration onto a commit it was not computed from. Download the 'regenerated-artifacts' artifact instead."
+            exit 0
+          fi
+
+          # Stage EXACTLY the files the collect step captured — never a
+          # directory pathspec, which would sweep up anything else the job's
+          # toolchains happened to touch.
+          cp -R "$RUNNER_TEMP/regenerated/." .
+          ( cd "$RUNNER_TEMP/regenerated" && find . -type f | sed 's|^\./||' ) \
+            > "$RUNNER_TEMP/regen-list.txt"
+          xargs -a "$RUNNER_TEMP/regen-list.txt" -d '\n' -r git add --
+
+          if git diff --cached --quiet; then
+            echo "the regenerated files already match this branch — nothing to push."
+            exit 0
+          fi
+
+          git commit \
+            -m "chore(ci): apply the regenerated Ball artifacts" \
+            -m "Produced by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (Ball Artifact Freshness, issue #619). These files are generated, never hand-edited." \
+            -m "Generated-By: claude-code (model: ci; operator: ahmednfwela@digrum.com)" \
+            -m "Signed-off-by: Ahmed Fwela <ahmednfwela@digrum.com>" \
+            -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" \
+            -m "Claude-Session: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git push origin "HEAD:refs/heads/${HEAD_REF}"
+          echo "Pushed the regenerated artifacts to ${HEAD_REF}; this job stays RED and the new commit gets its own CI run."
+
+      # Always the last word on a failing run: say exactly how to apply the fix,
+      # and say LOUDLY when the auto-push was skipped rather than leaving a lane
+      # to infer it from an absent step.
+      - name: How to apply the regenerated artifacts
+        if: failure()
+        run: |
+          set -euo pipefail
+          {
+            echo "### Ball Artifact Freshness — the fix is downloadable"
+            echo
+            if [ "${{ steps.collect.outputs.count }}" = "0" ] || [ -z "${{ steps.collect.outputs.count }}" ]; then
+              echo "No committed artifact drifted in this run, so there is nothing to apply —"
+              echo "this job failed for another reason; read the failing step above."
+            else
+              echo "CI regenerated ${{ steps.collect.outputs.count }} file(s) and uploaded them as the"
+              echo '`regenerated-artifacts` workflow artifact. Apply them with NO local Dart/TS/Go'
+              echo "toolchain:"
+              echo
+              echo '```bash'
+              echo "bash tools/ci/apply_regenerated.sh <pr-number>   # or: --run ${GITHUB_RUN_ID}"
+              echo "git commit -m 'chore: apply the CI-regenerated Ball artifacts'"
+              echo '```'
+              echo
+              if [ "${HAS_REGEN_PAT:-false}" = "true" ]; then
+                echo "Auto-push: REGEN_PAT is configured, so CI may already have pushed this commit."
+              else
+                echo "Auto-push: SKIPPED — the repository secret \`REGEN_PAT\` is not set."
+                echo "To let CI push the fix itself, an owner creates a fine-grained PAT scoped to"
+                echo "this repository with Contents: Read and write and runs"
+                echo '`gh secret set REGEN_PAT --repo Ball-Lang/ball`. A `GITHUB_TOKEN` push cannot'
+                echo "be used: events triggered by GITHUB_TOKEN do not create new workflow runs, so"
+                echo "the regenerated commit would land with no CI at all."
+              fi
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins

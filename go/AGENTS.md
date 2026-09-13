@@ -258,8 +258,8 @@ go run ./cmd/ballgoconf 101_simple_class   # one fixture, full expected/actual d
   applied when it carries a body (`constructorInitializer` lowers a literal value,
   not only the `field = param` shape). Fixtures `436_recursive_ctor_named` and
   `438_ctor_initializer_list_with_body` measure it end to end;
-  `go/compiler/named_ctor_test.go` is the PR-gated guard (this leg is a **ratchet**
-  on a workflow with no `pull_request:` trigger, so it never was).
+  `go/compiler/named_ctor_test.go` is the fixture-level guard; the corpus leg itself
+  is a **ratchet**, and since #619 it does run on PRs touching `go/**`.
 
 ## Round-trip conformance leg (`go/engine/conformance/roundtrip.go`, issue #452 item 3)
 The third question, after the engine and compiler legs: **can `go/encoder` read
@@ -289,9 +289,11 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   `dart` on PATH (or `BALL_DART`); it skips loudly rather than reporting a fake
   zero when Dart is missing.
 - CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
-  **That workflow has no `pull_request:` trigger**, so the row is ABSENT (not
-  green) on a PR — `gh workflow run conformance-matrix.yml --ref <branch>` and
-  read the run before merging a change to this leg.
+  **That workflow is a PR gate since #619** — it has a path-filtered
+  `pull_request:` trigger sharing its `push` filter, and `go/**` is in that
+  filter, so the row runs on any PR touching this directory with no
+  `gh workflow run` dispatch. It still gates harness health only, never the
+  failure count.
 
 ## Status / deferred
 - Compiler runs end-to-end (compile → `go run`): `hello_world`, `fibonacci`, a

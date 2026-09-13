@@ -99,6 +99,22 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   BUILD: loud, never silent. Conformance `470_setter_beside_final_field` is the
   guard; the self-hosted engine declares **zero** setters, so `engine_rt.cpp` is
   provably untouched by this branch.
+- **The `.length` / `.isEmpty` / `.isNotEmpty` shortcuts yield to a receiver
+  whose own class DECLARES that name (#664).** Those three sit near the top of
+  `compile_field_access`, ahead of the getter / struct-field dispatch, and used
+  to fire unconditionally — so a class declaring `final int length` compiled
+  `slice.length` to `ball_length(slice)`, the instance's ELEMENT COUNT, with no
+  error anywhere. They are now skipped when `receiver_class_of` PROVES a class
+  that declares the name as a getter, an own field, or a shadow-backed accessor;
+  an unprovable receiver keeps the virtual property, which is the behaviour that
+  predates this. Scoped exactly like every other receiver-scoped decision here
+  (#515). Note `.isEmpty` rarely reaches this code at all — the Dart encoder's
+  `unaryRoutes` turns it into `std.string_is_empty` (that is why conformance
+  `115_generic_class`'s `Stack.isEmpty` getter never tripped it) — so `length`
+  is the reachable case and `470_setter_beside_final_field` is its guard, with
+  `cpp/test/test_compiler.cpp`'s
+  `length_on_a_class_that_declares_it_is_the_field_not_ball_length` as the fast
+  gate.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and

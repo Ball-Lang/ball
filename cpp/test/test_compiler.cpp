@@ -4055,6 +4055,90 @@ TEST(subclass_field_shadowing_getter_emits_virtual_override) {
     ASSERT_NOT_CONTAINS(out, "int64_t x = 5;");
 }
 
+// ================================================================
+// Tests — a `final` field declared beside a same-named setter (issue #664)
+// ================================================================
+
+// `class FixedSlice { final int length; set length(v) => throw …; }` is legal
+// Dart: a `final` field contributes a getter and NOTHING else, so the declared
+// setter is the only setter for that name (`collection`'s `ListSlice`). C++ has
+// no such split — a data member `length` and a member function `length(v)` are
+// the SAME name, and g++ rejects the pair with "'…::length(auto&&)' conflicts
+// with a previous declaration", which is how conformance
+// 470_setter_beside_final_field failed to BUILD on the compiled leg. The field
+// takes the #501 backing-member treatment, but ONLY the getter half of the
+// accessor pair: the declared setter already owns the write side, so
+// synthesising the implicit one would redefine the user's own member.
+TEST(final_field_beside_own_setter_backs_the_member_and_emits_only_a_getter) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "length"},
+                                       {"type", "int"},
+                                       {"is_final", true}}});
+    auto td = cov_class_td("main:FixedSlice", {{"length", "TYPE_INT64"}},
+                           std::move(meta));
+
+    json setter_meta;
+    setter_meta["kind"] = "method";
+    setter_meta["is_setter"] = true;
+    setter_meta["params"] = json::array({cov_param("v", "int")});
+    auto setter = cov_class_fn("main:FixedSlice.length", std::move(setter_meta),
+                               lit_int(0), "void");
+
+    auto prog = cov_class_program({td}, {setter});
+    auto out = compile_program(prog);
+
+    // Storage moved to the private backing member ...
+    ASSERT_CONTAINS(out, "private:");
+    ASSERT_CONTAINS(out, "_ball_shadow_length");
+    // ... the field NAME is re-exposed as a getter ...
+    ASSERT_CONTAINS(out, "length() { return _ball_shadow_length; }");
+    // ... and NO implicit setter is synthesised: the declared one is the only
+    // member function of that name taking an argument. `__ball_shadow_v` is the
+    // implicit setter's own parameter name, so its absence is the assertion.
+    ASSERT_NOT_CONTAINS(out, "__ball_shadow_v");
+    // The defect itself: no plain data member literally named `length` may be
+    // emitted alongside the declared setter of the same name.
+    ASSERT_NOT_CONTAINS(out, "int64_t length{};");
+}
+
+// The same class's field READ must compile to the accessor CALL, not to
+// `ball_length(...)`. `.length` has an unconditional virtual-property shortcut
+// near the top of compile_field_access, and it used to fire even for a receiver
+// whose own class declares a field of that name - so `slice.length` compiled to
+// the instance's ELEMENT COUNT with no error anywhere. The shortcut now yields
+// to a PROVABLE receiver class that declares the name.
+TEST(length_on_a_class_that_declares_it_is_the_field_not_ball_length) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "length"},
+                                       {"type", "int"},
+                                       {"is_final", true}}});
+    auto td = cov_class_td("main:FixedSlice", {{"length", "TYPE_INT64"}},
+                           std::move(meta));
+
+    json setter_meta;
+    setter_meta["kind"] = "method";
+    setter_meta["is_setter"] = true;
+    setter_meta["params"] = json::array({cov_param("v", "int")});
+    auto setter = cov_class_fn("main:FixedSlice.length", std::move(setter_meta),
+                               lit_int(0), "void");
+
+    // A method on the same class whose body reads `self.length`: the receiver's
+    // class is provable, which is the scope the fix is deliberately limited to.
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn(
+        "main:FixedSlice.readLength", std::move(read_meta),
+        field_access(ref("self"), "length"), "int");
+
+    auto prog = cov_class_program({td}, {setter, read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_length((*this))");
+    ASSERT_CONTAINS(out, "_ball_shadow_length");
+}
+
 // An ordinary (non-shadowing) field on a subclass must be emitted exactly as
 // before: a plain public data member, no backing rename, no accessor pair. This
 // pins the blast radius of the shadow pass to the classes that actually shadow.

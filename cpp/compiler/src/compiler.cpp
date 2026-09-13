@@ -2176,9 +2176,31 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // Common virtual properties → C++ equivalents.
     // `.length` is UTF-16 code-unit length for strings (Dart parity), element
     // count for lists/maps; ball_length dispatches on the runtime type.
-    if (field == "length") return "ball_length(" + obj + ")";
-    if (field == "isEmpty") return obj + ".empty()";
-    if (field == "isNotEmpty") return "!" + obj + ".empty()";
+    //
+    // #664: a receiver whose own class DECLARES one of these names resolves to
+    // that DECLARATION, never to the virtual collection property — the Dart
+    // reference engine answers an instance's own key before it reaches its
+    // map-length fallback (`engine_eval.dart`'s map field-access block). A class
+    // declaring `final int length` (the `ListSlice` shape) otherwise compiled
+    // `slice.length` to `ball_length(slice)` — the element count of the
+    // instance, not the field, with no error anywhere. Scoped to a PROVABLE
+    // receiver class, like every other receiver-scoped decision here (#515): an
+    // unprovable receiver keeps the virtual property, which is the behaviour
+    // that predates this.
+    if (field == "length" || field == "isEmpty" || field == "isNotEmpty") {
+        const std::string vprop_cls = receiver_class_of(*access.object);
+        const std::string vprop_field = sanitize_name(field);
+        const bool declared_by_receiver =
+            !vprop_cls.empty() &&
+            (class_has_getter(vprop_cls, vprop_field) ||
+             class_field_shadows_getter(vprop_cls, vprop_field) ||
+             class_has_own_field(vprop_cls, vprop_field));
+        if (!declared_by_receiver) {
+            if (field == "length") return "ball_length(" + obj + ")";
+            if (field == "isEmpty") return obj + ".empty()";
+            return "!" + obj + ".empty()";
+        }
+    }
     // Dart double properties: .isNaN, .isInfinite, .isFinite, .isNegative
     if (field == "isNaN") return "ball_isNaN(" + obj + ")";
     if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";

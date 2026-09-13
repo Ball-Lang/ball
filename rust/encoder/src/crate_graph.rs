@@ -743,3 +743,87 @@ impl CrateSymbols {
         }
     }
 }
+
+// ════════════════════════════════════════════════════════════
+// Unit tests for the `cfg` predicate
+// ════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::is_cfg_test;
+
+    /// Parse an attribute list exactly as it appears on a `mod` declaration,
+    /// so each case below reads as the Rust source it is gating.
+    fn attrs(attributes: &str) -> Vec<syn::Attribute> {
+        let item: syn::ItemMod = syn::parse_str(&format!("{attributes} mod m;"))
+            .unwrap_or_else(|err| panic!("failed to parse `{attributes} mod m;`: {err}"));
+        item.attrs
+    }
+
+    #[test]
+    fn a_bare_cfg_test_module_is_skipped() {
+        assert!(
+            is_cfg_test(&attrs("#[cfg(test)]")),
+            "`cargo build` does not compile a `#[cfg(test)]` module, so neither does the walk"
+        );
+    }
+
+    #[test]
+    fn a_test_conjunct_still_skips() {
+        assert!(
+            is_cfg_test(&attrs("#[cfg(all(test, unix))]")),
+            "`all(test, …)` is false whenever `test` is off, so `cargo build` never compiles it"
+        );
+    }
+
+    #[test]
+    fn stacked_cfg_attributes_are_conjoined() {
+        assert!(
+            is_cfg_test(&attrs("#[cfg(unix)]\n#[cfg(test)]")),
+            "stacked `cfg` attributes are ANDed, so one test-only conjunct gates the module"
+        );
+    }
+
+    #[test]
+    fn a_cfg_not_test_module_is_kept() {
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(not(test))]")),
+            "`cargo build` DOES compile a `#[cfg(not(test))]` module — dropping it would take \
+             every declaration in it with it"
+        );
+    }
+
+    #[test]
+    fn a_test_ident_under_a_not_inside_an_all_is_kept() {
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(all(unix, not(test)))]")),
+            "`all(unix, not(test))` is TRUE on a unix `cargo build`"
+        );
+    }
+
+    #[test]
+    fn a_module_gated_on_test_or_a_feature_is_kept() {
+        // DECIDED, and recorded in this module's deviation list: a module
+        // compiled under `test` OR under a feature is KEPT, because
+        // `cargo build --features x` compiles it. Skipping it would silently
+        // drop a module that an ordinary (non-test) build has.
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(any(test, feature = \"x\"))]")),
+            "`any(test, feature = \"x\")` can be true with `test` off — cargo builds it with the \
+             feature"
+        );
+    }
+
+    #[test]
+    fn a_feature_named_testing_is_not_cfg_test() {
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(feature = \"testing\")]")),
+            "a string literal is not the `test` ident"
+        );
+    }
+
+    #[test]
+    fn a_module_with_no_cfg_attribute_is_kept() {
+        assert!(!is_cfg_test(&attrs("#[doc = \"a plain module\"]")));
+    }
+}

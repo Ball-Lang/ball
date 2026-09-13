@@ -64,7 +64,7 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
   the same semantics as the Dart reference engine; the three undeclared ones are
   deleted, and `cpp/test/check_declared_base_functions.py` (ci.yml's always-on
   `proto` job) keeps this dispatch and the canonical builders in sync.
-  `tests/conformance/467_std_concurrency_handles` is the cross-target guard.
+  `tests/conformance/468_std_concurrency_handles` is the cross-target guard.
 
 **Runtime stubs (compile, produce wrong/fake results):**
 - `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h`).

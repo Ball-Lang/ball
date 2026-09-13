@@ -339,16 +339,16 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 
 | Function | Encoder-emittable | Covered by fixture | Dart engine |
 |---|---|---|---|
-| `atomic_compare_exchange` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `atomic_create` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `atomic_load` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `atomic_store` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `mutex_create` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `mutex_lock` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `mutex_unlock` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `scoped_lock` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `thread_join` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
-| `thread_spawn` | ❌ | ✅ 1 fixture(s): `467_std_concurrency_handles` | ✅ |
+| `atomic_compare_exchange` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `atomic_create` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `atomic_load` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `atomic_store` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `mutex_create` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `mutex_lock` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `mutex_unlock` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `scoped_lock` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `thread_join` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
+| `thread_spawn` | ❌ | ✅ 1 fixture(s): `468_std_concurrency_handles` | ✅ |
 
 ## Gaps
 

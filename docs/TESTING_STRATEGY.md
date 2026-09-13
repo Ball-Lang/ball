@@ -714,7 +714,7 @@ Three rules generalise out of it:
    `std_coverage.json`.** A row of `coveredByFixtures: []` that is also
    `carvedOut: false` is an untested function, not a quiet one — and a whole
    MODULE of them is a hole no parity number can see.
-2. **Pin the failing case, not just the working one.** `467_std_concurrency_handles`
+2. **Pin the failing case, not just the working one.** `468_std_concurrency_handles`
    prints a CAS that must FAIL and the cell value after it; that is the line no
    placeholder can pass. A fixture that only exercised a matching CAS would have
    been green against the unconditional `true`.

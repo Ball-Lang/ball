@@ -234,7 +234,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_ball_atomics` tables spliced into the preamble, with the SAME
   single-threaded semantics as `dart/engine/lib/engine_std.dart` — opaque
   1-based handles, a real cell store, a CAS that compares and exchanges, and
-  fail-loud misuse. `tests/conformance/467_std_concurrency_handles` is the
+  fail-loud misuse. `tests/conformance/468_std_concurrency_handles` is the
   cross-target guard (wired into `cpp/test/e2e_fixture_list.h`).
   It also implemented three functions **no module builder declares**
   (`thread_detach`, `unique_lock`, `atomic_fetch_add`), reachable by no encoder

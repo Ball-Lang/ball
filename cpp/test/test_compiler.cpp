@@ -1826,7 +1826,7 @@ TEST(compile_cpp_std_scope_exit_and_destructor) {
 //
 // These assert on emitted TEXT. The behavioural half -- that the emitted
 // program actually runs and prints the right answers -- is conformance fixture
-// 467_std_concurrency_handles, wired into cpp/test/e2e_fixture_list.h.
+// 468_std_concurrency_handles, wired into cpp/test/e2e_fixture_list.h.
 // ================================================================
 
 TEST(compile_std_concurrency_threads) {

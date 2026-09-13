@@ -56,6 +56,20 @@ MISSING count is a hard failure, exactly like a missing artifact, because a
 harness whose rule silently vanished would otherwise publish a denominator
 nobody can account for — carried in the baseline, and published in the table.
 
+THE ONE SHAPE OF THAT COUNT THAT *IS* A BREACH (issue #648). `excluded` falling
+to 0 from a baseline above it, while `scored` rises by at least that many files,
+is not a pin that dropped its tests: it is the whole excluded population
+RE-ENTERING the denominator, which is an exclusion RULE that stopped firing. The
+measured way for that to happen is Rust's — its 34 exclusions all come from the
+`#[cfg(test)]` reachability half, which is anchored on a crate root, so a pin
+whose layout moved or a `--source-dir` one level too deep used to switch that
+half off silently. None of the three floors can see it: the denominator GREW,
+and if the readmitted files happen to be clean every ratio improves too, so the
+run reads as a pure raise and re-floors the row on a population nobody chose.
+So that shape is reported as a breach naming that cause, and the baseline is not
+raised. A drop to 0 with an UNCHANGED denominator stays an ordinary raise —
+nothing was readmitted, so there is nothing to explain.
+
 A row whose artifact is missing, whose report scores nothing, whose verdicts
 are not bools, or whose taxonomy tag is unrecognised is a hard failure. An
 absent artifact that read as "0 scored, 0 clean" would satisfy every
@@ -376,6 +390,43 @@ def ratio_below(measured_n: int, measured_d: int, base_n: int, base_d: int) -> b
     return measured_n * base_d < base_n * measured_d
 
 
+def exclusion_rule_breach(row: BaselineRow, measured: Measurement) -> list[str]:
+    """The breach for an exclusion rule that stopped firing (issue #648).
+
+    Fires on ONE shape and says so: the row's whole excluded population is gone
+    (`excluded` 34 -> 0) and at least that many extra files turned up in the
+    denominator. Those files did not appear — they were readmitted, because the
+    rule that removed them no longer does. The three ratio/denominator floors
+    are blind to it by construction (the denominator grew, and the ratios may
+    well have improved), and `excluded` itself is deliberately not floored, so
+    without this the run is a silent RAISE onto a population nobody chose.
+
+    A PARTIAL drop is deliberately not flagged: "the test suite shrank by 3
+    while the library grew by 3" and "3 files stopped being excluded" have the
+    same arithmetic signature, and this file only reports a cause it can
+    positively show. The harness-side guard is where a partial failure is
+    caught — `rq1-study` now fails loud in-job on the crate root it could not
+    resolve (#648), which is the cause this check exists as the second line of
+    defence against.
+    """
+    if row.excluded is None or measured.excluded is None:
+        return []
+    if row.excluded <= 0 or measured.excluded != 0:
+        return []
+    readmitted = measured.scored - row.scored
+    if readmitted < row.excluded:
+        return []
+    return [
+        f"{row.label}: the test-only exclusion count dropped {row.excluded} -> 0 while "
+        f"`scored` rose {row.scored} -> {measured.scored} (+{readmitted}) — the whole "
+        "excluded population re-entered the denominator, so this is an exclusion RULE "
+        "that stopped firing (a crate root that no longer resolves, a studied subtree one "
+        "level too deep, a pin whose layout moved), not an improvement. The baseline is "
+        "NOT raised. Fix the harness or the pin; if the rule legitimately no longer "
+        "applies to this row, re-seed it deliberately in a reviewed commit."
+    ]
+
+
 def check_row(row: BaselineRow, measured: Measurement) -> tuple[list[str], BaselineRow | None]:
     """Floor one row. Returns its breaches and, if any, the raised baseline."""
     breaches: list[str] = []
@@ -403,6 +454,7 @@ def check_row(row: BaselineRow, measured: Measurement) -> tuple[list[str], Basel
                 f"baseline {row.encoded}/{row.scored} "
                 f"({pct(row.encoded, row.scored)}%)"
             )
+        breaches += exclusion_rule_breach(row, measured)
 
     if breaches:
         return breaches, None

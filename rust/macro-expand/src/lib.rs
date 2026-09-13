@@ -36,8 +36,8 @@
 //! through the encoder's own semantic lowering. That is an architectural line,
 //! not a preference — see [`is_builtin_macro`].
 //!
-//! Hygiene is **approximated**, not implemented; the `hygiene` module states
-//! exactly what is done and what is not.
+//! Hygiene is **approximated**, not implemented; [`hygiene`] states exactly
+//! what is done and what is not.
 //!
 //! ## Failure is always loud and always named
 //!
@@ -46,6 +46,11 @@
 //! silently dropped or partially expanded.
 
 mod bridge;
+mod hygiene;
+mod table;
+
+pub use hygiene::MANGLE_SUFFIX;
+pub use table::{Expanded, Expansion, MacroDef, MacroOrigin, MacroTable, Route, path_text};
 
 use std::fmt;
 

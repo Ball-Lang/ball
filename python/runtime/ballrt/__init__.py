@@ -175,6 +175,11 @@ from .selfhost import (
     ty_int,
     ty_num,
 )
+from .sink import (
+    sink_create,
+    sink_to_string,
+    sink_write,
+)
 from . import collections as _collections
 from . import convert as _convert
 from . import proto as _proto

@@ -182,6 +182,16 @@ fn type_defs() -> Vec<TypeDefinition> {
                 expr_field("max", 3),
             ],
         ),
+        // --- Text-sink input types (issue #630) ---
+        // A sink is an opaque runtime value, so `sink` is an ordinary
+        // expression field (the shape `UnaryInput.value` uses). `initial` is
+        // optional: absent means an empty sink.
+        type_def("SinkCreateInput", vec![expr_field("initial", 1)]),
+        type_def(
+            "SinkWriteInput",
+            vec![expr_field("sink", 1), expr_field("text", 2)],
+        ),
+        type_def("SinkToStringInput", vec![expr_field("sink", 1)]),
     ]
 }
 
@@ -619,6 +629,33 @@ fn functions() -> Vec<FunctionDefinition> {
             "StringPadInput",
             "",
             "Pad right: value.padRight(width, padding)",
+        ),
+        // --- Text sink (issue #630) ---
+        // The common denominator of Dart's `StringBuffer`, Rust's `fmt::Write`,
+        // Go's `strings.Builder`, C#'s `StringBuilder`, Python's `io.StringIO`
+        // and C++'s `ostringstream`: append-only text accumulation with a
+        // terminal read. `writeln` desugars to `sink_write` + "\n" (exactly how
+        // `core` defines `writeln!($dst)`), so three functions are the whole
+        // abstraction. NORMATIVE: a sink is a REFERENCE-SEMANTIC,
+        // `__type__`-tagged value — `ball_type_of` answers "Sink", and an
+        // append performed inside a callee is visible to the caller.
+        base_fn(
+            "sink_create",
+            "SinkCreateInput",
+            "",
+            "Create a text sink, optionally seeded: StringBuffer(initial)",
+        ),
+        base_fn(
+            "sink_write",
+            "SinkWriteInput",
+            "",
+            "Append text to a sink: sink.write(text)",
+        ),
+        base_fn(
+            "sink_to_string",
+            "SinkToStringInput",
+            "String",
+            "Read a sink back: sink.toString()",
         ),
         // --- Regex (universal) ---
         base_fn(

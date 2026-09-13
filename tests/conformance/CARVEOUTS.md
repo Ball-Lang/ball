@@ -167,7 +167,7 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   pass those two lines. Handle VALUES are deliberately never printed (a handle is opaque —
   only DISTINCTNESS is a portable promise), and misuse (joining twice, unlocking an unlocked
   mutex, loading an unknown handle) is fail-loud on the engine and asserted in
-  `dart/engine/test/engine_test.dart` instead: what a caught host error reads as is a
+  `dart/engine/test/std_concurrency_test.dart` instead: what a caught host error reads as is a
   separate cross-target contract (`465_state_error_message`), and mixing it in here would
   make this fixture about error rendering rather than concurrency semantics.
 - `399_bytes_literal` — exercises a `Literal.bytes_value` node (the `literal.bytes_value`

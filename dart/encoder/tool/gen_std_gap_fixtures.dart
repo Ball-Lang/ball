@@ -1165,7 +1165,7 @@ Future<void> main() async {
   //
   // Misuse (joining twice, unlocking an unlocked mutex, loading an unknown
   // handle) is fail-loud on the engine and is asserted by
-  // dart/engine/test/engine_test.dart instead -- deliberately NOT here, because
+  // dart/engine/test/std_concurrency_test.dart instead -- deliberately NOT here, because
   // what a caught host error READS AS is a separate cross-target contract
   // (issue #616 / fixture `465_state_error_message`) and this fixture is about
   // concurrency semantics, not error rendering.

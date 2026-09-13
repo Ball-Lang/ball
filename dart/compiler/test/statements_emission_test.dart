@@ -175,13 +175,26 @@ void main() {
   });
 
   group('async safety return', () {
-    test('async non-void throw-only body gets `return null as dynamic;`', () {
+    test('a NON-NULLABLE async result gets a `Never`-typed throw', () {
       // Body just throws — no return — so a safety return is appended.
+      // `null` is not a value of `Future<int>`, so the old
+      // `return null as dynamic;` was unreachable-by-construction AND an
+      // implicit-cast error under `strict-casts` (#488). See
+      // `strict_casts_safety_return_test.dart`.
       final body = _block([
         _exprStmt(_stdCall('throw', [_field('value', _ref('e'))])),
       ]);
       final out = _flat(body, outputType: 'int', metadata: {'is_async': true});
-      expect(out, contains('return null as dynamic;'));
+      expect(out, isNot(contains('return null as dynamic;')));
+      expect(out, contains("throw StateError('unreachable"));
+    });
+
+    test('a NULLABLE async result still falls through to `return null;`', () {
+      final body = _block([
+        _exprStmt(_stdCall('throw', [_field('value', _ref('e'))])),
+      ]);
+      final out = _flat(body, outputType: 'int?', metadata: {'is_async': true});
+      expect(out, contains('return null;'));
     });
   });
 
@@ -261,8 +274,10 @@ void main() {
   });
 
   group('local function (lambda assigned to let)', () {
-    test('async non-void local fn gets `return null as dynamic;`', () {
+    test('async non-nullable local fn gets the `Never`-typed safety throw', () {
       // final f = () async { throw e; };  → safety return appended.
+      // `Future<int>` cannot hold null, so the appended statement is a throw
+      // (#488); `strict_casts_safety_return_test.dart` is the analyzer proof.
       final lambdaFn = FunctionDefinition()
         ..name = '_f'
         ..outputType = 'int';
@@ -274,7 +289,22 @@ void main() {
       ]);
       final body = _block([_letStmt('f', Expression()..lambda = lambdaFn)]);
       final out = _flat(body);
-      expect(out, contains('return null as dynamic;'));
+      expect(out, isNot(contains('return null as dynamic;')));
+      expect(out, contains("throw StateError('unreachable"));
+    });
+
+    test('async NULLABLE local fn keeps the plain `return null;`', () {
+      final lambdaFn = FunctionDefinition()
+        ..name = '_fn'
+        ..outputType = 'int?';
+      lambdaFn.mergeFromProto3Json({
+        'metadata': {'is_async': true},
+      });
+      lambdaFn.body = _block([
+        _exprStmt(_stdCall('throw', [_field('value', _ref('e'))])),
+      ]);
+      final body = _block([_letStmt('f', Expression()..lambda = lambdaFn)]);
+      expect(_flat(body), contains('return null;'));
     });
 
     test('sync* local fn emits sync* and uses yield', () {

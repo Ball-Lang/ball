@@ -635,6 +635,28 @@ static const ball::ir::Expression* strip_null_check(
     return e;
 }
 
+// The concrete user class an UNQUALIFIED reference to an own instance field
+// declares, or "" when the name is not such a field (a local/parameter shadows
+// it, there is no enclosing class, the member is an accessor rather than a
+// plain data member, or its declared type is not a concrete struct). Shares the
+// getter/shadowed-field refusals with receiver_class_of's FieldAccess branch —
+// those are CALLS whose C++ return type is map_return_type's answer, not this
+// metadata's.
+std::string CppCompiler::declared_field_class_of_own_name(
+    const std::string& name) const {
+    if (declared_locals_.count(name) > 0) return "";
+    if (current_class_name_.empty()) return "";
+    if (current_class_fields_.count(name) == 0) return "";
+    const std::string sf = sanitize_name_const(name);
+    if (class_has_getter(current_class_name_, sf)) return "";
+    if (class_field_shadows_getter(current_class_name_, sf)) return "";
+    auto cit = class_field_decl_types_by_sname_.find(current_class_name_);
+    if (cit == class_field_decl_types_by_sname_.end()) return "";
+    auto fit = cit->second.find(sf);
+    if (fit == cit->second.end()) return "";
+    return concrete_class_of_declared_type(fit->second);
+}
+
 std::string CppCompiler::receiver_class_of(const ball::ir::Expression& raw) const {
     const ball::ir::Expression& expr = *strip_null_check(raw);
     // A provably CONCRETE slot answers first (self/this, a local emitted with a
@@ -644,8 +666,19 @@ std::string CppCompiler::receiver_class_of(const ball::ir::Expression& raw) cons
 
     if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
         auto it = local_declared_types_.find(expr.reference->name);
-        if (it == local_declared_types_.end()) return "";
-        return concrete_class_of_declared_type(it->second);
+        if (it != local_declared_types_.end())
+            return concrete_class_of_declared_type(it->second);
+        // An UNQUALIFIED read of an own instance field (`node` inside a method
+        // of the class that declares `Node? node`) denotes exactly the slot the
+        // FieldAccess branch below already proves for the explicit `this.node`
+        // — compile_reference emits the bare member name for it, and every
+        // class-typed struct member is a BallDyn. Without this the two spellings
+        // of the SAME field disagreed: `this.node.leaf` compiled, `node.leaf`
+        // emitted a member access on a BallDyn and g++ rejected it with
+        // "'class BallDyn' has no member named 'leaf'" (issue #488's chain
+        // lowering, fixture 471_null_aware_chain_scope, whose `node?.leaf.value`
+        // is the first corpus program to read a class-typed own field this way).
+        return declared_field_class_of_own_name(expr.reference->name);
     }
     if (expr.kind == ball::ir::ExprKind::FieldAccess &&
         expr.fieldAccess != nullptr && expr.fieldAccess->object != nullptr) {
@@ -674,13 +707,18 @@ bool CppCompiler::receiver_is_erased(const ball::ir::Expression& raw) const {
     if (!static_class_of(expr).empty()) return false;
     if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
         auto it = local_declared_types_.find(expr.reference->name);
-        if (it == local_declared_types_.end()) return false;
-        // A NON-nullable user-class parameter is emitted with the concrete
-        // struct type (map_param_type), so only the nullable form is erased.
-        // Every other slot this map records went through map_type, which
-        // answers BallDyn for `T?`.
-        if (it->second.empty() || it->second.back() != '?') return false;
-        return !concrete_class_of_declared_type(it->second).empty();
+        if (it != local_declared_types_.end()) {
+            // A NON-nullable user-class parameter is emitted with the concrete
+            // struct type (map_param_type), so only the nullable form is erased.
+            // Every other slot this map records went through map_type, which
+            // answers BallDyn for `T?`.
+            if (it->second.empty() || it->second.back() != '?') return false;
+            return !concrete_class_of_declared_type(it->second).empty();
+        }
+        // An unqualified own-field read: every class-typed struct MEMBER is a
+        // BallDyn, nullable or not — the same rule the FieldAccess branch below
+        // states for the explicit `this.<field>` spelling.
+        return !declared_field_class_of_own_name(expr.reference->name).empty();
     }
     if (expr.kind == ball::ir::ExprKind::FieldAccess &&
         expr.fieldAccess != nullptr) {

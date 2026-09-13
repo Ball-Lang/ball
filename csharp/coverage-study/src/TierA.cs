@@ -508,6 +508,14 @@ public static class TierA
     /// <para>A directory that cannot be resolved at all (unreadable reference set, a parse
     /// error in some file) reports every file as a <c>project-error</c>, never a silent
     /// fallback to library mode — the two bases must not be mixed inside one run.</para>
+    ///
+    /// <para><b>The compilation and the scored set are deliberately different populations.</b>
+    /// <see cref="CSharpEncoder.CreateProjectCompilation"/> sweeps the whole project, tests
+    /// included, because a semantic model resolves best over everything that is actually there;
+    /// the verdict loop below walks <see cref="ClassifyCsFiles"/>, which is library code only
+    /// since the owner's 2026-09-14 methodology decision on issue #491. Narrowing the
+    /// compilation to match the scored set would make symbols harder to resolve and change what
+    /// the funnel measures.</para>
     /// </summary>
     public static List<FileResult> StudyDirectory(string package, string directory, bool projectMode = false)
     {

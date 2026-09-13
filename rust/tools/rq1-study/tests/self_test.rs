@@ -172,6 +172,71 @@ pub fn free(value: i64) -> i64 {
     assert_eq!(lost, vec!["fn free", "impl Box.area"]);
 }
 
+/// The instrument really is crate-aware now (issue #491), and the difference
+/// is visible in its own verdicts: the SAME file that stops at stage 0 with an
+/// "unsupported method call" when measured single-file gets past the encode
+/// stage when the crate's `mod` graph is walked first. Asserting the delta —
+/// not just the crate-aware half — is what keeps a future refactor from
+/// silently dropping the context and reporting the old numbers under the new
+/// name.
+///
+/// The crate-aware verdict is deliberately NOT asserted clean: the Rust round
+/// trip is not closed (see this file's module doc), so it lands further down
+/// the funnel, and demanding "clean" here would mean weakening the harness
+/// until something passed.
+#[test]
+fn a_cross_file_method_call_is_measured_crate_aware() {
+    quiet();
+    let dir = std::env::temp_dir().join(format!(
+        "ball_rq1_crate_aware_{}_{}",
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).expect("failed to create the scratch crate");
+    let caller = "mod counter;\nuse counter::Counter;\n\
+                  pub fn total() -> i64 { let c = Counter::new(1); c.bump(2) }\n";
+    std::fs::write(dir.join("src/lib.rs"), caller).expect("failed to write lib.rs");
+    std::fs::write(
+        dir.join("src/counter.rs"),
+        "pub struct Counter { pub total: i64 }\n\
+         impl Counter {\n\
+         pub fn new(start: i64) -> Counter { Counter { total: start } }\n\
+         pub fn bump(&self, by: i64) -> i64 { self.total + by }\n\
+         }\n",
+    )
+    .expect("failed to write counter.rs");
+
+    let single_file = study_file("scratch", "src/lib.rs", caller);
+    assert_eq!(
+        stage_reached(&single_file.reason).expect("a known taxonomy tag"),
+        0,
+        "measured single-file, the cross-file method call must still block the encode: {}",
+        single_file.reason
+    );
+    assert!(
+        single_file.crate_module.is_none(),
+        "a single-file measurement has no crate module"
+    );
+
+    let results = ball_rq1_study::study_directory("scratch", &dir.join("src"));
+    let _ = std::fs::remove_dir_all(&dir);
+    let caller_result = results
+        .iter()
+        .find(|result| result.file == "lib.rs")
+        .expect("the crate root must be measured");
+    assert_eq!(
+        caller_result.crate_module.as_deref(),
+        Some("main"),
+        "the crate root is encoded as the `main` module"
+    );
+    assert!(
+        stage_reached(&caller_result.reason).expect("a known taxonomy tag") >= 1,
+        "measured crate-aware, the same file must get past the encode stage: {}",
+        caller_result.reason
+    );
+}
+
 /// The report's positive floor is real: a run that scored nothing exits
 /// non-zero rather than printing a flattering 0%.
 #[test]

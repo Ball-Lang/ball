@@ -335,7 +335,13 @@ tool crate — see `rust/AGENTS.md` for the full status table:
   (already tail-expression-valued, unlike C++'s IIFE pattern). Base-function dispatch lives in
   `base_call.rs`, delegating to `ball_lang_shared::runtime`. Complete (#36-38).
 - `ball-lang-encoder` — Rust (`syn` 2.x AST) → Ball. No `rust_std` base module — every construct
-  routes through universal `std`/`std_collections`. Complete (#42-43).
+  routes through universal `std`/`std_collections`. Complete (#42-43). **Crate-aware** since
+  #491's owner-decided slice: `encode_crate` (`crate_graph.rs`, `ball encode --crate`) walks a
+  crate's `mod` graph per the Rust reference and encodes every file against one crate-wide symbol
+  table — the Rust sibling of `dart/encoder/lib/package_encoder.dart` — so a
+  `receiver.method(args)` or a bare-name call whose callee lives in another file resolves into an
+  ordinary cross-module Ball call instead of failing loud. The output is multi-module and needed
+  **no** compiler change (issue #38's `<mod>::` qualification already handles it).
 - `ball-lang-engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as TS/C++:
   compiles `dart/self_host/engine.ball.json` through `ball-lang-compiler`. **Complete, at Dart
   parity** (#39/#300 closed): the compiled engine builds and runs the whole conformance corpus
@@ -344,7 +350,8 @@ tool crate — see `rust/AGENTS.md` for the full status table:
   `self_host` cargo feature because `compiled_engine.rs` is a gitignored generated artifact not
   present in a fresh checkout — see `rust/engine/AGENTS.md` for the regeneration workflow.
 - `ball-lang-cli` — `run`/`compile`/`encode`/`check` subcommands over `ball-lang-engine`/`ball-lang-compiler`/
-  `ball-lang-encoder`. Complete (#41/#304).
+  `ball-lang-encoder`. Complete (#41/#304). `encode` takes `--lib` (no `fn main` required) and
+  `--crate <dir>` (walk a whole crate's `mod` graph — see the encoder bullet above).
 
 The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs`, and CI job (#44)
 is the `rust` job in `.github/workflows/ci.yml` plus the `rust-engine` row in

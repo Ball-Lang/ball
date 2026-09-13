@@ -226,10 +226,8 @@ fn encode_crate_flag_encodes_the_whole_mod_graph() {
 #[test]
 fn an_encoded_crate_passes_check() {
     let crate_root = common::repo_path("rust/encoder/tests/fixtures/counter_crate");
-    let out_dir = std::env::temp_dir().join(format!(
-        "ball_cli_encode_crate_{}",
-        std::process::id()
-    ));
+    let out_dir =
+        std::env::temp_dir().join(format!("ball_cli_encode_crate_{}", std::process::id()));
     std::fs::create_dir_all(&out_dir).expect("failed to create scratch dir");
     let out_path = out_dir.join("counter.ball.json");
 

@@ -122,7 +122,7 @@ generations 2 and 3 instead.
 | Language | Harness | Stage 1 (encode) | Stage 2 (compile back) | Inventory parser |
 | --- | --- | --- | --- | --- |
 | Dart | `tools/coverage-study/rq1_study.dart` | `DartEncoder.encode` | `DartCompiler.compileModule` per module | `analyzer` |
-| Rust | `rust/tools/rq1-study` (`cargo run -p ball-rq1-study`) | `ball_lang_encoder::encode_library` | `Compiler::compile_library` | `syn::parse_file` |
+| Rust | `rust/tools/rq1-study` (`cargo run -p ball-rq1-study`) | `CrateGraph::encode_file_library` (crate-aware; `--single-file` falls back to `ball_lang_encoder::encode_library`) | `Compiler::compile_library` | `syn::parse_file` |
 | C# | `csharp/coverage-study` | `CSharpEncoder.EncodeLibrary` | `CSharpCompiler.Compile` | Roslyn `CSharpSyntaxWalker` |
 | Go | `tools/coverage-study/go` | `encoder.EncodeLibrary` / `encoder.Encode` (below) | `compiler.CompileLibrary` | `go/parser` + `go/ast` |
 | Python | `tools/coverage-study/rq1_study_py.py` | `ball_encoder.encode` | `ball_compiler.compile_library` | stdlib `ast` |
@@ -267,7 +267,11 @@ Read these as a map of where each pipeline stops on real code, not as a grade:
   by a single file: all 14 files it had first-blocked simply landed on their
   *next* independent gap. **Expect that of any single closed category here** —
   a real crate file stacks several, and this instrument reports only the first
-  one it hits.
+  one it hits. The one #491 slice that did move the Rust row moved it by
+  exactly one file: `encode_crate` made the harness crate-aware (each package's
+  `mod` graph walked once, every file encoded against the crate's symbols), and
+  `1 encoded` went 0 -> 1 of 110 while `clean` stayed 0. Ten files cleared their
+  first blocker; nine landed on a second one.
 * **C# gets furthest.** 74 of 472 files encode and 58 survive a re-encode, and
   the wall is stage 4 — `declaration-drift`, i.e. the round trip keeps the file
   parseable but loses declarations.

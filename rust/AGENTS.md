@@ -24,18 +24,27 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest baseline, **still 0/110 clean, 0 files even encoded** (the 5 crates pinned in
+Honest baseline, **0/110 clean and 1/110 encoded** (the 5 crates pinned in
 `tools/coverage-study/packages/rust.json` — **`itertools`, `smallvec`, `bitflags`, `heck`,
-`strsim`**, not the original 10-crate set the #491 prose below narrates) after every #491 slice
-merged so far.
-Every scored file is an `encode-error`: the encoder's documented gaps
+`strsim`**, not the original 10-crate set the #491 prose below narrates). That single encoded file
+arrived with the crate-aware slice below; every #491 slice before it left the aggregate at
+`0 clean, 0 encoded`.
+Every other scored file is an `encode-error`: the encoder's documented gaps
 (item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate
 file, and a file that clears one gap lands on the next. That is the honest
 number, not a cherry-picked one — do not "improve" it by changing the pin list,
 and **do not expect a closed gap category to move it** (see "Tuple + unit
-structs" below for the measured before/after histogram that proves it does
-not).
+structs" below for the measured before/after histogram that proves it usually
+does not).
+
+The study is **crate-aware** since #491's `encode_crate` slice: `study_directory` walks each
+package's `mod` graph once and encodes every file it reached with the crate's symbol table in
+hand. `rq1-study --single-file` turns that off and reproduces the older, per-file measurement, so
+a before/after is one binary over one checkout. Each file's JSON row carries `crateModule` —
+`null` means the walk never reached that file (a `#[cfg(test)]` module, an unreferenced leftover)
+or could not run at all, which is a materially different outcome from "measured crate-aware and
+still failed" and is never folded into the crate-aware count.
 
 **Run it from a per-worktree `CARGO_TARGET_DIR`, never a shared one.** Two concurrent lanes (or a
 worktree plus the main checkout) pointed at the same target directory will serve each other a
@@ -218,24 +227,70 @@ encoder-side mapping only, closed by slice 3 below.
 (15 files, `lib.rs::encode_call`'s path-based `ExprCall` fallback) and `unsupported method call,
 callee not in this file` (24 files, `methods.rs`'s own panic on a `receiver.method(args)` whose
 method name isn't in the `collect_impl_method_params` pre-pass) are **different rows against
-different panic sites**. Slice 3 closed the first; the second is the largest remaining bucket and
-is now pinned by `documented_gaps.rs::cross_file_method_call_is_a_documented_gap` — pinned,
-**not closed**. A gate nothing observes is a missing-test bug in its own right, so the pin landed
-independently of any behaviour change.
+different panic sites**. Slice 3 closed the first for the module-qualified free-function shape;
+the second — the largest bucket in the study — was pinned by
+`documented_gaps.rs::cross_file_method_call_is_a_documented_gap` (pinned, **not** closed: a gate
+nothing observes is a missing-test bug in its own right) and is **closed now** by the crate-aware
+encoder below.
 
-Closing that bucket is deliberately NOT a same-day "add one dispatch arm" slice, and the reason is
-structural: the free-function fix above worked because `other_file::helper(...)` carries a
-module-qualifying path segment the encoder can read straight off the syntax and stash as an
-unresolved `ModuleImport`. `receiver.method(args)` carries **no such qualifier** — there is no
-alias to attribute an unrecognized method to — and this encoder is syntax-only (`syn`, no
-semantic model, the same limitation Roslyn's C# encoder documents for itself), so it cannot tell
-"an instance method implemented in a sibling file" from "a typo" or "an unsupported built-in".
-The two honest options are (a) a multi-file-aware entry point that pre-collects
-`method_params`/`local_type_names` across a crate's files before encoding any one of them — an
-encoder-orchestration change, no proto/IR change, since `ModuleImport`/`FunctionCall` already
-model unresolved cross-module calls — or (b) accepting it as a boundary, the way `methods.rs`'s
-module doc already names `.next()`/`.unwrap_or_default()` as **permanent** carve-outs. That is an
-owner decision, and it should be sized off its own fresh measurement.
+It was deliberately NOT a same-day "add one dispatch arm" slice, and the reason is structural: the
+free-function fix above worked because `other_file::helper(...)` carries a module-qualifying path
+segment the encoder can read straight off the syntax and stash as an unresolved `ModuleImport`.
+`receiver.method(args)` carries **no such qualifier** — there is no alias to attribute an
+unrecognized method to — and this encoder is syntax-only (`syn`, no semantic model, the same
+limitation Roslyn's C# encoder documents for itself), so on one file it cannot tell "an instance
+method implemented in a sibling file" from "a typo" or "an unsupported built-in". The two honest
+options were (a) a multi-file-aware entry point that pre-collects the crate's symbols before
+encoding any one file, or (b) accepting it as a boundary the way `methods.rs`'s module doc names
+`.next()`/`.unwrap_or_default()` as **permanent** carve-outs. The epic owner chose (a) on
+2026-09-13; see "Crate-aware encoding" below.
+
+#### Crate-aware encoding — `encode_crate` / `ball encode --crate` (issue #491)
+
+`ball_lang_encoder::encode_crate(path)` (module `crate_graph.rs`) walks a crate's `mod` graph from
+its root — `Cargo.toml` directory, `src` directory, or the root `.rs` file — and encodes **every**
+file against ONE crate-wide symbol table. It is the Rust sibling of
+`dart/encoder/lib/package_encoder.dart`. `ball encode --crate <dir>` is the CLI surface; `--lib`
+on top forces library mode on a crate that does have a `fn main`.
+
+- **Resolution follows the Rust reference** (<https://doc.rust-lang.org/reference/items/modules.html>):
+  `foo.rs` **or** `foo/mod.rs` (both is an error, neither is an error), the declaring file's own
+  directory for a mod-rs file and `<dir>/<stem>/` otherwise, `#[path = "…"]` relative to the
+  declaring FILE's directory outside an inline block and to the nested directory inside one, and
+  an inline `mod` block as its own module. `#[cfg(test)]` modules are not walked — `cargo build`
+  does not compile them either, and one `assert!` inside one would abort the whole crate encode.
+- **Output is multi-module, and needed no compiler change.** One Ball `Module` per Rust module
+  (crate root → `main`, others keep their `::`-joined path); a cross-file call carries
+  `FunctionCall.module`, which `type_emit.rs::resolve_user_call_name` — issue #38's multi-module
+  output — already turns into the `<mod>::` qualifier, landing on the `pub fn <short>` dispatcher
+  `compile_method_dispatchers` emits inside that module.
+- **`crate::`/`self::`/`super::` resolve** in crate mode. `rust/encoder/src/lib.rs`'s module doc
+  used to list those as a known limitation of the single-file fallback (they became an unresolved
+  `crate` import); a crate walk knows what they name, and they are how real multi-file crates
+  address each other.
+- **What it narrows rather than removes.** A method NO file in the crate declares still fails
+  loud (pinned:
+  `crate_encoding.rs::a_method_no_file_in_the_crate_declares_still_fails_loud`). So does a method
+  short name declared in two modules where the *call site's* module declares neither — the
+  compiler's dispatcher resolves by short name within a module, so picking one would silently
+  dispatch to the wrong body. A cross-module enum-variant read is refused with a message naming
+  the owning module (the compiled enum namespace is not reachable by bare name from another
+  module). A `mod` whose file is absent is a loud panic, never a dropped module.
+- **Indexing must not fail loud where ENCODING must.** The walk catalogues the whole crate before
+  encoding anything, so the index reads parameter names with its own non-panicking
+  `simple_param_names` — reaching for `param_names_and_types`/`method_non_self_params` (which
+  panic on a destructuring parameter, correctly, at their own encode sites) turned ONE such
+  signature into "this whole crate gets no crate-aware measurement". That is not hypothetical:
+  `itertools`' `fn cmp(&self, (c, t): …)` cost all of its files their crate context on the first
+  real sweep.
+- **Measured, with one binary over one checkout.** `rq1-study --single-file` reproduces the
+  pre-crate measurement, so before/after is not a comparison of two harness builds. Over the 5
+  pinned crates (110 scored files): stage-1 `1 encoded` **0/110 → 1/110**; clean stays **0/110**.
+  The first-blocker histogram moves and is conserved — `unsupported method call` 18 → 11,
+  `unsupported call target` 35 → 32, with 10 files clearing their first blocker and landing on a
+  second, independent gap. `tools/coverage-study/baseline.json`'s Rust row is raised to the
+  measured `encoded: 1` and **nothing else**; this is the first #491 slice to move the aggregate
+  funnel at all, and it moved it by one file. Say that plainly rather than implying a floor jump.
 
 #### Receiver-less associated functions + cross-file calls (PR #526, self-labelled "#491 slice 3")
 

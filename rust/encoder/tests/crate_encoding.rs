@@ -224,7 +224,14 @@ fn every_rust_module_becomes_its_own_ball_module() {
 fn the_mod_graph_walk_covers_every_documented_resolution_shape() {
     let program = ball_lang_encoder::encode_crate(&fixture_crate("modgraph_crate"));
     let names = module_names(&program);
-    for expected in ["main", "alpha", "beta", "gamma", "gamma::deep", "gamma::inner"] {
+    for expected in [
+        "main",
+        "alpha",
+        "beta",
+        "gamma",
+        "gamma::deep",
+        "gamma::inner",
+    ] {
         assert!(
             names.contains(expected),
             "module `{expected}` is missing from {names:?}"

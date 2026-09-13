@@ -8,6 +8,11 @@
 //!     --package <name> --source-dir <dir> [--json <out>]
 //! ```
 //!
+//! `--single-file` turns the crate walk OFF (issue #491): each file is encoded
+//! on its own, exactly as this harness measured before `encode_crate` existed.
+//! It is how the before/after of a crate-aware change is taken with ONE binary
+//! over ONE checkout, instead of by comparing two builds of the harness.
+//!
 //! Report-only; the methodology and the load-bearing harness settings are in
 //! `tests/conformance/COVERAGE_STUDY.md`. The one thing that fails here is a
 //! run that scored zero files — a harness/checkout failure, never a 0% result.
@@ -15,7 +20,12 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use ball_rq1_study::{FileResult, report, silence_panic_output, study_directory};
+use ball_rq1_study::{FileResult, report, silence_panic_output, study_directory_with};
+
+fn flag(args: &[String], name: &str) -> bool {
+    let flag = format!("--{name}");
+    args.iter().any(|a| a == &flag)
+}
 
 fn arg(args: &[String], name: &str) -> Option<String> {
     let flag = format!("--{name}");
@@ -29,6 +39,10 @@ fn main() -> ExitCode {
     silence_panic_output();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--single-file` reproduces the pre-#491 measurement — no crate walk, each
+    // file encoded on its own — so a before/after is one binary over one
+    // checkout rather than two builds of the harness.
+    let crate_aware = !flag(&args, "single-file");
     let mut results: Vec<FileResult> = Vec::new();
     let mut missing_pins: Vec<String> = Vec::new();
 
@@ -65,7 +79,7 @@ fn main() -> ExitCode {
                 missing_pins.push(name.to_string());
                 continue;
             }
-            results.extend(study_directory(name, &dir));
+            results.extend(study_directory_with(name, &dir, crate_aware));
         }
     } else if let (Some(package), Some(source_dir)) =
         (arg(&args, "package"), arg(&args, "source-dir"))
@@ -75,11 +89,11 @@ fn main() -> ExitCode {
             eprintln!("--source-dir does not exist: {source_dir}");
             return ExitCode::from(2);
         }
-        results.extend(study_directory(&package, dir));
+        results.extend(study_directory_with(&package, dir, crate_aware));
     } else {
         eprintln!(
-            "Usage: rq1-study --pins <file> --checkouts <dir> [--json <out>]\n       \
-             rq1-study --package <name> --source-dir <dir> [--json <out>]"
+            "Usage: rq1-study --pins <file> --checkouts <dir> [--json <out>] [--single-file]\n\
+             \x20      rq1-study --package <name> --source-dir <dir> [--json <out>] [--single-file]"
         );
         return ExitCode::from(2);
     }

@@ -44,6 +44,22 @@
 //! - **A missing module file is a loud panic**, never a silently dropped
 //!   module: dropping one would take every declaration in it with it.
 //!
+//! ## Resolution is still name-only, now crate-wide
+//!
+//! This encoder has always resolved by NAME, with no type information — the
+//! bias `methods.rs`' module doc records for `.len()`/`.is_empty()` and
+//! `.claude/rules/dart.md` records as `_looksLikeTypeName`. Crate mode widens
+//! the *scope* of that lookup from one file to the whole crate; it does not
+//! change its nature. Two consequences worth knowing, both deliberate:
+//!
+//! - A same-file declaration still wins, because [`Encoder::seed_from_crate`]
+//!   runs BEFORE the file's own pre-pass and the pre-pass overwrites.
+//! - A built-in method arm that already defers to a user method of that name
+//!   (`.fuse()`, `.is_empty()`) now defers to one declared anywhere in the
+//!   crate, not just in this file. That is strictly the more conservative
+//!   direction — it routes to the user's own body rather than to a `std`
+//!   lowering that might be wrong for their type.
+//!
 //! ## Output shape
 //!
 //! One Ball [`Module`] per Rust module, named by its Rust module path

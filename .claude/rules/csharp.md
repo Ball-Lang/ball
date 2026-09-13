@@ -245,10 +245,22 @@ compile items so the sibling projects never double-compile each other's files.
   functions were already declared/compiled/interpreted; this was purely a dispatch-table gap, and
   its measured Tier A yield is **zero** (stage 1 stayed at 123/472 — Tier A reports only a file's
   FIRST error), so it is justified by targeted tests plus a round-trip run, never by a funnel
-  number. `LastOrDefault`/`SingleOrDefault` stay LOUD errors on purpose: the neighbouring
-  `FirstOrDefault` arm routes a default-returning name to the throwing `list_first`, a
-  pre-existing silent-wrong-behaviour defect (issue #588, listed in `csharp/AGENTS.md`'s "Still
-  open on #492") that a new name does not get to inherit.
+  number. No `*OrDefault` name is routed — see the next bullet.
+- **No `*OrDefault` LINQ terminal is routed** (#588): `FirstOrDefault` used to share `First`'s two
+  arity windows (`list_first` at 0 args, `list_find` at 1), both of which THROW when there is
+  nothing to return — right for `.First()`/`.First(pred)`, the exact opposite of the
+  `default(T)` contract. Reproduced at BOTH arities by running the encoded `.ball.json` on the
+  Dart reference engine (`Bad state: No element` where real C# prints `0`), so the defect is in
+  the IR, not one target's runtime. The fix is a SUBTRACTION, not a nullable `list_first_or_null`:
+  `default(T)` is `null` for a reference `T` but `0`/`0.0`/`false`/a zeroed struct for a value `T`,
+  and a syntax-only encoder cannot see `T` at a `.FirstOrDefault()` call site (unlike #578's
+  `default(int)`, where the keyword IS the syntax) — a nullable route would be right for some `T`
+  and silently wrong for others. `First` keeps both routes; `FirstOrDefault`/`LastOrDefault`/
+  `SingleOrDefault` are all loud `EncoderException`s. Measured Tier A effect: **zero** (funnel
+  identical at `123/472`; one already-failing file's first error merely moved). Separately filed
+  as **#597** and NOT touched here: `list_find`'s no-match contract disagrees across engines (Dart
+  throws, TS returns `null`) — `.First(pred)` routes to `list_find` on the strength of the Dart
+  reference contract, so revisit that route if #597 resolves the other way.
 - **`default(T)` is the type's zero, not always null.** The `DefaultExpressionSyntax` arm used to
   encode every `default(T)` as a null literal, so `default(int)` printed `null` where C# prints
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero

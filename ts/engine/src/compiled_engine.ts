@@ -9087,7 +9087,8 @@ export class BallEngine {
   }
 
   async _stdSinkCreate(input: any): Promise<any> {
-    let seed = this._stdAsMap(input)?.['initial'];
+    let m = this._stdAsMap(input);
+    let seed = (__ball_eq(m, null) ? null : __ball_index(m, 'initial'));
     let sink = _ballUserMap();
     sink['__type__'] = _kBallSinkTag;
     sink[_kBallSinkBuffer] = (__ball_eq(seed, null) ? '' : await this._ballToStringAsync(seed));
@@ -9096,13 +9097,15 @@ export class BallEngine {
 
   async _stdSinkWrite(input: any): Promise<any> {
     let m = this._stdAsMap(input);
-    let sink = this._stdSinkBacking(m?.['sink'], 'sink_write');
-    let text = await this._ballToStringAsync(m?.['text']);
+    let sink = this._stdSinkBacking((__ball_eq(m, null) ? null : __ball_index(m, 'sink')), 'sink_write');
+    let text = await this._ballToStringAsync((__ball_eq(m, null) ? null : __ball_index(m, 'text')));
     sink[_kBallSinkBuffer] = (__ball_to_string(__ball_index(sink, _kBallSinkBuffer)) + __ball_to_string(text));
   }
 
   _stdSinkToString(input: any): any {
-    return __ball_index(this._stdSinkBacking(this._stdAsMap(input)?.['sink'], 'sink_to_string'), _kBallSinkBuffer);
+    let m = this._stdAsMap(input);
+    let sink = this._stdSinkBacking((__ball_eq(m, null) ? null : __ball_index(m, 'sink')), 'sink_to_string');
+    return __ball_index(sink, _kBallSinkBuffer);
   }
 
   _stdSinkBacking(value: any, function_: any): any {

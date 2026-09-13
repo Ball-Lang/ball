@@ -35740,7 +35740,14 @@ func BallEngine___stdSinkCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = ball_input
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
-		var seed ballrt.Value = ballrt.IndexGet(_stdAsMap(ballrt.Arg0WithSelf(ball_input, __self)), "initial")
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
+		_ = m
+		var seed ballrt.Value = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+				return ballrt.Value(nil)
+			}
+			return ballrt.IndexGet(m, "initial")
+		}()
 		_ = seed
 		var sink ballrt.Value = _ballUserMap(ballrt.Value(nil))
 		_ = sink
@@ -35834,12 +35841,22 @@ func BallEngine___stdSinkWrite(input ballrt.Value) (__ret ballrt.Value) {
 		_ = m
 		var sink ballrt.Value = _stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
 			__m := ballrt.NewMap()
-			__m.Set("arg0", ballrt.IndexGet(m, "sink"))
+			__m.Set("arg0", func() ballrt.Value {
+				if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+					return ballrt.Value(nil)
+				}
+				return ballrt.IndexGet(m, "sink")
+			}())
 			__m.Set("arg1", "sink_write")
 			return __m
 		}(), __self))
 		_ = sink
-		var text ballrt.Value = _ballToStringAsync(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "text"), __self))
+		var text ballrt.Value = _ballToStringAsync(ballrt.Arg0WithSelf(func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+				return ballrt.Value(nil)
+			}
+			return ballrt.IndexGet(m, "text")
+		}(), __self))
 		_ = text
 		_ = ballrt.IndexSet(sink, _kBallSinkBuffer(ballrt.Value(nil)), ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))), ballrt.ToStr(text)))
 		return ballrt.Value(nil)
@@ -35912,12 +35929,23 @@ func BallEngine___stdSinkToString(input ballrt.Value) (__ret ballrt.Value) {
 	ball_input := ballrt.ArgGet(input, "input", "arg0")
 	_ = ball_input
 	defer ballrt.CatchReturn(&__ret)
-	__ret = ballrt.IndexGet(_stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
-		__m := ballrt.NewMap()
-		__m.Set("arg0", ballrt.IndexGet(_stdAsMap(ballrt.Arg0WithSelf(ball_input, __self)), "sink"))
-		__m.Set("arg1", "sink_to_string")
-		return __m
-	}(), __self)), _kBallSinkBuffer(ballrt.Value(nil)))
+	__ret = func() ballrt.Value {
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
+		_ = m
+		var sink ballrt.Value = _stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("arg0", func() ballrt.Value {
+				if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+					return ballrt.Value(nil)
+				}
+				return ballrt.IndexGet(m, "sink")
+			}())
+			__m.Set("arg1", "sink_to_string")
+			return __m
+		}(), __self))
+		_ = sink
+		return ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))
+	}()
 	return
 }
 

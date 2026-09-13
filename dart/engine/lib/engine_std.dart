@@ -2010,8 +2010,18 @@ extension BallEngineStd on BallEngine {
   // `466_string_sink`.
 
   /// `std.sink_create` — a new text sink, optionally seeded with `initial`.
+  ///
+  /// PORTABILITY: every field read below is an explicit `m == null ? …` test,
+  /// never a null-aware index (`m?['initial']`). This file is `part of
+  /// engine.dart`, so it is encoded to Ball and compiled into every
+  /// self-hosted engine, and `?.[]` encodes to `std.null_aware_index` — a base
+  /// function the Rust target does not implement. It cost three fixtures on the
+  /// `rust-engine` matrix row before the explicit form went back in (the
+  /// "engine code must be self-host-portable" rule, docs/TESTING_STRATEGY.md
+  /// §6).
   Future<Object?> _stdSinkCreate(Object? input) async {
-    final seed = _stdAsMap(input)?['initial'];
+    final m = _stdAsMap(input);
+    final seed = m == null ? null : m['initial'];
     final sink = _ballUserMap();
     sink['__type__'] = _kBallSinkTag;
     sink[_kBallSinkBuffer] = seed == null ? '' : await _ballToStringAsync(seed);
@@ -2026,8 +2036,8 @@ extension BallEngineStd on BallEngine {
   /// this file re-deriving a second, divergent number/bool rendering.
   Future<Object?> _stdSinkWrite(Object? input) async {
     final m = _stdAsMap(input);
-    final sink = _stdSinkBacking(m?['sink'], 'sink_write');
-    final text = await _ballToStringAsync(m?['text']);
+    final sink = _stdSinkBacking(m == null ? null : m['sink'], 'sink_write');
+    final text = await _ballToStringAsync(m == null ? null : m['text']);
     sink[_kBallSinkBuffer] = '${sink[_kBallSinkBuffer]}$text';
     return null;
   }
@@ -2038,10 +2048,14 @@ extension BallEngineStd on BallEngine {
   /// is a sink, and a sink's `__buffer__` is a String from the moment
   /// `sink_create` seeds it, so there is no "missing buffer" case to invent a
   /// default for.
-  Object? _stdSinkToString(Object? input) => _stdSinkBacking(
-    _stdAsMap(input)?['sink'],
-    'sink_to_string',
-  )[_kBallSinkBuffer];
+  Object? _stdSinkToString(Object? input) {
+    final m = _stdAsMap(input);
+    final sink = _stdSinkBacking(
+      m == null ? null : m['sink'],
+      'sink_to_string',
+    );
+    return sink[_kBallSinkBuffer];
+  }
 
   /// The live backing map of [value], or a loud error when it is not a sink.
   ///

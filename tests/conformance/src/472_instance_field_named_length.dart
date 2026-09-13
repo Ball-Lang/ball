@@ -38,18 +38,27 @@
 //     instead of the entry count. That is THIS fixture's precedence rule read at
 //     the opposite site and in the opposite direction: an instance's own field
 //     must beat the emulation, a map's key must not.
-//   * instance fields named `keys` / `values` / `entries` (#697 section C) read
-//     back CORRECTLY on the Dart reference engine and on every self-hosted
-//     engine row — they are wrong on the `C++ Compiled` leg SPECIFICALLY, which
-//     is one of the two targets this fixture pins. Measured on this branch's
-//     first Conformance Matrix run (34768683903), where an earlier draft of this
-//     fixture still carried them: `C++ Compiled` alone reported
-//     `Results: 351 passed, 1 failed, 352 total` while `Dart Engine` and the
-//     Rust / C# / Go / Python rows all passed. `cpp/compiler/src/compiler.cpp`
-//     still emits `.keys` / `.entries` / `.values` unconditionally at this head:
-//     #681's fix teaches that block the receiver-scoped proof for `length` /
-//     `isEmpty` / `isNotEmpty` only, the three names measured below. Extending
-//     it needs its own fixture first, which is what #697's C-half asks for.
+//   * instance fields named `keys` / `values` / `entries` (#697 section C) are a
+//     different failure set again, and a NARROWER one: not every target, but the
+//     `C++ Compiled` leg — one of the two this fixture pins. They encode as
+//     plain `fieldAccess` nodes, so the Dart reference engine's own precedence
+//     (the instance's own key first) answers them correctly, and so does every
+//     self-hosted engine — the TS wrapper #681 fixes intercepts `length` /
+//     `isEmpty` / `isNotEmpty` and nothing else. The C++ compiler is the one
+//     that reads them wrong: `cpp/compiler/src/compiler.cpp` still emits
+//     `.entries`, `.keys` and `.values` as unconditionally as it used to emit
+//     `ball_length`, and #681 teaches that block to yield to a declaring
+//     receiver for its own three names ONLY.
+//
+//     That is read off the compiler at this head. The corroborating measurement
+//     is this branch's first Conformance Matrix run (34768683903), where a draft
+//     of this fixture carrying `int keys; int values; int entries;` failed
+//     `C++ Compiled` (`Results: 351 passed, 1 failed, 352 total`) while the
+//     `Dart Engine` and Rust / C# / Go / Python rows passed it. That run cannot
+//     ATTRIBUTE the failure to those three fields on its own — the same draft
+//     also carried the `length` field, and the C++ guard had not landed yet —
+//     which is exactly why #697's C-half asks for its own fixture instead of
+//     folding them in here, where they would blur what this one measures.
 
 class Holder {
   int length;

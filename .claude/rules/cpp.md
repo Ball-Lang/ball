@@ -120,13 +120,18 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   externally, read unqualified from inside the class, and read again after a
   write, with a list, a string and a map as the controls proving `.length` still
   answers for real collections. The guard covers those THREE names only. The
-  sibling shortcuts just below it — `.entries`, `.keys`, `.values`, `.first`,
-  `.last`, `.runtimeType` — are still unconditional, so a class declaring one of
-  those names as a plain field reads back the map emulation instead. That is
-  measured, not suspected: the first draft of `472_instance_field_named_length`
+  sibling shortcuts just below it in `compile_field_access` — `.entries`,
+  `.keys`, `.values`, `.first`, `.last`, `.runtimeType` — are still
+  unconditional, so a class declaring one of those names as a plain field reads
+  back the map/iterable emulation instead of the field: the same defect #681
+  fixes for `length`, still live for its siblings, and **this target only** (they
+  encode as plain `fieldAccess` nodes, which every engine resolves own-key-first).
+  Corroborating measurement: the first draft of `472_instance_field_named_length`
   carried `int keys; int values; int entries;` and failed the `C++ Compiled` row
-  alone (`Results: 351 passed, 1 failed, 352 total`, run 34768683903) while the
-  Dart reference engine and every self-hosted engine row passed it. Extending
+  (`Results: 351 passed, 1 failed, 352 total`, run 34768683903) while the
+  `Dart Engine` and Rust / C# / Go / Python rows passed it — though that run
+  cannot attribute the failure to those three fields alone, since the same draft
+  carried `length` too and this guard had not landed. Extending
   `declared_by_receiver` to them is #697's C-half and needs its own fixture
   first; do not widen the guard without one.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct

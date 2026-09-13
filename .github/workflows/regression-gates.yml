@@ -457,3 +457,42 @@ jobs:
           ctest --test-dir cpp/ci-build -C Release
           -L selfhost
           --output-on-failure --no-tests=error
+
+      # ── The tool's DEFAULT emit must compile (issue #601) ──────────────────
+      # dart/compiler/tool/compile_engine_cpp.dart emits the self-hosted engine
+      # in SPLIT multi-TU form BY DEFAULT (`ball_cpp_compile … --split
+      # dart/self_host/lib/engine_rt --shards 8`); only `--monolithic` — which
+      # every CI invocation passes (the step above, ci.yml's vcpkg job,
+      # release-cpp.yml) — selects the single engine_rt.cpp built above. And
+      # cpp/test/CMakeLists.txt PREFERS the split tree whenever
+      # engine_rt_common.hpp exists. So the tool's own default output is
+      # emitted by a supported flag, silently preferred by CMake, and compiled
+      # by NOTHING: a developer who runs the tool the documented way gets an
+      # engine that does not build, and no gate says so.
+      #
+      # This step compiles it. It runs LAST, and configures its OWN build dir,
+      # because the split tree lands at exactly the path CMake prefers —
+      # emitting it any earlier would silently retarget the monolithic
+      # conformance build above at these never-compiled sources.
+      - name: "C++ self-host: the tool's default emit must compile (#601)"
+        run: |
+          set -euo pipefail
+          rm -rf dart/self_host/lib/engine_rt
+          dart run dart/compiler/tool/compile_engine_cpp.dart
+          common=dart/self_host/lib/engine_rt/engine_rt_common.hpp
+          if [ ! -s "$common" ]; then
+            echo "::error::the default emit produced no $common — it either is not the split path any more or it failed silently"
+            exit 1
+          fi
+          shards=0
+          for f in dart/self_host/lib/engine_rt/engine_rt_shard_*.cpp; do
+            [ -e "$f" ] || break
+            shards=$((shards + 1))
+          done
+          if [ "$shards" -lt 2 ]; then
+            echo "::error::the default emit produced $shards shard(s) — fewer than 2 means the multi-TU split never happened, so building it would prove nothing"
+            exit 1
+          fi
+          echo "default emit: $shards shard(s) + $common"
+          cmake -S cpp -B cpp/ci-build-split -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build cpp/ci-build-split --config Release --target test_selfhost_conformance

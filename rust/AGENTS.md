@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 346 passed, 0
-failed, 346 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 347 passed, 0
+failed, 347 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -46,7 +46,7 @@ absent, not green, on a PR; it is floored by ratchet in that workflow's
 
 | Crate | Path | Purpose | Status |
 |-------|------|---------|--------|
-| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders (a PORT of `dart/shared/lib/std*.dart`, gated name-for-name by `src/std_dart_parity.rs` — port every `_fn(...)` change in the same PR, #505) + `runtime::*` base-op helpers | Complete (#34, #35) |
+| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders (a PORT of `dart/shared/lib/std*.dart`, gated name-for-name AND `outputType`-for-`outputType` by `src/std_dart_parity.rs` — port every `_fn(...)` change in the same PR, #505/#557) + `runtime::*` base-op helpers | Complete (#34, #35) |
 | `ball-lang-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
 | `ball-lang-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
 | `ball-lang-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
@@ -140,8 +140,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 346 passed, 0 failed,
-346 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 347 passed, 0 failed,
+347 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -208,8 +208,24 @@ encoder-side mapping only, closed by slice 3 below.
 (15 files, `lib.rs::encode_call`'s path-based `ExprCall` fallback) and `unsupported method call,
 callee not in this file` (24 files, `methods.rs`'s own panic on a `receiver.method(args)` whose
 method name isn't in the `collect_impl_method_params` pre-pass) are **different rows against
-different panic sites**. Slice 3 closed the first; the second is the largest remaining bucket, has
-no `documented_gaps.rs` pin yet, and is the recommended next slice.
+different panic sites**. Slice 3 closed the first; the second is the largest remaining bucket and
+is now pinned by `documented_gaps.rs::cross_file_method_call_is_a_documented_gap` — pinned,
+**not closed**. A gate nothing observes is a missing-test bug in its own right, so the pin landed
+independently of any behaviour change.
+
+Closing that bucket is deliberately NOT a same-day "add one dispatch arm" slice, and the reason is
+structural: the free-function fix above worked because `other_file::helper(...)` carries a
+module-qualifying path segment the encoder can read straight off the syntax and stash as an
+unresolved `ModuleImport`. `receiver.method(args)` carries **no such qualifier** — there is no
+alias to attribute an unrecognized method to — and this encoder is syntax-only (`syn`, no
+semantic model, the same limitation Roslyn's C# encoder documents for itself), so it cannot tell
+"an instance method implemented in a sibling file" from "a typo" or "an unsupported built-in".
+The two honest options are (a) a multi-file-aware entry point that pre-collects
+`method_params`/`local_type_names` across a crate's files before encoding any one of them — an
+encoder-orchestration change, no proto/IR change, since `ModuleImport`/`FunctionCall` already
+model unresolved cross-module calls — or (b) accepting it as a boundary, the way `methods.rs`'s
+module doc already names `.next()`/`.unwrap_or_default()` as **permanent** carve-outs. That is an
+owner decision, and it should be sized off its own fresh measurement.
 
 #### Receiver-less associated functions + cross-file calls (#491 slice 3)
 
@@ -222,9 +238,8 @@ Two more buckets closed, both encoder-side only (no compiler, proto or self-host
   packed with the callee's real parameter names and no `"self"` field.
   `rust/encoder/tests/static_methods.rs` is the proof: it encodes real source, compiles it through
   `ball-lang-compiler`, `cargo build`s it and asserts the program prints `7`.
-  The **trait** sibling (`trait Maker { fn make() -> i32; }`) is still a documented gap on
-  purpose — `compile_method_dispatchers` skips every `is_abstract` member, so a signature-only
-  static trait item would have no dispatcher for a call site to resolve to.
+  The **trait** sibling used to be described as one gap; it is two, and only one is still open —
+  see "Default-bodied receiver-less `trait` functions" below.
 - **`other_file::helper(1)` (15/196 files).** A module-qualified call whose callee this file does
   not declare no longer panics: it emits `FunctionCall{module: "other_file", function: "helper"}`
   plus a **source-less `ModuleImport`** on the `main` module — the proto's own "reference only"
@@ -254,6 +269,69 @@ Two more buckets closed, both encoder-side only (no compiler, proto or self-host
 
   The C# encoder's own cross-file bucket (#492, bucket d) is still open; when it lands it should
   mirror this "emit an unresolved `ModuleImport` rather than fail" decision.
+
+#### Default-bodied receiver-less `trait` functions (#491)
+
+The "receiver-less associated function inside a `trait`" gap was ONE bullet describing TWO
+structurally different things, and only one of them was ever a real gap. `types.rs::
+encode_item_trait`'s guard fired unconditionally on `!has_self_receiver(&trait_fn.sig)` — before
+it ever reached the `let is_default_bodied = trait_fn.default.is_some();` it computes three lines
+later and already uses correctly for the has-`self` case. So a file merely *declaring*
+`trait Maker { fn make(n: i64, m: i64) -> i64 { n + m } }` aborted wholesale.
+
+The compiler needed **no change**, and that is provable by reading it rather than by guessing:
+`type_emit.rs::compile_struct_def` filters a type's members with `.filter(|m|
+!func_meta_bool(m, "is_abstract"))` — it never consults `metadata.kind`, so a trait-owned concrete
+member lands in the same inherent `impl` block as an `impl`-owned one — and
+`compile_method_dispatchers` applies its single-owner `is_static` shortcut (issue #288) by exactly
+the same rule. A default-bodied receiver-less trait fn is therefore architecturally identical to
+`impl Point { fn new(..) }` at every layer below the encoder.
+
+The fix is three encoder-local edits: the guard keys on the missing **body**
+(`is_static && !is_default_bodied`) rather than the missing receiver; the member carries
+`metadata.is_static`; and a new pre-pass sibling, `types.rs::collect_trait_static_params`, registers
+each default-bodied receiver-less member into `Encoder::static_method_params` under the same
+`(owner short, method short)` key `collect_impl_method_params` uses — owner-qualified, so a
+trait's `make` and an `impl`'s `make` cannot shadow each other.
+
+**One subtlety worth the paragraph:** a receiver-less member's `metadata.params` must come from
+`param_names_and_types`, **not** `method_non_self_params`. The latter unconditionally `.skip(1)`s
+a leading `self` that isn't there, so it silently drops the member's FIRST real parameter.
+`encode_item_impl` already branches on exactly this; `encode_item_trait` had to learn to. A
+0- or 1-parameter example cannot expose it (an empty iterator skips nothing, and a single argument
+is passed directly rather than packed under a field name), which is why the proof test declares
+`fn make(n, m)` with two — reverting just that branch turns its assertion into
+`left: ["m"], right: ["n", "m"]`.
+
+Still open, deliberately: a **signature-only** receiver-less trait fn
+(`trait Maker { fn make() -> i32; }`). Both compiler passes above skip every `is_abstract` member,
+so a `Maker::make()` call site would have no dispatcher to resolve to — closing THAT does need
+compiler-side work with no #288-style precedent, and
+`documented_gaps.rs::trait_associated_fn_without_receiver_is_a_documented_gap` stays
+`#[should_panic]` on that exact input. This slice NARROWED the gap; it did not close it.
+
+Proof: `rust/encoder/tests/static_methods.rs::
+default_bodied_trait_fn_without_receiver_encodes_and_round_trips` encodes a file carrying both a
+trait (2-parameter default static, 0-parameter default static, `&self` default method) and an
+`impl` (its own receiver-less associated fn), compiles it through `ball-lang-compiler`,
+`cargo build`s it and asserts the program prints `12`.
+
+**Measured, not predicted: Tier A did not move — and neither did the histogram.** Re-run on the
+5-crate pin set with this fix in place: `Results: 0 passed, 110 failed, 110 total`,
+`1 encoded: 0/110`, and a first-blocker histogram *identical* to the one the tuple/unit-struct
+slice recorded above (call target 30, method call 16, top-level item 12, path expression 12,
+macro 9, `impl` self type 8, expression kind 7, data-carrying enum 5). Not one scored file was
+blocked FIRST by the trait guard, so narrowing it moved no category at all — a weaker result than
+the tuple/unit-struct slice's, which at least emptied its own row. A default-bodied
+*receiver-less* trait fn is simply a narrow Rust idiom; most default trait methods take `&self`.
+Say that plainly rather than implying a moved floor. The value here is that a real gap was
+narrower than three merged PRs' worth of documentation claimed, and that a latent
+parameter-dropping defect (see the paragraph above) never shipped.
+
+A neighbouring trait gap the same sweep DOES show as live: `only method signatures are supported
+inside a `trait` block` — an associated `const`/`type` inside a `trait` — blocks 3 of the 110
+files first. That is the `impl`-block tolerance of slice 5 not yet extended to `trait` blocks, and
+it is a plausible cheap next slice; it has no `documented_gaps.rs` pin yet either.
 
 #### Non-`Fn` items inside an `impl` block (#491 slice 5)
 

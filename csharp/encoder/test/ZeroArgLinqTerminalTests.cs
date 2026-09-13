@@ -13,9 +13,10 @@ namespace Ball.Encoder.Tests;
 ///
 /// <para><b>Where the gap came from.</b> <c>DispatchInstanceOrBuiltinMethod</c>'s
 /// <c>switch (methodName, argExprs.Count)</c> carries an arity window per routed name (the
-/// <c>collectionRoutes</c> pattern of <c>dart/encoder</c>, #494/#510): <c>First</c> and
-/// <c>FirstOrDefault</c> have BOTH a 1-argument arm (<c>list_find</c>) and a 0-argument arm
-/// (<c>list_first</c>), and <c>Any</c> has only its 1-argument arm (<c>list_any</c>). The
+/// <c>collectionRoutes</c> pattern of <c>dart/encoder</c>, #494/#510): <c>First</c> has BOTH
+/// a 1-argument arm (<c>list_find</c>) and a 0-argument arm (<c>list_first</c>) — as did
+/// <c>FirstOrDefault</c> until issue #588 removed it from both — and <c>Any</c> has only its
+/// 1-argument arm (<c>list_any</c>). The
 /// 0-argument spellings of <c>Last</c> and <c>Any</c> had no arm at all, so they fell through
 /// to the same generic fallback throw every unresolved name hits:
 /// <c>unsupported method call `.Last(...)` with 0 argument(s) (… a user-defined instance method
@@ -34,14 +35,15 @@ namespace Ball.Encoder.Tests;
 /// <c>_stdAsList(...)!.last</c> in the Dart reference engine) — the SAME contract, which is
 /// why this is a route and not an approximation.</para>
 ///
-/// <para><b>Why <c>LastOrDefault</c> is deliberately NOT routed.</b> It is the
-/// default-returning contract, and the only tree available to it today is the throwing
-/// <c>list_first</c>/<c>list_last</c>. The pre-existing <c>("First" or "FirstOrDefault", 0)</c>
-/// arm already makes that trade — <c>.FirstOrDefault()</c> on an empty list throws where C#
-/// returns <c>default(T)</c> — which is a latent silent-wrong-behaviour bug this slice
-/// FLAGS (issue #588) rather than propagates to a second name. See
-/// <see cref="LastOrDefaultStillFailsLoud"/> and the "Still open on #492" list in
-/// <c>csharp/AGENTS.md</c>.</para>
+/// <para><b>Why no <c>*OrDefault</c> name is routed.</b> They are the default-returning
+/// contracts, and the only trees available to them are the throwing
+/// <c>list_first</c>/<c>list_last</c>/<c>list_find</c>. When this file was written the
+/// pre-existing <c>("First" or "FirstOrDefault", …)</c> arms still made that trade — issue
+/// #588 — and this slice FLAGGED it rather than propagating it to a second name; #588 has
+/// since REMOVED <c>FirstOrDefault</c> from both arms, so all four <c>*OrDefault</c> spellings
+/// now fail loud for one reason. See <see cref="OrDefaultTerminalsFailLoud"/>,
+/// <see cref="FirstOrDefaultContractTests"/> for the decision record, and the
+/// "`*OrDefault` LINQ terminals" section of <c>csharp/AGENTS.md</c>.</para>
 /// </summary>
 public class ZeroArgLinqTerminalTests
 {
@@ -109,17 +111,22 @@ public class ZeroArgLinqTerminalTests
     }
 
     /// <summary>
-    /// <c>.LastOrDefault()</c> must keep failing LOUD. Its contract is "return
-    /// <c>default(T)</c> on an empty sequence", and the only tree available today
-    /// (<c>list_last</c>) throws instead — routing it would trade a loud encode error for a
-    /// program that encodes, compiles, runs, and is wrong exactly on the empty input the name
-    /// exists to handle. The neighbouring <c>FirstOrDefault</c> arm already carries that
-    /// defect (issue #588); this slice does not spread it to a second name.
+    /// Every <c>*OrDefault</c> LINQ terminal must fail LOUD. Their contract is "return
+    /// <c>default(T)</c> instead of throwing", and every tree available today
+    /// (<c>list_first</c>/<c>list_last</c>/<c>list_find</c>) throws instead — routing one
+    /// trades a loud encode error for a program that encodes, compiles, runs, and is wrong
+    /// exactly on the empty/no-match input the name exists to handle. <c>FirstOrDefault</c>
+    /// was the one name that did carry that defect (issue #588, fixed by removing it from
+    /// <c>First</c>'s two arity windows); the whole family is now asserted here, by one test,
+    /// for one reason. <see cref="FirstOrDefaultContractTests"/> records why the alternative —
+    /// a nullable <c>list_first_or_null</c> primitive — was declined.
     /// </summary>
     [Theory]
+    [InlineData("values.FirstOrDefault()")]
+    [InlineData("values.FirstOrDefault(v => v > 1)")]
     [InlineData("values.LastOrDefault()")]
     [InlineData("values.SingleOrDefault()")]
-    public void LastOrDefaultStillFailsLoud(string expression)
+    public void OrDefaultTerminalsFailLoud(string expression)
     {
         var ex = Assert.Throws<EncoderException>(() => TestHelpers.EncodeProgram(OnValues($"        var x = {expression};")));
 

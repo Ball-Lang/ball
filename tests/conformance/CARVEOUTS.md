@@ -56,12 +56,10 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   engine returned the NEW SET from both (and never mutated the receiver), the Dart
   and C++ compilers returned the set, and the TS engine returned an unconditional
   `true` from `set_add`. **Each case uses a FRESH set** rather than chaining calls
-  against one `let`-bound set: the chained form is the natural fixture and was
-  written first, but it fails on the C# and Rust self-hosted engines for an
-  unrelated, pre-existing reason (`_ballSetItems` hands back a COPY there, so every
-  in-place set mutation the engine performs is silently lost — issue #557).
-  Chaining the calls and asserting the interleaved `set_length`/`set_contains` is
-  exactly #557's regression test and should land with its fix.
+  against one `let`-bound set, so this fixture pins the RETURN-VALUE contract only.
+  The chained form — one set, mutated and then read back — is
+  `462_set_mutation_in_place` below, added with the fix for issue #557; the two
+  fixtures cover different halves of the same contract, so keep both.
   For the same reason it is inexpressible in Dart, it also cannot survive the
   **`dart-roundtrip`** leg of `dart/compiler/test/conformance_roundtrip_test.dart`
   (Ball → Dart → *encoder* → Ball' → Dart): the compiled `a.add(3)` needs the
@@ -71,6 +69,28 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `_knownUnroundtrippable` ratchet (which fails if the entry ever starts passing);
   the fixture's `engine`, `dart-compiled` and `ts-compiled` legs all pass. Issue #488
   owns the receiver-type seam that will delete the entry.
+- `462_set_mutation_in_place` — the IN-PLACE half of `std_collections.set_add` /
+  `set_remove` (issue #557): one `let`-bound set is created once, added to, removed
+  from, and then READ BACK — printed whole, measured with `set_length`, and probed
+  with `set_contains` for both the added and the removed element. Hand-authored for
+  the same reason `459` is (the receiver-type gate, issue #488, means no portable
+  Dart source encodes to a `set_add` call), by the same tool,
+  `dart/encoder/tool/gen_std_gap_fixtures.dart`.
+  It is the regression guard for #557: the C#, Rust and C++ self-hosted engines all
+  printed `{1, 2}` for the whole set while every bool AND `set_length` still looked
+  right, because their compiled `_ballSetItems` handed back a COPY of the backing
+  list (its `v is Map` guard is false for a tagged set on those targets since
+  #528/#553, so the native-`Set` `.toList()` branch ran instead). Only reading the
+  SAME set back after a mutation can see that — which is exactly why `459`'s
+  fresh-set-per-case form could not, and why this fixture must never be rewritten
+  to use a fresh set.
+  Like `459`, it cannot survive the **`dart-roundtrip`** leg of
+  `dart/compiler/test/conformance_roundtrip_test.dart` (its first line is a
+  `set_add` result in a value position, and the compiled `a.add(3)` re-encodes to
+  `list_push` → the cascade `a..add(3)` → the SET). It is the second and last entry
+  in that harness's `_knownUnroundtrippable` ratchet; issue #488 owns the seam that
+  will delete both. The fixture's `engine`, `dart-compiled` and `ts-compiled` legs
+  all pass.
 - `399_bytes_literal` — exercises a `Literal.bytes_value` node (the `literal.bytes_value`
   node-shape carve-out, #64 Phase 2b). No Dart source construct maps to a bytes literal
   (`Uint8List.fromList([...])` encodes as a constructor call), so it cannot be generated

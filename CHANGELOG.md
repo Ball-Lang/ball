@@ -1,3 +1,19 @@
+## [1.72.2](https://github.com/Ball-Lang/ball/compare/v1.72.1...v1.72.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **csharp:** un-route `.FirstOrDefault()` from `First`'s throwing arms (closes [#588](https://github.com/Ball-Lang/ball/issues/588)) ([#598](https://github.com/Ball-Lang/ball/issues/598)) ([07344ca](https://github.com/Ball-Lang/ball/commit/07344ca9da421588297e94ce48017351508a2e74)), closes [C#-specific](https://github.com/C/issues/-specific)
+
+## [1.72.1](https://github.com/Ball-Lang/ball/compare/v1.72.0...v1.72.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **dart:** keep flow promotion across a round-tripped cascade and carry inferred constructor generics (closes [#573](https://github.com/Ball-Lang/ball/issues/573)) ([#592](https://github.com/Ball-Lang/ball/issues/592)) ([fb109cf](https://github.com/Ball-Lang/ball/commit/fb109cf010ac936516d6439d0b26f0593c0a178d)), closes [#488-slice](https://github.com/Ball-Lang/ball/issues/488-slice) [#488](https://github.com/Ball-Lang/ball/issues/488)
+* **engine:** probe the ordered-set representation with `is BallRawMap`, so in-place set mutation survives on every self-hosted engine (closes [#557](https://github.com/Ball-Lang/ball/issues/557)) ([#591](https://github.com/Ball-Lang/ball/issues/591)) ([64633d3](https://github.com/Ball-Lang/ball/commit/64633d39e20aa72d4146ebdd02d86effe5e55a55)), closes [528/#553](https://github.com/Ball-Lang/ball/issues/553) [#545](https://github.com/Ball-Lang/ball/issues/545)
+* **rust:** encode default-bodied receiver-less trait fns, and pin the unobserved cross-file method-call gap ([#589](https://github.com/Ball-Lang/ball/issues/589)) ([1428515](https://github.com/Ball-Lang/ball/commit/1428515d24428cf8add38fca0a7d81263b0d33f0)), closes [#491](https://github.com/Ball-Lang/ball/issues/491) [#491](https://github.com/Ball-Lang/ball/issues/491) [#491](https://github.com/Ball-Lang/ball/issues/491) [#526](https://github.com/Ball-Lang/ball/issues/526) [#288](https://github.com/Ball-Lang/ball/issues/288) [#491](https://github.com/Ball-Lang/ball/issues/491)
+
 # [1.72.0](https://github.com/Ball-Lang/ball/compare/v1.71.1...v1.72.0) (2026-09-13)
 
 

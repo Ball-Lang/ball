@@ -309,12 +309,26 @@ fn functions() -> Vec<FunctionDefinition> {
             "",
             "Create set from list: Set.from(list)",
         ),
-        base_fn("set_add", "SetInput", "", "Add element: set.add(value)"),
+        // `bool`, not `""` — issue #545 made `set_add`/`set_remove` Dart-exact on
+        // every target (mutate the receiver in place, answer `true` only on a
+        // fresh insert / an actual removal) and declared that in
+        // `dart/shared/lib/std_collections.dart`; this port kept `""`, so the
+        // declared contract disagreed with the implemented one on the Rust side
+        // while both name-parity gates stayed green (issue #557).
+        // `function_output_types_match_dart_source` is what now sees it.
+        base_fn(
+            "set_add",
+            "SetInput",
+            "bool",
+            "Add element: set.add(value). Mutates the set in place; returns true \
+             only when the element was newly inserted (Dart Set.add semantics).",
+        ),
         base_fn(
             "set_remove",
             "SetInput",
-            "",
-            "Remove element: set.remove(value)",
+            "bool",
+            "Remove element: set.remove(value). Mutates the set in place; returns \
+             true only when the element was present (Dart Set.remove semantics).",
         ),
         base_fn(
             "set_contains",
@@ -371,5 +385,17 @@ mod tests {
         let module = build_std_collections_module();
         let names: Vec<String> = module.functions.iter().map(|f| f.name.clone()).collect();
         crate::std_dart_parity::assert_matches_dart_source("std_collections", &names);
+    }
+
+    #[test]
+    fn function_output_types_match_dart_source() {
+        // The name gate above cannot see a declared-TYPE drift: issue #545 gave
+        // `set_add`/`set_remove` Dart's `outputType: 'bool'` and this crate kept
+        // declaring `""` — both sides green, the contract split (issue #557).
+        let module = build_std_collections_module();
+        crate::std_dart_parity::assert_output_types_match_dart_source(
+            "std_collections",
+            &module.functions,
+        );
     }
 }

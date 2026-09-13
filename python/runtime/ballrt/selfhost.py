@@ -43,6 +43,16 @@ _BUILTIN = {
     "List": lambda v: isinstance(v, list),
     "Iterable": lambda v: isinstance(v, (list, BallSet)),
     "Map": lambda v: isinstance(v, dict),
+    # The self-hosted engine's own name for the RAW string-keyed map its
+    # portable ordered-set value is BUILT OUT OF (``BallRawMap``, a typedef in
+    # dart/engine/lib/engine_types.dart -- issue #557). Python models a Set as a
+    # distinct ``BallSet``, so ``Map`` never had to exclude one and this arm
+    # answers exactly like ``Map`` does. The targets that model a set AS a
+    # tagged map (Rust/C#/C++) are the ones where the two answers differ: there
+    # ``is Map`` excludes a set, so only this name can reach the engine's own
+    # representation. Without an arm the engine falls back to ``is Map``, which
+    # is why Python was never affected.
+    "BallRawMap": lambda v: isinstance(v, dict),
     "Set": lambda v: isinstance(v, BallSet),
     "Function": callable,
     "Object": lambda v: v is not None,

@@ -24,12 +24,14 @@
 //!   plus a `DescriptorProto`; `enum` (fieldless variants only —
 //!   data-carrying variants are a documented gap) → `Module.enums[]` (an
 //!   `EnumDescriptorProto`) plus a companion, descriptor-less
-//!   `TypeDefinition`; `trait` → an `is_abstract` `TypeDefinition` with
-//!   signature-only abstract members; `impl`/`impl Trait for Type` blocks →
+//!   `TypeDefinition`; `trait` → an `is_abstract` `TypeDefinition` whose
+//!   members are abstract when signature-only and concrete when
+//!   default-bodied; `impl`/`impl Trait for Type` blocks →
 //!   instance methods (`self`/`&self`/`&mut self` receiver) **and
 //!   receiver-less associated functions** (`Point::new(...)` → a
 //!   `metadata.is_static` class member, issue #491 — see `types.rs`'s module
-//!   doc comment; the signature-only *trait* sibling is still a documented
+//!   doc comment; a **default-bodied** receiver-less *trait* member encodes
+//!   the identical way, while the signature-only one is still a documented
 //!   gap). Construction can also use Rust's own struct-literal syntax
 //!   (`Point { x, y }`), which needs no constructor at all — it's a plain
 //!   `message_creation`. **A tuple struct's construction (`Pair(3, 4)`,
@@ -431,6 +433,11 @@ fn encode_main_module(source: &str) -> EncodedFile {
                 encoder
                     .local_type_names
                     .insert(item_trait.ident.to_string());
+                // A default-bodied, receiver-less trait member is callable as
+                // `Maker::make(...)` exactly like an `impl`-declared one, so
+                // it needs the same `(owner, method) -> parameter names`
+                // registration (issue #491).
+                encoder.collect_trait_static_params(item_trait);
             }
             syn::Item::Impl(item_impl) => {
                 encoder.collect_impl_method_params(item_impl);

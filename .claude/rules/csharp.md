@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 346 passed, 0 failed, 346 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 347 passed, 0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -95,6 +95,14 @@ compile items so the sibling projects never double-compile each other's files.
   spread, and `+` concat build a fresh backing — never alias an operand.
 - `BallMap` is insertion-ordered via `System.Collections.Generic.OrderedDictionary<string,
   BallValue>` (.NET 9+ BCL type) — never substitute `Dictionary<,>`.
+- **`is BallRawMap` is the engine's own raw-map probe, and `BallStd.IsOfType` answers it
+  (#557).** The `"Map"` arm deliberately EXCLUDES a tagged set so a user program's
+  `{1,2} is Map` is `false` (#528/#553) — but the self-hosted engine's `_ballValueIsSet` needs
+  the opposite answer for its OWN representation, and with only `is Map` to ask with it was
+  permanently `false` here, so every in-place set mutation the engine performed went to a
+  throwaway copy. `BallRawMap` (a typedef in `dart/engine/lib/engine_types.dart`) is that second
+  question, answered structurally: `value is BallMap`, no exclusion. Conformance fixture
+  `462_set_mutation_in_place` is the guard.
 - Documented scope gaps live in `csharp/AGENTS.md`'s "Compiler" section (body-carrying
   constructors, `super` chains, static members, labelled `break`/`continue` were closed during
   the self-host grind; read the current gap list before assuming something is a bug vs. a known
@@ -237,10 +245,22 @@ compile items so the sibling projects never double-compile each other's files.
   functions were already declared/compiled/interpreted; this was purely a dispatch-table gap, and
   its measured Tier A yield is **zero** (stage 1 stayed at 123/472 — Tier A reports only a file's
   FIRST error), so it is justified by targeted tests plus a round-trip run, never by a funnel
-  number. `LastOrDefault`/`SingleOrDefault` stay LOUD errors on purpose: the neighbouring
-  `FirstOrDefault` arm routes a default-returning name to the throwing `list_first`, a
-  pre-existing silent-wrong-behaviour defect (issue #588, listed in `csharp/AGENTS.md`'s "Still
-  open on #492") that a new name does not get to inherit.
+  number. No `*OrDefault` name is routed — see the next bullet.
+- **No `*OrDefault` LINQ terminal is routed** (#588): `FirstOrDefault` used to share `First`'s two
+  arity windows (`list_first` at 0 args, `list_find` at 1), both of which THROW when there is
+  nothing to return — right for `.First()`/`.First(pred)`, the exact opposite of the
+  `default(T)` contract. Reproduced at BOTH arities by running the encoded `.ball.json` on the
+  Dart reference engine (`Bad state: No element` where real C# prints `0`), so the defect is in
+  the IR, not one target's runtime. The fix is a SUBTRACTION, not a nullable `list_first_or_null`:
+  `default(T)` is `null` for a reference `T` but `0`/`0.0`/`false`/a zeroed struct for a value `T`,
+  and a syntax-only encoder cannot see `T` at a `.FirstOrDefault()` call site (unlike #578's
+  `default(int)`, where the keyword IS the syntax) — a nullable route would be right for some `T`
+  and silently wrong for others. `First` keeps both routes; `FirstOrDefault`/`LastOrDefault`/
+  `SingleOrDefault` are all loud `EncoderException`s. Measured Tier A effect: **zero** (funnel
+  identical at `123/472`; one already-failing file's first error merely moved). Separately filed
+  as **#597** and NOT touched here: `list_find`'s no-match contract disagrees across engines (Dart
+  throws, TS returns `null`) — `.First(pred)` routes to `list_find` on the strength of the Dart
+  reference contract, so revisit that route if #597 resolves the other way.
 - **`default(T)` is the type's zero, not always null.** The `DefaultExpressionSyntax` arm used to
   encode every `default(T)` as a null literal, so `default(int)` printed `null` where C# prints
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero
@@ -255,8 +275,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 346 passed, 0 failed,
-  346 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 347 passed, 0 failed,
+  347 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without
@@ -349,6 +369,12 @@ compile items so the sibling projects never double-compile each other's files.
 - `csharp/cli/test/CliCoreParityTests.cs` is the golden-fixture parity gate against the real Dart
   CLI (checked-in `.txt` goldens in `test/golden/cli_core/`) — the C# analog of
   `rust/cli/tests/cli_core_parity.rs`.
+- `csharp/shared/test/StdModuleBuilderTests.cs` compares the builders to the canonical Dart
+  inventory name-for-name **and, since #557, `outputType` for `outputType`**
+  (`AssertOutputTypesMatch`). The name gate cannot see a declared-TYPE drift, and that is exactly
+  how `set_add`/`set_remove` kept `""` here after #545 declared `'bool'` in Dart — both sides
+  green, the cross-target contract split. Port the `outputType` too, not just the name; Rust has
+  the same pair of gates (`rust/shared/src/std_dart_parity.rs`).
 
 ## Dependencies
 

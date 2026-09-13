@@ -553,5 +553,65 @@ Future<void> main() async {
     ),
   );
 
+  // ── 462_set_mutation_in_place: `std_collections.set_add`/`set_remove`
+  // MUTATE the receiver, and the mutation is observable through the SAME
+  // `let`-bound set afterwards (issue #557). This is the chained form
+  // `459_set_add_remove_bool` deliberately could NOT use: there every case
+  // builds a FRESH `{1, 2}`, so the fixture pins only the returned bool and
+  // never observes the in-place write. Here one set `a` is created once, added
+  // to, removed from, and then READ BACK — printed whole, measured, and probed
+  // with `set_contains` for both the added and the removed element.
+  //
+  // Before #557's fix the C# and Rust self-hosted engines printed `{1, 2}` for
+  // the whole set while every bool AND `set_length` still looked right: their
+  // compiled `_ballSetItems` handed back a COPY of the backing list (its
+  // `v is Map` guard is false for a tagged set on those targets, so the
+  // native-`Set` `.toList()` branch ran instead), so each mutation applied to a
+  // throwaway list. Only reading the SAME set back after a mutation can see
+  // that — which is exactly why the fresh-set-per-case form could not.
+  //
+  // Hand-built for the same reason 459 is: the Dart encoder's receiver-TYPE
+  // gate (issue #488) declines to route a `Set` receiver's `.add()`/`.remove()`
+  // to these base functions, so no portable Dart source encodes to a `set_add`
+  // call. Listed in tests/conformance/CARVEOUTS.md.
+  await writeFixture(
+    '462_set_mutation_in_place',
+    buildProgramJson(
+      name: 'set_mutation_in_place',
+      // Same module shape as 459: `set_create` is declared and CALLED on `std`
+      // (what every encoder emits today), the set ops on `std_collections`.
+      stdFunctions: [
+        {'name': 'print', 'isBase': true},
+        {'name': 'to_string', 'isBase': true},
+        {'name': 'set_create', 'isBase': true},
+      ],
+      stdTypeDefs: [_printInputTypeDef, _unaryInputTypeDef, _listInputTypeDef],
+      extraModules: [
+        {
+          'name': 'std_collections',
+          'functions': [
+            {'name': 'set_add', 'isBase': true},
+            {'name': 'set_remove', 'isBase': true},
+            {'name': 'set_contains', 'isBase': true},
+            {'name': 'set_length', 'isBase': true},
+          ],
+          'typeDefs': [_setInputTypeDef],
+        },
+      ],
+      mainFunction: mainFn([
+        // ONE set, mutated in place and then read back.
+        letStmt('a', _setOf12()),
+        stmt(printExpr(toStr(setCall('set_add', 'a', literal(3))))),
+        stmt(printExpr(toStr(setCall('set_remove', 'a', literal(2))))),
+        // The set itself — the assertion the copy-instead-of-alias bug fails.
+        stmt(printExpr(toStr(ref('a')))),
+        stmt(printExpr(toStr(setLen('a')))),
+        // Probe both mutations independently of ordering and of length.
+        stmt(printExpr(toStr(setCall('set_contains', 'a', literal(3))))),
+        stmt(printExpr(toStr(setCall('set_contains', 'a', literal(2))))),
+      ]),
+    ),
+  );
+
   stderr.writeln('Done.');
 }

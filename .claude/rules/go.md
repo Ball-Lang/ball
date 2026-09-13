@@ -9,8 +9,8 @@ Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted eng
 CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version` behind the off-by-default `clicore` build tag, #570) are all in
 place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 346 passed,
-0 failed, 346 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 347 passed,
+0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance sweep — and the
 `go-engine` row in `conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.
@@ -168,7 +168,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 346 passed, 0 failed, 346 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 347 passed, 0 failed, 347 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Build-tag gating.** `compiled_engine.go` is a gitignored artifact absent from a fresh checkout,
   so everything that references it (`driver.go`, `run_selfhost.go`, `conformance/runner.go` +

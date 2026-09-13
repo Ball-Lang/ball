@@ -135,6 +135,29 @@ def test_ball_set_add_returns_bool_like_dart():
     assert s.remove(2) is False
 
 
+def test_ball_raw_map_answers_like_map():
+    """The SECOND type question the self-hosted engine asks (#557).
+
+    ``is Map`` is the USER-FACING one; ``is BallRawMap`` is the engine's own
+    "is this the raw map my ordered-set representation is built out of?".
+    Python models a Set as a distinct ``BallSet``, so ``Map`` never had to
+    exclude one and the two answers only DIFFER on the targets that model a set
+    AS a tagged map (Rust/C#/C++) -- but the compiled engine asks with
+    ``BallRawMap`` on every target now, so an unanswered name here would
+    silently push ``_ballValueIsSet`` onto its ``is Map`` fallback.
+    """
+    from ballrt import selfhost
+
+    assert selfhost.is_type({"k": 1}, "BallRawMap") is True
+    assert selfhost.is_type({"k": 1}, "Map") is True
+    # The engine's own tagged-set shape IS a dict on Python, so it answers both
+    # -- exactly why Python was never affected by #557.
+    assert selfhost.is_type({"__ball_set__": [1, 2]}, "BallRawMap") is True
+    assert selfhost.is_type(ballrt.BallSet([1, 2]), "BallRawMap") is False
+    assert selfhost.is_type(1, "BallRawMap") is False
+    assert selfhost.is_type([1], "BallRawMap") is False
+
+
 def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
     """``ballrt.proto`` must answer ANY ``has<Field>`` the compiler emits (#570).
 

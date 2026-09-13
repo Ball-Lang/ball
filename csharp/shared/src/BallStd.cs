@@ -207,6 +207,17 @@ public static partial class BallRuntime
             // …and it must NOT also answer `is Map` (the tag is a representation
             // detail, not a user-visible map).
             "Map" => value is BallMap && !BallRuntime.IsBallSet(value),
+            // The self-hosted engine's own name for the RAW string-keyed map its
+            // portable ordered-set value is BUILT OUT OF (`BallRawMap`, a typedef
+            // in dart/engine/lib/engine_types.dart). Deliberately WITHOUT the
+            // `Map` arm's set exclusion: that exclusion answers the user-facing
+            // question ("is this value a Map?"), and answering it for the
+            // engine's internal representation probe too is what made
+            // `_ballValueIsSet` permanently false here — so the engine could
+            // never reach a set's live backing list and every in-place set
+            // mutation it performed was lost (issue #557, conformance fixture
+            // `462_set_mutation_in_place`).
+            "BallRawMap" => value is BallMap,
             "Function" => value is BallFunction,
             "Null" => value is BallNull,
             "Object" or "dynamic" => value is not BallNull,

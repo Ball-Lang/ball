@@ -899,10 +899,24 @@ seeded packages it is fast.)
    cutover. If a package's admin page ever shows this **disabled**, its next
    publish fails with "publishing from github is not enabled"; re-enable it and
    re-dispatch `gh workflow run release-publish.yml --ref <pkg>-v<version>`.
-3. **crates.io** (issue #366): done. The `ball-lang-*` crates were bootstrapped at
-   0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is now configured for all
-   five and the token fallback has been removed (OIDC is the only auth path), so
-   the `CARGO_REGISTRY_TOKEN` secret can be deleted.
+3. **crates.io** (issue #366): done for the original five. The `ball-lang-*` crates
+   were bootstrapped at 0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is
+   configured for those five and the token fallback has been removed (OIDC is the
+   only auth path).
+
+   **Open item — a SIXTH crate now exists.** Issue #629 added
+   `ball-lang-macro-expand` (`rust/macro-expand/`), which `ball-lang-encoder`
+   depends on and which `cargo publish --workspace` therefore must publish.
+   crates.io only lets a Trusted Publisher be configured **after** a crate's first
+   publish (RFC 3691) — the same chicken-and-egg the other five hit at 0.1.0 — so
+   the **next `rust-crates/vX.Y.Z` run will fail on that crate under OIDC-only
+   auth** until a maintainer bootstraps it once. Two ways, either acceptable:
+   restore `CARGO_REGISTRY_TOKEN` for that one run, or `cargo publish -p
+   ball-lang-macro-expand` once by hand from a maintainer account. Then add its
+   Trusted Publisher entry (repo `Ball-Lang/ball`, workflow
+   `publish-crates.yml`) and the OIDC-only path covers all six. Do **not**
+   reintroduce a silent token fallback in the workflow to paper over this — that
+   is exactly the lying-gate shape the OIDC-only decision removed.
 4. **Confirm the release bot may push** `chore(release): … [skip ci]` commits +
    tags to `main` with `GITHUB_TOKEN` (the live npm semantic-release already
    does, and since #551 so does the Dart lane). **`RELEASE_PAT` is now

@@ -7,6 +7,10 @@
       "name": "std",
       "functions": [
         {
+          "name": "sink_create",
+          "isBase": true
+        },
+        {
           "name": "for",
           "isBase": true
         },
@@ -51,7 +55,15 @@
           "isBase": true
         },
         {
-          "name": "to_string",
+          "name": "string_from_char_code",
+          "isBase": true
+        },
+        {
+          "name": "sink_write",
+          "isBase": true
+        },
+        {
+          "name": "sink_to_string",
           "isBase": true
         },
         {
@@ -125,13 +137,19 @@
                   "let": {
                     "name": "result",
                     "value": {
-                      "messageCreation": {
-                        "typeName": "main:StringBuffer"
+                      "call": {
+                        "module": "std",
+                        "function": "sink_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": ""
+                          }
+                        }
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "StringBuffer"
+                      "type": "dynamic"
                     }
                   }
                 },
@@ -363,12 +381,14 @@
                                                   "name": "then",
                                                   "value": {
                                                     "call": {
-                                                      "function": "writeCharCode",
+                                                      "module": "std",
+                                                      "function": "sink_write",
                                                       "input": {
                                                         "messageCreation": {
+                                                          "typeName": "",
                                                           "fields": [
                                                             {
-                                                              "name": "self",
+                                                              "name": "sink",
                                                               "value": {
                                                                 "reference": {
                                                                   "name": "result"
@@ -376,21 +396,21 @@
                                                               }
                                                             },
                                                             {
-                                                              "name": "arg0",
+                                                              "name": "text",
                                                               "value": {
                                                                 "call": {
                                                                   "module": "std",
-                                                                  "function": "add",
+                                                                  "function": "string_from_char_code",
                                                                   "input": {
                                                                     "messageCreation": {
                                                                       "typeName": "",
                                                                       "fields": [
                                                                         {
-                                                                          "name": "left",
+                                                                          "name": "value",
                                                                           "value": {
                                                                             "call": {
                                                                               "module": "std",
-                                                                              "function": "modulo",
+                                                                              "function": "add",
                                                                               "input": {
                                                                                 "messageCreation": {
                                                                                   "typeName": "",
@@ -400,7 +420,7 @@
                                                                                       "value": {
                                                                                         "call": {
                                                                                           "module": "std",
-                                                                                          "function": "add",
+                                                                                          "function": "modulo",
                                                                                           "input": {
                                                                                             "messageCreation": {
                                                                                               "typeName": "",
@@ -410,7 +430,7 @@
                                                                                                   "value": {
                                                                                                     "call": {
                                                                                                       "module": "std",
-                                                                                                      "function": "subtract",
+                                                                                                      "function": "add",
                                                                                                       "input": {
                                                                                                         "messageCreation": {
                                                                                                           "typeName": "",
@@ -418,16 +438,40 @@
                                                                                                             {
                                                                                                               "name": "left",
                                                                                                               "value": {
-                                                                                                                "reference": {
-                                                                                                                  "name": "code"
+                                                                                                                "call": {
+                                                                                                                  "module": "std",
+                                                                                                                  "function": "subtract",
+                                                                                                                  "input": {
+                                                                                                                    "messageCreation": {
+                                                                                                                      "typeName": "",
+                                                                                                                      "fields": [
+                                                                                                                        {
+                                                                                                                          "name": "left",
+                                                                                                                          "value": {
+                                                                                                                            "reference": {
+                                                                                                                              "name": "code"
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        },
+                                                                                                                        {
+                                                                                                                          "name": "right",
+                                                                                                                          "value": {
+                                                                                                                            "literal": {
+                                                                                                                              "intValue": "65"
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        }
+                                                                                                                      ]
+                                                                                                                    }
+                                                                                                                  }
                                                                                                                 }
                                                                                                               }
                                                                                                             },
                                                                                                             {
                                                                                                               "name": "right",
                                                                                                               "value": {
-                                                                                                                "literal": {
-                                                                                                                  "intValue": "65"
+                                                                                                                "reference": {
+                                                                                                                  "name": "shift"
                                                                                                                 }
                                                                                                               }
                                                                                                             }
@@ -440,8 +484,8 @@
                                                                                                 {
                                                                                                   "name": "right",
                                                                                                   "value": {
-                                                                                                    "reference": {
-                                                                                                      "name": "shift"
+                                                                                                    "literal": {
+                                                                                                      "intValue": "26"
                                                                                                     }
                                                                                                   }
                                                                                                 }
@@ -455,21 +499,13 @@
                                                                                       "name": "right",
                                                                                       "value": {
                                                                                         "literal": {
-                                                                                          "intValue": "26"
+                                                                                          "intValue": "65"
                                                                                         }
                                                                                       }
                                                                                     }
                                                                                   ]
                                                                                 }
                                                                               }
-                                                                            }
-                                                                          }
-                                                                        },
-                                                                        {
-                                                                          "name": "right",
-                                                                          "value": {
-                                                                            "literal": {
-                                                                              "intValue": "65"
                                                                             }
                                                                           }
                                                                         }
@@ -579,12 +615,14 @@
                                                               "name": "then",
                                                               "value": {
                                                                 "call": {
-                                                                  "function": "writeCharCode",
+                                                                  "module": "std",
+                                                                  "function": "sink_write",
                                                                   "input": {
                                                                     "messageCreation": {
+                                                                      "typeName": "",
                                                                       "fields": [
                                                                         {
-                                                                          "name": "self",
+                                                                          "name": "sink",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "result"
@@ -592,21 +630,21 @@
                                                                           }
                                                                         },
                                                                         {
-                                                                          "name": "arg0",
+                                                                          "name": "text",
                                                                           "value": {
                                                                             "call": {
                                                                               "module": "std",
-                                                                              "function": "add",
+                                                                              "function": "string_from_char_code",
                                                                               "input": {
                                                                                 "messageCreation": {
                                                                                   "typeName": "",
                                                                                   "fields": [
                                                                                     {
-                                                                                      "name": "left",
+                                                                                      "name": "value",
                                                                                       "value": {
                                                                                         "call": {
                                                                                           "module": "std",
-                                                                                          "function": "modulo",
+                                                                                          "function": "add",
                                                                                           "input": {
                                                                                             "messageCreation": {
                                                                                               "typeName": "",
@@ -616,7 +654,7 @@
                                                                                                   "value": {
                                                                                                     "call": {
                                                                                                       "module": "std",
-                                                                                                      "function": "add",
+                                                                                                      "function": "modulo",
                                                                                                       "input": {
                                                                                                         "messageCreation": {
                                                                                                           "typeName": "",
@@ -626,7 +664,7 @@
                                                                                                               "value": {
                                                                                                                 "call": {
                                                                                                                   "module": "std",
-                                                                                                                  "function": "subtract",
+                                                                                                                  "function": "add",
                                                                                                                   "input": {
                                                                                                                     "messageCreation": {
                                                                                                                       "typeName": "",
@@ -634,16 +672,40 @@
                                                                                                                         {
                                                                                                                           "name": "left",
                                                                                                                           "value": {
-                                                                                                                            "reference": {
-                                                                                                                              "name": "code"
+                                                                                                                            "call": {
+                                                                                                                              "module": "std",
+                                                                                                                              "function": "subtract",
+                                                                                                                              "input": {
+                                                                                                                                "messageCreation": {
+                                                                                                                                  "typeName": "",
+                                                                                                                                  "fields": [
+                                                                                                                                    {
+                                                                                                                                      "name": "left",
+                                                                                                                                      "value": {
+                                                                                                                                        "reference": {
+                                                                                                                                          "name": "code"
+                                                                                                                                        }
+                                                                                                                                      }
+                                                                                                                                    },
+                                                                                                                                    {
+                                                                                                                                      "name": "right",
+                                                                                                                                      "value": {
+                                                                                                                                        "literal": {
+                                                                                                                                          "intValue": "97"
+                                                                                                                                        }
+                                                                                                                                      }
+                                                                                                                                    }
+                                                                                                                                  ]
+                                                                                                                                }
+                                                                                                                              }
                                                                                                                             }
                                                                                                                           }
                                                                                                                         },
                                                                                                                         {
                                                                                                                           "name": "right",
                                                                                                                           "value": {
-                                                                                                                            "literal": {
-                                                                                                                              "intValue": "97"
+                                                                                                                            "reference": {
+                                                                                                                              "name": "shift"
                                                                                                                             }
                                                                                                                           }
                                                                                                                         }
@@ -656,8 +718,8 @@
                                                                                                             {
                                                                                                               "name": "right",
                                                                                                               "value": {
-                                                                                                                "reference": {
-                                                                                                                  "name": "shift"
+                                                                                                                "literal": {
+                                                                                                                  "intValue": "26"
                                                                                                                 }
                                                                                                               }
                                                                                                             }
@@ -671,21 +733,13 @@
                                                                                                   "name": "right",
                                                                                                   "value": {
                                                                                                     "literal": {
-                                                                                                      "intValue": "26"
+                                                                                                      "intValue": "97"
                                                                                                     }
                                                                                                   }
                                                                                                 }
                                                                                               ]
                                                                                             }
                                                                                           }
-                                                                                        }
-                                                                                      }
-                                                                                    },
-                                                                                    {
-                                                                                      "name": "right",
-                                                                                      "value": {
-                                                                                        "literal": {
-                                                                                          "intValue": "97"
                                                                                         }
                                                                                       }
                                                                                     }
@@ -705,12 +759,14 @@
                                                               "name": "else",
                                                               "value": {
                                                                 "call": {
-                                                                  "function": "writeCharCode",
+                                                                  "module": "std",
+                                                                  "function": "sink_write",
                                                                   "input": {
                                                                     "messageCreation": {
+                                                                      "typeName": "",
                                                                       "fields": [
                                                                         {
-                                                                          "name": "self",
+                                                                          "name": "sink",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "result"
@@ -718,10 +774,26 @@
                                                                           }
                                                                         },
                                                                         {
-                                                                          "name": "arg0",
+                                                                          "name": "text",
                                                                           "value": {
-                                                                            "reference": {
-                                                                              "name": "code"
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "string_from_char_code",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "value",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "code"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
                                                                             }
                                                                           }
                                                                         }
@@ -757,13 +829,13 @@
               "result": {
                 "call": {
                   "module": "std",
-                  "function": "to_string",
+                  "function": "sink_to_string",
                   "input": {
                     "messageCreation": {
                       "typeName": "",
                       "fields": [
                         {
-                          "name": "value",
+                          "name": "sink",
                           "value": {
                             "reference": {
                               "name": "result"

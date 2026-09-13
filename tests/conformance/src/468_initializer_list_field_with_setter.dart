@@ -29,11 +29,16 @@
 //
 //  * the field is `windowSize`, not `length` — on the TS self-hosted engine an
 //    instance field NAMED `length` reads back as the object's key count
-//    instead of its own value (#665);
-//  * the setter is declared, never called — writing through it is suppressed
-//    by the engine whenever the instance carries a field of that name, which
-//    is right for a non-final shadowing field and wrong for a final one
-//    (#664). Fixtures 104/341/432 already exercise live setter dispatch.
+//    instead of its own value (#681, open). #665 is a CI PR, not that bug;
+//    the collision this fixture pins is name-independent either way;
+//  * the setter is declared, never called — the ENGINE used to suppress the
+//    write whenever the instance carried a field of that name, which is right
+//    for a non-final shadowing field and wrong for a final one (#664, closed
+//    by #680 after this fixture was written). Live setter dispatch over this
+//    exact declaration pair is pinned by 470_setter_beside_final_field;
+//    fixtures 104/341/432 cover the other setter shapes. Keeping the write
+//    out of THIS fixture is deliberate: what it pins is the Dart COMPILER's
+//    `late` decision and nothing else.
 //
 // A THIRD target gap this shape exposes is #695, and it is the one departure
 // that could NOT be designed around: C++ has a single member namespace, so the

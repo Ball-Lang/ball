@@ -680,12 +680,26 @@ which cannot tell a stale artifact from a generator that died mid-write) and tha
 the push still consults the loop-breaker. Both run on every PR from `Proto
 Checks`, self-test first.
 
+Since #655 the set of artifact families it checks is **derived, not listed**: a
+family is an `Assert …` step whose `run` contains `git diff --exit-code`, which
+is precisely what distinguishes a regenerate-and-diff gate from the four checker
+steps (`assert-fixture-sources`, `assert-encoder-completeness`,
+`assert-fixture-names`, `assert-node-shapes`) that own no artifact. Every derived
+id must appear in all three `if:` gates **and** own a pathspec block in the
+collect step's table that adds at least one path — the table was the second
+ungated half, and a family whose gate names it but whose table forgot it would
+upload a partial fix. The six ids that exist today stay as a positive floor, so a
+predicate that stopped matching fails loud instead of silently shrinking the set
+being checked. Adding a seventh committed artifact therefore fails the PR that
+adds it until all four places agree.
+
 ## The required status checks
 
 The list is not a convention: since 2026-09-14 it is enforced by the
 repository's `Protect main` ruleset, whose **19 required status check contexts** are
 (see the #59 comment of that date):
 
+<!-- BEGIN REQUIRED-CONTEXTS repo=Ball-Lang/ball ruleset=17056238 -->
 - `Ball Artifact Freshness`
 - `C#`
 - `C++ (macos-latest)`
@@ -705,11 +719,35 @@ repository's `Protect main` ruleset, whose **19 required status check contexts**
 - `TS Regression Gate (engine + compiler)`
 - `TypeScript`
 - `Upstream Conformance (Editions)`
+<!-- END REQUIRED-CONTEXTS -->
 
 A PR is BLOCKED until all 19 report success, so "the checks are green" is a
 mechanical statement about that list, not a judgement call. `Dart Coverage
 Ratchet` is on it too — it is easy to overlook because it lives in
 `coverage.yml`, not `ci.yml`.
+
+**That list is gated, not trusted** (issue #655). It used to be hand-copied
+prose about a setting edited in a web UI: it matched the live ruleset on
+2026-09-14 and nothing would have noticed the day it stopped — in either
+direction, and the worse one is a doc that names a check the ruleset no longer
+requires, because a lane then believes a PR is gated on something that blocks
+nothing. `tools/ci/check_required_contexts.sh` reads the list between the
+`REQUIRED-CONTEXTS` markers above, reads ruleset `17056238` live over the REST
+API, and fails on any difference — plus the prose counts, the sort order, a
+ruleset that stopped enforcing, and one that requires zero checks. It runs on
+every PR from the always-on `Proto Checks` job, its offline negative controls
+(`tools/test/test_check_required_contexts.sh`) first.
+
+The marker names the repo and ruleset id, so the guard cannot silently compare
+against a different ruleset than the one this doc documents. No extra credential
+is involved: `GET /repos/{owner}/{repo}/rulesets/{ruleset_id}` needs only
+`"Metadata" repository permissions (read)` and *"can be used without
+authentication or the aforementioned permissions if only public resources are
+requested"*
+([REST docs](https://docs.github.com/en/rest/repos/rules?apiVersion=2022-11-28#get-a-repository-ruleset)),
+and this repository is public — so the workflow's own `GITHUB_TOKEN` reads it.
+**To change the required checks, change the ruleset first, then this list**; the
+guard will fail the PR until they agree.
 
 ## Adding a language construct (the required workflow)
 
@@ -846,6 +884,8 @@ could not parse a summary at all).
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
+| **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
+| **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |

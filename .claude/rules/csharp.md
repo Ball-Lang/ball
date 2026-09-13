@@ -462,7 +462,9 @@ compile items so the sibling projects never double-compile each other's files.
   `EndToEndTests` is **four hardcoded fixtures**, not a corpus sweep — the only leg that compiles
   the whole corpus through `CSharpCompiler` is `engine/conformance --leg=compiler`, the
   `csharp-compiler` ratchet row in `conformance-matrix.yml` — which since #619 DOES gate every
-  PR (the workflow has a path-filtered `pull_request:` trigger sharing its `push` filter), as a
+  PR **touching `csharp/**`** (the workflow has a path-filtered `pull_request:` trigger sharing
+  its `push` filter; that shared filter also fires the row for a PR touching any other language
+  or corpus path, and a PR outside it gets no matrix row at all), as a
   ratchet on the known gap rather than a parity gate. A rule that depends on a specific IR shape needs a
   targeted test (`AccessorEdgeCaseTests.cs`, #461, is the worked example — both its shapes are
   unreachable from any generated fixture).

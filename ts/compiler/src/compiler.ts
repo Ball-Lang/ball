@@ -2278,11 +2278,13 @@ function __isUnknownFnError(e: any): boolean {
     // Collect ALL non-base modules (entry + user library modules).
     const userModules: Module[] = [];
     let usesStdMemory = false;
+    let usesStdConcurrency = false;
     for (const mod of this.program.modules ?? []) {
       const fns = mod.functions ?? [];
       const allBase = fns.length > 0 && fns.every((f: FunctionDef) => f.isBase);
       if (allBase) {
         if (mod.name === "std_memory") usesStdMemory = true;
+        if (mod.name === "std_concurrency") usesStdConcurrency = true;
         continue;
       }
       userModules.push(mod);
@@ -2302,6 +2304,17 @@ function __isUnknownFnError(e: any): boolean {
         "const _ballStackFrames: number[] = [];\n" +
         "let _ballStackPtr = 65536;\n",
       );
+    }
+
+    // ── std_concurrency runtime preamble (#606/#608) ──
+    // Same conditional shape as the linear-memory block above, and the same
+    // single-threaded semantics the Dart reference engine implements
+    // (dart/engine/lib/engine_std.dart) and the Dart compiler emits: opaque
+    // 1-based handles into three tables, a real cell store, a CAS that
+    // compares and exchanges, and fail-loud misuse.
+    // `tests/conformance/466_std_concurrency_handles` runs this leg.
+    if (usesStdConcurrency) {
+      sf.addStatements(BALL_CONCURRENCY_RUNTIME);
     }
 
     // Seed the function-name + typeDef lookup tables from ALL user modules.
@@ -4817,6 +4830,7 @@ function __isUnknownFnError(e: any): boolean {
   private compileStdCall(call: FunctionCall): string {
     const fn = call.function;
     if (call.module === "std_memory") return this.compileMemoryCall(call);
+    if (call.module === "std_concurrency") return this.compileConcurrencyCall(call);
     const f = fieldMap(call.input?.messageCreation?.fields ?? []);
     const fg = (...names: string[]) => {
       for (const n of names) { const v = f.get(n); if (v !== undefined) return v; }
@@ -5884,6 +5898,50 @@ function __isUnknownFnError(e: any): boolean {
   // Every std_memory base function declared in dart/shared/lib/std_memory.dart
   // MUST have a case below. An unhandled function throws a compile-time
   // Error naming it — never falls through to a bare/undefined identifier.
+  /**
+   * Compiles `std_concurrency` base calls against the handle tables
+   * `BALL_CONCURRENCY_RUNTIME` installs (issues #606/#608).
+   *
+   * Mirrors `dart/engine/lib/engine_std.dart` and the Dart compiler's own
+   * lowering, so a program means the same thing interpreted and compiled on
+   * either target — `tests/conformance/466_std_concurrency_handles` gates both.
+   */
+  private compileConcurrencyCall(call: FunctionCall): string {
+    const f = fieldMap(call.input?.messageCreation?.fields ?? []);
+    const fn = call.function;
+    const arg = (name: string): string => {
+      const v = f.get(name);
+      if (v === undefined) {
+        // FAIL LOUD: emitting a half-formed call would fail at the GENERATED
+        // program's parse step with a confusing error instead of here.
+        throw new Error(
+          `std_concurrency.${fn}: required field \`${name}\` is missing from the call input ` +
+          `(see dart/shared/lib/std_concurrency.dart for the declared input type)`,
+        );
+      }
+      return this.expr(v);
+    };
+    switch (fn) {
+      case "thread_spawn": return `_ballThreadSpawn(${arg("body")})`;
+      case "thread_join": return `_ballThreadJoin(${arg("value")})`;
+      case "mutex_create": return `_ballMutexCreate()`;
+      case "mutex_lock": return `_ballMutexLock(${arg("value")})`;
+      case "mutex_unlock": return `_ballMutexUnlock(${arg("value")})`;
+      case "scoped_lock": return `_ballScopedLock(${arg("mutex")}, ${arg("body")})`;
+      case "atomic_create": return `_ballAtomicCreate(${arg("value")})`;
+      case "atomic_load": return `_ballAtomicLoad(${arg("value")})`;
+      case "atomic_store": return `_ballAtomicStore(${arg("atomic")}, ${arg("value")})`;
+      case "atomic_compare_exchange":
+        return `_ballAtomicCompareExchange(${arg("atomic")}, ${arg("expected")}, ${arg("value")})`;
+      default:
+        throw new Error(
+          `std_concurrency.${fn} is not implemented by the TypeScript compiler. ` +
+          `Every function dart/shared/lib/std_concurrency.dart declares has a lowering here; ` +
+          `a name outside that set is not a base function.`,
+        );
+    }
+  }
+
   private compileMemoryCall(call: FunctionCall): string {
     const f = fieldMap(call.input?.messageCreation?.fields ?? []);
     const addrExpr = () => {
@@ -6563,8 +6621,116 @@ function isStd(module: string | undefined): boolean {
   return module === "std" ||
     module === "std_collections" || module === "std_io" ||
     module === "std_convert" || module === "std_memory" ||
-    module === "std_time";
+    module === "std_time" || module === "std_concurrency";
 }
+
+/// The `std_concurrency` runtime, injected once when a program uses the module
+/// (issue #606/#608). A handle is an OPAQUE 1-based index into one of the three
+/// tables; a portable program may compare handles, never depend on their
+/// numbering. An ASYNC body is REJECTED rather than silently un-awaited: the
+/// reference engine awaits it, so a compiled program that dropped the promise
+/// would mean something different from the same program interpreted.
+const BALL_CONCURRENCY_RUNTIME = `// Ball std_concurrency runtime (single-threaded handle tables)
+const _ballThreads: boolean[] = [];
+const _ballMutexes: boolean[] = [];
+const _ballAtomics: unknown[] = [];
+
+function _ballConcurrencyHandle(handle: unknown, fn: string, count: number): number {
+  if (typeof handle !== "number" || !Number.isInteger(handle)) {
+    throw new Error(\`std_concurrency.\${fn}: handle must be an int, got \${handle}\`);
+  }
+  if (handle < 1 || handle > count) {
+    throw new Error(\`std_concurrency.\${fn}: \${handle} is not a live handle; handles 1..\${count} have been created\`);
+  }
+  return handle;
+}
+
+function _ballRunConcurrencyBody(body: unknown, fn: string): unknown {
+  if (typeof body !== "function") {
+    throw new Error(\`std_concurrency.\${fn}: \\\`body\\\` must be a function, got \${body}\`);
+  }
+  const result = (body as (a: unknown) => unknown)(null);
+  if (result instanceof Promise) {
+    throw new Error(\`std_concurrency.\${fn}: an asynchronous body is not supported on the compiled TypeScript target\`);
+  }
+  return result;
+}
+
+function _ballThreadSpawn(body: unknown): number {
+  _ballRunConcurrencyBody(body, "thread_spawn");
+  _ballThreads.push(false);
+  return _ballThreads.length;
+}
+
+function _ballThreadJoin(handle: unknown): null {
+  const h = _ballConcurrencyHandle(handle, "thread_join", _ballThreads.length);
+  if (_ballThreads[h - 1]) {
+    throw new Error(\`std_concurrency.thread_join: thread handle \${h} was already joined\`);
+  }
+  _ballThreads[h - 1] = true;
+  return null;
+}
+
+function _ballMutexCreate(): number {
+  _ballMutexes.push(false);
+  return _ballMutexes.length;
+}
+
+function _ballLockMutex(handle: number, fn: string): void {
+  if (_ballMutexes[handle - 1]) {
+    throw new Error(\`std_concurrency.\${fn}: mutex handle \${handle} is already locked - this target runs single-threaded, so no other thread can ever release it\`);
+  }
+  _ballMutexes[handle - 1] = true;
+}
+
+function _ballUnlockMutex(handle: number, fn: string): void {
+  if (!_ballMutexes[handle - 1]) {
+    throw new Error(\`std_concurrency.\${fn}: mutex handle \${handle} is not locked\`);
+  }
+  _ballMutexes[handle - 1] = false;
+}
+
+function _ballMutexLock(handle: unknown): null {
+  _ballLockMutex(_ballConcurrencyHandle(handle, "mutex_lock", _ballMutexes.length), "mutex_lock");
+  return null;
+}
+
+function _ballMutexUnlock(handle: unknown): null {
+  _ballUnlockMutex(_ballConcurrencyHandle(handle, "mutex_unlock", _ballMutexes.length), "mutex_unlock");
+  return null;
+}
+
+function _ballScopedLock(handle: unknown, body: unknown): unknown {
+  const h = _ballConcurrencyHandle(handle, "scoped_lock", _ballMutexes.length);
+  _ballLockMutex(h, "scoped_lock");
+  const v = _ballRunConcurrencyBody(body, "scoped_lock");
+  _ballUnlockMutex(h, "scoped_lock");
+  return v;
+}
+
+function _ballAtomicCreate(value: unknown): number {
+  _ballAtomics.push(value);
+  return _ballAtomics.length;
+}
+
+function _ballAtomicLoad(handle: unknown): unknown {
+  return _ballAtomics[_ballConcurrencyHandle(handle, "atomic_load", _ballAtomics.length) - 1];
+}
+
+function _ballAtomicStore(handle: unknown, value: unknown): null {
+  _ballAtomics[_ballConcurrencyHandle(handle, "atomic_store", _ballAtomics.length) - 1] = value;
+  return null;
+}
+
+function _ballAtomicCompareExchange(handle: unknown, expected: unknown, value: unknown): boolean {
+  const h = _ballConcurrencyHandle(handle, "atomic_compare_exchange", _ballAtomics.length);
+  if (_ballAtomics[h - 1] === expected) {
+    _ballAtomics[h - 1] = value;
+    return true;
+  }
+  return false;
+}
+`;
 
 function containsBareKeyword(text: string, kw: string): boolean {
   return new RegExp(`(^|[^A-Za-z0-9_$])${kw}([^A-Za-z0-9_$]|$)`).test(text);

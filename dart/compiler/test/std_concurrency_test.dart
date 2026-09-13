@@ -193,6 +193,34 @@ void main() {
       );
     });
 
+    test('a missing required field fails loud at COMPILE time', () {
+      // Splicing a half-formed call would fail at the GENERATED program's
+      // compile step with a confusing error instead — the #606 defect class.
+      expect(
+        () => _compile(_call('std_concurrency', 'atomic_store', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('atomic_store'), contains('`atomic`')),
+          ),
+        ),
+      );
+    });
+
+    test('a name no builder declares fails loud at COMPILE time', () {
+      expect(
+        () => _compile(_call('std_concurrency', 'thread_detach', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('std_concurrency.thread_detach is not implemented'),
+          ),
+        ),
+      );
+    });
+
     test('no declared std_concurrency function survives as a bare call', () {
       // Derived from the canonical builder, so a function ADDED there without
       // a compiler lowering fails here rather than silently compiling to an

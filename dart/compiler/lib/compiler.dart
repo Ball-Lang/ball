@@ -544,6 +544,16 @@ class DartCompiler {
         );
       }
 
+      // ── std_concurrency runtime preamble (#606/#608) ──
+      // Same shape as the linear-memory preamble above: the module's handles
+      // need state, so the state is a top-level table and each base call is a
+      // helper over it. The semantics are the Dart reference engine's
+      // (`engine_std.dart`), so an interpreted and a compiled program answer
+      // identically — `466_std_concurrency_handles` runs both.
+      if (_baseModules.contains('std_concurrency')) {
+        b.body.add(cb.Code(_concurrencyPreamble));
+      }
+
       // ── std.type_of runtime helper (#489) ──
       // Dart has no single built-in yielding this vocabulary: bare
       // `v.runtimeType.toString()` gives `List<int>` / `_Map<String, int>` /
@@ -2254,6 +2264,7 @@ class DartCompiler {
       module == 'std_convert' ||
       module == 'std_fs' ||
       module == 'std_time' ||
+      module == 'std_concurrency' ||
       module == 'ball_proto';
 
   bool _isStdCall(Expression expr, String function) =>
@@ -3235,6 +3246,7 @@ class DartCompiler {
     if (call.module == 'std_convert') return _compileConvertCall(call);
     if (call.module == 'std_fs') return _compileFsCall(call);
     if (call.module == 'std_time') return _compileTimeCall(call);
+    if (call.module == 'std_concurrency') return _compileConcurrencyCall(call);
     if (call.module == 'ball_proto') return _compileBallProtoCall(call);
     final f = _extractFields(call);
     return switch (call.function) {
@@ -3413,6 +3425,192 @@ class DartCompiler {
       'weekday' => '${_e(f['value'] ?? f['self'] ?? call.input)}.weekday',
       _ => '/* unsupported: std.${call.function} */',
     };
+  }
+
+  /// The `std_concurrency` runtime, injected once when a program uses the
+  /// module. Mirrors `dart/engine/lib/engine_std.dart`'s single-threaded model
+  /// exactly: opaque 1-based handles into three tables, a real cell store, a
+  /// CAS that compares and exchanges, and fail-loud misuse.
+  ///
+  /// An ASYNC body is rejected rather than silently un-awaited: the reference
+  /// engine awaits it, and a compiled program that dropped the `Future`
+  /// instead would mean something different from the same program interpreted —
+  /// the divergence class issue #608 is about.
+  static const String _concurrencyPreamble = r'''
+// Ball std_concurrency runtime (single-threaded handle tables).
+// A handle is an OPAQUE 1-based index into one of these tables; a portable
+// program may compare handles, never depend on their numbering.
+final _ballThreads = <bool>[];
+final _ballMutexes = <bool>[];
+final _ballAtomics = <Object?>[];
+
+int _ballConcurrencyHandle(Object? handle, String function, int count) {
+  if (handle is! int) {
+    throw StateError(
+        'std_concurrency.$function: handle must be an int, got $handle');
+  }
+  if (handle < 1 || handle > count) {
+    throw StateError('std_concurrency.$function: $handle is not a live '
+        'handle; handles 1..$count have been created');
+  }
+  return handle;
+}
+
+Object? _ballRunConcurrencyBody(Object? body, String function) {
+  if (body is! Function) {
+    throw StateError(
+        'std_concurrency.$function: `body` must be a function, got $body');
+  }
+  final result = body(null);
+  if (result is Future) {
+    throw StateError('std_concurrency.$function: an asynchronous body is not '
+        'supported on the compiled Dart target');
+  }
+  return result;
+}
+
+int _ballThreadSpawn(Object? body) {
+  _ballRunConcurrencyBody(body, 'thread_spawn');
+  _ballThreads.add(false);
+  return _ballThreads.length;
+}
+
+Object? _ballThreadJoin(Object? handle) {
+  final h = _ballConcurrencyHandle(handle, 'thread_join', _ballThreads.length);
+  if (_ballThreads[h - 1]) {
+    throw StateError(
+        'std_concurrency.thread_join: thread handle $h was already joined');
+  }
+  _ballThreads[h - 1] = true;
+  return null;
+}
+
+int _ballMutexCreate() {
+  _ballMutexes.add(false);
+  return _ballMutexes.length;
+}
+
+void _ballLockMutex(int handle, String function) {
+  if (_ballMutexes[handle - 1]) {
+    throw StateError('std_concurrency.$function: mutex handle $handle is '
+        'already locked — this target runs single-threaded, so no other thread '
+        'can ever release it');
+  }
+  _ballMutexes[handle - 1] = true;
+}
+
+void _ballUnlockMutex(int handle, String function) {
+  if (!_ballMutexes[handle - 1]) {
+    throw StateError(
+        'std_concurrency.$function: mutex handle $handle is not locked');
+  }
+  _ballMutexes[handle - 1] = false;
+}
+
+Object? _ballMutexLock(Object? handle) {
+  _ballLockMutex(
+      _ballConcurrencyHandle(handle, 'mutex_lock', _ballMutexes.length),
+      'mutex_lock');
+  return null;
+}
+
+Object? _ballMutexUnlock(Object? handle) {
+  _ballUnlockMutex(
+      _ballConcurrencyHandle(handle, 'mutex_unlock', _ballMutexes.length),
+      'mutex_unlock');
+  return null;
+}
+
+Object? _ballScopedLock(Object? handle, Object? body) {
+  final h =
+      _ballConcurrencyHandle(handle, 'scoped_lock', _ballMutexes.length);
+  _ballLockMutex(h, 'scoped_lock');
+  final v = _ballRunConcurrencyBody(body, 'scoped_lock');
+  _ballUnlockMutex(h, 'scoped_lock');
+  return v;
+}
+
+int _ballAtomicCreate(Object? value) {
+  _ballAtomics.add(value);
+  return _ballAtomics.length;
+}
+
+Object? _ballAtomicLoad(Object? handle) => _ballAtomics[
+    _ballConcurrencyHandle(handle, 'atomic_load', _ballAtomics.length) - 1];
+
+Object? _ballAtomicStore(Object? handle, Object? value) {
+  _ballAtomics[
+      _ballConcurrencyHandle(handle, 'atomic_store', _ballAtomics.length) -
+          1] = value;
+  return null;
+}
+
+bool _ballAtomicCompareExchange(
+    Object? handle, Object? expected, Object? value) {
+  final h = _ballConcurrencyHandle(
+      handle, 'atomic_compare_exchange', _ballAtomics.length);
+  if (_ballAtomics[h - 1] == expected) {
+    _ballAtomics[h - 1] = value;
+    return true;
+  }
+  return false;
+}
+''';
+
+  // ── std_concurrency → Dart handle tables ────────────────────
+
+  /// Compiles `std_concurrency` base calls against the single-threaded handle
+  /// tables the library preamble installs (see `_concurrencyPreamble`).
+  ///
+  /// Issue #606: this module was absent from [_isBaseModule], so every call
+  /// fell through to the USER-function path and emitted a bare
+  /// `thread_spawn(...)` — an identifier the generated Dart never defines, with
+  /// no diagnostic. The lowering mirrors `dart/engine/lib/engine_std.dart`'s
+  /// semantics exactly, so a program means the same thing interpreted and
+  /// compiled (`tests/conformance/466_std_concurrency_handles` gates both).
+  String _compileConcurrencyCall(FunctionCall call) {
+    final f = _extractFields(call);
+    final fn = call.function;
+    return switch (fn) {
+      'thread_spawn' => '_ballThreadSpawn(${_concArg(f, 'body', fn)})',
+      'thread_join' => '_ballThreadJoin(${_concArg(f, 'value', fn)})',
+      'mutex_create' => '_ballMutexCreate()',
+      'mutex_lock' => '_ballMutexLock(${_concArg(f, 'value', fn)})',
+      'mutex_unlock' => '_ballMutexUnlock(${_concArg(f, 'value', fn)})',
+      'scoped_lock' =>
+        '_ballScopedLock(${_concArg(f, 'mutex', fn)}, '
+            '${_concArg(f, 'body', fn)})',
+      'atomic_create' => '_ballAtomicCreate(${_concArg(f, 'value', fn)})',
+      'atomic_load' => '_ballAtomicLoad(${_concArg(f, 'value', fn)})',
+      'atomic_store' =>
+        '_ballAtomicStore(${_concArg(f, 'atomic', fn)}, '
+            '${_concArg(f, 'value', fn)})',
+      'atomic_compare_exchange' =>
+        '_ballAtomicCompareExchange(${_concArg(f, 'atomic', fn)}, '
+            '${_concArg(f, 'expected', fn)}, ${_concArg(f, 'value', fn)})',
+      // FAIL LOUD. Splicing a comment where a value is expected produces
+      // invalid Dart that fails at the GENERATED program's compile step with a
+      // confusing error, which is the silent degradation #606 was filed about.
+      _ => throw StateError(
+        'std_concurrency.$fn is not implemented by the Dart compiler. '
+        'Every function dart/shared/lib/std_concurrency.dart declares has a '
+        'lowering here; a name outside that set is not a base function.',
+      ),
+    };
+  }
+
+  /// Compiles the required field [name] of a `std_concurrency` call, failing
+  /// loud when it is absent rather than emitting a half-formed call.
+  String _concArg(Map<String, Expression> f, String name, String function) {
+    final expr = f[name];
+    if (expr == null) {
+      throw StateError(
+        'std_concurrency.$function: required field `$name` is missing from the '
+        'call input (see dart/shared/lib/std_concurrency.dart for the declared '
+        'input type).',
+      );
+    }
+    return _e(expr);
   }
 
   // ── std_memory → Dart ByteData compilation ──────────────────

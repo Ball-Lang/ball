@@ -593,6 +593,61 @@ probe, and write the fixture so the value is PRINTED, not discarded. When it can
 FAIL to produce a result, write the fixture so the failure is OBSERVED, not
 assumed — and observed means printing what the catch variable holds.
 
+### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
+
+`std_concurrency` shipped nine declared base functions, a dispatch arm in the
+Dart reference engine, and a `compile_concurrency_call` in the C++ compiler —
+and **zero** executed fixtures. Every one of the nine read
+`"coveredByFixtures": [], "carvedOut": false` in
+`tests/conformance/std_coverage.json`, and `grep -rE 'Isolate|Thread|mutex|
+Atomic' tests/conformance/src/` returned nothing. The whole-corpus
+`Results: N passed, 0 failed` line said nothing whatsoever about threads,
+mutexes or atomics, on any of the seven engines.
+
+What was living in that hole (issues #606/#607/#608), all three found by reading
+rather than by any gate:
+
+* **The Dart compiler never routed the module at all.** `_isBaseModule`
+  enumerated eight module names by hand and this one was missing, so every call
+  compiled to a bare `thread_spawn(...)` — a user-function call naming an
+  identifier the generated Dart never defines — with no diagnostic.
+* **The C++ compiler implemented three functions no builder declares**
+  (`thread_detach`, `unique_lock`, `atomic_fetch_add`), producible by no
+  encoder, implemented by no engine, and exercised only by unit tests asserting
+  on emitted source TEXT. Its `thread_spawn`/`mutex_create` also emitted
+  DECLARATION STATEMENTS where a value was expected, so their declared `-> int`
+  could not be honoured.
+* **The engine fabricated answers.** `atomic_store` discarded the write,
+  `atomic_load` echoed its own input, `atomic_compare_exchange` returned an
+  unconditional `true`, and `thread_spawn` returned the literal `0`. Because the
+  other six engines are self-hosted from that source, all seven agreed on the
+  wrong answer.
+
+Three rules generalise out of it:
+
+1. **A module's fixture coverage is a first-class reading of
+   `std_coverage.json`.** A row of `coveredByFixtures: []` that is also
+   `carvedOut: false` is an untested function, not a quiet one — and a whole
+   MODULE of them is a hole no parity number can see.
+2. **Pin the failing case, not just the working one.** `466_std_concurrency_handles`
+   prints a CAS that must FAIL and the cell value after it; that is the line no
+   placeholder can pass. A fixture that only exercised a matching CAS would have
+   been green against the unconditional `true`.
+3. **Pin the contract, not the representation.** A handle is opaque, so the
+   fixture asserts handles are DISTINCT and never prints one. Misuse (joining
+   twice, unlocking an unlocked mutex, naming an unminted handle) is fail-loud
+   and asserted in `dart/engine/test/std_concurrency_test.dart` instead — what a
+   caught host error reads as is §5b's contract, and folding it in here would
+   make this fixture about error rendering.
+
+The drift that let #607 happen has its own gate now:
+`cpp/test/check_declared_base_functions.py` (ci.yml's always-on `proto` job)
+compares every name a module-scoped `compile_*_call` implements against
+`tests/conformance/std_coverage.json`, the all-module canonical inventory. It is
+the C++ sibling of `dart/shared/test/std_routed_declarations_test.dart` (#505),
+and it carries a MEASURED frozen known-gaps list plus a positive floor, so a
+regex that stops matching fails instead of passing vacuously.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:

@@ -34,6 +34,12 @@
 //! would have needed a dependency macro fails loud naming that reason. A
 //! single dependency source file `syn` cannot parse is recorded too, and named
 //! in the diagnostic of any macro that then fails to resolve.
+//!
+//! That holds for DIRECTORIES as much as for files (issue #678). A subdirectory
+//! whose entries cannot be listed, and an entry whose metadata cannot be read
+//! (a dangling symlink), are paths the walk *could not look at* — which is not
+//! the same answer as "no definition is there", and the two must never be
+//! conflated. Both go through the same `note_unreadable_source`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -66,7 +72,11 @@ impl MacroTable {
     }
 
     fn collect_exported_macros(&mut self, krate: &str, src_root: &Path) {
-        for file in rust_files_under(src_root) {
+        let walk = rust_files_under(src_root);
+        for (path, reason) in walk.unreadable {
+            self.note_unreadable_source(&path.display().to_string(), &reason);
+        }
+        for file in walk.files {
             let source = match std::fs::read_to_string(&file) {
                 Ok(source) => source,
                 Err(err) => {
@@ -244,22 +254,59 @@ fn direct_dependency_sources(
     Ok(sources)
 }
 
-/// Every `.rs` file under `root`, recursively, in a deterministic order.
-fn rust_files_under(root: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
+/// What walking a dependency's source directory found — and what it could not
+/// even look at.
+struct SourceWalk {
+    /// Every `.rs` file under the root, recursively, in a deterministic order.
+    files: Vec<PathBuf>,
+    /// `(path, reason)` for every path the walk could not inspect: a directory
+    /// whose entries could not be listed, an entry that could not be read out of
+    /// its directory, a path whose metadata could not be stat'ed. Sorted, so the
+    /// diagnostic is deterministic.
+    unreadable: Vec<(PathBuf, String)>,
+}
+
+/// Walk `root` for `.rs` files, recording — never swallowing — every path that
+/// could not be looked at.
+fn rust_files_under(root: &Path) -> SourceWalk {
+    let mut files = Vec::new();
+    let mut unreadable = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                unreadable.push((dir, err.to_string()));
+                continue;
+            }
         };
-        for path in entries.flatten().map(|entry| entry.path()) {
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|ext| ext == "rs") {
-                out.push(path);
+        for entry in entries {
+            let path = match entry {
+                Ok(entry) => entry.path(),
+                Err(err) => {
+                    // The directory opened but one of its entries did not read.
+                    // The offending name is exactly what is unavailable, so the
+                    // directory is the most specific path there is to report.
+                    unreadable.push((dir.clone(), err.to_string()));
+                    continue;
+                }
+            };
+            // `metadata` follows symlinks, as the `Path::is_dir` this replaces
+            // did. The difference is that its failure is now an ANSWER — this
+            // path could not be looked at — instead of a silent `false` that
+            // dropped a dangling symlink on the floor.
+            match std::fs::metadata(&path) {
+                Ok(meta) if meta.is_dir() => stack.push(path),
+                Ok(_) => {
+                    if path.extension().is_some_and(|ext| ext == "rs") {
+                        files.push(path);
+                    }
+                }
+                Err(err) => unreadable.push((path, err.to_string())),
             }
         }
     }
-    out.sort();
-    out
+    files.sort();
+    unreadable.sort();
+    SourceWalk { files, unreadable }
 }

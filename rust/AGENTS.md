@@ -83,6 +83,27 @@ lane's own diff — a false red that cost a day on 2026-09-13. `export
 CARGO_TARGET_DIR="$PWD/.cargo-target"` inside the worktree before any `cargo` command, and keep
 that path gitignored.
 
+**Re-measuring Tier A: quote THIS invocation, verbatim, in the PR body** (advisory 3 of #634's
+review). A reported number that does not say which binary produced it, over which pins, at which
+checkout, cannot be reproduced or challenged — and a Tier A figure is exactly the kind of claim a
+reader has no other way to check:
+
+```bash
+bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/rust.json "$CHECKOUTS"
+cd rust
+export CARGO_TARGET_DIR="$PWD/../.cargo-target"   # per-worktree, never shared — see above
+cargo run -p ball-rq1-study --bin rq1-study -- \
+  --pins ../tools/coverage-study/packages/rust.json \
+  --checkouts "$CHECKOUTS" \
+  --json "$CHECKOUTS/tier_a.json" | tee "$CHECKOUTS/tier_a.log"
+```
+
+Those are the same two commands `coverage-study.yml`'s `rust-tier-a` job runs, so a local number
+and a CI number are comparable. Quote the harness's own `Results:` and `excluded (test-only):`
+lines verbatim, never a paraphrase, and state the head SHA they were taken at. Add `--single-file`
+only to reproduce the pre-crate-aware per-file measurement — and say so in the same breath, since
+the two are different populations.
+
 `cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
 every PR** in ci.yml's `rust` job. The RUN is the `rust-tier-a` job
 in `coverage-study.yml`, which has **no `pull_request:` trigger** — the row is
@@ -255,7 +276,13 @@ keeping proc-macros out of scope and loud costs it nothing.
   `packages[].targets[].src_path`. Every `.rs` file under a direct dependency's lib source
   directory is parsed and its `#[macro_export] macro_rules!` items collected — the whole
   directory rather than the `mod` graph, because `#[macro_export]` hoists to the crate root
-  whatever module declares it. `proc-macro` targets are skipped by design.
+  whatever module declares it. `proc-macro` targets are skipped by design. **A path the walk
+  cannot LOOK at is recorded, never skipped** (#678): a subdirectory whose `read_dir` fails, an
+  entry that cannot be read out of its directory, a path whose metadata cannot be stat'ed (a
+  dangling symlink) each go through the same `note_unreadable_source` an unparseable file uses,
+  and both `Unresolved` and the `<krate>::<name>!` `DependenciesUnavailable` then name it. "Not
+  found" and "could not look" are different answers, and only one of them is evidence that a
+  definition does not exist.
 - **The driver** (`encoder/src/macro_expand.rs`) runs as a **pre-pass**, before the encoder's own
   `fn_params`/`enum_names`/`method_params` collection and before `collect_symbols`, because an
   expansion introduces declarations those passes must see. It iterates to a **fixed point** (a
@@ -301,6 +328,7 @@ keeping proc-macros out of scope and loud costs it nothing.
 | same name, differing rules | `Ambiguous`, listing the origins |
 | dependency graph unreadable | `DependenciesUnavailable`, naming the crate and the reason |
 | a dependency source `syn` cannot parse | recorded, and named in the diagnostic of any macro that then fails to resolve |
+| a dependency DIRECTORY or entry that cannot be read (#678) | recorded the same way — an unreadable subdirectory or dangling symlink is never mistaken for "no definition there" |
 | engine panic | `EnginePanic`, with the payload |
 | proc-macro / `#[derive]` / attribute macro | unchanged — the encoder's existing loud panic |
 | builtin the encoder does not model | unchanged — keeps issue #630 separately trackable |

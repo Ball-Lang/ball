@@ -13,7 +13,7 @@
  * These tests pin the declared replacement at both levels: the emitted helper
  * names, and the two properties that fail SILENTLY — `std.type_of` must answer
  * "Sink" (never the host type) and the sink must be reference-semantic across a
- * call boundary. The byte-exact behavioural half is `465_string_sink` in
+ * call boundary. The byte-exact behavioural half is `466_string_sink` in
  * `native_conformance.test.ts`.
  *
  * Run: node --experimental-strip-types --test test/string_sink.test.ts
@@ -66,14 +66,14 @@ function runWithProbe(source: string, probe: string): string {
 
 describe("compiler — the declared text sink (#630)", () => {
   test("the sink trio compiles to the preamble helpers", () => {
-    const ts = compileFixture("465_string_sink");
+    const ts = compileFixture("466_string_sink");
     for (const want of ["__ball_sink_create(", "__ball_sink_write(", "__ball_sink_to_string("]) {
       assert.ok(ts.includes(want), `emitted TS missing ${want}`);
     }
   });
 
   test("type_of says Sink and appends survive a call boundary", () => {
-    const ts = compileFixture("465_string_sink");
+    const ts = compileFixture("466_string_sink");
     const probe = [
       "const __probe = __ball_sink_create(null);",
       "__ball_sink_write(__probe, 'a');",

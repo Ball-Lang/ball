@@ -1607,7 +1607,14 @@ void main() {
           ]),
         ],
       );
-      await expectLater(runAndCapture(program), throwsA(isA<StateError>()));
+      await expectLater(
+        runAndCapture(program),
+        throwsA(
+          isA<BallException>()
+              .having((e) => e.typeName, 'typeName', 'StateError')
+              .having((e) => e.value, 'value', 'Bad state: No element'),
+        ),
+      );
     });
 
     test('filled as an instance method on a list', () async {

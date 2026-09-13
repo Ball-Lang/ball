@@ -23,8 +23,8 @@ import (
 // `strings.Builder` documents "Do not copy a non-zero Builder") loses that
 // append and nothing else — a silent wrong answer.
 func TestStringSinkContract(t *testing.T) {
-	fixture := filepath.Join("..", "..", "tests", "conformance", "465_string_sink.ball.json")
-	golden := filepath.Join("..", "..", "tests", "conformance", "465_string_sink.expected_output.txt")
+	fixture := filepath.Join("..", "..", "tests", "conformance", "466_string_sink.ball.json")
+	golden := filepath.Join("..", "..", "tests", "conformance", "466_string_sink.expected_output.txt")
 
 	prog := load(t, fixture)
 	src := compileFmt(t, prog)

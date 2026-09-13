@@ -70,7 +70,15 @@ PROVEN = [
     # by this compiler even though every self-hosted engine runs one. The
     # fixture's `appendWord(out, 'c')` is the reference-semantics leg — a
     # by-value backing loses that append and nothing else.
-    "465_string_sink",
+    "466_string_sink",
+    # What a CAUGHT StateError READS AS (#616). 463 prints a hardcoded literal
+    # from its catch bodies, so nothing pinned the caught value; this one prints
+    # `to_string(e)` for both `list_find`'s no match and `list_first` on an empty
+    # list. Before the fix `list_first`/`list_last` let Python's native
+    # IndexError escape — not a BallThrow at all, so the compiled `try`'s
+    # `except ballrt.BallThrow` never saw it and the program died instead of
+    # catching.
+    "465_state_error_message",
 ]
 
 

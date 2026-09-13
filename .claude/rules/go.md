@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 350 passed,
-0 failed, 350 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 351 passed,
+0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -203,10 +203,24 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `writeCharCode` to `sink_write` + `string_from_char_code`, and
   `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
   `sink_to_string`, so three declarations are the whole abstraction. Guards:
-  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
   reference-semantics leg) plus this target's own tag test — `go/runtime/sink_contract_test.go` and `go/compiler/string_sink_test.go` (which compiles the fixture and RUNS it against the golden).
   Backing: `ballrt.SinkCreate`/`SinkWrite`/`SinkToString` (`go/runtime/sink.go`), over a `*ballrt.Map` — a POINTER, so the callee's append is visible. A `*strings.Builder` would make `TypeOf` answer `Builder`, and a `strings.Builder` VALUE would lose appends outright: Go's own docs say "Do not copy a non-zero Builder".
 
+- **Every Dart `StateError` site goes through `ballrt.stateError` (#616).** Two
+  halves, and each site used to get exactly one right: TYPED (a `*Message` tagged
+  `StateError`, so `on StateError catch` matches — `ListFirst`/`ListLast`/
+  `ListPop` and the `.reduce`/`.firstWhere` method arms used to
+  `panic(Thrown{Value: "Bad state: No element"})`, a plain string whose
+  runtimeType is `String`), and OBSERVABLE (`ToStr` renders it as Dart's own
+  `StateError.toString()`, `Bad state: <message>` — `ListFind` was typed but
+  stringified as the bare tag `StateError`). `ops.go`'s `dartErrorToString` is
+  that rendering, and its type table is deliberately CLOSED over the names
+  `dartError` raises: a user class that merely declares a `message` field is not
+  a Dart error and keeps printing its type name.
+  `go/runtime/state_error_contract_test.go` +
+  `go/compiler/state_error_contract_test.go` are this target's halves.
+  See `docs/TESTING_STRATEGY.md` §5b.
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
   emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
   `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`
@@ -255,7 +269,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 350 passed, 0 failed, 350 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 351 passed, 0 failed, 351 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the

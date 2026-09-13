@@ -770,6 +770,30 @@ TEST(ball_to_string_reified_exception_map_shows_original_value) {
     ASSERT_EQ(ball_to_string(std::any(reified)), std::string("boom"));
 }
 
+TEST(caught_typed_exception_with_a_scalar_payload_keeps_its_type) {
+    // Issue #616. `_ball_exception_to_dyn` collapses a caught exception to the
+    // BARE payload when the throw was untyped (`throw "msg"` -- conformance
+    // 222, where `catch (e) { if (e == "recoverable") ... }` must compare the
+    // string itself). It must NOT collapse a TYPED one: the self-hosted
+    // engine's own `throw BallException("StateError", "Bad state: No element")`
+    // carries a scalar payload, and collapsing it made the catch variable a
+    // bare String -- so the compiled engine's `e is BallException` was false,
+    // `e.typeName` was unreadable, its `on StateError catch` dispatch could not
+    // match, and the exception escaped the program's own `try`.
+    BallDyn typed = _ball_exception_to_dyn(_ball_make_exception(
+        "StateError"s, std::any(std::string("Bad state: No element"))));
+    ASSERT_EQ(ball_to_string(typed._val), std::string("Bad state: No element"));
+    ASSERT_EQ(ball_object_type_tag(typed._val), std::string("BallException"));
+    ASSERT_EQ(ball_to_string(typed[std::string("typeName")]._val), std::string("StateError"));
+    ASSERT_EQ(ball_to_string(typed[std::string("value")]._val), std::string("Bad state: No element"));
+
+    // …while an UNTYPED scalar throw still collapses to the scalar itself.
+    BallDyn untyped = _ball_exception_to_dyn(
+        _ball_make_exception("Exception"s, std::any(std::string("recoverable"))));
+    ASSERT_EQ(ball_to_string(untyped._val), std::string("recoverable"));
+    ASSERT_EQ(ball_object_type_tag(untyped._val), std::string());
+}
+
 TEST(ball_natural_less_cross_type_numeric_and_string) {
     ASSERT_TRUE(ball_natural_less(std::any((int64_t)1), std::any(2.0)));
     ASSERT_TRUE(!ball_natural_less(std::any(2.0), std::any((int64_t)1)));

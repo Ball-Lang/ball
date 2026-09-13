@@ -30,15 +30,15 @@ public class StringSinkTests
     [Fact]
     public void StringSink_Compiles_And_Runs_ByteExact()
     {
-        var output = CompileAndRun(RepoPaths.Conformance("465_string_sink.ball.json"));
-        Assert.Equal(Golden(RepoPaths.Conformance("465_string_sink.expected_output.txt")), output);
+        var output = CompileAndRun(RepoPaths.Conformance("466_string_sink.ball.json"));
+        Assert.Equal(Golden(RepoPaths.Conformance("466_string_sink.expected_output.txt")), output);
     }
 
     [Fact]
     public void StringSink_Emits_The_Runtime_Helpers()
     {
         var source = CSharpCompiler.Compile(
-            BallJson.Load(RepoPaths.Conformance("465_string_sink.ball.json")));
+            BallJson.Load(RepoPaths.Conformance("466_string_sink.ball.json")));
         Assert.Contains("BallRuntime.SinkCreate(", source);
         Assert.Contains("BallRuntime.SinkWrite(", source);
         Assert.Contains("BallRuntime.SinkToString(", source);

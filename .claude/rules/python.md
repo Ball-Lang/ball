@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 350 passed,
-0 failed, 350 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 351 passed,
+0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -122,9 +122,19 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `writeCharCode` to `sink_write` + `string_from_char_code`, and
   `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
   `sink_to_string`, so three declarations are the whole abstraction. Guards:
-  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
-  reference-semantics leg) plus this target's own tag test — `python/compiler/tests/test_sink.py`, plus the `465_string_sink` entry in `python/compiler/tests/test_conformance.py`'s `PROVEN` list (compile + run + golden diff).
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `python/compiler/tests/test_sink.py`, plus the `466_string_sink` entry in `python/compiler/tests/test_conformance.py`'s `PROVEN` list (compile + run + golden diff).
   Backing: `ballrt.sink_create`/`sink_write`/`sink_to_string` (`python/runtime/ballrt/sink.py`), over a plain `dict` — a reference, and the shape `ballrt.type_of` already reads a `__type__` tag from. An `io.StringIO` would answer `StringIO`.
+- **Every Dart `StateError` site goes through `ballrt.flow.state_error` (#616).**
+  `list_first`/`list_last`/`list_pop` and the `.first`/`.last` field getters used
+  to let Python's NATIVE `IndexError` escape — not a `BallThrow` at all, so the
+  compiled `try`'s `except ballrt.BallThrow` never saw it and the program died
+  instead of catching; `methods.py`'s `_reduce`/`_first_where` threw a bare
+  STRING (right text, no type). The payload is `selfhost.StateError`, whose
+  `toString` already spells Dart's `Bad state: <message>`.
+  `python/compiler/tests/test_runtime.py`'s
+  `test_state_error_sites_are_typed_and_stringify_like_dart` is this target's
+  half. See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
 
@@ -141,7 +151,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 350 passed, 0 failed, 350 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 351 passed, 0 failed, 351 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`

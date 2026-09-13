@@ -209,9 +209,20 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `writeCharCode` to `sink_write` + `string_from_char_code`, and
   `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
   `sink_to_string`, so three declarations are the whole abstraction. Guards:
-  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
   reference-semantics leg) plus this target's own tag test — `cpp/test/test_compiler.cpp`'s `string_sink_emits_the_runtime_helpers`.
   Backing: `ball_sink_create`/`ball_sink_write`/`ball_sink_to_string` in `ball_dyn.h`, over a `BallOrderedMap` that `BallDyn` wraps in a `shared_ptr` — which is what makes the callee's append visible. `_ball_sink_backing` takes its `BallDyn` **by value** on purpose: a copy shares the same `BallOrderedMapRef`, and a by-value parameter is what lets a `const BallDyn&` call site reach the non-const accessor. Editing `ball_dyn.h` needs a compiler REBUILD — it is embedded into every emitted program via the generated `ball_dyn_embed.h`.
+- **`.first`/`.last`/`.single` guard their own emptiness (#616).**
+  `BallDyn::front()`/`back()` answer a default-constructed (null) `BallDyn` for an
+  empty list and `[0]` answers the FIRST element of a longer one, so the emitted
+  `list_first`/`list_last`/`list_single` wrap an explicit check and throw
+  `BallException("StateError"s, "Bad state: No element"s)` (and
+  `"Bad state: Too many elements"s`) — the same silent-placeholder defect
+  `list_find` had before #597. The runtime helpers are deliberately left alone:
+  the compiled engine reaches them on paths that have already checked. C++ was
+  ALREADY correct on the message text that issue #616's title flagged — it is the
+  only target that spelled Dart's `toString()` all along.
+  See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)

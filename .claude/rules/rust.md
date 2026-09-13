@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 350 passed, 0 failed, 350 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 351 passed, 0 failed, 351 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -123,10 +123,20 @@ cargo fmt --check && cargo clippy --workspace
   `writeCharCode` to `sink_write` + `string_from_char_code`, and
   `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
   `sink_to_string`, so three declarations are the whole abstraction. Guards:
-  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
   reference-semantics leg) plus this target's own tag test — `rust/shared/src/runtime.rs`'s `sink_is_a_tagged_reference_value` and `rust/compiler/tests/string_sink.rs`.
   Backing: `ball_sink_create`/`ball_sink_write`/`ball_sink_to_string` in `rust/shared/src/runtime.rs`, over a `BallValue::Map` — an `Arc<Mutex<IndexMap>>`, so the callee's append is shared. A bare `String` field would make `ball_type_of` answer `String` and lose every cross-call append, exactly as the by-value `Vec<BallValue>` clone did in #300.
 
+- **`.first`/`.last`/`.single` raise a TYPED `StateError` too (#616).** They used
+  to `panic!(&str)` with a message no other target produced — recoverable only by
+  an untyped catch, so a program's own `on StateError catch` around an empty
+  `.first` never saw it. And `ball_throw_typed`'s payload now renders as Dart's
+  own `StateError.toString()` (`value.rs`'s `dart_error_to_string`, a CLOSED
+  table over the type names `ball_throw_typed` is called with), so `to_string(e)`
+  in a catch body reads `Bad state: No element` rather than the raw map form.
+  `rust/shared/src/runtime.rs`'s
+  `empty_first_last_and_single_throw_a_typed_dart_state_error` is this target's
+  half. See `docs/TESTING_STRATEGY.md` §5b.
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compile_try`
   emits an `if`/`else if` chain over the recovered payload: an `on <Type> catch`
   clause runs only when `ball_catch_matches(&__err, "<Type>")` accepts the thrown
@@ -321,7 +331,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 350 passed, 0 failed, 350 total` (the 4
+  whole corpus with Dart-identical output: `Results: 351 passed, 0 failed, 351 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

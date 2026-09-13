@@ -49,9 +49,24 @@ for the authoritative member set).
   `writeCharCode` to `sink_write` + `string_from_char_code`, and
   `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
   `sink_to_string`, so three declarations are the whole abstraction. Guards:
-  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
   reference-semantics leg) plus this target's own tag test — `dart/engine/test/engine_test.dart`'s `std text sink (#630)` group (the engine) and `dart/compiler/test/base_calls_test.dart` (the compiler's `_ballSink*` helpers).
   Backing: the engine builds the tag map through `_ballUserMap()`, NOT a map literal — a plain literal lowers to a by-value `std::map` in the C++ self-host and the callee's append is lost; the compiler emits top-level `_ballSinkCreate`/`_ballSinkWrite`/`_ballSinkToString` helpers over a Dart `Map` (a reference type), never a host `StringBuffer`, which would make `_ballTypeOf` answer `StringBuffer`. The ENCODER routes `StringBuffer` syntactically (a local declared `StringBuffer`/`StringSink` or initialised with `StringBuffer(...)`, or a parameter annotated that way), because `generate_conformance.dart` parses without resolution; a `StringBuffer`/`StringSink` type ANNOTATION is recorded as `dynamic` (`_portableTypeSource`) so the compiled-back Dart does not annotate a sink as a `StringBuffer` and fail to type-check. `clear()`/`writeAll()` are deliberate carve-outs: they stay on the engines' Dart-SDK method surface, which now accepts the `std:Sink` tag as well as the legacy `:StringBuffer` one.
+- **A caught `StateError` reads as `Bad state: <message>` (#616).** `463` above
+  proves the throw is TYPED; it prints a hardcoded literal from its catch
+  bodies, so it pins nothing about the caught VALUE. The reference engine used
+  to raise a HOST `StateError` for an empty `.first`/`.last`/`.single`/`reduce`
+  and a no-match `firstWhere`, which `_evalLazyTry` collapses to
+  `e.toString()` — correct on Dart, but every SELF-HOSTED engine is that same
+  source compiled through the Ball pipeline, where `StateError('No element')` is
+  a construction of a class the program never declares, so their catch variable
+  bound a target-shaped object and `to_string(e)` printed `{message: No element}`
+  (TS) / `main:StateError` (Go). `engine_types.dart`'s `_stateError` raises a
+  `BallException` whose value IS the canonical string instead, so the Dart
+  observable is byte-identical and the same portable value travels every target.
+  Never re-introduce a host `throw StateError(...)` in engine source — use
+  `_stateError`. `tests/conformance/465_state_error_message` is the cross-target
+  guard. See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`

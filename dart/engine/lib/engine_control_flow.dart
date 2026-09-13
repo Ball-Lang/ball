@@ -1495,6 +1495,18 @@ extension BallEngineControlFlow on BallEngine {
     }
     // C++ self-host: the reified thrown goto is the bare label string.
     if (signal is String) return signal;
+    // C++ self-host, typed form: a thrown `_FlowSignal` whose payload is the
+    // label reifies as `{__type__: 'BallException', typeName: '_FlowSignal',
+    // value: <label>}` rather than collapsing to that bare string (issue #616 —
+    // the collapse had to stop applying to TYPED throws so the engine's own
+    // `BallException('StateError', …)` keeps a type its `on StateError catch`
+    // dispatch can match). Keyed on `typeName` so only a reified _FlowSignal
+    // matches: a genuine exception carrying a string payload must not be read
+    // as a goto.
+    if (signal is Map && signal['typeName'] == '_FlowSignal') {
+      final v = signal['value'];
+      return v is String ? v : null;
+    }
     // Defensive: a portable / returned flow-signal map form.
     if (signal is Map && signal['kind'] == 'goto') {
       final l = signal['label'];
@@ -1936,7 +1948,7 @@ extension BallEngineControlFlow on BallEngine {
               acc = r;
             }
             if (!seeded) {
-              throw StateError('No element');
+              throw BallException('StateError', 'Bad state: No element');
             }
             return acc;
           }

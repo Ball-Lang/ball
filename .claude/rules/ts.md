@@ -215,9 +215,19 @@ const json = toJson(ProgramSchema, program);
   `writeCharCode` to `sink_write` + `string_from_char_code`, and
   `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
   `sink_to_string`, so three declarations are the whole abstraction. Guards:
-  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
-  reference-semantics leg) plus this target's own tag test — `ts/compiler/test/string_sink.test.ts` (emitted helpers + a probe run asserting `Sink` and a cross-call append) and the `465_string_sink` row in `ts/compiler/test/native_conformance.test.ts`.
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `ts/compiler/test/string_sink.test.ts` (emitted helpers + a probe run asserting `Sink` and a cross-call append) and the `466_string_sink` row in `ts/compiler/test/native_conformance.test.ts`.
   Backing: `__ball_sink_create`/`__ball_sink_write`/`__ball_sink_to_string` in `preamble.ts`, over a plain JS object (a reference). This REPLACED three divergent ad-hoc forms — the compiler's `self += text`, and `engine_setup.ts`'s TWO `write` registrations, one pushing onto an Array `__buffer__` and one concatenating onto a String one (issue #633). Both engine registrations are deleted: the legacy StringBuffer method surface belongs to the COMPILED engine, which those overrides shadowed (the #597 shape). Remember that the whole preamble lives inside a `String.raw` template literal — a backtick anywhere in it, even in a comment, terminates the template.
+- **`list_first`/`list_last`/`list_reduce` are NOT overridden in
+  `engine_setup.ts` either (#616)** — the exact repeat of the `list_find` lesson
+  one bullet up, found by a fixture that finally printed the caught value. All
+  three hand-written overrides answered a placeholder on an empty list (`null`,
+  or `initial ?? null`) and, being registered AFTER the compiled table is built,
+  SHADOWED the compiled engine's reference implementation, which throws a typed
+  `StateError`. The `list_reduce` override's `initial` seed was dead weight
+  besides: every encoder emits `list_reduce` only from a one-argument
+  `.reduce(cb)`. `tests/conformance/465_state_error_message` is the guard.
+  See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
 

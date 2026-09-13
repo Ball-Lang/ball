@@ -4413,6 +4413,12 @@ class DartEncoder {
     if (expr is ast.InstanceCreationExpression) {
       return expr.constructorName.type.toSource() == 'StringBuffer';
     }
+    // `var sb = StringBuffer()..write('a');` — a cascade EVALUATES to its
+    // target, so the binding still holds a sink and `sb.toString()` must route.
+    if (expr is ast.CascadeExpression) {
+      return _isStringBufferConstruction(expr.target) ||
+          _isSinkReceiver(expr.target);
+    }
     return false;
   }
 
@@ -4730,16 +4736,24 @@ class DartEncoder {
     // `std.sink_write`/`sink_to_string`. Without it a cascade on a sink emitted
     // a generic `write` method call on the tagged map, which no compiled target
     // implements.
-    _cascadeSelfIsSink =
+    final targetIsSink =
         _isStringBufferConstruction(expr.target) ||
         _isSinkReceiver(expr.target);
+    _cascadeSelfIsSink = targetIsSink;
     final sections = expr.cascadeSections.map(_encodeExpr).toList();
     _inCascadeSection = wasInCascade;
     _cascadeSelfIsSink = wasCascadeSelfSink;
 
     final targetExpr = _encodeExpr(expr.target);
+    // A sink cascade (#630) deliberately drops the `cascade` tag — see
+    // `_encodeSinkMethod`. The compiler's `..`-syntax recognition re-applies
+    // each section as a method call on the bound name, but a sink section is a
+    // free-function `std.sink_write` call, so tagging it would emit
+    // `.._ballSinkWrite(__cascade_self__, …)`: a leaked binding and invalid
+    // target source. The untagged Block lowers to the ordinary
+    // evaluate-and-return-the-receiver form, which is correct for both.
     final metaFields = <String, structpb.Value>{
-      'kind': structpb.Value()..stringValue = 'cascade',
+      if (!targetIsSink) 'kind': structpb.Value()..stringValue = 'cascade',
     };
     if (expr.isNullAware) {
       metaFields['null_aware'] = structpb.Value()..boolValue = true;

@@ -425,10 +425,16 @@ void main() {
   print(sb.toString());
 }
 ''');
-      expect(out, contains('_ballSinkCreate('));
-      expect(out, contains('_ballSinkWrite('));
-      expect(out, contains('_ballSinkToString('));
+      // Each section is a free-function call on the bound receiver, and the
+      // receiver READS BACK through the sink too — `var sb = StringBuffer()..…`
+      // still holds a sink, so `sb.toString()` must route.
+      expect(out, contains("_ballSinkWrite(__cascade_self__, 'a')"));
+      expect(out, contains('_ballSinkToString(sb)'));
       expect(out, isNot(contains("..write('a')")));
+      // The encoder drops the `cascade` tag for a sink, so the compiler must
+      // NOT emit `..`-syntax: doing so would leak `__cascade_self__` into the
+      // emitted source as a bare identifier.
+      expect(out, isNot(contains(".._ballSinkWrite")));
     });
 
     test('const constructor invocation', () {

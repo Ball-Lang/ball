@@ -266,6 +266,23 @@ function __ball_to_string(v: any): string {
     return '{' + [...v].map(__ball_to_string).join(', ') + '}';
   }
   if (typeof v === 'object' && !Array.isArray(v)) {
+    // A built-in Dart error/exception -- the tagged {__type__, message} shape
+    // every typed throw in this compiler emits -- renders as Dart own
+    // toString() (issue #616). Without this it fell through to the Map-like
+    // branch below and a program that printed its CAUGHT exception read
+    // "{message: No element}", where the Dart reference engine prints
+    // "Bad state: No element". The table is EXPLICIT and closed over the type
+    // names this compiler throws: a user object that merely carries a
+    // message field is not a Dart error and keeps the map form.
+    const __ball_err_prefix: Record<string, string> = {
+      StateError: 'Bad state',
+      FormatException: 'FormatException',
+      RangeError: 'RangeError',
+    };
+    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
+        && __ball_err_prefix[v['__type__']] !== undefined) {
+      return __ball_err_prefix[v['__type__']] + ': ' + v['message'];
+    }
     // A text sink (#630) or the legacy StringBuffer object it replaces:
     // stringify as the accumulated text, never as a map. The declared sink's
     // buffer is a string; the legacy ad-hoc form used an array.

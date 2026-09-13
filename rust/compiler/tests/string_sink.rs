@@ -8,7 +8,7 @@
 //! self-hosted engine runs fine, because an engine's own sink is compiled
 //! `engine_std.dart` rather than this compiler's base-call table — was refused
 //! outright. The behavioural half of this contract is the conformance fixture
-//! `465_string_sink`, whose `appendWord(out, 'c')` line is the one that fails
+//! `466_string_sink`, whose `appendWord(out, 'c')` line is the one that fails
 //! SILENTLY if the sink is backed by a by-value `String` instead of a shared
 //! `BallMap` (precedent: issue #300's lost `BallList` appends). The
 //! reference-semantics and `type_of` halves are pinned in
@@ -56,7 +56,7 @@ fn compile_fixture(name: &str) -> String {
 
 #[test]
 fn the_sink_trio_compiles_to_the_runtime_helpers() {
-    let source = compile_fixture("465_string_sink.ball.json");
+    let source = compile_fixture("466_string_sink.ball.json");
     for want in [
         "ball_sink_create(",
         "ball_sink_write(",

@@ -184,6 +184,8 @@ mod macro_expand;
 mod methods;
 mod types;
 
+mod runtime_helpers;
+
 pub use crate_graph::{CrateGraph, CrateModule, CrateSymbols, encode_crate, encode_crate_library};
 use crate_graph::{ROOT_MODULE, Resolved};
 
@@ -815,6 +817,22 @@ pub(crate) struct Encoder {
     /// case: `heck`'s `|f| write!(f, "-")` closures are 6 of the 7 Tier A
     /// files this rule exists for.
     local_scopes: Vec<HashMap<String, LocalKind>>,
+    /// `let slot: &mut T = &mut place;` bindings in scope, as alias name → the
+    /// variable they borrow (issue #642). Ball has no references: a `let` copies
+    /// its initializer, so encoding the binding literally makes every later
+    /// write THROUGH the alias land on a copy and the borrowed variable never
+    /// change — a program that round-trips clean and then loops forever.
+    /// [`Self::encode_local`] records the alias and emits no binding instead,
+    /// and [`Self::encode_path_expr`] resolves a read of it back to the borrowed
+    /// variable, which IS what the Rust means. Block-scoped: saved and restored
+    /// around every block (see `block.rs`), and SHADOWED by any later binding of
+    /// the same name — a plain `let` of that name in [`Self::encode_local`], or
+    /// a fn/closure parameter in [`Self::push_fn_scope`].
+    pub(crate) ref_aliases: HashMap<String, String>,
+    /// One saved [`Self::ref_aliases`] per fn/closure scope currently being
+    /// encoded, so a parameter that shadows an alias stops resolving to the
+    /// borrowed variable for the body's duration and starts again after it.
+    pub(crate) alias_scopes: Vec<HashMap<String, String>>,
 }
 
 /// What a binding in the fn/closure/method body currently being encoded
@@ -911,6 +929,8 @@ impl Encoder {
             crate_symbols,
             referenced_crate_modules: BTreeSet::new(),
             local_scopes: Vec::new(),
+            ref_aliases: HashMap::new(),
+            alias_scopes: Vec::new(),
         }
     }
 
@@ -1109,6 +1129,17 @@ impl Encoder {
         // A fn/closure body also opens a binding frame (issue #630) — see
         // [`Self::push_locals_frame`] for why the two are separate.
         self.push_locals_frame(params);
+        // A parameter SHADOWS a `&mut` alias of the same name from an enclosing
+        // scope (issue #642): in `let x = &mut y; list.map(|x| x)`, the closure's
+        // `x` is its own parameter, not the borrowed `y`. Without this, the read
+        // inside the body resolves to `y` — a silent wrong answer, the shape the
+        // alias table was added to remove. The whole table is saved and put back
+        // in `pop_fn_scope`, which also discards any alias the body declared;
+        // those are block-scoped and `encode_block` restores them anyway.
+        self.alias_scopes.push(self.ref_aliases.clone());
+        for (name, _) in params {
+            self.ref_aliases.remove(name);
+        }
         if params.len() >= 2 {
             self.scopes
                 .push(params.iter().map(|(name, _)| name.clone()).collect());
@@ -1125,6 +1156,9 @@ impl Encoder {
     fn pop_fn_scope(&mut self) {
         self.scopes.pop();
         self.pop_locals_frame();
+        if let Some(saved) = self.alias_scopes.pop() {
+            self.ref_aliases = saved;
+        }
     }
 
     /// Is `name` one of the **currently-being-encoded** fn/closure's own
@@ -1263,9 +1297,15 @@ impl Encoder {
 
     fn encode_path_expr(&mut self, path: &syn::Path) -> Expression {
         if let Some(ident) = path.get_ident() {
-            let name = ident.to_string();
+            let mut name = ident.to_string();
             if name == "None" {
                 return option_result_message(true, null_literal());
+            }
+            // A `&mut` alias reads as the variable it borrows (issue #642).
+            // Checked FIRST: the alias is a local binding this encoder chose
+            // not to emit, so nothing else can legitimately claim the name.
+            if let Some(target) = self.ref_aliases.get(&name) {
+                name = target.clone();
             }
             if self.is_current_multi_param(&name) {
                 return field_access(reference("input"), name);
@@ -1301,6 +1341,19 @@ impl Encoder {
             if last.ident == "None" {
                 return option_result_message(true, null_literal());
             }
+        }
+        // `BallValue::Null` — the Ball Rust runtime's spelling of a Ball null
+        // literal, and what `rust/compiler` emits for one (issue #642). The
+        // compiler dispatches every Ball value through `BallValue`, so
+        // recognizing its variants is what lets this encoder read the
+        // compiler's own output back. A file declaring its own `BallValue`
+        // enum still wins: `self.enum_names` is checked first, below.
+        if path.segments.len() == 2
+            && path.segments[0].ident == BALL_VALUE_TYPE
+            && !self.enum_names.contains(BALL_VALUE_TYPE)
+            && path.segments[1].ident == "Null"
+        {
+            return null_literal();
         }
         // `Color::Red` — a 2-segment path whose first segment names a
         // top-level `enum` this file declared (see the pre-pass in
@@ -1470,11 +1523,102 @@ impl Encoder {
 
     // ── calls ─────────────────────────────────────────────────
 
+    /// Encode a `ball_<name>(args…)` runtime-helper call — one universal `std`
+    /// base call each, per [`runtime_helpers::runtime_helper`]. An unmapped
+    /// `ball_*` name fails loud rather than becoming a call to a function nobody
+    /// declared (see that module's doc comment).
+    fn encode_runtime_helper_call(
+        &mut self,
+        name: &str,
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        if name == runtime_helpers::BALL_FIELD_GET {
+            // A Ball `field_access` NODE, not a base call. Only the shape the
+            // compiler emits is accepted — a string-literal field name; a
+            // computed one has no Ball node and fails loud below.
+            if args.len() == 2 {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(field),
+                    ..
+                }) = &args[1]
+                {
+                    let object = self.encode_expr(&args[0]);
+                    return field_access(object, field.value());
+                }
+            }
+            panic!(
+                "ball-lang-encoder: {name}(...) is only encodable as                  `{name}(<object>, \"<field>\")` — a computed field name has no Ball                  `field_access` node"
+            );
+        }
+        if name == runtime_helpers::BALL_TRUTHY {
+            assert_eq!(
+                args.len(),
+                1,
+                "ball-lang-encoder: {name}(...) expects exactly one argument, got {}",
+                args.len()
+            );
+            // Truthiness coercion is implicit at every Ball condition site.
+            return self.encode_expr(&args[0]);
+        }
+        let Some((function, field_names)) = runtime_helpers::runtime_helper(name) else {
+            panic!(
+                "ball-lang-encoder: unsupported runtime helper `{name}(...)` —                  rust/encoder/src/runtime_helpers.rs lists the helpers that have a universal                  std inverse. Encoding it as a same-file call would produce a Program that only                  fails at run time"
+            );
+        };
+        assert_eq!(
+            args.len(),
+            field_names.len(),
+            "ball-lang-encoder: {name}(...) expects {} argument(s), got {}",
+            field_names.len(),
+            args.len()
+        );
+        let fields: Vec<(&str, Expression)> = field_names
+            .iter()
+            .zip(args.iter())
+            .map(|(field, arg)| (*field, self.encode_expr(arg)))
+            .collect();
+        std_call(function, Some(args_message(fields)))
+    }
+
     fn encode_call(&mut self, e: &syn::ExprCall) -> Expression {
+        // ── An IMMEDIATELY-INVOKED CLOSURE — `(|| -> BallValue { … })()` ──
+        //
+        // `rust/compiler` wraps a Ball block that lands in value position (the
+        // entry body included) in exactly this shape, and the encoder used to
+        // refuse it outright, which is why not one conformance fixture could
+        // round-trip (issue #642). A 0-argument closure invoked on the spot IS
+        // its body, so inlining it preserves semantics rather than special-casing
+        // a round-trip. A closure that takes parameters is left alone — it is a
+        // real call with arguments to bind.
+        if let Some(closure) = as_zero_arg_closure(e.func.as_ref()) {
+            if e.args.is_empty() {
+                return self.encode_expr(&closure.body);
+            }
+        }
         if let syn::Expr::Path(path_expr) = e.func.as_ref() {
             let path = &path_expr.path;
             if let Some(last) = path.segments.last() {
                 let last_name = last.ident.to_string();
+                // `BallValue::String(x)` / `Int` / `Double` / `Bool` / `Bytes`
+                // — the Ball Rust runtime's value constructors, which
+                // `rust/compiler` emits for every literal (issue #642). Each
+                // wraps one already-encodable operand, so the constructor is
+                // the identity in Ball, where every value is already dynamic.
+                // Checked before the tuple-struct and same-file-function
+                // branches for the same reason those are ordered that way: a
+                // file that declares its own `BallValue` enum wins, via
+                // `self.enum_names`.
+                if path.segments.len() == 2
+                    && path.segments[0].ident == BALL_VALUE_TYPE
+                    && !self.enum_names.contains(BALL_VALUE_TYPE)
+                    && e.args.len() == 1
+                    && matches!(
+                        last_name.as_str(),
+                        "String" | "Int" | "Double" | "Bool" | "Bytes"
+                    )
+                {
+                    return self.encode_expr(&e.args[0]);
+                }
                 // `String::from(x)` / `Box::new(x)` — identity passthroughs
                 // (a Ball value needs no separate "owned"/"boxed"
                 // representation — `BallValue` is already heap-backed for
@@ -1544,6 +1688,24 @@ impl Encoder {
                     let name = ident.to_string();
                     if self.tuple_struct_names.contains(&name) {
                         return self.encode_tuple_struct_creation(&name, &e.args);
+                    }
+                }
+
+                // A Ball Rust runtime helper — `rust/compiler` emits every
+                // base call as one of these free functions, imported by the
+                // compiled program's own `use ball_lang_shared::runtime::*;`
+                // (issue #642, see runtime_helpers.rs). Checked BEFORE the
+                // same-file-function branch, which would otherwise encode
+                // `ball_add(x, y)` as a call to a function nobody declared — a
+                // Program that only fails at RUN time. A file that declares its
+                // own `fn ball_*` still wins, so a real same-file definition is
+                // never shadowed by the table.
+                if let Some(ident) = path.get_ident() {
+                    let name = ident.to_string();
+                    if !self.fn_params.contains_key(&name)
+                        && runtime_helpers::looks_like_runtime_helper(&name)
+                    {
+                        return self.encode_runtime_helper_call(&name, &e.args);
                     }
                 }
 
@@ -2343,6 +2505,24 @@ fn starts_lowercase(ident: &str) -> bool {
 
 fn path_to_string(path: &syn::Path) -> String {
     quote::quote!(#path).to_string()
+}
+
+/// The Ball Rust runtime's dynamic value type. `rust/compiler` dispatches every
+/// literal through its variant constructors (`BallValue::String("x".to_string())`,
+/// `BallValue::Null`, …), so recognizing them is what lets this encoder read the
+/// compiler's own output back (issue #642). A file that declares its own enum by
+/// that name always wins — every site checks `self.enum_names` first.
+const BALL_VALUE_TYPE: &str = "BallValue";
+
+/// The closure of an immediately-invoked `(|| … )()`, when it takes no
+/// parameters — `rust/compiler`'s lowering of a Ball block in value position.
+/// Unwraps the parentheses `syn` keeps as an `ExprParen`.
+fn as_zero_arg_closure(expr: &syn::Expr) -> Option<&syn::ExprClosure> {
+    match expr {
+        syn::Expr::Paren(paren) => as_zero_arg_closure(&paren.expr),
+        syn::Expr::Closure(closure) if closure.inputs.is_empty() => Some(closure),
+        _ => None,
+    }
 }
 
 /// A conservative heuristic used only to disambiguate `/`'s int-truncating

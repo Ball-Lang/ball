@@ -3,12 +3,46 @@
 //! `std_collections` calls; string methods (`.trim()`, `.contains()`, ...)
 //! desugar into universal `std` string-manipulation calls; `.unwrap()`/
 //! `.unwrap_or()` desugar against the unified Option/Result "outcome" shape
-//! (see `lib.rs::option_result_message`); `println!`/`format!`/`vec!`
-//! desugar into `std.print`/string-concatenation/list-literal trees; and
-//! `write!`/`writeln!` desugar into `std.sink_write` against the declared text
-//! sink, or into a re-assignment of a provably-local `String` (issue #630 —
-//! design record `docs/SINK_DESIGN.md`, tests
-//! `rust/encoder/tests/write_sinks.rs`).
+//! (see `lib.rs::option_result_message`); `println!`/`format!`/`vec!`/
+//! `panic!`/`unreachable!` desugar into `std.print`/string-concatenation/
+//! list-literal/`std.throw` trees; and `write!`/`writeln!` desugar into
+//! `std.sink_write` against the declared text sink, or into a re-assignment of a
+//! provably-local `String` (issue #630 — design record `docs/SINK_DESIGN.md`,
+//! tests `rust/encoder/tests/write_sinks.rs`).
+//!
+//! ## The compiler↔encoder round trip (issue #632)
+//!
+//! `panic!` and `unreachable!` are here because **this crate must be able to
+//! read back everything `ball-lang-compiler` emits**. The compiler's own method
+//! dispatchers (`type_emit.rs::compile_method_dispatchers`) end in a `panic!`
+//! fallback arm, so without that arm every library whose compiled output
+//! carries a dispatcher — i.e. every library with a struct and a method —
+//! failed Tier A's stage 3 (re-encode) with
+//! ``unsupported macro invocation `panic!` ``.
+//!
+//! **Enumerate the emitted set, do not assume it is one.** The same sweep over
+//! what the compiler emits found `unreachable!`
+//! (`base_call.rs::flow_propagation`, a `break`/`continue` inside a `try` with
+//! no enclosing loop) and, in `base_call.rs::compile_list_literal`'s imperative
+//! lowering, both `Vec::new()` and `matches!(__sp, BallValue::Null)`.
+//!
+//! `unreachable!` is mapped below — it is `panic!` with a fixed prefix, so it
+//! has a faithful shape. The list-literal pair is NOT, and must not be widened
+//! into: `matches!` is a pattern match over a runtime-crate enum variant and
+//! `Vec::new()` an associated function on a foreign type, so an arm for either
+//! would encode a compiler-internal spelling while still refusing every
+//! real-world occurrence — which is what Tier A actually measures. That pair is
+//! pinned fail-loud as
+//! `documented_gaps.rs::compiled_spliced_list_literal_is_a_documented_gap` (plus
+//! `the_matches_macro_is_a_documented_gap` for the second refusal, which one
+//! `#[should_panic]` cannot reach) and filed as issue #712, whose fix is
+//! compiler-side: emit plain helper calls, the vocabulary the neighbouring
+//! `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use.
+//!
+//! The gate that keeps the two halves in agreement is
+//! `rust/encoder/tests/compile_reencode_roundtrip.rs`: it runs Tier A's three
+//! library-mode stages, and proves the thrown MESSAGE behaviourally by
+//! compiling and RUNNING the construct with a hand-written driver.
 //!
 //! **No `rust_std` module**: every arm below routes through `std`/
 //! `std_collections` base-function calls — there is no Rust-specific
@@ -319,7 +353,7 @@ impl Encoder {
     }
 
     // ════════════════════════════════════════════════════════════
-    // Macros — println! / format! / vec!
+    // Macros — println! / format! / vec! / panic! / unreachable! / write! / writeln!
     // ════════════════════════════════════════════════════════════
 
     pub(crate) fn encode_macro(&mut self, mac: &syn::Macro) -> Expression {
@@ -347,9 +381,68 @@ impl Encoder {
             // information is needed, and none is consulted.
             "write" => self.encode_write_macro(mac, "write", false),
             "writeln" => self.encode_write_macro(mac, "writeln", true),
+            // `panic!` is Rust's spelling of Ball's `std.throw`, and the two are
+            // the SAME mechanism on this target: `runtime.rs::ball_throw` is
+            // literally `std::panic::panic_any`, and `ball_catch_payload` — the
+            // helper every compiled `try` runs on the unwound payload — already
+            // re-wraps a non-Ball panic payload (a `&str`/`String`, i.e. exactly
+            // what `panic!` carries) as `BallValue::String(message)`. So a Ball
+            // `catch` around a `panic!` and around a `throw '<that message>'`
+            // bind the identical value; encoding one as the other preserves the
+            // observable the #616/#641 error-rendering contract governs, rather
+            // than approximating it.
+            //
+            // The Ball shape is the reference encoder's: `dart/encoder`'s
+            // `ThrowExpression` arm emits `std.throw` with a single `value`
+            // field, which is also what this crate's own `encode_unwrap`
+            // already emits for a failed `.unwrap()`.
+            //
+            // The message travels through `build_format_expr`, the same
+            // `std.concat`/`std.to_string` chain `format!` encodes to, so
+            // `panic!("no method '{}' for {}", a, b)` keeps its interpolation.
+            // A bare `panic!()` carries the message Rust itself prints for it —
+            // `core`'s `panic!()` expands to `panic("explicit panic")` (see
+            // `core::panicking::panic`'s callers in the standard library) — never
+            // an empty string, which would silently lose the failure's identity.
+            "panic" => {
+                let message = if mac.tokens.is_empty() {
+                    string_literal("explicit panic")
+                } else {
+                    self.build_format_expr(mac)
+                };
+                std_call("throw", Some(args_message(vec![("value", message)])))
+            }
+            // `unreachable!` is the SECOND macro the compiler emits into user
+            // programs, so the same round-trip invariant covers it:
+            // `base_call.rs::flow_propagation` ends a `try` that carries a
+            // `break`/`continue` with no enclosing loop in
+            // `unreachable!("break escaped a try with no enclosing loop")`.
+            // Leaving it unmapped would have kept stage 3 failing for exactly
+            // that shape, one `unsupported macro invocation` later.
+            //
+            // It is `panic!` with a fixed prefix — `core`'s edition-2021 form
+            // expands to `panic!("internal error: entered unreachable code: {}",
+            // format_args!(...))`, and the argument-less form to a plain
+            // `panic("internal error: entered unreachable code")` (rust-lang/rust
+            // `library/core/src/panic.rs`, `unreachable_2021`/`unreachable_2015`).
+            // So it encodes as the same `std.throw`, carrying the message Rust
+            // itself would print — prefix included, because that prefix is part
+            // of the string a Ball `catch` binds.
+            "unreachable" => {
+                let message = if mac.tokens.is_empty() {
+                    string_literal(UNREACHABLE_MESSAGE)
+                } else {
+                    concat_expr(
+                        string_literal(format!("{UNREACHABLE_MESSAGE}: ")),
+                        self.build_format_expr(mac),
+                    )
+                };
+                std_call("throw", Some(args_message(vec![("value", message)])))
+            }
             other => panic!(
                 "ball-lang-encoder: unsupported macro invocation `{other}!` (only `println!`/\
-                 `format!`/`vec!`/`write!`/`writeln!` are supported)"
+                 `format!`/`vec!`/`panic!`/`unreachable!`/`write!`/`writeln!` are supported \
+                 — issue #42's scope)"
             ),
         }
     }
@@ -545,19 +638,32 @@ impl Encoder {
         }
         let mut result = parts.remove(0);
         for part in parts {
-            result = Expression {
-                expr: Some(Expr::Call(Box::new(FunctionCall {
-                    module: "std".to_string(),
-                    function: "concat".to_string(),
-                    input: Some(Box::new(args_message(vec![
-                        ("left", result),
-                        ("right", part),
-                    ]))),
-                    type_args: vec![],
-                }))),
-            };
+            result = concat_expr(result, part);
         }
         result
+    }
+}
+
+/// Rust's own fixed message for `unreachable!`, quoted from
+/// `library/core/src/panic.rs` (`unreachable_2015`/`unreachable_2021`): the
+/// argument-less form panics with exactly this, and the formatted form with
+/// this plus `": "` and the formatted arguments.
+const UNREACHABLE_MESSAGE: &str = "internal error: entered unreachable code";
+
+/// `std.concat(left, right)` — the string-joining node `format!`'s
+/// interpolation chain is built from, shared with `unreachable!`'s
+/// prefix-plus-message shape so both spell the join the same way.
+fn concat_expr(left: Expression, right: Expression) -> Expression {
+    Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: "concat".to_string(),
+            input: Some(Box::new(args_message(vec![
+                ("left", left),
+                ("right", right),
+            ]))),
+            type_args: vec![],
+        }))),
     }
 }
 

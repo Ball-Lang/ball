@@ -83,6 +83,13 @@
 //! `encode_crate`, and its test at the bottom of this file is flipped
 //! accordingly.
 
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::{
+    Expression, FieldValuePair, FunctionCall, FunctionDefinition, ListLiteral, Literal,
+    MessageCreation, Module, ModuleImport, Program, Reference,
+};
+
 /// Source is only ever encoded, never compiled, so every snippet here is
 /// minimal — the panic must fire on the shape, not on anything downstream.
 fn encode(source: &str) {
@@ -309,8 +316,17 @@ fn top_level_proc_macro_invocation_is_a_documented_gap() {
     encode("some_derive_helper!();\nfn main() { println!(\"{}\", 1); }");
 }
 
-/// 6 of 196 study files. `println!`/`format!`/`vec!`/`write!`/`writeln!` are
-/// mapped (`methods.rs::encode_macro`); the `assert!` family is not.
+/// 6 of 196 study files. `methods.rs::encode_macro` maps
+/// `println!`/`format!`/`vec!`/`panic!`/`unreachable!`/`write!`/`writeln!` and refuses
+/// everything else — `assert!` here.
+///
+/// That list grows only under a stated reason, never for its own sake — widening it
+/// is how a syntactic encoder starts guessing. `panic!`/`unreachable!` were added for
+/// the compiler↔encoder round trip (#632): the compiler emits both into user
+/// programs, so refusing them broke Tier A's stage 3. `write!`/`writeln!` were added
+/// by #630, the measured largest remaining bucket, and carry their own closed-gap pin
+/// below. The third macro that #632's sweep found, `matches!`, is NOT mapped and has
+/// its own pin at the bottom of this file (#712).
 #[test]
 #[should_panic(expected = "unsupported macro invocation")]
 fn unmapped_macro_invocation_is_a_documented_gap() {
@@ -376,4 +392,156 @@ fn cross_file_method_call_encodes() {
         program.modules.iter().any(|m| m.name == "counter"),
         "the crate walk must reach the file declaring the called method"
     );
+}
+
+// ── lib.rs: re-encoding the COMPILER's own output ────────────────────────────
+
+/// The compiler↔encoder round-trip invariant (#632) in its second shape, still
+/// OPEN as issue #687.
+///
+/// `Compiler::compile()` (script mode) wraps the entry function's body in an
+/// immediately-invoked closure — `let _ballvalue_result: BallValue = (|| ->
+/// BallValue { … })();` — and `lib.rs`'s call-target match refuses it, so
+/// `encode(compile(p))` fails for EVERY program, hello-world included.
+///
+/// It is not fixed here because the IIFE is load-bearing: it is what makes a
+/// `return` inside the entry body return from the entry body rather than from
+/// `main`, which returns `()`. Encoding it as a plain Ball `block` would
+/// silently change that (a `return` inside a Ball block returns from the
+/// enclosing FUNCTION); the faithful shape is a `lambda` invoked through
+/// `std.invoke`, which is what `dart/encoder` emits for a
+/// `FunctionExpressionInvocation` — a decision #687 owes, together with a
+/// run-proof that the `return` still behaves.
+///
+/// The LIBRARY-mode round trip — the pipeline Tier A stage 3 actually measures
+/// — is green and gated by
+/// `rust/encoder/tests/compile_reencode_roundtrip.rs`. Flip this pin to a
+/// positive assertion in the PR that closes #687.
+#[test]
+#[should_panic(expected = "unsupported call target")]
+fn compiled_entry_point_iife_is_a_documented_gap() {
+    let program = ball_lang_encoder::encode(r#"fn main() { println!("{}", 1); }"#);
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile();
+    encode(&compiled);
+}
+
+/// The same invariant's remaining OPEN shape, tracked as issue #712 — and the
+/// one the #632 sweep found by enumerating what the compiler EMITS rather than
+/// assuming the dispatcher's `panic!` was the only instance.
+///
+/// `base_call.rs::compile_list_literal` switches to an **imperative** lowering
+/// the moment any element splices (a spread, `collection_if` or
+/// `collection_for`), and that lowering emits TWO constructs this encoder
+/// refuses:
+///
+/// 1. `let mut __lit: Vec<BallValue> = Vec::new();` — an associated function on
+///    a foreign TYPE, a documented `lib.rs` gap, and the FIRST refusal;
+/// 2. `if !matches!(__sp, BallValue::Null)` — the null-spread guard, refused by
+///    `methods.rs::encode_macro` (pinned separately below, since a
+///    `#[should_panic]` can only observe the first panic).
+///
+/// So #712 is the whole lowering, not one macro: every library whose compiled
+/// output contains a spliced collection literal fails stage 3. The `assert!`s
+/// below hold BOTH constructs, so the pin cannot quietly narrow to one.
+///
+/// The input is a Ball program, not Rust source, and deliberately so: Rust has
+/// no `...?` syntax, so this construct can only enter the pipeline from the
+/// Ball side (the Dart encoder emits it for `[...?l]`). It is driven through
+/// the REAL compiler — a pin quoting a remembered emission site stops tracking
+/// the compiler the moment that lowering changes.
+///
+/// The fix belongs on the COMPILER side, in the vocabulary the neighbouring
+/// `ball_truthy`/`ball_iterate`/`ball_spread_iter` calls already use: plain
+/// helper calls re-encode soft (they resolve to nothing, which is all stage 3
+/// needs) instead of aborting the file. Teaching the encoder a `Vec::new()` or
+/// `matches!` arm would encode compiler-internal spellings while still refusing
+/// every real-world one, which is what Tier A actually measures.
+#[test]
+#[should_panic(expected = "unsupported call target")]
+fn compiled_spliced_list_literal_is_a_documented_gap() {
+    let program = null_spread_program();
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("Vec::new()"),
+        "this pin is only meaningful while the spliced-literal lowering still opens with \
+         `Vec::new()` — if that changed, re-measure #712 and update this test:\n{compiled}"
+    );
+    assert!(
+        compiled.contains("matches!"),
+        "…and while it still spells the null-spread guard as `matches!`, which is the SECOND \
+         refusal behind it:\n{compiled}"
+    );
+    let _ = ball_lang_encoder::encode_library(&compiled);
+}
+
+/// The second half of #712, pinned on its own because `#[should_panic]` sees
+/// only the first panic and `Vec::new()` fires ahead of it in the compiled
+/// output above. Without this, "the encoder refuses `matches!`" would be an
+/// assumption the suite never observed — and a later change that mapped
+/// `matches!` would leave the gap looking open when it was closed, or the
+/// reverse.
+#[test]
+#[should_panic(expected = "unsupported macro invocation")]
+fn the_matches_macro_is_a_documented_gap() {
+    encode("fn main() { let ok = matches!(1, 1); println!(\"{}\", ok); }");
+}
+
+/// A one-function library whose body is `[...?input]` — the smallest program
+/// that makes `compile_collection_element` emit the null-spread guard.
+fn null_spread_program() -> Program {
+    let null_spread = Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: "null_spread".to_string(),
+            input: Some(Box::new(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields: vec![FieldValuePair {
+                        name: "value".to_string(),
+                        value: Some(Expression {
+                            expr: Some(Expr::Reference(Reference {
+                                name: "input".to_string(),
+                            })),
+                        }),
+                    }],
+                    metadata: None,
+                })),
+            })),
+            type_args: vec![],
+        }))),
+    };
+    let body = Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::ListValue(ListLiteral {
+                elements: vec![null_spread],
+            })),
+        })),
+    };
+    Program {
+        name: "null_spread".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_lang_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![FunctionDefinition {
+                    name: "splice".to_string(),
+                    input_type: String::new(),
+                    output_type: String::new(),
+                    body: Some(Box::new(body)),
+                    description: String::new(),
+                    is_base: false,
+                    metadata: None,
+                }],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: String::new(),
+        metadata: None,
+    }
 }

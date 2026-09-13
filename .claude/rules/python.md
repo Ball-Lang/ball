@@ -295,11 +295,17 @@ python -m conformance.runner                             # prints the CI-parseab
 - `python/engine/conformance/runner.py` is the committed `tests/conformance/*.ball.json` runner — the
   `python-engine` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained count.
 - `python/engine/conformance/roundtrip.py` (`python -m conformance.roundtrip`, or
-  `python -m python.engine.conformance.roundtrip` from the repo root) is a **measurement-only**
+  `python -m python.engine.conformance.roundtrip` from the repo root) is a measurement
   sweep (#452 item 3): Ball → Python → Ball → the **Dart** reference engine → golden diff. Needs
-  `dart` on PATH (or `BALL_DART`), not the compiled engine. Honest baseline **0/321**, expected by
-  construction and mirroring `csharp-roundtrip`; gated only on "the sweep ran something", never on
-  the failure count. Its CI home is the `python-roundtrip` row in `conformance-matrix.yml`, which
-  **is a PR gate since #619** — the row runs automatically on any PR touching a filtered path, gated
-  on harness health (a parseable `Results:` line, integer counts, `total >= 1`), never on the
-  failure count. No dispatch needed.
+  `dart` on PATH (or `BALL_DART`), not the compiled engine. It measured a flat **0/321** from the
+  day it shipped until #642 — the encoder refused the compiler's own output outright: the
+  `try:`/`except ballrt.BallReturn` wrapper the compiler put around EVERY function body (`ast`'s
+  `Try` is an unsupported statement here), and every `ballrt.*` base-call helper. The compiler now
+  emits that wrapper only when the body can actually raise (`compiler.py::emit_body`, a
+  conservative textual test for `ballrt.ret(`), and `ball_encoder/ballrt_calls.py` is the inverse
+  table for the helpers; `tests/test_compiler_output.py` is the fast guard on both halves. Its CI
+  home is the `python-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619**
+  and **floored + ratcheted since #642**: harness health PLUS `passed >= 1` PLUS
+  `passed >= PYTHON_ROUNDTRIP_FLOOR`, enforced by `tools/ci/roundtrip_floor.sh`. Still NOT a parity
+  gate — but a flat zero is red, and the floor only rises. **Raise it in the SAME PR as the fix
+  that earned it**; the job prints the exact new value.

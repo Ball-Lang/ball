@@ -367,8 +367,10 @@ like, so check both before writing a test against a "dead" line:
 
 The #63 reachability audit of the two biggest miss buckets (`ball_dyn.h`, 246
 missed lines / 75 clusters, and `encoder.cpp`, 96 / 38, at main @ `f673169c`)
-found that **341 of 342 were reachable from an instrumented ctest binary** and
-simply untested. The default answer to an uncovered line here is a test:
+found that **330 of those 342 missed lines were reachable from an instrumented
+ctest binary** and simply untested; the other **12** are dead by domination and
+carry the three per-site exclusions listed below. The default answer to an
+uncovered line here is a test:
 
 - `cpp/encoder/src/encoder.cpp` is a pure JSON-AST -> `ball::ir` transform — no
   I/O, no toolchain, no engine — so every branch is selected by handing
@@ -383,11 +385,23 @@ simply untested. The default answer to an uncovered line here is a test:
   self-hosted engine actually produces), assign `_val` directly instead of
   reaching for an exclusion.
 
-The single genuine exclusion is the `_BallRefDeref::_obj_map_fn` lambda body in
-`ball_dyn.h`: both call sites of `_BallRefDeref::obj_map` test
-`typeid(BallObjectRef)` themselves and short-circuit first, so it is **dominated
-dead code** — unreachable in every build, not merely outside self-host. Rules for
-adding another:
+The tree carries exactly **three** exclusion sites, all added by that audit and
+all **dominated dead code** — unreachable in every build, not merely outside
+self-host. Each one is named here so this rule can be checked against the tree
+(`grep -n LCOV_EXCL cpp/shared/include/ball_dyn.h cpp/encoder/src/encoder.cpp`
+must return these three and nothing else):
+
+| site | dominating guard | missed lines excluded |
+|---|---|---|
+| `ball_dyn.h` `operator==`'s `BallListRef`/`BallList` arms (main @ `07344ca9` lines 1003-1016) | the earlier `_listPtr()` arm already handles **both** list representations element-wise, with the same aliasing short-circuit, so control never arrives here with a list on either side | 9 (the two `if` guard lines themselves are HIT — the arms are entered, never taken — so the denominator drops by 11, not 9) |
+| `ball_dyn.h` `_BallRefDeref::_obj_map_fn` lambda body (main @ `07344ca9` lines 1465-1466) | both call sites of `_BallRefDeref::obj_map` test `typeid(BallObjectRef)` themselves and short-circuit first | 2 |
+| `encoder.cpp` `has_qualifier`'s `"static"` clause (main @ `07344ca9` line 1337) | line 1 of the same function (`node.value("storageClass", "") == qualifier`) already returns true for exactly that case | 1 |
+
+That is where the "12 dead of 342" above comes from, and it is also the check
+that the markers took effect: the two files' instrumented denominators fall by
+13 and 1 respectively (a `LCOV_EXCL_START`/`STOP` removes the HIT guard lines
+inside its range too, which is why the denominator delta is larger than the
+missed-line count). Rules for adding a fourth:
 
 - Per site only (`LCOV_EXCL_LINE`, or a tight `LCOV_EXCL_START`/`STOP` around the
   guarded body). **Never `LCOV_EXCL_FILE` and never a whole function.**

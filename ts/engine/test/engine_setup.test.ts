@@ -369,12 +369,24 @@ describe("MethodDispatchHandler", () => {
   });
 
   describe("StringBuffer-like objects (has __type__)", () => {
-    test("write/writeCharCode accumulate into __buffer__, toString reads it", () => {
+    // Issue #633: this handler used to answer `write`/`writeCharCode`/
+    // `toString` for any `__type__`-tagged object by pushing onto an ARRAY
+    // `__buffer__`, while a SECOND registration in the same source file
+    // concatenated onto a STRING one and the compiled engine's own
+    // (Dart-derived) handler used a string too. Whichever won, one read-back
+    // path was wrong for the buffer in use. Both overrides are gone — the
+    // sink is a declared std representation now (#630) and the legacy
+    // StringBuffer method surface belongs to the COMPILED engine, which this
+    // hand-written handler was shadowing (the #597 shape).
+    test("#633: write/writeCharCode are NOT claimed here any more", () => {
       const buf: any = { __type__: "x:StringBuffer" };
-      assert.equal(handler.call("write", { self: buf, arg0: "ab" }, null), null);
-      assert.equal(handler.call("writeCharCode", { self: buf, arg0: 99 }, null), null);
-      assert.deepEqual(buf.__buffer__, ["ab", "c"]);
-      assert.equal(handler.call("toString", { self: buf }, null), "abc");
+      handler.call("write", { self: buf, arg0: "ab" }, null);
+      handler.call("writeCharCode", { self: buf, arg0: 99 }, null);
+      assert.equal(
+        buf.__buffer__,
+        undefined,
+        "an ad-hoc write handler is back, shadowing the compiled engine's own",
+      );
     });
 
     test("a __type__ object with no matching case falls through to the generic map switch", () => {
@@ -760,12 +772,6 @@ describe("registerExtraStdFunctions: string_*", () => {
     await assert.rejects(() => h.call("string_to_int", { value: "abc" }), /FormatException/);
   });
 
-  test("write/writeCharCode accumulate into self.__buffer__", async () => {
-    const self: any = {};
-    await h.call("write", { self, arg0: "ab" });
-    await h.call("writeCharCode", { self, arg0: 99 });
-    assert.equal(self.__buffer__, "abc");
-  });
 });
 
 describe("registerExtraStdFunctions: conversion / equality / math / async", () => {
@@ -1617,15 +1623,6 @@ describe("MethodDispatchHandler: remaining branch edges", () => {
     assert.equal(handler.call("replaceFirst", { self: "aXaXa", arg0: /X/, arg1: "-" }, null), "a-aXa");
   });
 
-  test("StringBuffer-like write/writeCharCode create __buffer__ lazily and default their argument", () => {
-    const buf1: any = { __type__: "x" };
-    handler.call("write", { self: buf1 }, null);
-    assert.deepEqual(buf1.__buffer__, [""]);
-    const buf2: any = { __type__: "x" };
-    handler.call("writeCharCode", { self: buf2 }, null);
-    assert.deepEqual(buf2.__buffer__, ["\0"]);
-  });
-
   test("Set union/intersection/difference accept a plain array as the 'other' operand", () => {
     const a = new Set([1, 2]);
     assert.deepEqual(handler.call("union", { self: a, arg0: [2, 3] }, null), new Set([1, 2, 3]));
@@ -2132,14 +2129,6 @@ describe("registerExtraStdFunctions / MethodDispatchHandler: final fallback-arm 
     await assert.rejects(() => h.call("string_to_int", null), /FormatException/);
   });
 
-  test("writeCharCode/write (std-registered): a non-object 'self' is a safe no-op, and the 'value' key fallback (not 'arg0')", async () => {
-    assert.equal(await h.call("writeCharCode", { self: 5, value: 65 }), null);
-    assert.equal(await h.call("write", { self: 5, value: "x" }), null);
-    const buf: any = {};
-    await h.call("writeCharCode", { self: buf, value: 65 });
-    assert.equal(buf.__buffer__, "A");
-  });
-
   test("int_to_double/double_to_int: the 'arg0' key fallback", async () => {
     assert.equal((await h.call("int_to_double", { arg0: 5 })).value, 5);
     assert.equal(await h.call("double_to_int", { arg0: 5.9 }), 5);
@@ -2221,15 +2210,6 @@ describe("registerExtraStdFunctions: fully-defaulted (bare {}/bare value) inputs
   test("string_repeat/string_pad_left: bare {} and the 'string' key (not 'value') fallback", async () => {
     assert.equal(await h.call("string_repeat", {}), "");
     assert.equal(await h.call("string_pad_left", { string: "5" }), "5");
-  });
-
-  test("writeCharCode/write: bare self with neither 'arg0' nor 'value' default to code point 0 / empty string", async () => {
-    const buf1: any = {};
-    await h.call("writeCharCode", { self: buf1 });
-    assert.equal(buf1.__buffer__.charCodeAt(0), 0);
-    const buf2: any = {};
-    await h.call("write", { self: buf2 });
-    assert.equal(buf2.__buffer__, "");
   });
 
   test("int_to_double/double_to_int: the bare-value `?? i` fallback (no 'value' or 'arg0' key at all)", async () => {

@@ -122,6 +122,17 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	case "type_of":
 		return fmt.Sprintf("ballrt.TypeOf(%s)", c.arg(f, "value", "object"))
 
+	// ── Text sink (#630) ─────────────────────────────────────────────────
+	// Backed by a __type__-tagged *ballrt.Map so TypeOf answers "Sink" and an
+	// append inside a callee is visible to the caller; a *strings.Builder
+	// backing would lose both ("Do not copy a non-zero Builder").
+	case "sink_create":
+		return fmt.Sprintf("ballrt.SinkCreate(%s)", c.arg(f, "initial"))
+	case "sink_write":
+		return fmt.Sprintf("ballrt.SinkWrite(%s, %s)", c.arg(f, "sink"), c.arg(f, "text"))
+	case "sink_to_string":
+		return fmt.Sprintf("ballrt.SinkToString(%s)", c.arg(f, "sink"))
+
 	// ── Strings & conversion ─────────────────────────────────────────────
 	case "concat", "string_concat":
 		return fmt.Sprintf("ballrt.Concat(%s, %s)", c.arg(f, "left", "value"), c.arg(f, "right", "other"))
@@ -137,6 +148,8 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.StrUpper(%s)", V())
 	case "string_to_lower":
 		return fmt.Sprintf("ballrt.StrLower(%s)", V())
+	case "string_from_char_code":
+		return fmt.Sprintf("ballrt.StrFromCharCode(%s)", V())
 	case "string_trim":
 		return fmt.Sprintf("ballrt.StrTrim(%s)", V())
 	case "string_trim_start":

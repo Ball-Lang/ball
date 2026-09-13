@@ -10105,6 +10105,218 @@ void main() {
       expect(await runAndCapture(_encodeMain(src)), ['6']);
     });
   });
+
+  // ── The declared text sink `std.sink_*` (issue #630) ─────────────────────
+  //
+  // Before #630 Ball had no DECLARED sink. It had an undeclared one: a
+  // `__type__`/`__buffer__` map special-cased BY NAME in this engine's
+  // Dart-SDK method surface and (twice, with incompatible buffer shapes —
+  // issue #633) in the TS engine, and implemented in NO compiled target's
+  // runtime. These tests pin the declared replacement, and in particular the
+  // property that is silent when it breaks: the sink is REFERENCE-SEMANTIC, so
+  // appending to it inside a callee is visible to the caller. A target backing
+  // it with a by-value `String`/`strings.Builder`/`ostringstream` copy loses
+  // exactly that and nothing else (precedent: issue #300's lost list appends,
+  // and the C++ by-value map copy recorded at engine_eval.dart's
+  // `_ballUserMap()` comment).
+  group('std text sink (#630)', () {
+    Program sinkProgram() => buildProgram(
+      stdFunctions: [
+        {'name': 'sink_create', 'isBase': true},
+        {'name': 'sink_write', 'isBase': true},
+        {'name': 'sink_to_string', 'isBase': true},
+        {'name': 'type_of', 'isBase': true},
+      ],
+      functions: [
+        // appendB(sink) { sink.write('b'); } — the function boundary is the
+        // whole point of the test.
+        functionDef(
+          'appendB',
+          params: [
+            {'name': 'sink', 'type': 'dynamic'},
+          ],
+          body: stdCall(
+            'sink_write',
+            msg([
+              field('sink', ref('sink')),
+              field('text', literal('b')),
+            ], typeName: 'SinkWriteInput'),
+          ),
+        ),
+        mainFn([
+          letStmt(
+            'sb',
+            stdCall('sink_create', msg([], typeName: 'SinkCreateInput')),
+          ),
+          stmt(
+            stdCall(
+              'sink_write',
+              msg([
+                field('sink', ref('sb')),
+                field('text', literal('a')),
+              ], typeName: 'SinkWriteInput'),
+            ),
+          ),
+          stmt(call('appendB', input: ref('sb'))),
+          stmt(
+            printExpr(
+              stdCall(
+                'sink_to_string',
+                msg([field('sink', ref('sb'))], typeName: 'SinkToStringInput'),
+              ),
+            ),
+          ),
+          stmt(printExpr(stdCall('type_of', msg([field('value', ref('sb'))])))),
+        ]),
+      ],
+    );
+
+    test('appends survive a function boundary and type_of says Sink', () async {
+      expect(await runAndCapture(sinkProgram()), ['ab', 'Sink']);
+    });
+
+    test('sink_create seeds the buffer from `initial`', () async {
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'sink_create', 'isBase': true},
+          {'name': 'sink_write', 'isBase': true},
+          {'name': 'sink_to_string', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt(
+              'sb',
+              stdCall(
+                'sink_create',
+                msg([
+                  field('initial', literal('x')),
+                ], typeName: 'SinkCreateInput'),
+              ),
+            ),
+            stmt(
+              stdCall(
+                'sink_write',
+                msg([
+                  field('sink', ref('sb')),
+                  field('text', literal('y')),
+                ], typeName: 'SinkWriteInput'),
+              ),
+            ),
+            stmt(
+              printExpr(
+                stdCall(
+                  'sink_to_string',
+                  msg([
+                    field('sink', ref('sb')),
+                  ], typeName: 'SinkToStringInput'),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['xy']);
+    });
+
+    test('sink_write fails loud on a non-sink', () async {
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'sink_write', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            stmt(
+              stdCall(
+                'sink_write',
+                msg([
+                  field('sink', literal('not a sink')),
+                  field('text', literal('a')),
+                ], typeName: 'SinkWriteInput'),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(() => runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+    });
+
+    test('std.to_string on a sink yields its text, not the tag map', () async {
+      // `print(sb)` / `'$sb'` reach `std.to_string`, not `sink_to_string`, and
+      // must still answer the accumulated TEXT — a sink is map-shaped, so the
+      // generic map rendering would print `{__type__: std:Sink, …}`.
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'sink_create', 'isBase': true},
+          {'name': 'sink_write', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt(
+              'sb',
+              stdCall(
+                'sink_create',
+                msg([
+                  field('initial', literal('a')),
+                ], typeName: 'SinkCreateInput'),
+              ),
+            ),
+            stmt(
+              stdCall(
+                'sink_write',
+                msg([
+                  field('sink', ref('sb')),
+                  field('text', literal('b')),
+                ], typeName: 'SinkWriteInput'),
+              ),
+            ),
+            stmt(printToString(ref('sb'))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['ab']);
+    });
+
+    // The legacy Dart-SDK StringBuffer method surface (#630 R4). The encoder no
+    // longer emits these for `StringBuffer` source — `write`/`writeln`/
+    // `writeCharCode`/`toString`/`length` all route to `std.sink_*` — but a
+    // hand-written Ball program (and `clear`/`writeAll`, which have no declared
+    // std function) still reaches them, and they must keep working on the
+    // declared `std:Sink` tag as well as the legacy `:StringBuffer` one.
+    test('the legacy StringBuffer method surface accepts a std:Sink', () async {
+      Map<String, dynamic> method(
+        String name,
+        Map<String, dynamic> self, [
+        Map<String, dynamic>? arg,
+      ]) => call(
+        name,
+        input: msg([field('self', self), if (arg != null) field('arg0', arg)]),
+      );
+
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'sink_create', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt(
+              'sb',
+              stdCall('sink_create', msg([], typeName: 'SinkCreateInput')),
+            ),
+            stmt(method('write', ref('sb'), literal('a'))),
+            stmt(method('writeln', ref('sb'), literal('b'))),
+            stmt(method('writeCharCode', ref('sb'), literal(67))),
+            stmt(printExpr(method('toString', ref('sb')))),
+            stmt(printToString(method('length', ref('sb')))),
+            stmt(method('clear', ref('sb'))),
+            stmt(printToString(method('length', ref('sb')))),
+          ]),
+        ],
+      );
+      // `toString()` is ONE print, so the writeln's newline is inside the
+      // first captured line, not a line break between two of them.
+      expect(await runAndCapture(program), ['ab\nC', '4', '0']);
+    });
+  });
 }
 
 /// Encode a Ball-portable Dart [source] library whose entry point is `main`.

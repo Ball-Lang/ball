@@ -131,6 +131,14 @@ Module buildStdModule() {
         _exprField('min', 2),
         _exprField('max', 3),
       ]),
+
+      // --- Text-sink input types (issue #630) ---
+      // A sink is an opaque runtime value, so `sink` is an ordinary expression
+      // field (the same shape `UnaryInput.value` uses) rather than a described
+      // message. `initial` is optional: absent means an empty sink.
+      _type('SinkCreateInput', [_exprField('initial', 1)]),
+      _type('SinkWriteInput', [_exprField('sink', 1), _exprField('text', 2)]),
+      _type('SinkToStringInput', [_exprField('sink', 1)]),
     ].map(
       (d) => TypeDefinition()
         ..name = d.name
@@ -453,6 +461,46 @@ Module buildStdModule() {
       'StringPadInput',
       '',
       'Pad right: value.padRight(width, padding)',
+    ),
+
+    // --- Text sink (issue #630) ---
+    //
+    // A mutable output sink — the common denominator of Dart's `StringBuffer`/
+    // `StringSink`, Rust's `fmt::Write` (`String`, `Formatter`), Go's
+    // `strings.Builder`, C#'s `StringBuilder`, Python's `io.StringIO`, C++'s
+    // `std::ostringstream` and a TS `string[]` + `join`. Every one of those is
+    // append-only text accumulation with a terminal read, so three functions
+    // are the whole abstraction: `writeln` is `sink_write` plus `"\n"` (Rust
+    // `core` defines `writeln!($dst)` as exactly `write!($dst, "\n")`), and
+    // `writeCharCode` is `sink_write` plus `string_from_char_code`.
+    //
+    // Declared in universal `std`, NOT `std_io`: building a string performs no
+    // I/O and works in every runtime, whereas `capability_table.dart` maps
+    // `std_io` membership to the `io` capability, so declaring it there would
+    // mark every string-building program io-capable in `ball audit`.
+    //
+    // NORMATIVE runtime contract, and the part that fails silently:
+    // a sink is a REFERENCE-SEMANTIC, `__type__`-tagged value. Passing one to a
+    // function and appending there must be observable by the caller, and
+    // `std.type_of` must answer `"Sink"` on every target — never the host
+    // builder's own type name.
+    _fn(
+      'sink_create',
+      'SinkCreateInput',
+      '',
+      'Create a text sink, optionally seeded: StringBuffer(initial)',
+    ),
+    _fn(
+      'sink_write',
+      'SinkWriteInput',
+      '',
+      'Append text to a sink: sink.write(text)',
+    ),
+    _fn(
+      'sink_to_string',
+      'SinkToStringInput',
+      'String',
+      'Read a sink back: sink.toString()',
     ),
 
     // --- Regex (universal) ---

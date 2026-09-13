@@ -22,9 +22,19 @@
 # that stopped calling the loop-breaker would all sit there unnoticed until the
 # day they mattered. This parses the workflow and asserts the shape on every PR.
 #
+# THE FAMILY SET IS DERIVED, NOT LISTED (#655). A hardcoded tuple of the six ids
+# that exist today would let a SEVENTH regenerate-and-diff family be added
+# tomorrow, unwired, with this guard still green. So the set is derived from the
+# predicate that actually defines a family — an `Assert …` step whose `run`
+# contains `git diff --exit-code` — and every derived id must appear in all three
+# gates AND own a pathspec block in the collect step's table. The six are kept as
+# a positive floor: the derived set must be a superset of them, so a predicate
+# that stopped matching fails loud instead of shrinking what is checked.
+#
 # POSITIVE FLOOR: a guard that asserted nothing must not report success. The
-# checker refuses a job with fewer than 6 `Assert …` steps, refuses an empty
-# required-id set, and the self-test refuses to pass on fewer than 10 cases.
+# checker refuses a job with fewer than 6 `Assert …` steps, refuses a derived set
+# that does not cover the floor tuple, refuses to pass on fewer than 10 live
+# assertions, and the self-test refuses to pass on fewer than 18 cases.
 #
 # Usage:
 #   bash tools/ci/check_ci_regen_wiring.sh                # gate the repo
@@ -57,7 +67,7 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   -h | --help)
-    sed -n '2,40p' "${BASH_SOURCE[0]}"
+    sed -n '2,46p' "${BASH_SOURCE[0]}"
     exit 0
     ;;
   *)
@@ -85,10 +95,22 @@ except ImportError:  # pragma: no cover - the runner image ships PyYAML
 path = sys.argv[1]
 JOB = "ball-freshness"
 
-# Every artifact family the job regenerates, and the `id` its `git diff
-# --exit-code` gate must carry. Adding a family here without wiring its id into
-# the three conditions below is the failure this guard exists to make loud.
-REQUIRED_ASSERT_IDS = (
+# An artifact family is DERIVED, not listed (#655): it is an `Assert …` step
+# whose `run` regenerate-and-diffs a committed file, i.e. contains
+# `git diff --exit-code`. The job's other `Assert …` steps are checkers that own
+# no artifact (assert-fixture-sources, assert-encoder-completeness,
+# assert-fixture-names, assert-node-shapes) and must NOT be wired into the
+# collect/upload/push flow. Deriving the set is what makes a SEVENTH family fail
+# loud on the day it is added rather than on the day it matters — a hardcoded
+# tuple stays green while an unwired family silently collects nothing.
+DIFF_PREDICATE = "git diff --exit-code"
+
+# …and the six that exist today are kept as a POSITIVE FLOOR. A derivation that
+# stopped deriving (a predicate that no longer matches, a step renamed out of
+# `Assert …`) would otherwise quietly shrink the set every gate is checked
+# against — the exact "nothing ran reads as all passed" failure. The derived set
+# must be a SUPERSET of this tuple.
+FLOOR_ASSERT_IDS = (
     "assert-shared",
     "assert-corpus",
     "assert-std-coverage",
@@ -181,12 +203,34 @@ if missing_id:
 else:
     ok("every `Assert …` step carries an `id`")
 
-ids = {str(s.get("id")) for s in asserts if s.get("id")}
-absent = [i for i in REQUIRED_ASSERT_IDS if i not in ids]
-if absent:
-    bad("missing required Assert step id(s): " + ", ".join(absent))
+# 3. DERIVE the artifact-family set, then floor it against the literal tuple.
+#    An id that is derived but not in the floor is a NEW family — it must still
+#    be wired everywhere below. An id in the floor that is no longer derived
+#    means the predicate stopped matching, which would silently shrink every
+#    check that follows; both directions fail loud.
+derived_ids = [
+    str(s.get("id")) for s in asserts if s.get("id") and DIFF_PREDICATE in body(s)
+]
+derived = set(derived_ids)
+lost = [i for i in FLOOR_ASSERT_IDS if i not in derived]
+if lost:
+    bad(
+        "the artifact-family set is derived from `Assert …` steps whose `run` "
+        f"contains `{DIFF_PREDICATE}`, and that derivation no longer yields: "
+        + ", ".join(lost)
+        + " — either the step lost its regenerate-and-diff gate or it was renamed "
+        "out of the derivation. A shrunken set silently stops checking those "
+        "families (#655)."
+    )
 else:
-    ok("all " + str(len(REQUIRED_ASSERT_IDS)) + " artifact-family Assert ids are present")
+    ok(
+        f"{len(derived)} artifact famil(ies) derived from the `{DIFF_PREDICATE}` "
+        f"predicate, covering the {len(FLOOR_ASSERT_IDS)}-id floor"
+    )
+
+# Every check below is over the UNION, so a floor id the derivation lost is
+# still reported as unwired rather than quietly dropped.
+GATE_IDS = sorted(derived | set(FLOOR_ASSERT_IDS))
 
 
 def find_step(pred, label):
@@ -218,7 +262,7 @@ def assert_gated(step, label, extra=()):
         return
     missing = [
         i
-        for i in REQUIRED_ASSERT_IDS
+        for i in GATE_IDS
         if not re.search(
             r"steps\." + re.escape(i) + r"\.outcome\s*==\s*'failure'", expr
         )
@@ -234,7 +278,7 @@ def assert_gated(step, label, extra=()):
         if needle not in expr:
             bad(f"{label}'s `if:` is missing `{needle}`")
             return
-    ok(f"{label} is gated on all {len(REQUIRED_ASSERT_IDS)} Assert outcomes")
+    ok(f"{label} is gated on all {len(GATE_IDS)} Assert outcomes")
 
 
 assert_gated(collect, "the collect step")
@@ -249,7 +293,92 @@ assert_gated(
     ),
 )
 
-# 3. The loop-breaker (#625): the push step must ask whether the PR head commit
+# 4. The collect step's PATHSPEC TABLE (#655). The `if:` above proves the step
+#    RUNS for a given family; the table inside its `run:` decides which files it
+#    actually copies. They are two independent lists, and only the first was
+#    gated: a family whose gate names its id but whose table forgot a path would
+#    collect strictly less than it should, and the step's `exit 1` only covers
+#    the case where NO family matched at all. So walk the table.
+#
+#    The id -> shell-variable mapping is the step's own `env:` block
+#    (`ASSERT_GO: ${{ steps.assert-go.outcome }}`), never a naming convention —
+#    the workflow is the source of truth for its own spelling.
+if collect is not None:
+    collect_env = collect.get("env")
+    collect_env = collect_env if isinstance(collect_env, dict) else {}
+    run = body(collect)
+
+    var_for_id = {}
+    for var, value in collect_env.items():
+        m = re.search(r"steps\.([A-Za-z0-9_.-]+)\.outcome", str(value))
+        if m:
+            var_for_id[m.group(1)] = str(var)
+
+    no_env = [i for i in GATE_IDS if i not in var_for_id]
+    if no_env:
+        bad(
+            "the collect step has no `env:` entry carrying `steps.<id>.outcome` for: "
+            + ", ".join(no_env)
+            + " — without it the step's pathspec table cannot see whether that "
+            "family drifted, so its files are never collected (#655)"
+        )
+
+    stale = sorted(i for i in var_for_id if i not in set(GATE_IDS))
+    if stale:
+        bad(
+            "the collect step's `env:` gates on "
+            + ", ".join(f"`steps.{i}.outcome` (as ${var_for_id[i]})" for i in stale)
+            + ", which is not an artifact-family `Assert …` step — the table and the "
+            "job have drifted apart, and that variable is never set (#655)"
+        )
+
+    tableless = []
+    pathless = []
+    for i in GATE_IDS:
+        var = var_for_id.get(i)
+        if var is None:
+            continue
+        v = re.escape(var)
+        block = re.search(
+            r'if\s+\[\s+"\$(?:\{' + v + r"(?::-)?\}|" + v + r')"\s*=\s*"failure"\s*\]'
+            r"\s*;\s*then(.*?)^\s*fi\s*$",
+            run,
+            re.S | re.M,
+        )
+        if block is None:
+            tableless.append(f"{i} (as ${var})")
+            continue
+        add = re.search(r"pathspec\+=\(([^)]*)\)", block.group(1), re.S)
+        paths = []
+        if add is not None:
+            for line in add.group(1).splitlines():
+                line = line.split("#", 1)[0]
+                paths.extend(line.split())
+        if not paths:
+            pathless.append(f"{i} (as ${var})")
+
+    if tableless:
+        bad(
+            "the collect step's pathspec table has no `if [ \"$VAR\" = \"failure\" ]` "
+            "block for: "
+            + ", ".join(tableless)
+            + " — the gate lists the family but the `run:` never collects its files, "
+            "so a real drift uploads a PARTIAL fix (#655)"
+        )
+    if pathless:
+        bad(
+            "the collect step's pathspec table has a block for "
+            + ", ".join(pathless)
+            + " that adds no path at all — an empty `pathspec+=()` collects nothing "
+            "while looking wired (#655)"
+        )
+    if not (no_env or stale or tableless or pathless):
+        ok(
+            f"the collect step's pathspec table covers all {len(GATE_IDS)} artifact "
+            "families, and nothing else"
+        )
+
+# 5. The loop-breaker (#625): the push step must ask whether the PR head commit
 #    is itself an auto-push, and must take the marker trailer FROM the script
 #    rather than spelling a second copy of the literal.
 if push is not None:
@@ -271,7 +400,7 @@ if push is not None:
     else:
         ok("the push step consults the loop-breaker and sources the marker from it")
 
-# 4. Every `${{ … }}` placeholder in the job must be WELL FORMED. GitHub parses
+# 6. Every `${{ … }}` placeholder in the job must be WELL FORMED. GitHub parses
 #    expressions only when it creates a run, and a workflow that fails to parse
 #    produces NO CHECKS AT ALL — and an absent check reads as green. PyYAML is
 #    perfectly happy with `${{{{ … }}}}` (a stray brace pair from a templating
@@ -301,7 +430,7 @@ if placeholder_errors:
 else:
     ok("every `${{ … }}` placeholder in the job is well formed")
 
-# 5. No escape hatches anywhere in the job. A `continue-on-error` on any step
+# 7. No escape hatches anywhere in the job. A `continue-on-error` on any step
 #    here would turn the whole regenerate-and-diff contract green-by-default.
 hatches = []
 if job.get("continue-on-error"):
@@ -321,7 +450,7 @@ print(f"Results: {passed} passed, {len(failures)} failed, {total} total")
 if failures:
     print(f"::error::{path}: the `{JOB}` regeneration wiring is broken (see the FAIL lines above; issue #625).")
     sys.exit(1)
-if passed < 7:
+if passed < 10:
     print(
         f"::error::{path}: only {passed} assertion(s) ran — a guard that checked "
         "almost nothing is not a passing guard."
@@ -338,10 +467,71 @@ cleanup() {
   return 0
 }
 
-# Builds a synthetic ci.yml whose `ball-freshness` job has the right shape, with
-# single-token substitutions so each case can break exactly one thing.
+# An artifact FAMILY, spelled the way the four places that must agree describe
+# it:  <assert-id> <COLLECT_ENV_VAR> <repo/relative/path>
+# The helpers below emit the `Assert …` step, the gate expression, the collect
+# step's `env:` entry and its pathspec block from the SAME record, so a case can
+# break exactly one of the four and leave the other three consistent — which is
+# the only way to prove the guard sees THAT break and not some collateral one.
+BASE_FAMILIES='assert-shared ASSERT_SHARED dart/shared/std.json
+assert-corpus ASSERT_CORPUS tests/conformance/x.ball.json
+assert-std-coverage ASSERT_STD_COVERAGE tests/conformance/std_coverage.json
+assert-ts-engine ASSERT_TS_ENGINE ts/engine/src/compiled_engine.ts
+assert-ts-cli ASSERT_TS_CLI ts/cli/src/compiled_cli.ts
+assert-go ASSERT_GO go/engine/compiled/compiled_engine.go'
+
+# The `Assert …` steps. Each carries the `git diff --exit-code` predicate the
+# guard DERIVES the artifact-family set from (#655) — a checker step that owns
+# no artifact is spelled without it.
+asserts_yaml() {
+  local id var path
+  while read -r id var path; do
+    [ -n "$id" ] || continue
+    printf '      - name: Assert %s is up to date\n        id: %s\n        run: git diff --exit-code -- %s\n' \
+      "$id" "$id" "$path"
+  done <<<"$1"
+}
+
+# `failure() && ( steps.<id>.outcome == 'failure' || … )` over the ids given.
+gate_expr() {
+  local id out="failure() && (" first=1
+  while read -r id; do
+    [ -n "$id" ] || continue
+    if [ "$first" -eq 1 ]; then first=0; else out="$out ||"; fi
+    out="$out steps.$id.outcome == 'failure'"
+  done <<<"$1"
+  printf '%s )' "$out"
+}
+
+# The collect step's `env:` block — the id -> shell-variable mapping.
+collect_env_yaml() {
+  local id var path
+  while read -r id var path; do
+    [ -n "$id" ] || continue
+    printf '          %s: ${{ steps.%s.outcome }}\n' "$var" "$id"
+  done <<<"$1"
+}
+
+# The collect step's pathspec TABLE: one `if [ "$VAR" = "failure" ]` block per
+# family, each appending that family's paths. A record with no path emits an
+# empty `pathspec+=()`, which is the "gate lists it, table forgot it" shape.
+collect_run_yaml() {
+  local id var path
+  printf '          set -euo pipefail\n          pathspec=()\n'
+  while read -r id var path; do
+    [ -n "$id" ] || continue
+    printf '          if [ "${%s:-}" = "failure" ]; then\n            pathspec+=(%s)\n          fi\n' \
+      "$var" "$path"
+  done <<<"$1"
+  printf '          echo "count=${#pathspec[@]}" >> "$GITHUB_OUTPUT"\n'
+}
+
+ids_of() { awk 'NF {print $1}' <<<"$1"; }
+
+# Builds a synthetic ci.yml whose `ball-freshness` job has the right shape.
 fixture() {
-  local collect_if="$1" upload_if="$2" push_if="$3" push_run="$4" extra_step="$5" last_assert_id="$6"
+  local asserts="$1" collect_if="$2" collect_env="$3" collect_run="$4" \
+    upload_if="$5" push_if="$6" push_run="$7" extra_step="$8"
   cat <<YAML
 name: CI
 on:
@@ -354,29 +544,15 @@ jobs:
     steps:
       - name: Regenerate shared Ball artifacts
         run: echo regen
-      - name: Assert no drift
-        id: assert-shared
-        run: git diff --exit-code
-      - name: Assert conformance corpus is up to date
-        id: assert-corpus
-        run: git diff --exit-code
-      - name: Assert std coverage inventory is up to date
-        id: assert-std-coverage
-        run: git diff --exit-code
-      - name: Assert compiled TS engine is up to date
-        id: assert-ts-engine
-        run: git diff --exit-code
-      - name: Assert compiled TS CLI core is up to date
-        id: assert-ts-cli
-        run: git diff --exit-code
-      - name: Assert compiled Go engine and CLI core are up to date
-        id: ${last_assert_id}
-        run: git diff --exit-code
+${asserts}
 ${extra_step}      - name: Collect the regenerated artifacts
         id: collect
         if: >-
           ${collect_if}
-        run: echo collect
+        env:
+${collect_env}
+        run: |
+${collect_run}
       - name: Upload the regenerated artifacts
         if: >-
           ${upload_if}
@@ -397,10 +573,33 @@ self_test() {
   SCRATCH="$(mktemp -d)"
   trap cleanup EXIT
 
-  local gate="failure() && ( steps.assert-shared.outcome == 'failure' || steps.assert-corpus.outcome == 'failure' || steps.assert-std-coverage.outcome == 'failure' || steps.assert-ts-engine.outcome == 'failure' || steps.assert-ts-cli.outcome == 'failure' || steps.assert-go.outcome == 'failure' )"
-  local upload_gate="$gate && steps.collect.outputs.count > 0"
-  local push_gate="$gate && github.event.pull_request.head.repo.full_name == github.repository && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0"
-  local good_run='bash tools/ci/regen_loop_breaker.sh --rev HEAD; marker="$(bash tools/ci/regen_loop_breaker.sh --print-marker)"; git push'
+  local base_ids all7 all7_ids seventh seventh_nopath good_run
+  base_ids="$(ids_of "$BASE_FAMILIES")"
+  seventh='assert-python ASSERT_PYTHON python/engine/ball_engine/compiled_engine.py'
+  seventh_nopath='assert-python ASSERT_PYTHON'
+  all7="$BASE_FAMILIES
+$seventh"
+  all7_ids="$(ids_of "$all7")"
+  good_run='bash tools/ci/regen_loop_breaker.sh --rev HEAD; marker="$(bash tools/ci/regen_loop_breaker.sh --print-marker)"; git push'
+
+  local gate upload_gate push_gate
+  gate="$(gate_expr "$base_ids")"
+  upload_gate="$gate && steps.collect.outputs.count > 0"
+  push_gate="$gate && github.event.pull_request.head.repo.full_name == github.repository && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0"
+
+  # wire <assert-families> <env-families> <table-families> <gate-ids> [extra-step] [assert-yaml-override]
+  # Every gate (collect/upload/push) is built from the SAME id list, so a case
+  # that varies only <gate-ids> varies all three together.
+  wire() {
+    local af="$1" ef="$2" tf="$3" gids="$4" extra="${5:-}" asserts="${6:-}"
+    local g
+    g="$(gate_expr "$gids")"
+    [ -n "$asserts" ] || asserts="$(asserts_yaml "$af")"
+    fixture "$asserts" "$g" "$(collect_env_yaml "$ef")" "$(collect_run_yaml "$tf")" \
+      "$g && steps.collect.outputs.count > 0" \
+      "$g && github.event.pull_request.head.repo.full_name == github.repository && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0" \
+      "$good_run" "$extra"
+  }
 
   # expect <name> <want-exit> <yaml> [needle...]
   expect() {
@@ -427,47 +626,101 @@ self_test() {
     fi
   }
 
+  # ── the happy shape, and the one that proves the set is DERIVED ────────────
   expect "a correctly wired job passes" 0 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" "$good_run" "" "assert-go")" \
+    "$(wire "$BASE_FAMILIES" "$BASE_FAMILIES" "$BASE_FAMILIES" "$base_ids")" \
     "Results: " " passed, 0 failed,"
 
+  # A SEVENTH family, wired into all three gates, the env map and the table —
+  # the guard must accept growth rather than pinning the set at today's six.
+  expect "a seventh family wired everywhere passes" 0 \
+    "$(wire "$all7" "$all7" "$all7" "$all7_ids")" \
+    "Results: " " passed, 0 failed,"
+
+  # ── #655 negative controls: a derived family that is not fully wired ───────
+  expect "a seventh family absent from the gates and the table fails" 1 \
+    "$(wire "$all7" "$BASE_FAMILIES" "$BASE_FAMILIES" "$base_ids")" \
+    "assert-python"
+
+  expect "a seventh family in the gates but missing from the collect table fails" 1 \
+    "$(wire "$all7" "$all7" "$BASE_FAMILIES" "$all7_ids")" \
+    "assert-python"
+
+  expect "a seventh family whose table block adds no path fails" 1 \
+    "$(wire "$all7" "$all7" "$BASE_FAMILIES
+$seventh_nopath" "$all7_ids")" \
+    "assert-python"
+
+  expect "a seventh family with no collect env entry fails" 1 \
+    "$(wire "$all7" "$BASE_FAMILIES" "$all7" "$all7_ids")" \
+    "assert-python"
+
+  # A table entry for a family that no longer exists is drift in the other
+  # direction: the run tests a variable nothing ever sets.
+  expect "a stale collect table entry fails" 1 \
+    "$(wire "$BASE_FAMILIES" "$BASE_FAMILIES
+assert-gone ASSERT_GONE dead/path.json" "$BASE_FAMILIES
+assert-gone ASSERT_GONE dead/path.json" "$base_ids")" \
+    "assert-gone"
+
+  # An Assert step that stopped being a regenerate-and-diff gate drops out of
+  # the derived set — which must fail against the literal floor, not silently
+  # shrink the set the gates are checked against.
+  local lost_diff
+  lost_diff="$(asserts_yaml "$(grep -v '^assert-go ' <<<"$BASE_FAMILIES")")
+      - name: Assert compiled Go engine and CLI core are up to date
+        id: assert-go
+        run: cd go/engine && go run ./cmd/check
+"
+  expect "an Assert step that lost \`git diff --exit-code\` fails the floor" 1 \
+    "$(wire "$BASE_FAMILIES" "$BASE_FAMILIES" "$BASE_FAMILIES" "$base_ids" "" "$lost_diff")" \
+    "assert-go"
+
+  # ── the #625 cases, unchanged in intent ───────────────────────────────────
   expect "a bare failure() on collect fails" 1 \
-    "$(fixture "failure()" "$upload_gate" "$push_gate" "$good_run" "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "failure()" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "$upload_gate" "$push_gate" "$good_run" "")" \
     "the collect step's \`if:\` must gate on the Assert steps' outcomes"
 
   expect "a bare failure() on upload fails" 1 \
-    "$(fixture "$gate" "failure() && steps.collect.outputs.count > 0" "$push_gate" "$good_run" "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "$gate" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "failure() && steps.collect.outputs.count > 0" \
+      "$push_gate" "$good_run" "")" \
     "the upload step's \`if:\`"
 
   expect "a bare failure() on the push fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "failure() && env.HAS_REGEN_PAT == 'true'" "$good_run" "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "$gate" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "$upload_gate" "failure() && env.HAS_REGEN_PAT == 'true'" \
+      "$good_run" "")" \
     "the REGEN_PAT push step's \`if:\`"
 
   expect "an upload that dropped the count guard fails" 1 \
-    "$(fixture "$gate" "$gate" "$push_gate" "$good_run" "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "$gate" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "$gate" "$push_gate" "$good_run" "")" \
     "is missing \`steps.collect.outputs.count\`"
 
   expect "a push that dropped the fork guard fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$gate && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0" "$good_run" "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "$gate" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "$upload_gate" \
+      "$gate && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0" "$good_run" "")" \
     "head.repo.full_name"
 
-  expect "a renamed Assert id fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" "$good_run" "" "assert-golang")" \
-    "missing required Assert step id(s): assert-go"
-
   local unided='      - name: Assert something new is up to date
-        run: git diff --exit-code
+        run: git diff --exit-code -- some/path
 '
   expect "an Assert step with no id fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" "$good_run" "$unided" "assert-go")" \
+    "$(wire "$BASE_FAMILIES" "$BASE_FAMILIES" "$BASE_FAMILIES" "$base_ids" "$unided")" \
     "step needs an \`id\` so the collect/upload/push gates can name it"
 
   expect "a push with no loop-breaker fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" "git push" "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "$gate" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "$upload_gate" "$push_gate" "git push" "")" \
     "does not invoke tools/ci/regen_loop_breaker.sh"
 
   expect "a hand-copied marker literal fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" 'bash tools/ci/regen_loop_breaker.sh --rev HEAD; git commit -m "Ball-Regen-Autopush: ball-artifact-freshness"' "" "assert-go")" \
+    "$(fixture "$(asserts_yaml "$BASE_FAMILIES")" "$gate" "$(collect_env_yaml "$BASE_FAMILIES")" \
+      "$(collect_run_yaml "$BASE_FAMILIES")" "$upload_gate" "$push_gate" \
+      'bash tools/ci/regen_loop_breaker.sh --rev HEAD; git commit -m "Ball-Regen-Autopush: ball-artifact-freshness"' "")" \
     "--print-marker"
 
   local stray_brace='      - name: Something templated
@@ -476,7 +729,7 @@ self_test() {
         run: echo x
 '
   expect "a stray-brace placeholder fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" "$good_run" "$stray_brace" "assert-go")" \
+    "$(wire "$BASE_FAMILIES" "$BASE_FAMILIES" "$BASE_FAMILIES" "$base_ids" "$stray_brace")" \
     "malformed"
 
   local swallow='      - name: Something lenient
@@ -484,7 +737,7 @@ self_test() {
         run: echo x
 '
   expect "a continue-on-error step fails" 1 \
-    "$(fixture "$gate" "$upload_gate" "$push_gate" "$good_run" "$swallow" "assert-go")" \
+    "$(wire "$BASE_FAMILIES" "$BASE_FAMILIES" "$BASE_FAMILIES" "$base_ids" "$swallow")" \
     "may swallow a failure"
 
   local too_few='name: CI
@@ -516,8 +769,8 @@ jobs:
 ' "::error::"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 11 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 11) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 18 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 18) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

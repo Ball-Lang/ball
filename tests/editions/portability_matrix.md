@@ -17,22 +17,40 @@ A small driver resolves feature sets for editions **2023**, **proto3**, and
 prints them deterministically (fixed `featureKeys()` order, manual string
 concatenation — no sort/join — so the output is engine-independent).
 
-That one program is run by the existing **conformance matrix** on each engine and
-its stdout compared byte-for-byte against the single checked-in golden,
+That one program is run by the existing **conformance matrix**,
+[`.github/workflows/conformance-matrix.yml`](../../.github/workflows/conformance-matrix.yml),
+on every engine below, and its stdout compared byte-for-byte against the single
+checked-in golden,
 [`256_editions_resolver.expected_output.txt`](256_editions_resolver.expected_output.txt),
 whose values match `protoc --edition_defaults_out` (protoc 35.1; the LEGACY/
 proto3/2023 values exercised here are unchanged from the earlier protoc 28.2
 golden — see the *Notes* section below on EDITION_2024 golden verification).
 
-## Results
+## Engines
 
-| Target | Engine | How it runs the program | Result |
-|--------|--------|-------------------------|--------|
-| **A** | **Dart** | tree-walking interpreter (`BallEngine`) | ✅ PASS — golden-exact |
-| **B** | **TypeScript** | self-hosted engine (`compiled_engine.ts`, compiled from `engine.ball.json`) | ✅ PASS — golden-exact |
-| **C** | **C++** | self-hosted engine (`engine_rt.cpp`, compiled from `engine.ball.json`) | ✅ PASS — golden-exact |
+**The workflow, not a number in this file, is the source of truth for the
+current fixture count and pass/fail status** — a hand-copied total goes stale
+the moment the corpus grows, which is exactly what happened here (per the
+project's policy against frozen tallies; `tools/check_conformance_doc_counts.sh`
+and `tools/ci/check_engine_row_docs.sh` are the CI guards that keep this file
+and `conformance-matrix.yml` from drifting apart again). Read the workflow's
+`summary` job ("Parity Matrix") on any run for the live numbers.
 
-All three engines produce identical output:
+`256_editions_resolver` runs on every one of the 7 full-corpus engine rows the
+workflow's `summary` job depends on — one row per language (TypeScript runs it
+on all three of its jobs; the other six languages have one job each):
+
+| Engine | How it runs the program | `conformance-matrix.yml` job(s) |
+|--------|--------------------------|----------------------------------|
+| **Dart** | tree-walking interpreter (`BallEngine`) | `dart-engine` |
+| **TypeScript** | self-hosted engine (`compiled_engine.ts`, compiled from `engine.ball.json`) | `ts-engine`, `ts-compiled-engine`, `ts-compiled-direct` |
+| **C++** | self-hosted engine (`engine_rt.cpp`, compiled from `engine.ball.json`) | `cpp-compiled` |
+| **Rust** | self-hosted engine (`compiled_engine.rs`, compiled from `engine.ball.json`) | `rust-engine` |
+| **C#** | self-hosted engine (`CompiledEngine.cs`, compiled from `engine.ball.pb`) | `csharp-engine` |
+| **Go** | self-hosted engine (`compiled_engine.go`, compiled from `engine.ball.json`) | `go-engine` |
+| **Python** | self-hosted engine (`compiled_engine.py`, compiled from `engine.ball.json`) | `python-engine` |
+
+All seven produce identical output:
 
 ```
 2023: field_presence=EXPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
@@ -41,15 +59,11 @@ legacy: field_presence=EXPLICIT,enum_type=CLOSED,repeated_field_encoding=EXPANDE
 2023+IMPLICIT: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
 ```
 
-All three engines pass the full conformance corpus (293 fixtures, including the
-`256` program); the CI `conformance-matrix` is green for the Dart engine, the TS
-self-hosted + compiled engines, the C++ Compiled engine, and the Parity Matrix:
-
-| Engine | Result |
-|--------|--------|
-| Dart   | all conformance fixtures pass (0 failed) |
-| TS     | all conformance fixtures pass (0 failed) |
-| C++    | all conformance fixtures pass (0 failed) |
+Each of the 7 rows above runs the WHOLE conformance corpus
+(`tests/conformance/*.ball.json`, `256_editions_resolver` included), golden-exact
+— the workflow's `summary` job ("Parity Matrix") fails the moment any of them
+regresses, and `.github/workflows/regression-gates.yml` enforces zero failures
+and zero skips on the Dart/TS/C++ engines specifically.
 
 ## Reproduce locally
 
@@ -57,23 +71,31 @@ self-hosted + compiled engines, the C++ Compiled engine, and the Parity Matrix:
 # Regenerate the program from the current editions sources:
 cd dart/encoder && dart run tool/gen_editions_conformance.dart
 
-# Target A — Dart engine:
+# Dart engine:
 cd dart/engine && dart run tool/run_program.dart \
   ../../tests/conformance/256_editions_resolver.ball.json
 
-# Target B — TypeScript self-hosted engine (full conformance incl. 256):
+# TypeScript self-hosted engine (full conformance incl. 256):
 cd ts/engine && npm test            # → "✓ conformance: 256_editions_resolver"
 
-# Target C — C++ self-hosted engine (full conformance incl. 256):
+# C++ self-hosted engine (full conformance incl. 256):
 cmake -S cpp -B cpp/build
 cmake --build cpp/build --target test_selfhost_conformance --config Release
 cpp/build/test/Release/test_selfhost_conformance   # → "PASS: 256_editions_resolver"
+
+# Rust/C#/Go/Python self-hosted engines (regenerate + run the whole corpus —
+# see root CLAUDE.md's "Build & Test" for the exact per-language commands):
+cd rust  && cargo run -p ball-engine-regen && cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored --nocapture
+cd go/engine && go run ./cmd/regen && go test -v -run TestConformance -timeout 3600s ./conformance/
+cd python/engine && python -m ball_engine.regen && python -m conformance.runner
+# C# needs the CompiledEngine.cs regen chain (dart/self_host/engine.ball.pb ->
+# CompiledEngine.cs) — see csharp/AGENTS.md's "Self-hosted engine".
 ```
 
-In CI the same coverage runs automatically: `.github/workflows/conformance-matrix.yml`
-runs every `tests/conformance/*.ball.json` (now including `256`) on the Dart, TS,
-and C++ engines, and `.github/workflows/regression-gates.yml` enforces that every
-test passes (0 failed, 0 skipped) on each engine.
+In CI the same coverage runs automatically on every PR that touches a filtered
+path: `.github/workflows/conformance-matrix.yml` runs every
+`tests/conformance/*.ball.json` (256 included) on all 7 engines above, and its
+`summary` job ("Parity Matrix") fails the run if any of them regresses.
 
 ## Notes
 

@@ -87,12 +87,46 @@ avoid constructs that need receiver-type info:
   (`_nullAwareNeedsTemp`). `x?.foo` desugars to `std.if(equals(x, null), null,
   x.foo)`, which names the receiver twice; for a mutable field
   (`StreamSubscription<T>? _inner;`) Dart rejects the else-branch access
-  outright. Still open, and filed as #573 because it is a
-  different mechanism entirely: flow-sensitive promotion through REASSIGNMENT
-  (`from = from ?? current;` promoting a `String?` parameter for the rest of a
-  body — `path/lib/src/context.dart`), and generic type-parameter erasure
-  across a cascade return (`async/lib/src/stream_sink_transformer/typed.dart`).
-  Ball's IR is untyped, so neither survives the round trip.
+  outright. #573 closed the two shapes that survived slice 2, and NEITHER
+  needed a schema change — both were lowering-strategy gaps, not gaps in the IR:
+  - **Flow-sensitive promotion through REASSIGNMENT**
+    (`path/lib/src/context.dart`: `from = from == null ? current :
+    absolute(from);` promotes a `String?` parameter for the rest of the body).
+    The reassignment itself already compiled to a real Dart ternary, so the
+    promotion held — it was lost three statements later, at
+    `_parse(from)..normalize()`, because `_compileBlockExpression` lowered EVERY
+    value-position `Block` to `(() { … })()` and Dart soundly refuses to carry a
+    local's promotion across a function-literal boundary. The compiler now
+    recognizes the encoder's Block cascade lowering
+    (`_tryCompileCascadeBlock`, keyed on `LetBinding.metadata['kind'] ==
+    'cascade'` — never on the Block's shape alone) and emits native `..` /
+    `?..` syntax instead. Strictly additive: any Block that does not carry the
+    tag, or whose result is not the bound name, keeps today's closure.
+  - **Generic type-parameter erasure across a cascade return**
+    (`async/lib/src/stream_sink_transformer/typed.dart`: `StreamController(sync:
+    true)` inferred as `<S>` from the enclosing `StreamSink<S> bind(…)`).
+    `_encodeInstanceCreation` only ever read type arguments written in SOURCE
+    syntax; it now also reads what the analyzer INFERRED
+    (`_inferredTypeArgsSource`, from `expr.staticType`) and feeds it through the
+    SAME `_setTypeArgsMetadata` / `_setTypeArgsField` pair the explicit
+    `Map<String, String>.from(...)` path has always used. Guarded twice: an
+    all-`dynamic` inference is skipped (pure noise), and anything that is not
+    plain writable type syntax (function types, record types, `InvalidType`)
+    disqualifies the whole annotation rather than emitting a half-correct one.
+    Gated behind `prepareStaticTypes()` like every other slice, so
+    `dart/self_host/engine.ball.json`, `dart/shared/ball_protobuf.json` and the
+    conformance corpus are provably byte-identical.
+
+  What #488 still tracks after #573 is a different set of mechanisms again —
+  `collection/lib/src/list_extensions.dart` (implicit-setter conflict),
+  `collection/lib/src/wrappers.dart` (missing explicit return, unmasked once the
+  receiver-type error ahead of it was fixed),
+  `collection/lib/src/iterable_extensions.dart` (extension-override syntax,
+  `IterableExtension(this).isSorted(…)`, encoded as an `unsupported:` placeholder)
+  and `async/lib/src/cancelable_operation.dart` (`x?.a.b(…)` encoded as
+  `(x?.a).b(…)` instead of `x == null ? null : x.a.b(…)` — the short-circuit
+  scope is wrong, which is an ENGINE-semantics risk, not only a Dart-recompile
+  one). None of them shares a mechanism with #573.
 - **An arity window may never be WIDER than the std function it stands for.**
   A route whose `maxArgs` admits an argument the target function does not
   declare silently DROPS that argument — the compiler emits exactly the

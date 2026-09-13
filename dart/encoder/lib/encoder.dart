@@ -4273,6 +4273,55 @@ class DartEncoder {
     return c == c.toUpperCase() && c != c.toLowerCase();
   }
 
+  /// Type arguments the source ELIDED but the analyzer INFERRED, rendered as
+  /// Dart source (`'<S>'`, `'<String, int>'`) — or null when there is nothing
+  /// worth recording (issue #573 case 2).
+  ///
+  /// `async/lib/src/stream_sink_transformer/typed.dart` writes
+  /// `StreamController(sync: true)` and lets Dart infer `<S>` from the
+  /// enclosing `StreamSink<S> bind(…)` signature. The compiled-back file has
+  /// no such context — the constructor call sits inside a `Block` whose result
+  /// is returned — so it re-infers `StreamController<dynamic>` and the method
+  /// no longer satisfies its own signature.
+  ///
+  /// `staticType` is populated ONLY on a resolved AST, i.e. after
+  /// `PackageEncoder.prepareStaticTypes()`. `encode(String)` / `encodeModule`
+  /// parse without resolution, leave it null, and are therefore byte-identical
+  /// to before — which is what keeps every self-hosted engine unaffected.
+  static String? _inferredTypeArgsSource(ast.InstanceCreationExpression expr) {
+    final type = expr.staticType;
+    if (type is! InterfaceType) return null;
+    if (type.typeArguments.isEmpty) return null;
+
+    final rendered = <String>[];
+    var anyInferred = false;
+    for (final arg in type.typeArguments) {
+      final src = arg.getDisplayString();
+      // Anything the encoder cannot prove is writable Dart type syntax
+      // (function types, record types, `InvalidType`, …) disqualifies the
+      // whole annotation rather than producing a half-correct one.
+      if (!_isWritableTypeArgSource(src)) return null;
+      if (src != 'dynamic') anyInferred = true;
+      rendered.add(src);
+    }
+    // `<dynamic>` everywhere means inference found nothing the source did not
+    // already say; adding it is pure noise.
+    if (!anyInferred) return null;
+    return '<${rendered.join(', ')}>';
+  }
+
+  /// Whether [src] is a plain (possibly generic, possibly nullable) type name
+  /// that can be written back into Dart source verbatim.
+  static final RegExp _writableTypeArg = RegExp(
+    r'^[A-Za-z_$][A-Za-z0-9_$]*(<[A-Za-z0-9_$<>,?. ]*>)?\??$',
+  );
+
+  static bool _isWritableTypeArgSource(String src) {
+    if (src == 'void' || src == 'Never' || src == 'Null') return false;
+    if (src.contains('InvalidType')) return false;
+    return _writableTypeArg.hasMatch(src);
+  }
+
   // ---- Instance creation ----
   Expression _encodeInstanceCreation(ast.InstanceCreationExpression expr) {
     // Resolve the ball-qualified type name: "module:TypeName".
@@ -4322,8 +4371,10 @@ class DartEncoder {
     final args = _encodeArgList(expr.argumentList);
 
     // Preserve type arguments (e.g. `Map<String,String>.from(...)`)
-    // as structured TypeRef in metadata.
-    final typeArgSrc = namedType.typeArguments?.toSource();
+    // as structured TypeRef in metadata. When the source elided them, recover
+    // what the analyzer inferred (#573 case 2).
+    final typeArgSrc =
+        namedType.typeArguments?.toSource() ?? _inferredTypeArgsSource(expr);
     final fullTypeName = ctorName != null
         ? '$ballTypeName.$ctorName'
         : ballTypeName;

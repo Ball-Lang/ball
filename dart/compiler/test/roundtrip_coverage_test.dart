@@ -382,7 +382,7 @@ void main() {
       expect(out, contains('('));
     });
 
-    test('cascade notation (lowered to block IIFE)', () {
+    test('cascade notation (recognized back into `..` syntax)', () {
       final out = _flat('''
 void main() {
   var sb = StringBuffer()
@@ -392,9 +392,12 @@ void main() {
 }
 ''');
       // The Dart encoder lowers cascades to a `let __cascade_self__ = …` block
-      // that re-applies each section and returns the receiver.
-      expect(out, contains('__cascade_self__'));
-      expect(out, contains(".write('a')"));
+      // that re-applies each section and returns the receiver; the compiler
+      // recognizes that shape back into Dart's own cascade syntax rather than
+      // emitting an immediately-invoked closure, which would drop the type
+      // promotion of any local the sections read (issue #573).
+      expect(out, contains("(StringBuffer()..write('a')..write('b'))"));
+      expect(out, isNot(contains('__cascade_self__')));
     });
 
     test('const constructor invocation', () {

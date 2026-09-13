@@ -20,6 +20,7 @@ Ball → Dart code generator. Translates a Ball `Program` (protobuf expression t
 - Entry point: `DartCompiler.compile`. Base-function dispatch is in `_compileBaseCall` — extract fields from the `MessageCreation` input.
 - Control flow (`if`/`for`/`while`) MUST compile lazily — extract expression trees, never eval branches eagerly (see Core Invariants in `../../CLAUDE.md`).
 - Types are emitted from `typeDefs[]` only; the legacy `types[]`/`_meta_*` path is gone.
+- A value-position `Block` compiles to `(() { … })()`, EXCEPT the encoder's cascade lowering, which `_tryCompileCascadeBlock` recognizes back into native `..` / `?..` syntax (#573). Keep that recognizer keyed on `LetBinding.metadata['kind'] == 'cascade'`, never on the Block's shape alone: an IIFE is a function boundary, and Dart drops a local's type promotion across one, so a Block that merely LOOKS cascade-shaped must keep the generic lowering.
 - Compiler-specific patterns and gotchas: `.claude/rules/dart.md`.
 - Tests in `test/`; cross-language matrix tests tagged `slow` (`-x slow` to skip).
 

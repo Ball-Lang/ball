@@ -5065,7 +5065,129 @@ class DartCompiler {
     return '$constPrefix$dartConstructorName(${_compileArgs(actualFields)})';
   }
 
+  /// The encoder's generic cascade lowering, recognized back into Dart's own
+  /// `..` syntax (#573).
+  ///
+  /// `DartEncoder._encodeCascade` lowers every cascade it cannot route to a
+  /// collection base function into
+  ///
+  /// ```
+  /// Block {
+  ///   let __cascade_self__ = <target>   // metadata.kind == 'cascade'
+  ///   <section>; <section>; …
+  ///   result = reference(__cascade_self__)
+  /// }
+  /// ```
+  ///
+  /// and the null-aware (`?..`) form nests the sections one `Block` deeper,
+  /// behind `std.if(std.equals(__cascade_self__, null), null, …)`.
+  ///
+  /// Compiling either through [_compileBlockExpression]'s generic
+  /// `(() { … })()` is semantically correct but introduces a function-literal
+  /// boundary, and Dart deliberately refuses to carry a local's type promotion
+  /// across one. `path/lib/src/context.dart` is the measured casualty: `from`
+  /// is promoted to `String` by a preceding reassignment and then read inside
+  /// the closure, where it is `String?` again (issue #573).
+  ///
+  /// Keyed on the `kind == 'cascade'` metadata tag — never on the Block's
+  /// shape alone — so an unrelated single-`let` Block keeps today's lowering.
+  /// Returns null when the Block is not provably a cascade.
+  String? _tryCompileCascadeBlock(Block block) {
+    if (block.statements.isEmpty) return null;
+    final first = block.statements.first;
+    if (first.whichStmt() != Statement_Stmt.let) return null;
+    final let = first.let;
+    if (!let.hasMetadata()) return null;
+    final meta = _structToMap(let.metadata);
+    if (meta['kind'] != 'cascade') return null;
+    final nullAware = meta['null_aware'] == true;
+
+    // The statements that carry the cascade sections, and the expression the
+    // whole Block evaluates to. For `?..` both live one Block deeper.
+    final List<Statement> sectionStmts;
+    final Expression? result;
+    if (nullAware) {
+      final inner = _cascadeNullGuardBody(block, let.name);
+      if (inner == null) return null;
+      sectionStmts = inner.statements;
+      result = inner.hasResult() ? inner.result : null;
+    } else {
+      sectionStmts = block.statements.skip(1).toList();
+      result = block.hasResult() ? block.result : null;
+    }
+
+    if (sectionStmts.isEmpty) return null;
+    if (sectionStmts.any((s) => s.whichStmt() != Statement_Stmt.expression)) {
+      return null;
+    }
+    if (result == null ||
+        result.whichExpr() != Expression_Expr.reference ||
+        result.reference.name != let.name) {
+      return null;
+    }
+
+    final buf = StringBuffer(_e(let.value));
+    final savedCascade = _inCascadeCompilation;
+    _inCascadeCompilation = true;
+    var isFirst = true;
+    for (final s in sectionStmts) {
+      final prefix = (nullAware && isFirst) ? '?..' : '..';
+      isFirst = false;
+      buf.write('$prefix${_stripCascadeSelf(_e(s.expression))}');
+    }
+    _inCascadeCompilation = savedCascade;
+    return '($buf)';
+  }
+
+  /// The inner `Block` holding the sections of a null-aware cascade, i.e. the
+  /// `else` arm of the `std.if(std.equals(<name>, null), null, …)` guard
+  /// `DartEncoder._buildNullGuard` wraps them in. Null when [block] is not
+  /// exactly that shape.
+  Block? _cascadeNullGuardBody(Block block, String name) {
+    if (block.statements.length != 1) return null;
+    if (!block.hasResult()) return null;
+    final guard = block.result;
+    if (guard.whichExpr() != Expression_Expr.call) return null;
+    if (guard.call.module != 'std' || guard.call.function != 'if') return null;
+    final fields = _extractFields(guard.call);
+    final condition = fields['condition'];
+    if (condition == null ||
+        condition.whichExpr() != Expression_Expr.call ||
+        condition.call.module != 'std' ||
+        condition.call.function != 'equals') {
+      return null;
+    }
+    final cmp = _extractFields(condition.call);
+    final left = cmp['left'];
+    if (left == null ||
+        left.whichExpr() != Expression_Expr.reference ||
+        left.reference.name != name) {
+      return null;
+    }
+    final elseArm = fields['else'];
+    if (elseArm == null || elseArm.whichExpr() != Expression_Expr.block) {
+      return null;
+    }
+    return elseArm.block;
+  }
+
   String _compileBlockExpression(Block block) {
+    final cascade = _tryCompileCascadeBlock(block);
+    if (cascade != null) return cascade;
+
+    // A Block that binds `__cascade_self__` but was NOT recognized above keeps
+    // it as a REAL local, so its sections must keep their explicit receiver.
+    // Clearing the flag stops an enclosing `..` emission from stripping them.
+    final savedCascade = _inCascadeCompilation;
+    if (_inCascadeCompilation &&
+        block.statements.any(
+          (s) =>
+              s.whichStmt() == Statement_Stmt.let &&
+              s.let.name == '__cascade_self__',
+        )) {
+      _inCascadeCompilation = false;
+    }
+
     final buf = StringBuffer('(() {\n');
     // A `let self = …` binding shadows the implicit receiver for the rest of
     // the block (see [_generateBlockStatements]).
@@ -5095,6 +5217,7 @@ class DartCompiler {
       buf.write('return ${_e(block.result)};\n');
     }
     _selfShadowDepth -= selfBindings;
+    _inCascadeCompilation = savedCascade;
     buf.write('})()');
     return buf.toString();
   }

@@ -89,6 +89,24 @@ The CLI exit-code behavior is **not** at parity across targets — pin to one an
 
 `reachableOnly: true` does a DFS from `entryModule`/`entryFunction` and analyzes only transitively-called functions, excluding dead code from the report. This cuts noise but means a capability declared in a currently-unreached function is **not** reported — a gap for a strict pre-filter. **For untrusted input, use `reachableOnly: false`** (audit everything, including latent capability in unreached branches); the `runUntrusted` sample in `embedding-per-target.md` does exactly this. Reserve `reachableOnly: true` for trusted-source noise reduction, not for a security gate.
 
+**It follows CALL EDGES only.** `analyzeCapabilitiesReachable`'s DFS collects a
+callee exactly where `_walkCapCall` sees a `FunctionCall` naming a user
+function (`capability_analyzer.dart`), so a function reached any other way is
+invisible to it — most concretely a **tear-off applied indirectly**: `final f =
+readFile; ...; f(path)` encodes as a `reference`/`std.tear_off` plus a
+`std.invoke` whose `callee` is a value, and `std.invoke` is itself keyed `pure`
+(it only applies a function the caller already produced; whatever IT calls is
+classified at its own call site — a site the DFS never visits here). The same
+applies to a NAMED function handed as a callback to
+`std_collections.list_map`/`list_foreach`, and to any dispatch through a map of
+functions. An INLINE lambda is not affected: its body is part of the call's own
+input expression, which `_walkCap` descends into either way. The result is not
+a wrong capability, it is a MISSING one: the report says `pure` for a program
+that reads the filesystem. Whole-program `analyzeCapabilities` has no such
+blind spot — it walks every declared function's body regardless of
+reachability, which is the second, independent reason untrusted input must use
+`reachableOnly: false`.
+
 ## Termination analysis — heuristic, not a halting proof
 
 `analyzeTermination` (`termination_analyzer.dart`, **Dart only**) flags four *shapes*: `infinite_loop` (loops with no mutated condition/reachable exit), `unbounded_recursion` (recursion cycles lacking an `if`-guarded base case), `unreachable_code` (statements after a terminating `return`/`throw`), `orphaned_label`. Only `severity == 'error'` sets `hasErrors`, which is what `--exit-code` gates on.

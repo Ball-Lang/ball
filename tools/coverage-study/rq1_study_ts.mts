@@ -377,47 +377,99 @@ export function studyFile(pkg: string, file: string, source: string): FileResult
 
 // ── walking a checkout ──────────────────────────────────────────────────────
 
-const SKIPPED_DIRS = new Set([
-  "node_modules",
-  "test",
-  "tests",
-  "__tests__",
-  "dist",
-  "build",
-  ".git",
-]);
+/**
+ * One file Tier A did not score, and the rule that took it out.
+ *
+ * An excluded file is NOT a `skipped` result: it never enters the results list
+ * at all, so it is in neither the numerator nor the denominator. It is reported
+ * on its own line so a denominator that moves because a RULE moved is visible —
+ * which is the entire reason exclusions are named here rather than silently
+ * dropped from the walk, as this harness used to do.
+ */
+export interface Exclusion {
+  package: string;
+  file: string;
+  rule: string;
+}
 
-function isStudyableFile(name: string): boolean {
+// Directories that are not a source tree at all: build output, dependencies,
+// VCS metadata. Not test-only, not counted — there is nothing here a reader
+// could mistake for this package's library code.
+const NON_SOURCE_DIRS = new Set(["node_modules", "dist", "build", ".git"]);
+
+// Directories that are a package's own test suite, by TypeScript/JS convention.
+const TEST_DIRS = new Set(["test", "tests", "__tests__"]);
+
+function isTypescriptSource(name: string): boolean {
   if (!name.endsWith(".ts") && !name.endsWith(".mts") && !name.endsWith(".cts")) {
     return false;
   }
-  // `.d.ts` declares types and no runtime declarations; the rest are the
-  // package's own test/benchmark sources, which are not what is being studied.
-  return !/\.(?:d|spec|test|bench)\.[cm]?ts$/.test(name);
+  // `.d.ts` declares types and NO runtime declarations, so it is not library
+  // code the pipeline could act on at all. That is a separate judgement from
+  // the test-only exclusion below and is deliberately not counted as one.
+  return !/\.d\.[cm]?ts$/.test(name);
 }
 
-/** Every studyable TypeScript file under `directory`, sorted, tests excluded. */
-export function typescriptFilesUnder(directory: string): string[] {
-  const found: string[] = [];
+/**
+ * The rule excluding `relativePath`, or `null` when it is library code.
+ *
+ * The owner's 2026-09-14 decision on issue #491: Tier A scores the LIBRARY code
+ * a user would encode, so a package's own test suite is out of the denominator.
+ * TypeScript's convention is the `*.test.*` / `*.spec.*` / `*.bench.*` suffixes
+ * and the `test` / `tests` / `__tests__` directories.
+ *
+ * Matched on WHOLE path segments and WHOLE dotted suffixes, never as a
+ * substring: `latest.ts`, `contest.ts` and `attestation/verify.ts` all contain
+ * "test" and are library code, and excluding them would be exactly the silent
+ * denominator shrink this rule exists to prevent
+ * (`tools/coverage-study/test/rq1_study_ts_self_test.mts` pins all three).
+ */
+export function testOnlyRule(relativePath: string): string | null {
+  const parts = relativePath.split("/");
+  const name = parts[parts.length - 1]!;
+  if (parts.slice(0, -1).some((part) => TEST_DIRS.has(part))) {
+    return "under a test/, tests/ or __tests__/ directory";
+  }
+  if (/\.(?:spec|test|bench)\.[cm]?ts$/.test(name)) {
+    return "*.test.* / *.spec.* / *.bench.*";
+  }
+  return null;
+}
+
+/** Splits every TypeScript file under `directory` into studied and test-only. */
+export function classifyTypescriptFiles(
+  pkg: string,
+  directory: string,
+): { studied: string[]; excluded: Exclusion[] } {
+  const studied: string[] = [];
+  const excluded: Exclusion[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
     )) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIPPED_DIRS.has(entry.name)) walk(full);
-      } else if (entry.isFile() && isStudyableFile(entry.name)) {
-        found.push(full);
+        if (!NON_SOURCE_DIRS.has(entry.name)) walk(full);
+      } else if (entry.isFile() && isTypescriptSource(entry.name)) {
+        const rel = path.relative(directory, full).split(path.sep).join("/");
+        const rule = testOnlyRule(rel);
+        if (rule === null) studied.push(full);
+        else excluded.push({ package: pkg, file: rel, rule });
       }
     }
   };
   walk(directory);
-  return found;
+  return { studied, excluded };
+}
+
+/** Every studyable TypeScript file under `directory`, sorted, tests excluded. */
+export function typescriptFilesUnder(directory: string): string[] {
+  return classifyTypescriptFiles("", directory).studied;
 }
 
 export function studyDirectory(pkg: string, directory: string): FileResult[] {
   const results: FileResult[] = [];
-  for (const file of typescriptFilesUnder(directory)) {
+  for (const file of classifyTypescriptFiles(pkg, directory).studied) {
     const rel = path.relative(directory, file).split(path.sep).join("/");
     let source: string;
     try {
@@ -436,10 +488,11 @@ export function studyDirectory(pkg: string, directory: string): FileResult[] {
 export interface Run {
   results: FileResult[];
   missingPins: string[];
+  excluded: Exclusion[];
 }
 
 export function runPins(pinsPath: string, checkouts: string): Run {
-  const run: Run = { results: [], missingPins: [] };
+  const run: Run = { results: [], missingPins: [], excluded: [] };
   const pins = JSON.parse(readFileSync(pinsPath, "utf8")).packages as Array<
     { name: string; lib?: string }
   >;
@@ -457,6 +510,7 @@ export function runPins(pinsPath: string, checkouts: string): Run {
       run.missingPins.push(pin.name);
       continue;
     }
+    run.excluded.push(...classifyTypescriptFiles(pin.name, directory).excluded);
     run.results.push(...studyDirectory(pin.name, directory));
   }
   return run;
@@ -464,20 +518,25 @@ export function runPins(pinsPath: string, checkouts: string): Run {
 
 // ── reporting ───────────────────────────────────────────────────────────────
 
-export function report(run: Run, jsonOut?: string): number {
-  if (jsonOut) {
-    writeFileSync(
-      jsonOut,
-      `${JSON.stringify({ missingPins: run.missingPins, files: run.results }, null, 2)}\n`,
-      "utf8",
-    );
-  }
-
-  const scored = run.results.filter((r) => r.scored);
+/**
+ * Appends the shared Tier A summary to `out` and returns the process exit code.
+ *
+ * Rendered into a buffer rather than logged directly so the self-test can
+ * assert the summary LINES, not just the numbers behind them:
+ * `excluded (test-only)` is provenance for the denominator, and a line nothing
+ * checks is a line that can quietly disappear.
+ */
+export function renderReport(
+  out: string[],
+  results: FileResult[],
+  excluded: Exclusion[],
+  missingPins: string[],
+): number {
+  const scored = results.filter((r) => r.scored);
   const total = scored.length;
   const clean = scored.filter((r) => r.clean).length;
   const irStable = scored.filter((r) => r.irStable).length;
-  const skipped = run.results.length - total;
+  const skipped = results.length - total;
 
   const byReason = new Map<string, number>();
   for (const r of scored) {
@@ -487,33 +546,59 @@ export function report(run: Run, jsonOut?: string): number {
   for (const [tag, count] of [...byReason].sort(
     (a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1),
   )) {
-    console.log(`  ${tag}: ${count}`);
+    out.push(`  ${tag}: ${count}\n`);
   }
-  if (skipped > 0) console.log(`  skipped (no declarations, not scored): ${skipped}`);
-  if (run.missingPins.length > 0) {
-    console.log(`  unreachable pins (not scored): ${run.missingPins.join(", ")}`);
+  if (skipped > 0) out.push(`  skipped (no declarations, not scored): ${skipped}\n`);
+  // ALWAYS printed, zero included: a missing line is indistinguishable from an
+  // exclusion rule that vanished, and summarize.sh fails the job on it.
+  out.push(`  excluded (test-only): ${excluded.length}\n`);
+  if (missingPins.length > 0) {
+    out.push(`  unreachable pins (not scored): ${missingPins.join(", ")}\n`);
   }
 
   if (total > 0) {
-    console.log("Funnel (scored files that survived each stage):");
+    out.push("Funnel (scored files that survived each stage):\n");
     for (const [threshold, label] of STAGES) {
       const reached = scored.filter((r) => stageReached(r.reason) >= threshold).length;
-      console.log(`  ${label}: ${reached}/${total}`);
+      out.push(`  ${label}: ${reached}/${total}\n`);
     }
   }
 
   const pct = total === 0 ? 0 : Math.round((clean * 100) / total);
-  console.log(`Tier A: ${clean}/${total} clean (${pct}%)`);
-  console.log(`Tier A (IR fixpoint, informational): ${irStable}/${total} stable`);
-  console.log(`Results: ${clean} passed, ${total - clean} failed, ${total} total`);
+  out.push(`Tier A: ${clean}/${total} clean (${pct}%)\n`);
+  out.push(`Tier A (IR fixpoint, informational): ${irStable}/${total} stable\n`);
+  out.push(`Results: ${clean} passed, ${total - clean} failed, ${total} total\n`);
 
   // Positive floor: a run that scored nothing is a harness/checkout failure,
   // not a 0% result.
-  if (total < 1) {
-    console.error("ERROR: Tier A scored 0 files — no package checkout was readable.");
-    return 1;
+  return total < 1 ? 1 : 0;
+}
+
+export function report(run: Run, jsonOut?: string): number {
+  if (jsonOut) {
+    writeFileSync(
+      jsonOut,
+      `${JSON.stringify(
+        {
+          missingPins: run.missingPins,
+          files: run.results,
+          excludedTestOnly: run.excluded.length,
+          excluded: run.excluded,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
   }
-  return 0;
+
+  const out: string[] = [];
+  const code = renderReport(out, run.results, run.excluded, run.missingPins);
+  process.stdout.write(out.join(""));
+  if (code !== 0) {
+    console.error("ERROR: Tier A scored 0 files — no package checkout was readable.");
+  }
+  return code;
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
@@ -550,7 +635,11 @@ export function main(argv: string[]): number {
       console.error(`--source-dir does not exist: ${args["source-dir"]}`);
       return 2;
     }
-    run = { results: studyDirectory(args.package, args["source-dir"]), missingPins: [] };
+    run = {
+      results: studyDirectory(args.package, args["source-dir"]),
+      missingPins: [],
+      excluded: classifyTypescriptFiles(args.package, args["source-dir"]).excluded,
+    };
   } else {
     console.error("either --pins/--checkouts or --package/--source-dir is required");
     return 2;

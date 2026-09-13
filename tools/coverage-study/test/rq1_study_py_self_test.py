@@ -24,6 +24,16 @@ the harness until something passed. Assertion 2 below asserts the *funnel*
 instead — the strongest statement that is true today — and it strengthens by
 itself the moment the round trip closes.
 
+TEST-ONLY EXCLUSION (the owner's 2026-09-14 methodology decision on #491).
+Tier A scores the LIBRARY code a user would encode; a package's own test suite
+is a different population and is out of the denominator. The rule must be
+EXPLICIT, self-tested and COUNTED in the run summary — a silent filter is how a
+denominator shrinks without anyone noticing. ``check_test_only_exclusion``
+therefore pins both directions: every test-only shape is excluded *with the rule
+that excluded it*, and every library file whose NAME merely contains "test"
+(``latest.py``, ``contest.py``, ``attestation/``) is still scored. A sloppy
+substring rule passes the first half and fails the second, which is the point.
+
 Run from the repo root:
     python3 tools/coverage-study/test/rq1_study_py_self_test.py
 """
@@ -92,7 +102,89 @@ async def fetch(value):
 '''
 
 
+# Library files whose NAME contains "test" as a substring ("la-test",
+# "con-test", "at-test-ation"). These are the negative control: a rule that
+# excluded any of them would be excluding LIBRARY code, so this self-test must
+# go red on it rather than quietly shrink the denominator.
+_LIBRARY_LOOKALIKES = ("latest.py", "contest.py", "attestation/verify.py")
+
+# Python's own convention, per the owner decision on #491: `test_*.py`,
+# `*_test.py`, `conftest.py`, and anything under a `test`/`tests` directory.
+_TEST_ONLY = (
+    "test_core.py",
+    "core_test.py",
+    "conftest.py",
+    "tests/test_more.py",
+    "tests/support.py",
+)
+
+
+def _write(root: Path, rel: str, text: str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def check_test_only_exclusion() -> None:
+    """Tier A scores library code; a package's own tests are excluded, counted
+    and named — never silently dropped."""
+    with tempfile.TemporaryDirectory(prefix="rq1_py_exclusion") as tmp:
+        root = Path(tmp)
+        library = ("core.py",) + _LIBRARY_LOOKALIKES
+        for rel in library:
+            _write(root, rel, "def value():\n    return 1\n")
+        for rel in _TEST_ONLY:
+            _write(root, rel, "def test_value():\n    assert True\n")
+
+        studied, excluded = rq1.classify_python_files("synthetic", root)
+        studied_rel = {p.relative_to(root).as_posix() for p in studied}
+        excluded_rel = {e.file for e in excluded}
+
+        check(
+            "a library file whose name merely contains 'test' is still studied",
+            studied_rel == set(library),
+            f"studied {sorted(studied_rel)}, expected {sorted(library)}",
+        )
+        check(
+            "every test-only file is excluded",
+            excluded_rel == set(_TEST_ONLY),
+            f"excluded {sorted(excluded_rel)}, expected {sorted(_TEST_ONLY)}",
+        )
+        check(
+            "every exclusion names the rule that made it",
+            bool(excluded) and all(e.rule for e in excluded),
+            f"rules: {sorted({e.rule for e in excluded})}",
+        )
+        studied_results = rq1.study_directory("synthetic", root)
+        check(
+            "an excluded file never reaches the scored results",
+            not ({r.file for r in studied_results} & set(_TEST_ONLY)),
+            f"results: {sorted(r.file for r in studied_results)}",
+        )
+
+        out: list[str] = []
+        rq1.render_report(out, studied_results, excluded, [])
+        text = "".join(out)
+        check(
+            "the summary prints the exclusion count, so nothing disappears silently",
+            f"  excluded (test-only): {len(_TEST_ONLY)}\n" in text,
+            f"summary was:\n{text}",
+        )
+
+    # A run that excluded nothing still prints the line: a MISSING line is
+    # indistinguishable from a rule that vanished, and summarize.sh fails on it.
+    zero: list[str] = []
+    rq1.render_report(zero, [rq1.study_file("synthetic", "plain.py", _HELPER)], [], [])
+    check(
+        "the exclusion count is printed even when it is zero",
+        "  excluded (test-only): 0\n" in "".join(zero),
+        f"summary was:\n{''.join(zero)}",
+    )
+
+
 def main() -> int:
+    check_test_only_exclusion()
+
     with tempfile.TemporaryDirectory(prefix="rq1_py_self_test") as tmp:
         root = Path(tmp)
         (root / "helper.py").write_text(_HELPER, encoding="utf-8")

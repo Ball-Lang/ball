@@ -597,6 +597,14 @@ Supporting configs:
    `README.md`, committing both to main with `[skip ci]`. The floors sit at the
    measured numbers, not at an aspiration — Dart Tier A is 61% and four rows are
    at 0% clean, so a 95% floor would be permanently red and therefore muted.
+   **Tier A scores LIBRARY code only** (the owner's 2026-09-14 methodology
+   decision on #491): a package's own test suite is a different population, so
+   each harness excludes it by that language's own convention — never silently.
+   Every harness prints `excluded (test-only): N` (always, zero included),
+   `summarize.sh` fails a Tier A job whose log lacks that line, `coverage_table.py`
+   fails on an artifact without the count, and the number is published in the
+   README table and recorded (NOT floored) in `baseline.json`. The rules and
+   their negative controls are in `tests/conformance/COVERAGE_STUDY.md`.
    `tools/coverage-study/coverage_table.py` is that renderer + floor, and its
    self-test IS gated on every PR in `ci.yml`'s python job. Tier A exists for all six
    languages: Dart, Rust (`rust/tools/rq1-study`), C#

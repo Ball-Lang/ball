@@ -33,16 +33,31 @@
  * *funnel* instead — the strongest statement that is true today — and they
  * strengthen by themselves the moment the round trip closes.
  *
+ * TEST-ONLY EXCLUSION (the owner's 2026-09-14 methodology decision on #491).
+ * Tier A scores the LIBRARY code a user would encode; a package's own test
+ * suite is a different population and is out of the denominator. The rule must
+ * be EXPLICIT, self-tested and COUNTED in the run summary — a silent filter is
+ * how a denominator shrinks without anyone noticing, and this harness already
+ * had exactly such a filter (`*.test.ts`/`*.spec.ts`/`*.bench.ts` and the
+ * `test`/`tests`/`__tests__` directories were dropped with no count printed
+ * anywhere). `checkTestOnlyExclusion` pins both directions: every test-only
+ * shape is excluded *with the rule that excluded it*, and every library file
+ * whose NAME merely contains "test" (`latest.ts`, `contest.ts`,
+ * `attestation/`) is still scored. A sloppy substring rule passes the first
+ * half and fails the second, which is the point.
+ *
  * Run from the repo root:
  *     node --experimental-strip-types tools/coverage-study/test/rq1_study_ts_self_test.mts
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
 import {
+  classifyTypescriptFiles,
   declarationInventory,
+  renderReport,
   stageReached,
   studyDirectory,
   studyFile,
@@ -114,7 +129,95 @@ const ENTRY_NAMED = `export function main(argv: string[]): number {
 }
 `;
 
+// Library files whose NAME merely contains "test" as a substring ("la-test",
+// "con-test", "at-test-ation"). The negative control for the test-only
+// exclusion: a rule that excluded any of them would be excluding LIBRARY code,
+// so this self-test must go red on it rather than quietly shrink the
+// denominator.
+const LIBRARY_LOOKALIKES = ["latest.ts", "contest.ts", "attestation/verify.ts"];
+
+// TypeScript's own convention, per the owner decision on #491: `*.test.ts`,
+// `*.spec.ts`, `*.bench.ts`, and anything under `__tests__`/`test`/`tests`.
+const TEST_ONLY = [
+  "core.test.ts",
+  "core.spec.ts",
+  "core.bench.ts",
+  "__tests__/more.ts",
+  "test/support.ts",
+  "tests/legacy.ts",
+];
+
+function write(root: string, rel: string, source: string): void {
+  const full = path.join(root, rel);
+  mkdirSync(path.dirname(full), { recursive: true });
+  writeFileSync(full, source, "utf8");
+}
+
+/**
+ * Tier A scores library code; a package's own tests are excluded, COUNTED and
+ * named — never silently dropped (the owner's 2026-09-14 decision on #491).
+ */
+function checkTestOnlyExclusion(): void {
+  const root = mkdtempSync(path.join(tmpdir(), "rq1_ts_exclusion"));
+  try {
+    const library = ["core.ts", ...LIBRARY_LOOKALIKES];
+    for (const rel of library) write(root, rel, "export const value = 1;\n");
+    for (const rel of TEST_ONLY) write(root, rel, "export const check = 1;\n");
+
+    const scan = classifyTypescriptFiles("synthetic", root);
+    const studied = new Set(
+      scan.studied.map((f) => path.relative(root, f).split(path.sep).join("/")),
+    );
+    const excluded = new Set(scan.excluded.map((e) => e.file));
+
+    check(
+      'a library file whose name merely contains "test" is still studied',
+      studied.size === library.length && library.every((rel) => studied.has(rel)),
+      `studied ${JSON.stringify([...studied].sort())}`,
+    );
+    check(
+      "every test-only file is excluded",
+      excluded.size === TEST_ONLY.length && TEST_ONLY.every((rel) => excluded.has(rel)),
+      `excluded ${JSON.stringify([...excluded].sort())}`,
+    );
+    check(
+      "every exclusion names the rule that made it",
+      scan.excluded.length > 0 && scan.excluded.every((e) => e.rule.length > 0),
+      `rules ${JSON.stringify([...new Set(scan.excluded.map((e) => e.rule))].sort())}`,
+    );
+
+    const results = studyDirectory("synthetic", root);
+    check(
+      "an excluded file never reaches the scored results",
+      results.every((r) => !TEST_ONLY.includes(r.file)),
+      `results ${JSON.stringify(results.map((r) => r.file))}`,
+    );
+
+    const out: string[] = [];
+    renderReport(out, results, scan.excluded, []);
+    check(
+      "the summary prints the exclusion count, so nothing disappears silently",
+      out.join("").includes(`  excluded (test-only): ${TEST_ONLY.length}\n`),
+      `summary was:\n${out.join("")}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // A run that excluded nothing still prints the line: a MISSING line is
+  // indistinguishable from a rule that vanished, and summarize.sh fails on it.
+  const zero: string[] = [];
+  renderReport(zero, [studyFile("synthetic", "helper.ts", HELPER)], [], []);
+  check(
+    "the exclusion count is printed even when it is zero",
+    zero.join("").includes("  excluded (test-only): 0\n"),
+    `summary was:\n${zero.join("")}`,
+  );
+}
+
 function main(): number {
+  checkTestOnlyExclusion();
+
   const root = mkdtempSync(path.join(tmpdir(), "rq1_ts_self_test"));
   let plainStage = -1;
   try {

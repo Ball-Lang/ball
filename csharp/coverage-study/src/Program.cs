@@ -45,6 +45,7 @@ public static class EntryPoint
 
         var results = new List<FileResult>();
         var missingPins = new List<string>();
+        var excluded = new List<Exclusion>();
 
         if (pins is not null)
         {
@@ -67,6 +68,7 @@ public static class EntryPoint
                     continue;
                 }
 
+                excluded.AddRange(TierA.ClassifyCsFiles(pin.Name, directory).Excluded);
                 results.AddRange(TierA.StudyDirectory(pin.Name, directory, projectMode));
             }
         }
@@ -78,6 +80,7 @@ public static class EntryPoint
                 return 2;
             }
 
+            excluded.AddRange(TierA.ClassifyCsFiles(package, sourceDir).Excluded);
             results.AddRange(TierA.StudyDirectory(package, sourceDir, projectMode));
         }
         else
@@ -91,18 +94,28 @@ public static class EntryPoint
         if (jsonOut is not null)
         {
             File.WriteAllText(jsonOut, JsonSerializer.Serialize(
-                new { missingPins, files = results },
+                new
+                {
+                    missingPins,
+                    files = results,
+                    excludedTestOnly = excluded.Count,
+                    excluded,
+                },
                 new JsonSerializerOptions { WriteIndented = true }) + "\n");
         }
 
         var report = new StringBuilder();
-        var exitCode = Report(report, results, missingPins);
+        var exitCode = Report(report, results, excluded, missingPins);
         Console.Out.Write(report.ToString());
         return exitCode;
     }
 
     /// <summary>Prints the same summary shape as every other Tier A harness.</summary>
-    public static int Report(StringBuilder output, List<FileResult> results, List<string> missingPins)
+    public static int Report(
+        StringBuilder output,
+        List<FileResult> results,
+        List<Exclusion> excluded,
+        List<string> missingPins)
     {
         var scored = results.Where(r => r.Scored).ToList();
         var total = scored.Count;
@@ -123,6 +136,10 @@ public static class EntryPoint
         {
             output.Append($"  skipped (no declarations, not scored): {skipped}\n");
         }
+
+        // ALWAYS printed, zero included: a missing line is indistinguishable from
+        // an exclusion rule that vanished, and summarize.sh fails the job on it.
+        output.Append($"  excluded (test-only): {excluded.Count}\n");
 
         if (missingPins.Count > 0)
         {

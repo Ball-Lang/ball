@@ -279,8 +279,128 @@ public class TierASelfTests
     public void An_empty_run_is_a_harness_failure_not_a_zero_percent_result()
     {
         var output = new StringBuilder();
-        var code = EntryPoint.Report(output, [], []);
+        var code = EntryPoint.Report(output, [], [], []);
         Assert.Equal(1, code);
         Assert.Contains("Results: 0 passed, 0 failed, 0 total", output.ToString(), StringComparison.Ordinal);
+    }
+
+    // ── test-only exclusion (the owner's 2026-09-14 decision on #491) ───────
+    //
+    // Tier A scores the LIBRARY code a user would encode; a package's own test
+    // suite is a different population and is out of the denominator. The rule
+    // must be EXPLICIT, self-tested and COUNTED in the run summary — a silent
+    // filter is how a denominator shrinks without anyone noticing.
+    //
+    // C#'s convention has two halves: a TEST PROJECT (a `*.Tests.csproj`, or
+    // any .csproj referencing xunit/NUnit/MSTest) and a test DIRECTORY. The
+    // negative control is load-bearing: a library file whose NAME merely
+    // contains "test" ("la-test", "con-test", "at-test-ation") must still be
+    // studied, and a sloppy substring rule fails on it.
+
+    /// <summary>Library file paths whose name merely contains "test" — the
+    /// negative control.</summary>
+    private static readonly string[] LibraryLookalikes =
+        ["src/Latest.cs", "src/Contest.cs", "src/Attestation/Verify.cs"];
+
+    private static readonly string[] TestOnlyFiles =
+        ["test/Support.cs", "tests/Legacy.cs", "Demo.Tests/CoreTests.cs", "Demo.Verification/Cases.cs"];
+
+    private static void Write(string root, string rel, string source)
+    {
+        var full = Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, source);
+    }
+
+    /// <summary>A scratch tree with library files, a test DIRECTORY, a
+    /// <c>*.Tests.csproj</c> project and an xunit-referencing project whose
+    /// name says nothing about tests.</summary>
+    private static string WriteMixedTree()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "rq1_cs_exclusion_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        Write(dir, "src/Core.cs", "namespace Demo;\npublic class Core { public int V() { return 1; } }\n");
+        foreach (var rel in LibraryLookalikes)
+        {
+            Write(dir, rel, "namespace Demo;\npublic class Item { public int V() { return 1; } }\n");
+        }
+
+        foreach (var rel in TestOnlyFiles)
+        {
+            Write(dir, rel, "namespace Demo;\npublic class Cases { public int V() { return 1; } }\n");
+        }
+
+        // A project whose FILENAME declares it a test project.
+        Write(dir, "Demo.Tests/Demo.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        // A project whose filename says nothing about tests, but which
+        // references xunit — the half a filename rule alone would miss.
+        Write(dir, "Demo.Verification/Demo.Verification.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"xunit.v3\" /></ItemGroup></Project>\n");
+        // And the library's own project, which must NOT make its files test-only.
+        Write(dir, "src/Demo.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        return dir;
+    }
+
+    [Fact]
+    public void Test_only_files_are_excluded_counted_and_named()
+    {
+        var dir = WriteMixedTree();
+        try
+        {
+            var (studied, excluded) = TierA.ClassifyCsFiles("synthetic", dir);
+            var studiedRel = studied
+                .Select(p => Path.GetRelativePath(dir, p).Replace('\\', '/'))
+                .ToHashSet(StringComparer.Ordinal);
+            var excludedRel = excluded.ToDictionary(e => e.File, e => e.Rule, StringComparer.Ordinal);
+
+            var library = new[] { "src/Core.cs" }.Concat(LibraryLookalikes).ToArray();
+            foreach (var rel in library)
+            {
+                Assert.True(
+                    studiedRel.Contains(rel),
+                    $"library file \"{rel}\" was not studied — the rule is excluding library code "
+                        + $"(studied: {string.Join(", ", studiedRel.Order(StringComparer.Ordinal))})");
+            }
+
+            Assert.Equal(library.Length, studiedRel.Count);
+
+            foreach (var rel in TestOnlyFiles)
+            {
+                Assert.True(
+                    excludedRel.ContainsKey(rel),
+                    $"test-only file \"{rel}\" was not excluded "
+                        + $"(excluded: {string.Join(", ", excludedRel.Keys.Order(StringComparer.Ordinal))})");
+            }
+
+            Assert.Equal(TestOnlyFiles.Length, excludedRel.Count);
+            Assert.All(excluded, e => Assert.False(string.IsNullOrEmpty(e.Rule)));
+
+            var results = TierA.StudyDirectory("synthetic", dir);
+            Assert.DoesNotContain(results, r => excludedRel.ContainsKey(r.File));
+
+            var output = new StringBuilder();
+            EntryPoint.Report(output, results, excluded, []);
+            Assert.Contains(
+                $"  excluded (test-only): {TestOnlyFiles.Length}\n",
+                output.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>A run that excluded nothing STILL prints the line: a missing
+    /// line is indistinguishable from a rule that vanished, and summarize.sh
+    /// fails on it.</summary>
+    [Fact]
+    public void The_exclusion_count_is_printed_even_when_zero()
+    {
+        var output = new StringBuilder();
+        EntryPoint.Report(output, [TierA.StudyFile("synthetic", "Helper.cs", HelperSource)], [], []);
+        Assert.Contains("  excluded (test-only): 0\n", output.ToString(), StringComparison.Ordinal);
     }
 }

@@ -60,6 +60,14 @@
 # They are outside what this script reads and must not be folded into the
 # ceiling — read the number from THIS step, not from the post-job block.
 #
+# That ordering is LOAD-BEARING and, since #660, gated:
+# `cpp/test/test_cache_gate_step_order.sh` (ci.yml's always-on `proto` job)
+# asserts from ci.yml that the `Compiler cache applied (#594)` step precedes
+# every full_e2e.sh step in the cpp job, with a negative control on a copy whose
+# gate step is relocated. Moving the step below the smoke reds the ubuntu/macOS
+# legs at 4 against a ceiling of 0, with a cause that points at build types and
+# shared PDBs while nothing has regressed.
+#
 # `compiled_tus` is MEASURED, not assumed: object files under the parent build
 # directory (the runner starts from a fresh checkout, so every one of them was
 # produced by THIS job) plus the fixture count test_e2e wrote to its coverage
@@ -95,6 +103,12 @@ set -uo pipefail
 # Each prints one bare integer on stdout, or exits non-zero when the input is
 # not recognisable as that tool's statistics at all. "Unrecognisable" is a hard
 # failure upstream — a gate that cannot read its own instrument is not a gate.
+#
+# Since #660 that is true of the non-cacheable count as well: NOTHING here reads
+# `ccache -s`'s human table any more. Its lines still share the stats file (they
+# go to the CI log, which is where a reader wants the number), and they cannot
+# collide with a counter line because the human table is space-aligned and a
+# counter line is `<id><TAB><int>`.
 
 parse_sccache_requests() {
   awk '
@@ -143,25 +157,121 @@ parse_sccache_noncacheable() {
   ' "$1"
 }
 
-# ccache has no cacheable/uncacheable counter PAIR in `--print-stats` (its
-# "uncacheable" total is derived from a long, version-specific set of reason
-# counters), so the number comes from the one place ccache states it outright:
-# `ccache -s`'s "Cacheable calls: <cacheable> / <total>" line, which the CI step
-# already prints today and whose two numbers are plain integers. The gate
-# collects both forms into one stats file; the human lines carry no tabs, so
-# the counter parsers above ignore them and this one ignores the counters.
+# ccache: the number comes from `--print-stats`'s counters, NEVER from the
+# human `ccache -s` summary (issue #660).
+#
+# `--print-stats` is ccache's documented machine-parsable form — "Print
+# statistics counter IDs and corresponding values in machine-parsable
+# (tab-separated or JSON) format", https://ccache.dev/manual/4.14.html — and it
+# emits EVERY counter field that is not flagged FLAG_NEVER, zeros included, plus
+# `max_cache_size_kibibyte`, `max_files_in_cache` and
+# `stats_updated_timestamp`.
+#
+# There is no single "uncacheable" counter, but there does not need to be: the
+# human summary is itself derived, by ccache, as
+#
+#     hits        = direct_cache_hit + preprocessed_cache_hit
+#     cacheable   = hits + cache_miss
+#     total_calls = hits + cache_miss + errors + uncacheable
+#
+# where `uncacheable` sums every counter flagged FLAG_UNCACHEABLE and `errors`
+# every counter flagged FLAG_ERROR (`src/core/Statistics.cpp` in 4.9.1,
+# `src/ccache/core/statistics.cpp` in 4.14 — the same expression in both). So
+# `total - cacheable`, the shortfall this gate used to read off the human line,
+# is exactly `uncacheable + errors`, and both families are printed by
+# `--print-stats`. Summing them is the same number from a format that carries no
+# thousands separators, no column alignment and no locale.
+#
+# WHY NOT the human line: it was parsed by digit-splitting
+# (`split($0, a, /[^0-9]+/)`), so `Cacheable calls: 1,234 / 1,250` — what ccache
+# prints once a leg's corpus passes 1000 calls — read as c=1, t=234 and reported
+# 233 declined compiles that never happened.
+#
+# VERSION-PINNED, against the ccache the runners actually install rather than
+# against a manual alone: ubuntu-latest has 4.9.1 (`ccache version 4.9.1`,
+# apt `ccache_4.9.1-1_amd64.deb`; C++ (ubuntu-latest) job 103702029894 of main
+# run 34749011196) and macos-latest 4.14 (`ccache version 4.14`, job
+# 103702029887 of the same run). Their counter tables differ by exactly ONE id,
+# `unsupported_source_encoding` (4.14+), which is why it is listed as OPTIONAL
+# below while every other counted id must be present.
+#
+# The three lists below are that classification, transcribed from
+# `k_statistics_fields`. An id in NONE of them fails the gate loud: a counter
+# ccache grew could be a new uncacheable reason, and silently leaving it out of
+# the sum is precisely the "the cache declines everything and the gate says 0"
+# state this check exists to catch. Adding one is a one-line edit here.
+CCACHE_UNCACHEABLE_IDS='autoconf_test bad_compiler_arguments called_for_link
+  called_for_preprocessing compile_failed compiler_produced_empty_output
+  compiler_produced_no_output compiler_produced_stdout could_not_use_modules
+  could_not_use_precompiled_header disabled multiple_source_files no_input_file
+  output_to_stdout preprocessor_error recache unsupported_code_directive
+  unsupported_compiler_option unsupported_environment_variable
+  unsupported_source_language'
+# FLAG_UNCACHEABLE ids that only SOME pinned version prints (4.14 added this
+# one), so their absence is not a schema change.
+CCACHE_UNCACHEABLE_IDS_OPTIONAL='unsupported_source_encoding'
+CCACHE_ERROR_IDS='bad_input_file bad_output_file compiler_check_failed
+  could_not_find_compiler error_hashing_extra_file internal_error
+  missing_cache_file modified_input_file'
+# Everything else `--print-stats` prints: hit/miss counters, cache sizes,
+# storage tallies, timestamps. Known, and deliberately NOT summed.
+CCACHE_NEUTRAL_IDS='cache_miss cache_size_kibibyte cleanups_performed
+  direct_cache_hit direct_cache_miss files_in_cache local_storage_hit
+  local_storage_miss local_storage_read_hit local_storage_read_miss
+  local_storage_write max_cache_size_kibibyte max_files_in_cache
+  preprocessed_cache_hit preprocessed_cache_miss remote_storage_error
+  remote_storage_hit remote_storage_miss remote_storage_read_hit
+  remote_storage_read_miss remote_storage_timeout remote_storage_write
+  stats_updated_timestamp stats_zeroed_timestamp'
+
 parse_ccache_noncacheable() {
-  awk '
-    /^[ \t]*Cacheable calls:[ \t]*[0-9]+[ \t]*\/[ \t]*[0-9]+/ {
-      n = split($0, a, /[^0-9]+/)
-      c = ""; t = ""
-      for (i = 1; i <= n; i++) {
-        if (a[i] == "") continue
-        if (c == "") c = a[i]; else { t = a[i]; break }
-      }
-      if (c != "" && t != "" && t + 0 >= c + 0) { print t - c; found = 1; exit }
+  # The lists are wrapped across lines for readability above; flatten them
+  # before they reach `awk -v`, whose handling of a literal newline in an
+  # assignment is not something to depend on across gawk / mawk / BSD awk.
+  local counted optional neutral
+  counted="$(printf '%s %s' "$CCACHE_UNCACHEABLE_IDS" "$CCACHE_ERROR_IDS" | tr '\n' ' ')"
+  optional="$(printf '%s' "$CCACHE_UNCACHEABLE_IDS_OPTIONAL" | tr '\n' ' ')"
+  neutral="$(printf '%s' "$CCACHE_NEUTRAL_IDS" | tr '\n' ' ')"
+  awk -v counted="$counted" -v optional="$optional" -v neutral="$neutral" '
+    BEGIN {
+      n = split(counted, a, / +/)
+      for (i = 1; i <= n; i++) if (a[i] != "") { is_counted[a[i]] = 1; required[a[i]] = 1; known[a[i]] = 1 }
+      n = split(optional, a, / +/)
+      for (i = 1; i <= n; i++) if (a[i] != "") { is_counted[a[i]] = 1; known[a[i]] = 1 }
+      n = split(neutral, a, / +/)
+      for (i = 1; i <= n; i++) if (a[i] != "") known[a[i]] = 1
     }
-    END { if (!found) exit 1 }
+    # A --print-stats counter line, and nothing else: `<id><TAB><value>`.
+    # `ccache -s`s human table shares this file and is space-aligned, so it
+    # cannot match.
+    /^[a-z][a-z0-9_]*\t/ {
+      split($0, f, "\t"); id = f[1]; v = f[2]
+      seen[id] = 1
+      if (!(id in known)) { unknown = unknown " " id; next }
+      if (v !~ /^[0-9]+$/) { nonint = nonint " " id; next }
+      any = 1
+      if (id in is_counted) total += v
+    }
+    END {
+      if (!any) {
+        print "::error::no ccache --print-stats counter lines (<id><TAB><int>) in the statistics." > "/dev/stderr"
+        exit 1
+      }
+      if (unknown != "") {
+        print "::error::ccache reported counter id(s) this gate does not classify:" unknown " — one of them may be a new uncacheable reason, which would be silently left out of the sum, so this fails rather than guesses. Classify each id into CCACHE_UNCACHEABLE_IDS / CCACHE_ERROR_IDS / CCACHE_NEUTRAL_IDS in cpp/test/check_compiler_cache_applied.sh, per its flags in ccache k_statistics_fields." > "/dev/stderr"
+        exit 1
+      }
+      if (nonint != "") {
+        print "::error::ccache reported a non-integer value for counter id(s):" nonint > "/dev/stderr"
+        exit 1
+      }
+      for (id in required) if (!(id in seen)) missing = missing " " id
+      if (missing != "") {
+        print "::error::ccache --print-stats did not report counter id(s) this gate sums:" missing " — the uncacheable total would silently lose those terms." > "/dev/stderr"
+        exit 1
+      }
+      print total + 0
+    }
   ' "$1"
 }
 
@@ -277,19 +387,20 @@ run_check() {
       fi
       cat "$stats_file"
     else
-      # BOTH forms go into the stats file. `--print-stats` carries the machine-
-      # readable counters the request/hit parsers read; `ccache -s`'s human
-      # summary is the only place ccache states the cacheable/uncacheable split
-      # (#599). Its lines carry no tabs, so neither parser sees the other's
-      # input. The human half is echoed to the log as it always was.
-      if ccache -s >"$stats_file" 2>&1; then
+      # `ccache -s`'s human summary goes into the log, because that is the
+      # number a reader scanning the job wants to see. Since #660 it is NOT
+      # parsed — every number the gate compares comes from `--print-stats`
+      # below — but its failure is still a HARD failure: a gate that cannot
+      # run its own instrument has not measured anything, and this used to be
+      # a cosmetic `::warning::` that let the run limp on to a different,
+      # misleading error.
+      if ! ccache -s >"$stats_file" 2>&1; then
+        echo "::error::'ccache -s' failed; its output was:"
         cat "$stats_file"
-      else
-        echo "::warning::'ccache -s' failed; its output was:"
-        cat "$stats_file"
-        # Drop it rather than letting an error message reach the parsers.
-        : >"$stats_file"
+        rm -f "$owned_stats"
+        return 1
       fi
+      cat "$stats_file"
       if ! ccache --print-stats >>"$stats_file" 2>&1; then
         echo "::error::'ccache --print-stats' failed (needs ccache >= 4.4); its output was:"
         cat "$stats_file"
@@ -334,7 +445,7 @@ run_check() {
   # zero-compiles branch above. It also runs BEFORE the success line: a gate
   # that prints "OK" and then fails reads as a flake to whoever scans the log.
   if ! is_uint "$noncacheable"; then
-    echo "::error::could not read a non-cacheable compilation count out of $tool's statistics — the gate cannot tell an applied cache from one that declined every compile, so it fails. (sccache: a 'Non-cacheable compilations <int>' line; ccache: 'ccache -s''s 'Cacheable calls: <n> / <total>' line.)"
+    echo "::error::could not read a non-cacheable compilation count out of $tool's statistics — the gate cannot tell an applied cache from one that declined every compile, so it fails. (sccache: a 'Non-cacheable compilations <int>' line; ccache: the FLAG_UNCACHEABLE + FLAG_ERROR counters of 'ccache --print-stats' — see the parser above for the reason it rejected them.)"
     return 1
   fi
 

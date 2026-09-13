@@ -1,6 +1,9 @@
 """`ball run`: self-host execution + the honest "engine not built" failure.
 
-Two paths, mirroring the Go CLI's default-build vs. `-tags selfhost` split:
+Two paths. Python's generated engine is NOT committed (unlike Go's, which since
+#586 is tracked because `go install` serves the repo at the tag and accepts no
+`-tags`); the redistributable `ball-lang` wheel ships the engine's Ball SOURCE
+and compiles it on first use instead (#496), so both states are real here:
 
 * without the generated ``compiled_engine.py`` (the fresh-checkout / plain-pytest
   state) ``run`` must fail honestly with exit 1 and the regenerate hint — never a

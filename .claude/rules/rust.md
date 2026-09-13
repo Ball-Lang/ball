@@ -151,7 +151,8 @@ cargo fmt --check && cargo clippy --workspace
   `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic — the
   largest remaining bucket), an `impl` whose **self type** is not a plain named type
   (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
-  files), destructuring patterns (`let Pair(a, b) = p;`), item-level `const`/`static`/`type`,
+  files), destructuring patterns (`let Pair(a, b) = p;`), a *reference* to a skipped module-scope
+  `const`/`static`/`type` alias (the declaration itself is skipped — see below),
   unmapped macros (`write!` — the measured largest *next* bucket, 9 of the 110 files). Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. Five are flipped
@@ -187,6 +188,21 @@ cargo fmt --check && cargo clippy --workspace
   expression" panic. Proof: `rust/encoder/tests/mixed_impl_items.rs` (encode → compile →
   `cargo build` → run). This is a DIFFERENT gap from the still-open `impl` self-type one above;
   do not conflate their file counts.
+- **Module-scope `const`/`static`/`type` alias and non-`Fn` `trait` items are SKIPPED too
+  (#491).** `lib.rs`'s top-level item match and `types.rs::encode_item_trait` no longer abort a
+  file on a declaration Ball models nothing for — 7 and 3 of the 110 scored Tier A files
+  respectively. **The module-scope skip needs a guard the `impl` one does not, and copying the
+  precedent without it would be a silent-degradation bug:** a skipped `impl` item is referenced as
+  `Self::CAP` (a two-segment path `encode_path_expr` already refuses), but a skipped module-scope
+  `const` is referenced as a bare `LIMIT` — a single-segment path the same function would pass
+  through its `reference(name)` fallback, emitting a read of a binding nobody declared. So pass 1
+  records the names in `Encoder::skipped_item_names` and `encode_path_expr` panics at the USE
+  site, naming the declaration. A top-level **macro invocation** stays a loud panic on purpose: it
+  can be the thing that DEFINES a type the file references (`bitflags!` → `TestFlags`, 28 of the
+  110 files), so skipping it would orphan the references into a worse error; that needs macro
+  expansion. Proof: `rust/encoder/tests/mixed_module_items.rs`. Like every #491 slice, the Tier A
+  **aggregate did not move** (`0 passed, 110 failed, 110 total`, `encoded 0/110` before and
+  after) — only the first-blocker histogram did; `baseline.json`'s Rust row is unchanged.
 - **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`
   is an identity passthrough (a Ball `List` has no exhausted state); `.is_empty()` lowers to
   `std.equals(std.length(receiver), 0)`, reusing `.len()`'s own universal dispatch, so it needs no
@@ -280,10 +296,14 @@ cargo fmt --check && cargo clippy --workspace
   inventory with **`syn` directly** (never the encoder's own walk) and checks a
   second-generation fixpoint. Honest baseline, **still 0/110 clean, 0 files even
   encoded** after every #491 slice so far — the encoders' documented gaps
-  (item-level `const`/`static`/`type`, unmapped macros like `write!`, cross-file
+  (item-level macro invocations, unmapped macros like `write!`, cross-file
   method calls) are in essentially every real crate file, and a file that clears
   one lands on the next. A closed gap category moves the histogram, not the
-  aggregate. `cargo test -p
+  aggregate. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
+  `strsim` (`tools/coverage-study/packages/rust.json`), not the original 10-crate
+  #491 set. **Always point `CARGO_TARGET_DIR` at a path inside the current
+  worktree** — a target dir shared with another lane serves a stale `rlib` and
+  produces a false red that reproduces nowhere in your own diff. `cargo test -p
   ball-rq1-study` (the harness's own self-test) IS gated on every PR in the `rust`
   job; the RUN is the `rust-tier-a` job in `coverage-study.yml`, which
   has **no `pull_request:` trigger** (its row is floored by ratchet in that
@@ -321,8 +341,9 @@ cargo fmt --check && cargo clippy --workspace
   except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). Honest baseline **0/321**,
   like the C# leg it mirrors. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
   `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`. Its CI
-  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which has **no `pull_request`
-  trigger** — the row is absent, not green, on a PR; dispatch the workflow and read the run.
+  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** —
+  the row runs automatically on any PR touching a filtered path, gated on harness health (a
+  parseable `Results:` line, integer counts, `total >= 1`), never on the failure count.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

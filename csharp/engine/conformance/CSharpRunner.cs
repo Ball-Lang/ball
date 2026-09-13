@@ -15,6 +15,16 @@ namespace Ball.Engine.Conformance;
 /// on the compiler test assembly (test assemblies are not meant to be
 /// referenced as libraries), returning outcomes instead of throwing so a
 /// single fixture's compile/run failure never aborts the whole corpus sweep.
+///
+/// <para><b>Why this one may still swap <c>Console.Out</c> globally, unlike the
+/// test-suite copy (issue #611).</b> <c>Console.Out</c> is process-global, so a
+/// redirect around one program's execution captures every concurrent write in the
+/// process — which is why the test harness now routes per execution context
+/// (<c>ConsoleCapture</c> in <c>csharp/compiler/test/TestSupport.cs</c>). This
+/// harness is a single-threaded console app: <c>CompilerLeg</c> is its only caller
+/// and drives fixtures one at a time, with nothing else writing while a capture is
+/// open. If a leg ever runs fixtures concurrently, port <c>ConsoleCapture</c> here
+/// first — a global redirect under parallelism is the #611 defect.</para>
 /// </summary>
 internal static class CSharpRunner
 {

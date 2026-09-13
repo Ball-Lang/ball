@@ -8,28 +8,24 @@
 // #570: the cli-core verbs pass the program's ballrt.Value view to the compiled
 // report functions.
 //
-// The cli-core verbs (info/validate/tree/version) are gated behind this module's
-// own `clicore` build tag, deliberately INDEPENDENT of `selfhost`: they never
-// touch the interpreter, so they must not require the engine artifact. Mirrors
-// Rust's `cli_core` Cargo feature and C#'s `-p:CliCore=true`; the two combine
-// freely (`go build -tags "clicore selfhost"`).
-//
-// `run` executes via the self-hosted engine, which is gated behind the
-// `selfhost` build tag (go/engine's run_selfhost.go / run_stub.go). Because Go
-// build tags propagate through the build, `go build -tags selfhost ./...` here
-// pulls in the real engine; a plain build gets the stub, and `run` reports a
-// clear "rebuild with -tags selfhost" error instead of failing to compile — the
-// Go analog of the Rust CLI's `self_host` cargo feature and C#'s
-// `-p:SelfHost=true` MSBuild property.
+// NO build tags (issue #586). Go's registry IS the git tag: the module proxy
+// serves the repository AT the tag and `go install` accepts no `-tags`, so a
+// gitignored, tag-gated artifact can never reach a consumer. Both generated
+// artifacts — go/cli/compiled/compiled_cli.go (the cli-core verbs
+// info/validate/tree/version) and go/engine/compiled/compiled_engine.go (which
+// `run` executes through) — are therefore COMMITTED and unconditional, kept
+// honest by ci.yml's `Ball Artifact Freshness` regen-and-diff job. Rust and C#
+// keep their `self_host`/`cli_core` gates only because crates.io and NuGet
+// regenerate at publish time; Go has no such step.
 module github.com/ball-lang/ball/go/cli
 
 go 1.23
 
 require (
-	github.com/ball-lang/ball/go/compiler v0.1.0
-	github.com/ball-lang/ball/go/encoder v0.1.0
-	github.com/ball-lang/ball/go/engine v0.1.0
-	github.com/ball-lang/ball/go/runtime v0.1.0
-	github.com/ball-lang/ball/go/shared v0.1.0
+	github.com/ball-lang/ball/go/compiler v0.2.0
+	github.com/ball-lang/ball/go/encoder v0.2.0
+	github.com/ball-lang/ball/go/engine v0.2.0
+	github.com/ball-lang/ball/go/runtime v0.2.0
+	github.com/ball-lang/ball/go/shared v0.2.0
 	google.golang.org/protobuf v1.36.11
 )

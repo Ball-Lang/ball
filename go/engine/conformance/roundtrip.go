@@ -24,10 +24,12 @@ package conformance
 // exactly 0. This leg keeps that number live and honest; raising it is
 // encoder/compiler work tracked elsewhere.
 //
-// **No PR gate.** The `go-roundtrip` row lives in
-// .github/workflows/conformance-matrix.yml, which has NO pull_request trigger —
-// it runs on push-to-main, the weekly schedule, or manual dispatch. An absent
-// check on a PR is not a green one.
+// **A PR gate since #619, on harness health only.** The `go-roundtrip` row lives
+// in .github/workflows/conformance-matrix.yml, which now has a path-filtered
+// pull_request trigger sharing its push filter, so the row runs on any PR
+// touching go/** with no dispatch. What it gates is still only that the harness
+// produced a parseable `Results:` line with integer counts and total >= 1 —
+// never the failure count, which is expected to be 0/N.
 //
 // This leg never touches the compiled engine at all — it needs the DART
 // reference engine on PATH instead, and skips loudly without it.

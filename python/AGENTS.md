@@ -94,9 +94,10 @@ fixtures raises), never on the failure count. Reads goldens and subprocess stdou
 as **bytes**, normalising only CRLF.
 
 CI home: the `python-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
-**That workflow has no `pull_request:` trigger**, so the row is ABSENT (not green)
-on a PR — `gh workflow run conformance-matrix.yml --ref <branch>` and read the run
-before merging a change to this leg.
+**That workflow is a PR gate since #619** — it has a path-filtered `pull_request:`
+trigger sharing its `push` filter, and `python/**` is in that filter, so the row
+runs on any PR touching this directory with no `gh workflow run` dispatch. It
+still gates harness health only, never the failure count.
 
 ## Publishing (PyPI)
 

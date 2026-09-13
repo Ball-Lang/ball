@@ -28,7 +28,7 @@ fn same_tokens(left: &TokenStream, right: &TokenStream) -> bool {
         (TokenTree::Group(a), TokenTree::Group(b)) => {
             a.delimiter() == b.delimiter() && same_tokens(&a.stream(), &b.stream())
         }
-        (TokenTree::Ident(a), TokenTree::Ident(b)) => a.to_string() == b.to_string(),
+        (TokenTree::Ident(a), TokenTree::Ident(b)) => a == b,
         (TokenTree::Punct(a), TokenTree::Punct(b)) => {
             a.as_char() == b.as_char() && a.spacing() == b.spacing()
         }

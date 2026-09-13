@@ -356,6 +356,30 @@ jobs:
       - name: Regenerated-artifact apply script self-test (#619)
         run: bash tools/ci/apply_regenerated.sh --self-test
 
+      # The `Ball Artifact Freshness` job only exercises its collect/upload/push
+      # chain on a RED run, so a regression in HOW that chain is gated is
+      # invisible until the day it matters — and the failure mode is the bad one:
+      # a Regenerate step that dies mid-write leaves PARTIAL bytes that a bare
+      # `failure()` would happily upload as "the fix" and, with REGEN_PAT set,
+      # commit to the PR (#625). This parses the job and asserts every gate is on
+      # `steps.<assert-id>.outcome == 'failure'`, that every `Assert` step carries
+      # an id, and that the push consults the loop-breaker. `--self-test` first: a
+      # guard that stopped asserting must not pass.
+      - name: Regeneration-flow wiring guard (#625)
+        run: |
+          bash tools/ci/check_ci_regen_wiring.sh --self-test
+          bash tools/ci/check_ci_regen_wiring.sh
+
+      # The loop-breaker itself (#625): one auto-push per HUMAN commit. It is the
+      # only thing standing between a nondeterministic generator and an infinite
+      # push -> run -> drift -> push cycle once REGEN_PAT exists, and — like the
+      # apply script above — it only ever runs on a RED freshness run. Its cases
+      # (the two trailer-paragraph shapes, the lowercased key, an indented
+      # quotation that must NOT match, and the empty/unreadable message fail-loud)
+      # run here on every PR, offline.
+      - name: Regeneration loop-breaker self-test (#625)
+        run: bash tools/ci/regen_loop_breaker.sh --self-test
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

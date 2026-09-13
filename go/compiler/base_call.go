@@ -770,34 +770,69 @@ func (c *Compiler) compileCasePattern(subj string, cf map[string]*ballv1.Express
 	return patternResult{cond: fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.arg(cf, "pattern", "value"))}
 }
 
-// compileTry lowers std.try to ballrt.TryCatch (body/catch/finally closures). The
-// first catch clause's variable binds the thrown payload; a second stack-trace
-// variable binds the caught trace.
+// compileTry lowers std.try to ballrt.TryCatch (body/catch/finally closures).
+// The clause list is walked in SOURCE ORDER inside the single catch closure: an
+// `on <Type> catch` clause runs only when ballrt.CatchMatches accepts the thrown
+// value's type tag, and the first untyped `catch (e)` is the unconditional
+// fallback. When no clause matches, the closure rethrows so an enclosing `try`
+// sees the original value — the reference engine's `if (!caught) rethrow`
+// (engine_control_flow.dart's _evalLazyTry). Issue #615.
+//
+// The dispatch is compiled into the emitted closure rather than pushed into
+// ballrt.TryCatch: TryCatch's (body, catch, finally) signature is public API of
+// go/runtime, and generated `if`-chains are exactly what the self-hosted engine
+// already emits for this same Dart logic.
+//
+// Each clause's variable binds the thrown payload; a second stack-trace variable
+// binds the caught trace.
 func (c *Compiler) compileTry(f map[string]*ballv1.Expression) string {
 	body := c.loopBody(f)
 	catches := messageList(f, "catches")
 	catchFn := "nil"
 	if len(catches) > 0 {
-		cf := messageCreationFields(catches[0])
-		variable := stringField(cf, "variable")
-		stackVar := stringField(cf, "stack_trace")
-		c.pushScope()
 		var cb strings.Builder
 		cb.WriteString("func(__ex ballrt.Value) ballrt.Value {\n")
-		if variable != "" {
-			c.bind(variable)
-			fmt.Fprintf(&cb, "\t\t%s := __ex\n\t\t_ = %s\n", sanitize(variable), sanitize(variable))
+		hasUntyped := false
+		for _, mc := range catches {
+			cf := messageCreationFields(mc)
+			clauseType := stringField(cf, "type")
+			variable := stringField(cf, "variable")
+			stackVar := stringField(cf, "stack_trace")
+			c.pushScope()
+			if clauseType != "" {
+				fmt.Fprintf(&cb, "\t\tif ballrt.CatchMatches(__ex, %q) {\n", clauseType)
+			} else {
+				// An untyped clause matches anything; emit it as a bare block so
+				// its bindings stay scoped to the clause. Dart rejects a clause
+				// after an untyped `catch`, so this is always the last one.
+				hasUntyped = true
+				cb.WriteString("\t\t{\n")
+			}
+			if variable != "" {
+				c.bind(variable)
+				fmt.Fprintf(&cb, "\t\t\t%s := __ex\n\t\t\t_ = %s\n", sanitize(variable), sanitize(variable))
+			}
+			if stackVar != "" {
+				c.bind(stackVar)
+				fmt.Fprintf(&cb, "\t\t\t%s := ballrt.CaughtStackTrace()\n\t\t\t_ = %s\n", sanitize(stackVar), sanitize(stackVar))
+			}
+			catchBody := "ballrt.Value(nil)"
+			if b, ok := cf["body"]; ok {
+				catchBody = c.compileExpr(b)
+			}
+			fmt.Fprintf(&cb, "\t\t\treturn %s\n\t\t}\n", catchBody)
+			c.popScope()
+			if hasUntyped {
+				break
+			}
 		}
-		if stackVar != "" {
-			c.bind(stackVar)
-			fmt.Fprintf(&cb, "\t\t%s := ballrt.CaughtStackTrace()\n\t\t_ = %s\n", sanitize(stackVar), sanitize(stackVar))
+		if !hasUntyped {
+			// Every clause was typed and none matched: re-raise the original
+			// exception (Dart's implicit propagation out of a `try` whose `on`
+			// clauses all missed).
+			cb.WriteString("\t\treturn ballrt.Rethrow()\n")
 		}
-		catchBody := "ballrt.Value(nil)"
-		if b, ok := cf["body"]; ok {
-			catchBody = c.compileExpr(b)
-		}
-		fmt.Fprintf(&cb, "\t\treturn %s\n\t}", catchBody)
-		c.popScope()
+		cb.WriteString("\t}")
 		catchFn = cb.String()
 	}
 	finallyFn := "nil"

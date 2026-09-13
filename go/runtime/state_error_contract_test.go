@@ -17,7 +17,7 @@ import "testing"
 //     "No element" and a `*Message` stringified as its type tag, so a Ball
 //     program printed "StateError".
 //
-// The cross-target guard is conformance fixture 464_state_error_message; this
+// The cross-target guard is conformance fixture 465_state_error_message; this
 // is the Go runtime half, and it is the only thing that exercises the compiled
 // (non-engine) route, which no CI leg compiles the corpus through.
 func TestStateErrorSitesAreTypedAndStringifyLikeDart(t *testing.T) {

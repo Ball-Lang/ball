@@ -2132,7 +2132,64 @@ pub fn ball_args_get() -> BallValue {
 // ════════════════════════════════════════════════════════════
 
 pub fn ball_throw(value: BallValue) -> ! {
-    std::panic::panic_any(value)
+    std::panic::panic_any(ball_normalize_thrown(value))
+}
+
+/// Mirror the reference engine's `std.throw` (`engine_std.dart`): the encoder
+/// stores a built-in exception's constructor argument positionally
+/// (`FormatException('bad')` → `{arg0: 'bad'}`) while Dart source reads it back
+/// as `e.message`, so a thrown instance carrying `arg0` and no `message` gains a
+/// `message` alias. Without it, `on FormatException catch (e)` bound a value
+/// whose `.message` read null (issue #615).
+fn ball_normalize_thrown(value: BallValue) -> BallValue {
+    match &value {
+        BallValue::Message(message) if !message.contains_key("message") => {
+            if let Some(arg0) = message.get("arg0") {
+                message.insert("message", arg0);
+            }
+        }
+        BallValue::Map(map) if !map.contains_key("message") => {
+            if let Some(arg0) = map.get("arg0") {
+                map.insert("message", arg0);
+            }
+        }
+        _ => {}
+    }
+    value
+}
+
+/// The type tag a typed `on <Type> catch` clause matches a thrown value
+/// against, following the reference engine's rule (`std.throw` in
+/// `engine_std.dart`): a message's type tag, a map's `__type__` tag, and the
+/// literal `Exception` for an untagged value (a thrown string/number/list) —
+/// `std.throw`'s own default.
+pub fn ball_exception_type_name(thrown: &BallValue) -> String {
+    match thrown {
+        BallValue::Message(message) => message.type_name.clone(),
+        BallValue::Map(map) => match map.get("__type__") {
+            Some(BallValue::String(name)) => name,
+            // A non-string `__type__` is not a type tag any clause can name;
+            // fall back to std.throw's untagged default rather than inventing one.
+            _ => "Exception".to_string(),
+        },
+        _ => "Exception".to_string(),
+    }
+}
+
+/// Whether an `on <Type> catch` clause declaring `type_name` handles `thrown`.
+/// A thrown value's tag may be module-qualified (`main:StateError`) while the
+/// clause names the bare type, so BOTH spellings match — exactly what
+/// `_evalLazyTry` does in the reference engine. An untyped `catch (e)` clause is
+/// never routed through here: it matches unconditionally (issue #615).
+pub fn ball_catch_matches(thrown: &BallValue, type_name: &str) -> bool {
+    let actual = ball_exception_type_name(thrown);
+    if actual == type_name {
+        return true;
+    }
+    match actual.find(':') {
+        Some(index) => &actual[index + 1..] == type_name,
+        None => false,
+    }
 }
 
 /// Throw a Ball exception a typed `on <Type> catch` clause can match. The
@@ -4608,6 +4665,76 @@ mod tests {
             BallValue::String("hello".to_string()),
         );
         assert_eq!(BallValue::Map(map).to_string(), "{message: hello}");
+    }
+
+    // ── typed catch dispatch (#615) ──
+
+    /// The clause-selection rule the compiled `try` dispatch relies on: a typed
+    /// `on <Type> catch` matches a thrown value's type tag by its FULL or BARE
+    /// spelling, and an untagged value reports `std.throw`'s own default.
+    #[test]
+    fn catch_matches_accepts_both_spellings_of_a_module_qualified_tag() {
+        let fields = BallMap::new();
+        fields.insert("arg0", BallValue::String("boom".to_string()));
+        let thrown = BallValue::Message(BallMessage::new("main:StateError", fields));
+
+        assert!(ball_catch_matches(&thrown, "StateError"));
+        assert!(ball_catch_matches(&thrown, "main:StateError"));
+        assert!(!ball_catch_matches(&thrown, "ArgumentError"));
+        // A clause qualified by a DIFFERENT module must not match.
+        assert!(!ball_catch_matches(&thrown, "other:StateError"));
+    }
+
+    #[test]
+    fn catch_matches_reads_a_maps_type_tag_and_defaults_to_exception() {
+        // `ball_throw_typed`'s `{'__type__': …, 'message': …}` shape.
+        let map = BallMap::new();
+        map.insert("__type__", BallValue::String("FormatException".to_string()));
+        let tagged = BallValue::Map(map);
+        assert!(ball_catch_matches(&tagged, "FormatException"));
+        assert!(!ball_catch_matches(&tagged, "StateError"));
+
+        // std.throw tags an untagged value `Exception` (engine_std.dart).
+        let untagged = BallValue::String("oops".to_string());
+        assert!(ball_catch_matches(&untagged, "Exception"));
+        assert!(!ball_catch_matches(&untagged, "StateError"));
+    }
+
+    /// `std.throw`'s `arg0` -> `message` rename: the encoder stores
+    /// `StateError('boom')`'s argument positionally while Dart source reads it
+    /// back as `e.message`.
+    #[test]
+    fn throw_aliases_arg0_as_message() {
+        let fields = BallMap::new();
+        fields.insert("arg0", BallValue::String("boom".to_string()));
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ball_throw(BallValue::Message(BallMessage::new(
+                "main:StateError",
+                fields,
+            )))
+        }))
+        .expect_err("throw must unwind");
+        let payload = ball_catch_payload(caught);
+        assert_eq!(
+            ball_field_get(payload, "message"),
+            BallValue::String("boom".to_string())
+        );
+
+        // An explicit `message` is never clobbered by `arg0`.
+        let explicit = BallMap::new();
+        explicit.insert("arg0", BallValue::String("positional".to_string()));
+        explicit.insert("message", BallValue::String("explicit".to_string()));
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ball_throw(BallValue::Message(BallMessage::new(
+                "main:StateError",
+                explicit,
+            )))
+        }))
+        .expect_err("throw must unwind");
+        assert_eq!(
+            ball_field_get(ball_catch_payload(caught), "message"),
+            BallValue::String("explicit".to_string())
+        );
     }
 
     // ── strings ──

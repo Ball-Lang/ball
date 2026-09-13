@@ -63,6 +63,32 @@
 //! semantics of their own); anything else unhandled is a loud panic, never a
 //! silent skip.
 //!
+//! ## Module-scope `const`/`static`/`type` alias: skipped, not a panic (#491)
+//!
+//! A module-scope `const`, `static` or `type` alias declares nothing Ball
+//! models, so [`encode_main_module`] **skips** it and keeps encoding the
+//! file's real code — the same tolerance `types.rs::encode_item_impl` already
+//! has for the identical shapes inside an `impl` block. Before this, one such
+//! declaration aborted the whole file: a top-level `type` alias was the FIRST
+//! blocker for 7 of the 110 scored files in the live Tier A funnel.
+//!
+//! Unlike the `impl`-block skip, this one needs a second half to stay honest.
+//! A skipped `impl` item is referenced as `Self::CAP` — a two-segment path
+//! [`Encoder::encode_path_expr`] already refuses — whereas a skipped
+//! module-scope one is referenced as a bare `LIMIT`, a single-segment path
+//! the same function would otherwise pass through its `reference(name)`
+//! fallback, emitting a read of a binding nobody declared. So the skipped
+//! names are recorded ([`Encoder::skipped_item_names`]) and a reference to
+//! one fails **loud** at the use site, naming the declaration.
+//!
+//! A top-level **macro invocation** stays a loud panic on purpose: a macro at
+//! item level can be the very thing that DEFINES a type the rest of the file
+//! references (`bitflags::bitflags! { … }` produces the `TestFlags` every
+//! `bitflags/tests/*.rs` file then calls into — 28 of those 110 scored
+//! files), so skipping it would orphan those references into a confusing
+//! downstream panic instead of a clean boundary. Closing that bucket needs
+//! macro *expansion*, a materially bigger feature.
+//!
 //! ## Cross-file calls: an unresolved `ModuleImport`, not a panic (issue #491)
 //!
 //! A call into a MODULE this file does not declare (`other_file::helper(1)`)
@@ -144,10 +170,15 @@
 //! (this crate encodes one whole file in a single pass).
 mod block;
 mod control_flow;
+mod crate_graph;
 mod methods;
 mod types;
 
+pub use crate_graph::{CrateGraph, CrateModule, CrateSymbols, encode_crate, encode_crate_library};
+use crate_graph::{ROOT_MODULE, Resolved};
+
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
 
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
@@ -176,7 +207,7 @@ pub fn encode(source: &str) -> Program {
         has_main,
         "ball-lang-encoder: a Ball Program requires a `fn main()` entry point"
     );
-    assemble_program(main_module, "main", &unresolved_modules)
+    assemble_program(vec![main_module], "main", &unresolved_modules)
 }
 
 /// Encode a Rust **library** source file into a Ball [`Program`] — the same
@@ -204,23 +235,31 @@ pub fn encode(source: &str) -> Program {
 /// [`compile_library`]: https://docs.rs/ball-lang-compiler
 pub fn encode_library(source: &str) -> Program {
     let encoded = encode_main_module(source);
-    assemble_program(encoded.module, "", &encoded.unresolved_modules)
+    assemble_program(vec![encoded.module], "", &encoded.unresolved_modules)
 }
 
-/// Wrap an encoded `main` [`Module`] in a [`Program`], accumulating the
-/// `std`/`std_collections`/… base modules the module's functions actually
-/// call. Shared by [`encode`] and [`encode_library`]; `entry_function` is
-/// the *only* difference between the two (`"main"` vs. `""` — see
+/// Wrap the encoded user [`Module`]s in a [`Program`], accumulating the
+/// `std`/`std_collections`/… base modules their functions actually call.
+/// Shared by [`encode`], [`encode_library`] and the crate-aware
+/// [`CrateGraph::encode`]; `entry_function` is the *only* difference between
+/// the runnable and library shapes (`"main"` vs. `""` — see
 /// [`encode_library`]'s "Deliberately non-runnable").
+///
+/// `user_modules` is one module for a single-file encode and one per Rust
+/// module for a crate encode (issue #491). The crate root must come first only
+/// in the sense that it must be present under the name `"main"`;
+/// `Program.entry_module` names it either way.
 fn assemble_program(
-    main_module: Module,
+    user_modules: Vec<Module>,
     entry_function: &str,
     unresolved_modules: &BTreeSet<String>,
 ) -> Program {
     let mut used: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for func in &main_module.functions {
-        if let Some(body) = &func.body {
-            collect_used_functions(body, &mut used);
+    for module in &user_modules {
+        for func in &module.functions {
+            if let Some(body) = &func.body {
+                collect_used_functions(body, &mut used);
+            }
         }
     }
     // An unresolved external module is NOT a base module — synthesising a
@@ -230,6 +269,14 @@ fn assemble_program(
     // `main` module's `ModuleImport` is the only record of it.
     for alias in unresolved_modules {
         used.remove(alias);
+    }
+    // Nor is a SIBLING module of the same crate a base module: a crate encode
+    // emits real cross-module calls (`FunctionCall.module = "counter"`), and
+    // synthesising a base module for one would both invent bodiless
+    // `is_base` functions for code that exists and produce a duplicate module
+    // name — which `ball check` rejects outright.
+    for module in &user_modules {
+        used.remove(&module.name);
     }
 
     // `std` is always present (mirrors `dart/encoder/lib/encoder.dart`'s
@@ -244,7 +291,7 @@ fn assemble_program(
     for name in other_module_names {
         modules.push(build_used_module(name, used[name].clone()));
     }
-    modules.push(main_module);
+    modules.extend(user_modules);
 
     Program {
         name: "encoded_rust_program".to_string(),
@@ -381,12 +428,32 @@ struct EncodedFile {
 }
 
 /// Shared implementation behind [`encode`], [`encode_library`] and
-/// [`encode_module_only`].
+/// [`encode_module_only`]: one source string, encoded as the `main` module
+/// with no knowledge of any other file.
 fn encode_main_module(source: &str) -> EncodedFile {
     let file: syn::File = syn::parse_file(source)
         .unwrap_or_else(|err| panic!("ball-lang-encoder: failed to parse Rust source: {err}"));
+    encode_file_module(&file, ROOT_MODULE, None)
+}
 
-    let mut encoder = Encoder::new();
+/// Encode one already-parsed Rust module into a Ball [`Module`].
+///
+/// `module_name` is the name resolution runs under — `"main"` for a
+/// single-file encode or a crate root, otherwise the Rust module path
+/// (`counter`, `gamma::inner`). `symbols`, when present, is the crate-wide
+/// table that lets a call whose callee lives in ANOTHER file resolve into an
+/// ordinary cross-module Ball call instead of failing loud (issue #491); when
+/// absent the encoder behaves exactly as it always has, so every single-file
+/// caller is byte-identical.
+fn encode_file_module(
+    file: &syn::File,
+    module_name: &str,
+    symbols: Option<Rc<CrateSymbols>>,
+) -> EncodedFile {
+    let mut encoder = Encoder::new(module_name, symbols);
+    // Crate mode: everything the rest of the crate declares, before this
+    // file's own pre-pass runs (so a same-file declaration still wins).
+    encoder.seed_from_crate();
 
     // Pass 1: collect every top-level fn's (name, parameter-name list) up
     // front so call sites (which may textually precede their callee) can
@@ -442,6 +509,27 @@ fn encode_main_module(source: &str) -> EncodedFile {
             syn::Item::Impl(item_impl) => {
                 encoder.collect_impl_method_params(item_impl);
             }
+            // A module-scope `const`/`static`/`type` alias declares nothing
+            // Ball models, so pass 2 SKIPS it (issue #491) — but its NAME has
+            // to be remembered here, before any expression is encoded,
+            // because a bare `LIMIT` is a single-segment path that
+            // `encode_path_expr` would otherwise hand to its
+            // `reference(name)` fallback. See `skipped_item_names`.
+            syn::Item::Const(item_const) => {
+                encoder
+                    .skipped_item_names
+                    .insert(item_const.ident.to_string());
+            }
+            syn::Item::Static(item_static) => {
+                encoder
+                    .skipped_item_names
+                    .insert(item_static.ident.to_string());
+            }
+            syn::Item::Type(item_type) => {
+                encoder
+                    .skipped_item_names
+                    .insert(item_type.ident.to_string());
+            }
             _ => {}
         }
     }
@@ -478,10 +566,36 @@ fn encode_main_module(source: &str) -> EncodedFile {
             // Imports and (sub)modules carry no runtime semantics of their
             // own to encode — silently skipped, not a scope violation.
             syn::Item::Use(_) | syn::Item::Mod(_) => {}
+            // A module-scope `const`/`static`/`type` alias declares nothing
+            // Ball models, so it is SKIPPED rather than aborting the whole
+            // file (issue #491) — the same tolerance
+            // `types.rs::encode_item_impl` already has for the identical
+            // shapes one level down, inside an `impl` block.
+            //
+            // Unlike that one, the skip is NOT safe on its own: `Self::CAP`
+            // is a two-segment path that lands on `encode_path_expr`'s
+            // "unsupported path expression" panic by itself, whereas a bare
+            // `LIMIT` is a single-segment path the same function would pass
+            // straight through its `reference(name)` fallback — a dangling
+            // reference to a binding nobody declared, i.e. exactly the silent
+            // degradation this crate's fail-loud posture exists to prevent.
+            // The names are therefore recorded in pass 1
+            // (`skipped_item_names`) and `encode_path_expr` fails loud at the
+            // USE site instead. Proof:
+            // `rust/encoder/tests/mixed_module_items.rs`.
+            //
+            // `syn::Item::Macro` is deliberately NOT folded in here: a macro
+            // at item level can be the very thing that DEFINES a type the
+            // rest of the file references (`bitflags::bitflags! { … }`
+            // produces the `TestFlags` every `bitflags/tests/*.rs` file then
+            // calls into), so skipping it would orphan those references into
+            // a confusing downstream panic naming a type that looks like it
+            // should exist. Closing that bucket needs macro *expansion*.
+            syn::Item::Const(_) | syn::Item::Static(_) | syn::Item::Type(_) => {}
             other => panic!(
                 "ball-lang-encoder: unsupported top-level item `{}` — issue #43's scope covers \
-                 struct/enum/trait/impl declarations; consts/statics/type-aliases/macro \
-                 invocations at item level remain deferred",
+                 struct/enum/trait/impl declarations (plus skipped consts/statics/type-aliases); \
+                 macro invocations at item level remain deferred",
                 item_kind_name(other)
             ),
         }
@@ -497,6 +611,16 @@ fn encode_main_module(source: &str) -> EncodedFile {
             ..Default::default()
         });
     }
+    // Every SIBLING module of the same crate this module calls into (issue
+    // #491's crate mode). Structurally the same source-less `ModuleImport` as
+    // the unresolved case below — the difference is that the named module is
+    // actually present in the emitted `Program`, so nothing is left dangling.
+    for alias in &encoder.referenced_crate_modules {
+        module_imports.push(ModuleImport {
+            name: alias.clone(),
+            ..Default::default()
+        });
+    }
     // Every module a call site referenced but this file does not declare,
     // as a source-less ("ref only") import — deterministically ordered by
     // `unresolved_modules`' `BTreeSet` (issue #491).
@@ -507,7 +631,7 @@ fn encode_main_module(source: &str) -> EncodedFile {
         });
     }
     let module = Module {
-        name: "main".to_string(),
+        name: module_name.to_string(),
         functions,
         module_imports,
         type_defs,
@@ -521,12 +645,23 @@ fn encode_main_module(source: &str) -> EncodedFile {
     }
 }
 
+/// The human-readable name the "unsupported top-level item" panic reports.
+///
+/// `Const`/`Static`/`Type` are absent on purpose — they are skipped now
+/// (issue #491) and can no longer reach the panic, so listing them would
+/// describe a branch that does not exist. Every *other* `syn::Item` variant
+/// that still can reach it is named individually: an unclassified `item` is
+/// exactly the diagnostic that makes a real-code sweep un-actionable (3 of
+/// the 110 scored Tier A files reported it, with no way to tell a `union`
+/// from an `extern crate` from unparsed `Verbatim` tokens).
 fn item_kind_name(item: &syn::Item) -> &'static str {
     match item {
-        syn::Item::Const(_) => "const",
-        syn::Item::Static(_) => "static",
-        syn::Item::Type(_) => "type alias",
         syn::Item::Macro(_) => "macro invocation",
+        syn::Item::Union(_) => "union",
+        syn::Item::ExternCrate(_) => "extern crate",
+        syn::Item::ForeignMod(_) => "extern block",
+        syn::Item::TraitAlias(_) => "trait alias",
+        syn::Item::Verbatim(_) => "verbatim tokens",
         _ => "item",
     }
 }
@@ -595,16 +730,45 @@ pub(crate) struct Encoder {
     /// [`Self::tuple_struct_names`] — a struct is named, tuple, or unit, never
     /// two of them.
     pub(crate) unit_struct_names: HashSet<String>,
+    /// The name of every module-scope `const`/`static`/`type` alias this file
+    /// declares — declarations Ball models nothing for, which
+    /// [`encode_main_module`]'s pass 2 therefore SKIPS (issue #491).
+    ///
+    /// Recorded so the skip cannot degrade silently. A skipped `impl`-block
+    /// item is referenced as `Self::CAP`, a two-segment path that
+    /// [`Self::encode_path_expr`] already refuses on its own; a skipped
+    /// module-scope one is referenced as a bare `LIMIT`, a single-segment
+    /// path that the very same function would otherwise pass through its
+    /// `reference(name)` fallback, emitting a read of a binding nobody
+    /// declared. This set is what turns that into a loud panic naming the
+    /// declaration.
+    pub(crate) skipped_item_names: HashSet<String>,
     /// Every module alias a call site referenced but this file does not
     /// declare — recorded as an unresolved [`ModuleImport`] on the `main`
     /// module (see [`Self::encode_call`]'s unresolved-external branch). A
     /// `BTreeSet` so the emitted import list is deterministic regardless of
     /// the order call sites were encoded in.
     pub(crate) unresolved_modules: BTreeSet<String>,
+    /// The Ball module name this file is being encoded as — `"main"` for a
+    /// single-file encode or a crate root, otherwise the Rust module path.
+    /// Every crate-wide resolution is relative to it: a callee declared HERE
+    /// stays an unqualified call, one declared elsewhere gains that module as
+    /// its `FunctionCall.module`.
+    pub(crate) current_module: String,
+    /// The crate-wide symbol table, when encoding as part of a crate (issue
+    /// #491). `None` for a single-file encode, which is what keeps
+    /// [`encode`]/[`encode_library`] byte-identical to their pre-crate
+    /// behaviour: every branch that consults this is a no-op without it.
+    pub(crate) crate_symbols: Option<Rc<CrateSymbols>>,
+    /// Every sibling module of the same crate a call site here targeted —
+    /// emitted as `module_imports` on this module. Separate from
+    /// [`Self::unresolved_modules`] because these are RESOLVED: the named
+    /// module is part of the same `Program`.
+    pub(crate) referenced_crate_modules: BTreeSet<String>,
 }
 
 impl Encoder {
-    fn new() -> Self {
+    fn new(module_name: &str, crate_symbols: Option<Rc<CrateSymbols>>) -> Self {
         Encoder {
             fn_params: HashMap::new(),
             scopes: Vec::new(),
@@ -614,8 +778,144 @@ impl Encoder {
             local_type_names: HashSet::new(),
             tuple_struct_names: HashSet::new(),
             unit_struct_names: HashSet::new(),
+            skipped_item_names: HashSet::new(),
             unresolved_modules: BTreeSet::new(),
+            current_module: module_name.to_string(),
+            crate_symbols,
+            referenced_crate_modules: BTreeSet::new(),
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Crate-wide resolution (issue #491)
+    // ════════════════════════════════════════════════════════════
+
+    /// Record `module` as a sibling this file calls into, and return it as a
+    /// `FunctionCall.module` — or `""` when it is this very module.
+    fn crate_call_module(&mut self, resolved: Resolved) -> Option<String> {
+        match resolved {
+            Resolved::Here => Some(String::new()),
+            Resolved::In(module) => {
+                self.referenced_crate_modules.insert(module.clone());
+                Some(module)
+            }
+            Resolved::Unknown => None,
+        }
+    }
+
+    /// Which module owns the free function `name`, crate-wide? `None` outside
+    /// crate mode, or when no file in the crate declares it.
+    fn resolve_crate_fn(&mut self, name: &str) -> Option<String> {
+        let resolved = self
+            .crate_symbols
+            .clone()?
+            .resolve_fn(name, &self.current_module);
+        self.crate_call_module(resolved)
+    }
+
+    /// Which module owns the instance method `name`, crate-wide?
+    pub(crate) fn resolve_crate_method(&mut self, name: &str) -> Option<String> {
+        let resolved = self
+            .crate_symbols
+            .clone()?
+            .resolve_method(name, &self.current_module);
+        self.crate_call_module(resolved)
+    }
+
+    /// Which module owns the type `name`, crate-wide?
+    fn resolve_crate_type(&mut self, name: &str) -> Option<String> {
+        let resolved = self
+            .crate_symbols
+            .clone()?
+            .resolve_type(name, &self.current_module);
+        self.crate_call_module(resolved)
+    }
+
+    /// Resolve a call path's leading segments (everything but the function
+    /// name) to a module of THIS crate, applying Rust's own path qualifiers.
+    ///
+    /// `crate::` is the crate root, `self::` the current module and `super::`
+    /// its parent — `rust/encoder/src/lib.rs`'s module doc used to record
+    /// these as a known limitation of the single-file fallback, which turned
+    /// `crate::helper(1)` into an unresolved `crate` import. A crate walk
+    /// knows what they name, and `crate::` paths are how real multi-file
+    /// crates address each other.
+    fn resolve_crate_module_path(&mut self, segments: &[String]) -> Option<String> {
+        let symbols = self.crate_symbols.clone()?;
+        let mut path: Vec<String> = Vec::new();
+        let mut rest = segments;
+        match rest.first().map(String::as_str) {
+            Some("crate") => {
+                rest = &rest[1..];
+            }
+            Some("self") => {
+                path = self.module_path_components();
+                rest = &rest[1..];
+            }
+            Some("super") => {
+                path = self.module_path_components();
+                if path.pop().is_none() {
+                    panic!(
+                        "ball-lang-encoder: `super::` used from the crate root, which has no \
+                         parent module"
+                    );
+                }
+                rest = &rest[1..];
+            }
+            _ => {}
+        }
+        path.extend(rest.iter().cloned());
+        let name = if path.is_empty() {
+            ROOT_MODULE.to_string()
+        } else {
+            path.join("::")
+        };
+        if !symbols.declares_module(&name) {
+            return None;
+        }
+        if name == self.current_module {
+            return Some(String::new());
+        }
+        self.referenced_crate_modules.insert(name.clone());
+        Some(name)
+    }
+
+    fn module_path_components(&self) -> Vec<String> {
+        if self.current_module == ROOT_MODULE {
+            Vec::new()
+        } else {
+            self.current_module
+                .split("::")
+                .map(str::to_string)
+                .collect()
+        }
+    }
+
+    /// Seed this file's per-file tables with the crate-wide ones, so every
+    /// existing branch that asks "is this a type/tuple struct/method I know?"
+    /// sees the whole crate. Called once, before the file's own pre-pass, so a
+    /// same-file declaration still overwrites a crate-wide entry.
+    fn seed_from_crate(&mut self) {
+        let Some(symbols) = self.crate_symbols.clone() else {
+            return;
+        };
+        for (name, params) in &symbols.fn_params {
+            self.fn_params.insert(name.clone(), params.clone());
+        }
+        for (name, params) in &symbols.method_params {
+            self.method_params.insert(name.clone(), params.clone());
+        }
+        for (key, params) in &symbols.static_method_params {
+            self.static_method_params
+                .insert(key.clone(), params.clone());
+        }
+        for name in symbols.type_modules.keys() {
+            self.local_type_names.insert(name.clone());
+        }
+        self.tuple_struct_names
+            .extend(symbols.tuple_struct_names.iter().cloned());
+        self.unit_struct_names
+            .extend(symbols.unit_struct_names.iter().cloned());
     }
 
     // ════════════════════════════════════════════════════════════
@@ -798,6 +1098,20 @@ impl Encoder {
             if self.unit_struct_names.contains(&name) {
                 return self.encode_unit_struct_creation(&name);
             }
+            // A module-scope `const`/`static`/`type` alias whose DECLARATION
+            // was skipped (issue #491, see `skipped_item_names`). Checked
+            // here — last, after the enclosing fn/closure's own parameters
+            // and after unit structs, so a same-named binding still wins,
+            // matching this file's established syntactic, name-only
+            // resolution — and *before* the `reference(name)` fallback, which
+            // would otherwise emit a read of a binding nobody declared.
+            if self.skipped_item_names.contains(&name) {
+                panic!(
+                    "ball-lang-encoder: `{name}` names a top-level `const`/`static`/`type` alias, \
+                     whose declaration this encoder skips — referencing one is a documented gap; \
+                     inline the value or pass it as a parameter"
+                );
+            }
             return reference(name);
         }
         if let Some(last) = path.segments.last() {
@@ -818,6 +1132,29 @@ impl Encoder {
             if self.enum_names.contains(&enum_name) {
                 let variant = path.segments[1].ident.to_string();
                 return field_access(reference(enum_name), variant);
+            }
+            // Crate mode (issue #491): the enum exists, just not HERE. It is
+            // deliberately NOT resolved cross-module — the variant read
+            // compiles to `ball_field_get(<Enum>.clone(), …)` against the
+            // `pub static <Enum>` namespace
+            // `type_emit::compile_enum_descriptor` emits inside the declaring
+            // module, and a bare name cannot reach into another `pub mod`. A
+            // named boundary beats the generic "unsupported path expression"
+            // below, which would send a reader looking for a missing feature
+            // rather than a known one.
+            if let Some(owner) = self
+                .crate_symbols
+                .as_ref()
+                .and_then(|symbols| symbols.enum_module(&enum_name))
+            {
+                panic!(
+                    "ball-lang-encoder: `{}` reads a variant of enum `{enum_name}`, which module \
+                     `{owner}` declares and `{}` does not — a cross-module enum-variant read is a \
+                     documented gap (the compiled enum namespace is not reachable by bare name \
+                     from another module)",
+                    path_to_string(path),
+                    self.current_module
+                );
             }
         }
         panic!(
@@ -1025,15 +1362,24 @@ impl Encoder {
                 // `compile_method_dispatchers` emits a free `pub fn <short>`
                 // for when a static member's short name has a single owner
                 // (issue #288). Never packs a `"self"` field.
-                if path.segments.len() == 2 {
-                    let owner = path.segments[0].ident.to_string();
+                //
+                // In crate mode the owner may be declared in ANOTHER file
+                // (`use counter::Counter; … Counter::new(2)`), and the path
+                // may spell it out (`counter::Counter::new(2)`); the owner
+                // segment is the one immediately before the function either
+                // way, and the call carries the owner's own module so the
+                // compiler emits `counter::new(...)`.
+                if path.segments.len() >= 2 {
+                    let owner = path.segments[path.segments.len() - 2].ident.to_string();
                     if self.local_type_names.contains(&owner) {
                         if let Some(params) = self
                             .static_method_params
                             .get(&(owner.clone(), last_name.clone()))
                             .cloned()
                         {
-                            return self.encode_associated_call(&last_name, &params, &e.args);
+                            let module = self.resolve_crate_type(&owner).unwrap_or_default();
+                            return self
+                                .encode_associated_call(&module, &last_name, &params, &e.args);
                         }
                         panic!(
                             "ball-lang-encoder: `{owner}::{last_name}(...)` names a type declared \
@@ -1069,15 +1415,24 @@ impl Encoder {
                 // `Vec::new()`/`HashMap::new()` are the common shapes this
                 // protects; pinned by `tests/cross_module_calls.rs`.
                 if path.segments.len() >= 2 {
+                    let leading: Vec<String> = path
+                        .segments
+                        .iter()
+                        .take(path.segments.len() - 1)
+                        .map(|segment| segment.ident.to_string())
+                        .collect();
+                    // ── (b0) A MODULE OF THIS CRATE ───────────────────────
+                    //
+                    // Checked before the unresolved fallback, and — in crate
+                    // mode — this is where `crate::`/`self::`/`super::`
+                    // qualifiers are applied. A module the crate actually
+                    // declares is a resolved call, not a dangling import.
+                    if let Some(module) = self.resolve_crate_module_path(&leading) {
+                        return self.encode_crate_call(&module, &last_name, &e.args);
+                    }
                     let owner_segment = &path.segments[path.segments.len() - 2].ident;
                     if starts_lowercase(&owner_segment.to_string()) {
-                        let alias = path
-                            .segments
-                            .iter()
-                            .take(path.segments.len() - 1)
-                            .map(|segment| segment.ident.to_string())
-                            .collect::<Vec<_>>()
-                            .join("::");
+                        let alias = leading.join("::");
                         return self.encode_external_call(&alias, &last_name, &e.args);
                     }
                 }
@@ -1097,9 +1452,12 @@ impl Encoder {
     /// A receiver-less associated call (`Point::new(3, 4)`) — issue #491.
     /// Uses the same 0/1/2+ packing convention [`Self::encode_user_call`]
     /// does, with `params` (the callee's real declared parameter names, from
-    /// [`Self::static_method_params`]) as the field keys.
+    /// [`Self::static_method_params`]) as the field keys. `module` is empty
+    /// for an owner declared in this module and names the owner's module in
+    /// crate mode otherwise.
     fn encode_associated_call(
         &mut self,
+        module: &str,
         method_short: &str,
         params: &[String],
         args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
@@ -1125,7 +1483,7 @@ impl Encoder {
         };
         Expression {
             expr: Some(Expr::Call(Box::new(FunctionCall {
-                module: String::new(),
+                module: module.to_string(),
                 function: method_short.to_string(),
                 input: input.map(Box::new),
                 type_args: vec![],
@@ -1173,6 +1531,48 @@ impl Encoder {
         }
     }
 
+    /// A module-qualified call into a SIBLING module of the same crate
+    /// (`helpers::bump(1)`, `crate::helpers::bump(1)`) — issue #491's crate
+    /// mode. Unlike [`Self::encode_external_call`] the callee's real parameter
+    /// names ARE known (the crate walk read its signature), so 2+ arguments
+    /// are packed under them rather than positionally, and the module is a
+    /// resolved sibling rather than a dangling import.
+    fn encode_crate_call(
+        &mut self,
+        module: &str,
+        function: &str,
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        let encoded: Vec<Expression> = args.iter().map(|a| self.encode_expr(a)).collect();
+        let input = match encoded.len() {
+            0 => None,
+            1 => Some(encoded.into_iter().next().expect("length checked above")),
+            _ => {
+                let field_names: Vec<String> = self
+                    .fn_params
+                    .get(function)
+                    .filter(|params| params.len() == encoded.len())
+                    .cloned()
+                    .unwrap_or_else(|| (0..encoded.len()).map(|i| format!("arg{i}")).collect());
+                Some(args_message(
+                    field_names
+                        .iter()
+                        .map(String::as_str)
+                        .zip(encoded)
+                        .collect(),
+                ))
+            }
+        };
+        Expression {
+            expr: Some(Expr::Call(Box::new(FunctionCall {
+                module: module.to_string(),
+                function: function.to_string(),
+                input: input.map(Box::new),
+                type_args: vec![],
+            }))),
+        }
+    }
+
     /// Pack `args` as the input to a call targeting `name` — a bare Rust
     /// call syntax, resolved by `ball-lang-compiler` through ordinary Rust name
     /// resolution (works identically whether `name` is a same-file
@@ -1183,6 +1583,13 @@ impl Encoder {
         name: &str,
         args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
     ) -> Expression {
+        // Crate mode (issue #491): a bare-name call whose callee is declared
+        // in ANOTHER file of this crate — the shape a `use other::helper;`
+        // produces, which carries no module-qualifying segment at all — gains
+        // that module, so the compiler emits `other::helper(...)`. Outside
+        // crate mode, and for a same-module callee, the module stays empty and
+        // nothing changes.
+        let module = self.resolve_crate_fn(name).unwrap_or_default();
         let encoded: Vec<Expression> = args.iter().map(|a| self.encode_expr(a)).collect();
         let input = match encoded.len() {
             0 => None,
@@ -1204,7 +1611,7 @@ impl Encoder {
         };
         Expression {
             expr: Some(Expr::Call(Box::new(FunctionCall {
-                module: String::new(),
+                module,
                 function: name.to_string(),
                 input: input.map(Box::new),
                 type_args: vec![],

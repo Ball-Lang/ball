@@ -885,7 +885,7 @@ Future<void> main() async {
     ),
   );
 
-  // -- 464_state_error_message: the ONE observable form of a CAUGHT StateError
+  // -- 465_state_error_message: the ONE observable form of a CAUGHT StateError
   // (issue #616). `463_list_find_no_match` proved the throw is typed, but both
   // of its catch bodies print a HARDCODED literal, so nothing anywhere pinned
   // what the caught value itself reads as -- and every target answered
@@ -919,7 +919,7 @@ Future<void> main() async {
   // reach it from a `tests/conformance/src/*.dart`. Hand-built here and listed
   // in tests/conformance/CARVEOUTS.md.
   await writeFixture(
-    '464_state_error_message',
+    '465_state_error_message',
     buildProgramJson(
       name: 'state_error_message',
       stdFunctions: [

@@ -114,10 +114,13 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
 ### Where each harness is actually exercised
 
 - `test_e2e` — every PR, all three OS legs, via `ctest` in ci.yml's `cpp` job.
-- `full_e2e.sh` — the dispatch-only `C++ Compiled` conformance-matrix leg runs
-  the whole corpus, but that is push-to-main + weekly. On a PR it runs on the
-  Linux leg only: over the added/changed fixtures when there are any, and
-  otherwise over a **derived four-fixture smoke** (`C++ compiled e2e — harness
+- `full_e2e.sh` — the `C++ Compiled` conformance-matrix leg runs the whole
+  corpus. Since #619 that leg **is a PR gate**: `conformance-matrix.yml` gained a
+  path-filtered `pull_request:` trigger sharing its `push` filter, and `cpp/**`
+  is in that filter, so any PR touching this directory gets the row with no
+  `gh workflow run` dispatch. ci.yml's own cheaper legs still run first on the
+  Linux leg: over the added/changed fixtures when there are any, and otherwise
+  over a **derived four-fixture smoke** (`C++ compiled e2e — harness
   smoke`). The smoke exists so the harness's own moving parts — worker
   dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation, the
   dropped-fixture assertion — are covered by a required check instead of only

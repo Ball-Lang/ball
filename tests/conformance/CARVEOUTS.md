@@ -109,17 +109,19 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `UnsupportedBaseCall` that threw a native `BallRuntimeException` at RUN time, not
   even caught by the program's own `try`. The #545 declared-outputType gate could
   not see any of it: it checks a base function's return TYPE on a HIT.
-  **Every `try` in it has exactly ONE catch clause, deliberately.** A multi-clause
-  `try` whose first arm names a non-matching type would fail the Go, C# and Rust
-  COMPILER legs for an unrelated, separately documented reason — all three dispatch
-  only the first catch clause with no type matching (see
-  `csharp/compiler/src/BaseCall.cs`'s `CompileTryStatement` doc comment). That the
-  throw is genuinely TYPED (reachable by `on StateError`, not only by an untyped
-  catch-all) is pinned per runtime instead: `rust/shared/src/runtime.rs`'s
+  Every `try` in it happens to have exactly one catch clause; that is no longer a
+  constraint. It was one until #615: the Go, C# and Rust compilers each dispatched
+  only the FIRST catch clause with no type matching, so a multi-clause `try` whose
+  first arm named a non-matching type failed all three COMPILER legs. All three now
+  walk `catches[]` in source order and match each clause's `type` against the thrown
+  value's type tag (`tests/conformance/464_typed_catch_clause_dispatch` is the
+  cross-target guard). That the throw is genuinely TYPED (reachable by
+  `on StateError`, not only by an untyped catch-all) is pinned per runtime too:
+  `rust/shared/src/runtime.rs`'s
   `list_find_no_match_throws_a_typed_state_error`, `go/runtime`'s
   `TestListFindNoMatchThrowsTypedStateError`, `csharp/compiler/test/
   ListFindContractTests.cs`, and `ts/compiler/test/std_call_dispatch.test.ts`.
-- `464_state_error_message` — what a CAUGHT `StateError` READS AS (issue #616).
+- `465_state_error_message` — what a CAUGHT `StateError` READS AS (issue #616).
   `463` above proved the throw is typed, but both of its catch bodies print a
   HARDCODED literal, so nothing anywhere pinned the caught value itself — and
   every target answered differently. Measured on `origin/main` before the fix,

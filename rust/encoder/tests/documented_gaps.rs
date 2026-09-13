@@ -26,14 +26,34 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. Five are flipped today: receiver-less associated functions and
-//! cross-file call targets (issue #491's associated-fn slice), non-`Fn` items
-//! inside an `impl` block, and tuple + unit structs. The deeper proofs for all
-//! five live in `rust/encoder/tests/static_methods.rs`,
+//! unverified. **Eight** are flipped today: receiver-less associated functions
+//! and cross-file call targets (PR #526), non-`Fn` items inside an `impl`
+//! block, tuple + unit structs, module-scope `const`/`static`/`type` aliases,
+//! non-`Fn` items inside a `trait` block, and — newest — the cross-file
+//! METHOD call, closed by the crate-aware `encode_crate`. The deeper proofs
+//! live in `rust/encoder/tests/static_methods.rs`,
 //! `rust/encoder/tests/cross_module_calls.rs`,
-//! `rust/encoder/tests/mixed_impl_items.rs` and
-//! `rust/encoder/tests/tuple_and_unit_structs.rs`; the flipped tests here
+//! `rust/encoder/tests/mixed_impl_items.rs`,
+//! `rust/encoder/tests/tuple_and_unit_structs.rs`,
+//! `rust/encoder/tests/mixed_module_items.rs` and
+//! `rust/encoder/tests/crate_encoding.rs`; the flipped tests here
 //! remain the goalposts that keep this file's gap list honest.
+//!
+//! **Count them, don't quote a number from memory.** `grep -c '^#\[should_panic'
+//! rust/encoder/tests/documented_gaps.rs` is the authoritative "what is still
+//! open"; a prose tally in this comment or in `.claude/rules/rust.md` goes
+//! stale the moment a slice lands (it had, by two, before this one). Anchor the
+//! pattern at the line start: an unanchored `grep -c should_panic` also matches
+//! the PROSE mentions in these doc comments, so it over-counts by every one of
+//! them — it answered 13 against 6 open attributes when issue #626 caught it.
+//!
+//! **Closing a gap can create a new one, and that pin is owed in the same
+//! PR.** Skipping a module-scope `const` declaration made a *reference* to one
+//! newly reachable as a dangling `reference(name)`, so the encoder fails loud
+//! at the use site and
+//! `reference_to_a_skipped_top_level_const_is_a_documented_gap` pins that.
+//! Likewise `top_level_macro_invocation_is_a_documented_gap` pins the carve-out
+//! that deliberately was NOT skipped alongside it.
 //!
 //! **Slice numbering is not used here on purpose.** #491's issue body numbers
 //! its slices one way and the PRs that landed self-labelled *different* work
@@ -57,10 +77,11 @@
 //!   syntax into that already-supported `is_static` shape — closed by slice 3.
 //!
 //! `methods.rs`' cross-file METHOD-call gap — 24 of 196 study files, the
-//! largest remaining bucket — used to be listed above as unpinned. It is
-//! pinned now, at the bottom of this file, *without* being closed: a gate
-//! nothing observes is a missing-test bug on its own, independent of whether
-//! the behaviour ever changes.
+//! largest remaining bucket — was first listed above as unpinned, then pinned
+//! (PR #589) *without* being closed, because a gate nothing observes is a
+//! missing-test bug on its own. It is CLOSED now, by the crate-aware
+//! `encode_crate`, and its test at the bottom of this file is flipped
+//! accordingly.
 
 /// Source is only ever encoded, never compiled, so every snippet here is
 /// minimal — the panic must fire on the shape, not on anything downstream.
@@ -188,6 +209,28 @@ fn trait_associated_fn_without_receiver_is_a_documented_gap() {
     encode("trait Maker { fn make() -> i32; }\nfn main() {}");
 }
 
+/// **CLOSED** — 3 of the 110 scored files in the live Tier A funnel stopped
+/// FIRST on `encode_item_trait`'s `only method signatures are supported
+/// inside a `trait` block` panic. An associated `const`/`type` inside a
+/// `trait` declares nothing Ball models, exactly like its `impl`-block
+/// sibling, so it is skipped and the block's real methods keep encoding.
+/// Before this slice one associated const aborted the whole file.
+///
+/// This gap had no pin of its own before the PR that closed it — the panic
+/// was reachable only incidentally, through the receiver-less-fn
+/// characterization above, which exercises a *different* failure inside the
+/// same function. A gate nothing observes is a missing-test bug in its own
+/// right, so the pin is added here in the same PR, already flipped. The
+/// encode → compile → run proof lives in
+/// `rust/encoder/tests/mixed_module_items.rs`.
+#[test]
+fn trait_associated_const_and_type_encode() {
+    encode(
+        "trait Shape { const SIDES: i32 = 4; type Unit; fn tag(&self) -> i32 { 1 } }\n\
+         fn main() {}",
+    );
+}
+
 // ── lib.rs: call-target resolution ───────────────────────────────────────────
 
 /// **CLOSED** by issue #491's slice 3 — 15 of 196 study files, per that
@@ -195,8 +238,9 @@ fn trait_associated_fn_without_receiver_is_a_documented_gap() {
 /// table's larger 24-file row is the SEPARATE `unsupported method call,
 /// callee not in this file` gap: `methods.rs`'s own panic on a
 /// `receiver.method(args)` whose method name isn't in the
-/// `collect_impl_method_params` pre-pass. That bucket is untouched here and
-/// has no pin in this file yet — it is the recommended next slice.)
+/// `collect_impl_method_params` pre-pass. That bucket is CLOSED too now, by
+/// the crate-aware `encode_crate` — see `cross_file_method_call_encodes` at
+/// the bottom of this file.)
 ///
 /// A cross-file call now encodes as an unresolved `ModuleImport` rather than
 /// panicking; the structural assertions live in
@@ -208,12 +252,46 @@ fn cross_file_call_target_encodes() {
 
 // ── lib.rs: item- and macro-level scope ──────────────────────────────────────
 
-/// Item-level `const`/`static`/`type` (and item-position macro invocations)
-/// are outside issue #43's declaration scope.
+/// **CLOSED** for `const`/`static`/`type` alias — 7 of the 110 scored files
+/// in the live Tier A funnel had a top-level `type` alias as their FIRST
+/// blocker. A declaration Ball models nothing for is now SKIPPED rather than
+/// aborting the whole file, mirroring `types.rs::encode_item_impl`'s
+/// identical tolerance for non-`Fn` items one level down. The encode →
+/// compile → run proof lives in `rust/encoder/tests/mixed_module_items.rs`.
+#[test]
+fn top_level_const_static_and_type_alias_encode() {
+    encode(
+        "const LIMIT: i32 = 10;\nstatic GREETING: i32 = 2;\ntype Coord = i32;\n\
+         fn main() { println!(\"{}\", 1); }",
+    );
+}
+
+/// The other half of that closure, and the reason it is safe: skipping the
+/// DECLARATION must never make a *reference* to it silently encode as a read
+/// of a binding nobody declared. A bare `LIMIT` is a single-segment path, so
+/// (unlike an `impl` block's `Self::CAP`, which lands on the two-segment
+/// "unsupported path expression" panic) nothing downstream would have caught
+/// it — `encode_path_expr`'s `reference(name)` fallback would have produced a
+/// dangling reference. The encoder therefore remembers what it skipped and
+/// fails loud at the use site instead.
+#[test]
+#[should_panic(expected = "names a top-level `const`")]
+fn reference_to_a_skipped_top_level_const_is_a_documented_gap() {
+    encode("const LIMIT: i32 = 10;\nfn main() { println!(\"{}\", LIMIT); }");
+}
+
+/// A top-level **macro invocation** is deliberately NOT folded into the skip
+/// above. A macro at item level can be the very thing that DEFINES a type the
+/// rest of the file references — `bitflags::bitflags! { ... }` produces the
+/// `TestFlags` every `bitflags/tests/*.rs` file then calls into, which is 28
+/// of the 110 scored Tier A files. Skipping it would orphan those references
+/// into a confusing downstream panic naming a type that looks like it should
+/// exist, instead of a clean boundary here. Closing this bucket needs macro
+/// *expansion*, a materially bigger feature.
 #[test]
 #[should_panic(expected = "unsupported top-level item")]
-fn top_level_const_is_a_documented_gap() {
-    encode("const LIMIT: i32 = 10;\nfn main() { println!(\"{}\", LIMIT); }");
+fn top_level_macro_invocation_is_a_documented_gap() {
+    encode("some_derive_helper!();\nfn main() { println!(\"{}\", 1); }");
 }
 
 /// 6 of 196 study files. Only `println!`/`format!`/`vec!` are mapped
@@ -226,29 +304,39 @@ fn unmapped_macro_invocation_is_a_documented_gap() {
 
 // ── methods.rs: instance-method resolution ───────────────────────────────────
 
-/// The single largest remaining bucket of issue #491 — **24 of 196 study
-/// files**, bigger than the 26-file associated-fn bucket was after that one
-/// closed — and, until now, the only gap in this file's list with no pin at
-/// all. `methods.rs::encode_method_call`'s catch-all fires for a
-/// `receiver.method(args)` whose method is neither a recognized built-in arm
-/// nor a same-file `impl` method name recorded by the
+/// **CLOSED** by issue #491's crate-aware slice — the single largest bucket in
+/// the study, **24 of 196 files**, bigger than the 26-file associated-fn bucket
+/// was before #526 closed it. `methods.rs::encode_method_call`'s catch-all
+/// fires for a `receiver.method(args)` whose method is neither a recognized
+/// built-in arm nor a same-file `impl` method name recorded by the
 /// `collect_impl_method_params` pre-pass; the overwhelmingly common real-world
 /// cause is that the method IS user-defined, just in another file.
 ///
-/// Behaviour is unchanged by the PR that added this test — the gate already
-/// existed, nothing observed it. It is deliberately NOT closed here: unlike
-/// the cross-file *free-function* call (`other_file::helper(1)`, closed
-/// earlier), `receiver.method(args)` carries no module-qualifying path segment
-/// for a syntax-only encoder to attribute the callee to, so closing it needs a
-/// multi-file-aware encoding mode — a design decision, not a dispatch-table
-/// arm. See `methods.rs`'s module doc comment for the neighbouring PERMANENT
-/// carve-outs, which this bucket is explicitly not one of.
+/// It could not be closed one file at a time. Unlike the cross-file
+/// *free-function* call (`other_file::helper(1)`, closed by #526),
+/// `receiver.method(args)` carries no module-qualifying path segment for a
+/// syntax-only encoder to attribute the callee to. The owner's 2026-09-13
+/// decision on #491 was a crate-aware entry point — `encode_crate`, which walks
+/// the `mod` graph and encodes every file against ONE crate-wide symbol table,
+/// the Rust sibling of `dart/encoder/lib/package_encoder.dart`. The
+/// encode → compile → **run** proof lives in
+/// `rust/encoder/tests/crate_encoding.rs`.
+///
+/// The boundary this NARROWS rather than removes has its own pin there
+/// (`a_method_no_file_in_the_crate_declares_still_fails_loud`): a method no
+/// file in the crate declares is still a loud panic, because a syntax-only
+/// encoder cannot tell that from a typo. See `methods.rs`'s module doc comment
+/// for the neighbouring PERMANENT carve-outs, which this bucket is explicitly
+/// not one of.
 #[test]
-#[should_panic(expected = "unsupported method call")]
-fn cross_file_method_call_is_a_documented_gap() {
-    encode(
-        "struct Foo { x: i32 }\n\
-         impl Foo { fn get(&self) -> i32 { self.x } }\n\
-         fn main() { let f = Foo { x: 1 }; println!(\"{}\", f.other_method()); }",
+fn cross_file_method_call_encodes() {
+    let crate_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("counter_crate");
+    let program = ball_lang_encoder::encode_crate(&crate_root);
+    assert!(
+        program.modules.iter().any(|m| m.name == "counter"),
+        "the crate walk must reach the file declaring the called method"
     );
 }

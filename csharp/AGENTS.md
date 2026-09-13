@@ -397,6 +397,25 @@ nothing (they *are* `BallRuntime`). A thin `static void Main` calls the compiled
 loops with the body inlined. Regression-tested with both-branches-side-effecting programs
 (`LazyControlFlowTests`).
 
+**`try` dispatches EVERY catch clause, in source order (#615).** `CompileTryStatement` emits one
+`catch (BallThrow __ballEx)` containing an `if`/`else if` chain: an `on <Type> catch` clause runs
+only when `BallRuntime.CatchMatches(__ballEx, "<Type>")` accepts the exception's type tag (its
+explicit `BallThrow.TypeName` when the runtime synthesized a typed throw, else the payload's own
+`BallMessage` type name or `BallMap` `__type__`, matched by FULL `main:StateError` or BARE
+`StateError` spelling — the C# analog of `_evalLazyTry`'s `e is BallException` / `e is Map &&
+e['__type__']` dual path); the first untyped `catch (e)` is the `else`; and a clause list where
+every typed clause misses ends in a bare `throw;`, so an enclosing `try` sees the original
+exception. Before #615 only `catches[0]` was compiled, as an unconditional catch-all, so
+`throw StateError(...)` ran an `on ArgumentError catch` body — silently wrong output, never an
+error. `BallThrow`'s untyped constructor also mirrors `std.throw`'s `arg0` -> `message` rename
+(`engine_std.dart`), so a caught `e.message` reads the constructor argument rather than `null`.
+Guards: `tests/conformance/464_typed_catch_clause_dispatch` and `146_nested_try_catch_types`
+cross-target, plus the PR-gated `compiler/test/CatchClauseDispatchTests.cs` +
+`shared/test/CatchMatchTests.cs`. Those two are what gate the SHAPE: the `csharp-compiler` leg that
+compiles the whole corpus is a PR gate since #619, but it is a RATCHET on a passing count
+(`CSHARP_COMPILER_FLOOR`), and 146 had been failing there — inside the floor, so green — since that
+leg came online.
+
 **Type emission:** `typeDefs[]` `metadata.kind` → C# `sealed class`/`abstract class`; `Module.enums[]`
 → a working dynamic enum namespace; instance methods (`owner:Type.member` + `metadata.kind`) →
 run-time dispatchers routing on the receiver's `type_name`. The runtime representation stays
@@ -499,10 +518,57 @@ builds Ball trees in-code for the targeted tests.
 
 `EndToEndTests` is **four hardcoded fixtures**, not a corpus sweep — do not reach for it as
 "the gate that covers the compiler". The only leg that compiles the whole corpus through
-`CSharpCompiler` + Roslyn is `engine/conformance --leg=compiler`, and that is a ratchet on a
-workflow with no `pull_request` trigger (see "Conformance harness"). Anything whose correctness
+`CSharpCompiler` + Roslyn is `engine/conformance --leg=compiler`, and that is a RATCHET (see
+"Conformance harness") — since #619 it runs on PRs touching `csharp/**`, but a ratchet stays green
+over the gaps it already tolerates, so "the leg ran" is not "the leg would have caught this".
+Anything whose correctness
 depends on a specific IR shape needs its own test here; `AccessorEdgeCaseTests` (#461) is the
 worked example.
+
+#### Captured stdout is per-execution-context, never a global redirect (issue #611)
+
+`CSharpRunner.Run` is how a test asserts on a compiled program's REAL stdout, and
+`compiler/test/TestSupport.cs` is its single source — `encoder/test/Ball.Encoder.Tests.csproj`
+LINKS that file rather than copying it, so both suites run one harness.
+
+It used to capture with `Console.SetOut(stringWriter)` around the invoke, serialised by a `lock`.
+`Console.Out` is **process-global**: while that redirect was installed, every write anywhere in
+the process landed in that one test's `StringWriter`, and a lock only restrains the code that
+takes it. `Ball.Encoder.Tests` contains a writer that never did —
+`RealWorldSweepTests.RealWorldSweep_ReportsHonestBaseline` ends with a bare
+`Console.Write(report)` so a plain runner can grep its `Results:` line — and xUnit v3 puts each
+test class in its own collection and runs collections **in parallel by default**
+(<https://xunit.net/docs/running-tests-in-parallel>; this repo ships no `xunit.runner.json` and no
+assembly-level `CollectionBehavior` attribute). On CI run 34732470492,
+`BclStaticGuardCallTests.BucketIFixtureEncodesCompilesAndRuns` expected `"BALL\n"` and read the
+sweep's `"Results: 9 passed, 2 failed, 11 total\n…"` instead. (That `2 failed` is the sweep's
+NORMAL line — buckets d and f are declared `MustEncode: false` — so the sweep itself was healthy;
+only its destination was wrong.)
+
+`ConsoleCapture` replaces the shared mutable state instead of scheduling around it:
+`Console.Out` is swapped **once** for a router that forwards each write to the capture registered
+for the CALLING execution context (an `AsyncLocal<TextWriter?>`), and to the real console writer
+when there is none. A capture therefore collects only what its own call tree wrote (work the
+program spawns included — `AsyncLocal` flows with `ExecutionContext`), and a foreign writer is
+unaffected however the runner schedules it. Capture is now lock-free, so compile+run legs are
+concurrent again.
+
+- **Do not "fix" a future collision with `[Collection]` + `DisableParallelization`.** xUnit's
+  grouping is opt-in per class, so that serialises the suite AND leaves the hole open for the next
+  class that writes to `Console` without joining the collection.
+- **Do not hand a test a bare `Console.SetOut`.** Route every capture through
+  `ConsoleCapture.Capture`.
+- `ConsoleCaptureIsolationTests` (linked into BOTH test assemblies) is the guard, and it is
+  deterministic — it forces the interleaving with a file handshake rather than hoping for it:
+  `AForeignConsoleWriteDuringARunIsNotCapturedAsTheProgramsOutput` fails with
+  `Expected: "MINE\n" / Actual: "FOREIGN-SWEEP-LINE\nMINE\n"` on the pre-fix harness, and
+  `TwoConcurrentRunsEachCaptureOnlyTheirOwnOutput` additionally asserts the two runs genuinely
+  OVERLAPPED, so re-serialising the capture fails it too.
+- A plain stress loop is **not** an instrument for this: 20 unforced runs of the two colliding
+  classes reproduced it 0 times. Force the interleaving.
+- `engine/conformance/CSharpRunner.cs` is a deliberate small duplicate that still redirects
+  globally — sound only because that harness drives fixtures one at a time on one thread. Its doc
+  comment says so; port `ConsoleCapture` there before ever running a leg concurrently.
 
 ## Encoder (issue #382)
 
@@ -989,7 +1055,7 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
    so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
 
-`tests/conformance/464_state_error_message` is the cross-target guard (it prints the caught
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.
@@ -1226,7 +1292,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1260,9 +1326,10 @@ Three legs, one runner, selected via `--leg=`:
   Since #452 item 3 this leg has three siblings, built to the same shape and reporting the same
   honest zero: `python/engine/conformance/roundtrip.py`, `go/engine/conformance/roundtrip.go`, and
   `rust/engine/tests/roundtrip_conformance.rs` (`python-roundtrip`/`go-roundtrip`/`rust-roundtrip`
-  rows). **None of the four gates a PR** — `conformance-matrix.yml` has no `pull_request:`
-  trigger, so on a PR they are ABSENT, and an absent check reads as green; dispatch the workflow
-  and read the run before merging a change to any of them.
+  rows). **All four gate a PR since #619** — `conformance-matrix.yml` has a path-filtered
+  `pull_request:` trigger sharing its `push` filter, so each row runs automatically on a PR
+  touching its language's directory, with no dispatch. What they gate is harness health (a
+  parseable `Results:` line, integer counts, `total >= 1`), never the failure count.
 
 **Failure reporting is itself tested.** All three legs describe an expected-vs-actual mismatch
 through the shared `Fixtures.DescribeMismatch`, which names the **first line that actually
@@ -1273,9 +1340,9 @@ each side, so a divergence anywhere later rendered as a self-contradictory diff 
 exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly this).
 
 **CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
-row in `conformance-matrix.yml` runs the `compiler` leg on every push to `main` (plus the weekly
-cron and `workflow_dispatch` — the matrix does NOT trigger on `pull_request`, same as every other
-row in it), prints the honest count,
+row in `conformance-matrix.yml` runs the `compiler` leg on every PR touching a filtered path
+(since #619), on every push to `main`, and on the weekly cron / `workflow_dispatch`, prints the
+honest count,
 and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `258`, measured
 locally in #527/#528 — the leg's own printed count, never a predicted one). This is deliberate.
 Gating it at full parity would just hold `main` red on the remaining known gaps;
@@ -1451,7 +1518,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)`.
+  `Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1481,8 +1548,10 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   `CSHARP_COMPILER_FLOOR` (a drop fails; parity is not claimed), and `csharp-roundtrip` (#452
   item 1's other half) as a MEASUREMENT row with no floor, since 0/320 is the expected baseline;
   it gates only on the harness reporting a trustworthy count (`Results:` line present, counts are
-  bare integers, `total >= 1`). Neither is a PR gate: `conformance-matrix.yml` has no
-  `pull_request:` trigger at all — it runs on push-to-main, weekly, or manual dispatch.
+  bare integers, `total >= 1`). Both DO gate a PR since #619: `conformance-matrix.yml` has a
+  path-filtered `pull_request:` trigger sharing its `push` filter, so they run on any PR touching
+  `csharp/**` without a dispatch — `csharp-compiler` on its ratchet, `csharp-roundtrip` on harness
+  health alone.
 
 ## Generated Files — NEVER Edit
 
@@ -1518,7 +1587,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 349 passed, 0 failed, 349 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 350 passed, 0 failed, 350 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1688,8 +1757,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 349 passed, 0 failed,
-  349 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 350 passed, 0 failed,
+  350 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

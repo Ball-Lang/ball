@@ -28,7 +28,7 @@ namespace Ball.Compiler.Tests;
 ///
 /// <para>These tests RUN the compiled program: a shape assertion cannot tell
 /// "prints Bad state: No element" from "prints {message: No element}". The
-/// cross-target guard is <c>tests/conformance/464_state_error_message</c>.</para>
+/// cross-target guard is <c>tests/conformance/465_state_error_message</c>.</para>
 /// </summary>
 public class StateErrorContractTests
 {

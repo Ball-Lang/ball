@@ -167,10 +167,22 @@ class PackageEncoder {
         resourceProvider: provider,
       );
     } on Object catch (e) {
+      // coverage:ignore-start
+      // Verified unreachable FROM THIS CALL SITE, kept as the fail-soft
+      // contract's last line of defence rather than deleted. The only argument
+      // `AnalysisContextCollection`'s constructor validates is `includedPaths`
+      // (it throws on a non-absolute or non-normalized entry), and `rootPath`
+      // above is `ctx.normalize(<Directory>.absolute.path)` under the very
+      // `pathContext` the collection validates with. Probed empirically too: a
+      // malformed `analysis_options.yaml`, an unparsable
+      // `.dart_tool/package_config.json`, an unknown `configVersion` and a
+      // `resolution: workspace` pubspec with no workspace all construct
+      // successfully. An analyzer-internal crash is what this arm is for.
       warnings.add(
         'Static type resolution unavailable for "$packageName" '
         '($rootPath): $e. Encoding without receiver types.',
       );
+      // coverage:ignore-end
       return;
     }
 
@@ -186,10 +198,25 @@ class PackageEncoder {
           if (result is ResolvedUnitResult) {
             _resolvedUnits[relPath] = result.unit;
           } else {
+            // coverage:ignore-start
+            // Verified unreachable for the paths this loop passes, kept as the
+            // fail-soft contract's guard. `AnalysisDriver.getResolvedUnit`
+            // answers with a non-`ResolvedUnitResult` in exactly three ways:
+            // `InvalidPathResult` (path not absolute — `filePath` is
+            // `ctx.normalize`d off an absolute root), `NotPathOfUriResult` (the
+            // source factory's path→URI→path round trip disagrees, which it
+            // cannot for a physical file under the analyzed root) and
+            // `DisposedAnalysisContextResult` (only after `dispose()`, which
+            // this method itself calls in its `finally`, after this loop). The
+            // reachable per-file failure — a path the analyzer excludes from
+            // every context root — throws out of `contextFor` into the `catch`
+            // below, and IS covered
+            // (package_encoder_static_types_failsoft_test.dart).
             warnings.add(
               'Could not resolve "$relPath" (${result.runtimeType}); '
               'encoding it without receiver types.',
             );
+            // coverage:ignore-end
           }
         } on Object catch (e) {
           warnings.add(

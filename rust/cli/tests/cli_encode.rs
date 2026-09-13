@@ -183,3 +183,109 @@ fn a_library_mode_program_is_rejected_by_check_as_non_runnable() {
         stderr(&checked)
     );
 }
+
+// ════════════════════════════════════════════════════════════
+// `ball encode --crate <dir>` (issue #491)
+// ════════════════════════════════════════════════════════════
+
+/// The crate-aware entry point on the CLI: `--crate` makes `source` a crate
+/// ROOT (the directory holding `Cargo.toml`, the `src` directory, or the root
+/// `.rs` file) instead of one source file, walks its `mod` graph, and encodes
+/// every file into one program. Exercised against the checked-in three-file
+/// fixture whose `main.rs` calls a method declared in a second file and a free
+/// function declared in a third — neither of which a single-file encode can
+/// resolve.
+#[test]
+fn encode_crate_flag_encodes_the_whole_mod_graph() {
+    let crate_root = common::repo_path("rust/encoder/tests/fixtures/counter_crate");
+
+    let output = ball(&["encode", "--crate", crate_root.to_str().unwrap()]);
+
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("must be valid JSON");
+    assert_eq!(parsed["entryModule"], "main");
+    assert_eq!(parsed["entryFunction"], "main");
+    let module_names: Vec<&str> = parsed["modules"]
+        .as_array()
+        .expect("modules must be an array")
+        .iter()
+        .map(|m| m["name"].as_str().expect("a module name"))
+        .collect();
+    for expected in ["main", "counter", "text"] {
+        assert!(
+            module_names.contains(&expected),
+            "module `{expected}` missing from {module_names:?}"
+        );
+    }
+}
+
+/// A crate encoded with `--crate` is a COMPLETE program — every module it calls
+/// into is present — so `ball check` accepts it, unlike the deliberately
+/// unresolved single-file cross-file-call shape.
+#[test]
+fn an_encoded_crate_passes_check() {
+    let crate_root = common::repo_path("rust/encoder/tests/fixtures/counter_crate");
+    let out_dir =
+        std::env::temp_dir().join(format!("ball_cli_encode_crate_{}", std::process::id()));
+    std::fs::create_dir_all(&out_dir).expect("failed to create scratch dir");
+    let out_path = out_dir.join("counter.ball.json");
+
+    let encoded = ball(&[
+        "encode",
+        "--crate",
+        crate_root.to_str().unwrap(),
+        "--output",
+        out_path.to_str().unwrap(),
+    ]);
+    assert_eq!(exit_code(&encoded), 0, "stderr: {}", stderr(&encoded));
+
+    let checked = ball(&["check", out_path.to_str().unwrap()]);
+    let _ = std::fs::remove_dir_all(&out_dir);
+    assert_eq!(
+        exit_code(&checked),
+        0,
+        "stdout: {} stderr: {}",
+        stdout(&checked),
+        stderr(&checked)
+    );
+}
+
+/// A crate with no `fn main` keeps library-mode semantics (issue #569) without
+/// needing `--lib`: the walk can see that the crate root is a `lib.rs` with no
+/// entry point, so the emitted program has an empty `entry_function` and `ball
+/// check` refuses it as non-runnable — never a synthesised fake entry.
+#[test]
+fn encode_crate_on_a_library_crate_is_deliberately_non_runnable() {
+    let crate_root = common::repo_path("rust/encoder/tests/fixtures/modgraph_crate");
+
+    let output = ball(&["encode", "--crate", crate_root.to_str().unwrap()]);
+
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("must be valid JSON");
+    assert_eq!(parsed["entryModule"], "main");
+    assert!(
+        parsed.get("entryFunction").map(|v| v == "").unwrap_or(true),
+        "a crate with no `fn main` has no entry function, got {:?}",
+        parsed.get("entryFunction")
+    );
+}
+
+/// A `--crate` path that is not a crate is a clean exit, not a panic: the CLI's
+/// job is to name what it looked for.
+#[test]
+fn encode_crate_on_a_directory_with_no_crate_root_exits_2() {
+    let dir = std::env::temp_dir().join(format!("ball_cli_not_a_crate_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("failed to create scratch dir");
+
+    let output = ball(&["encode", "--crate", dir.to_str().unwrap()]);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(exit_code(&output), 2, "stdout: {}", stdout(&output));
+    assert!(
+        stderr(&output).contains("crate root"),
+        "stderr: {}",
+        stderr(&output)
+    );
+}

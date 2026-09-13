@@ -202,7 +202,7 @@ impl Encoder {
             other => panic!(
                 "ball-lang-encoder: unsupported method call `.{other}()` (see the module doc \
                  comment — a user-defined instance method must be declared in an `impl` block \
-                 this file also encodes)"
+                 this file also encodes, or, under `encode_crate`, anywhere in the same crate)"
             ),
         }
     }
@@ -218,6 +218,13 @@ impl Encoder {
         receiver: &syn::Expr,
         args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
     ) -> Expression {
+        // Crate mode (issue #491): when the method is declared in ANOTHER
+        // file of this crate, the call names that module, so the compiler
+        // emits `<mod>::<method>(…)` — reaching the polymorphic dispatcher
+        // `compile_method_dispatchers` emits inside that module. Empty
+        // (unqualified, exactly as before) for a same-module method and for
+        // every single-file encode.
+        let module = self.resolve_crate_method(method).unwrap_or_default();
         let self_value = self.encode_expr(receiver);
         let mut fields: Vec<(String, Expression)> = vec![("self".to_string(), self_value)];
         let param_names: Vec<String> = self
@@ -235,7 +242,7 @@ impl Encoder {
             .collect();
         Expression {
             expr: Some(Expr::Call(Box::new(FunctionCall {
-                module: String::new(),
+                module,
                 function: method.to_string(),
                 input: Some(Box::new(args_message(field_pairs))),
                 type_args: vec![],

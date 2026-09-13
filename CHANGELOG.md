@@ -1,3 +1,10 @@
+## [1.72.6](https://github.com/Ball-Lang/ball/compare/v1.72.5...v1.72.6) (2026-09-13)
+
+
+### Bug Fixes
+
+* **rust:** skip module-scope const/static/type and non-Fn trait items, failing loud on a reference (advances [#491](https://github.com/Ball-Lang/ball/issues/491)) ([#614](https://github.com/Ball-Lang/ball/issues/614)) ([f2f0c5c](https://github.com/Ball-Lang/ball/commit/f2f0c5cf4831404a380ac50f3d647cef81ea6703)), closes [#526](https://github.com/Ball-Lang/ball/issues/526)
+
 ## [1.72.5](https://github.com/Ball-Lang/ball/compare/v1.72.4...v1.72.5) (2026-09-13)
 
 

@@ -72,7 +72,7 @@ PROVEN = [
     # IndexError escape — not a BallThrow at all, so the compiled `try`'s
     # `except ballrt.BallThrow` never saw it and the program died instead of
     # catching.
-    "464_state_error_message",
+    "465_state_error_message",
 ]
 
 

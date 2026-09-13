@@ -211,7 +211,7 @@ const json = toJson(ProgramSchema, program);
   SHADOWED the compiled engine's reference implementation, which throws a typed
   `StateError`. The `list_reduce` override's `initial` seed was dead weight
   besides: every encoder emits `list_reduce` only from a one-argument
-  `.reduce(cb)`. `tests/conformance/464_state_error_message` is the guard.
+  `.reduce(cb)`. `tests/conformance/465_state_error_message` is the guard.
   See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
@@ -288,6 +288,20 @@ const json = toJson(ProgramSchema, program);
 - `ts/shared/gen/` — Protobuf-es generated types
 - `ts/engine/src/compiled_engine.ts` — Self-hosted engine compiled from Ball
 - `ts/cli/src/compiled_cli.ts` — Self-hosted cli-core verbs compiled from Ball
+
+**You usually do not run either recipe locally (#619).** When `Ball Artifact
+Freshness` finds drift it fails as before AND uploads the regenerated files as
+the `regenerated-artifacts` workflow artifact. Apply them with no Dart/TS
+toolchain:
+
+```bash
+bash tools/ci/apply_regenerated.sh <pr-number>   # or --run <run-id>
+git commit -m "chore: apply the CI-regenerated Ball artifacts"
+```
+
+(And if the repo secret `REGEN_PAT` is configured, CI pushes that commit to the
+PR branch itself.) Run the recipes below only when you want the artifact locally
+before pushing.
 
 To regenerate the compiled engine. Note `engine.ball.json` is a self-describing
 `google.protobuf.Any` envelope (`{"@type":"…/ball.v1.Program", …}`), so the

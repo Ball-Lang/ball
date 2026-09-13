@@ -522,7 +522,7 @@ describe("registerExtraStdFunctions: list_*", () => {
   // list with #616: all three overrides returned a placeholder (`null`, or
   // `initial ?? null`) for an empty list where the compiled engine throws a
   // typed `StateError`, and being registered AFTER the compiled table is built
-  // they shadowed it. tests/conformance/464_state_error_message is the
+  // they shadowed it. tests/conformance/465_state_error_message is the
   // end-to-end guard.
   test("list_find/list_first/list_last/list_reduce are NOT overridden here — the compiled engine owns them", () => {
     assert.equal(h.has("list_find"), false);

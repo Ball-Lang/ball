@@ -69,7 +69,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 **compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
 four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)` — Dart-identical
+`Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
@@ -94,9 +94,10 @@ fixtures raises), never on the failure count. Reads goldens and subprocess stdou
 as **bytes**, normalising only CRLF.
 
 CI home: the `python-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
-**That workflow has no `pull_request:` trigger**, so the row is ABSENT (not green)
-on a PR — `gh workflow run conformance-matrix.yml --ref <branch>` and read the run
-before merging a change to this leg.
+**That workflow is a PR gate since #619** — it has a path-filtered `pull_request:`
+trigger sharing its `push` filter, and `python/**` is in that filter, so the row
+runs on any PR touching this directory with no `gh workflow run` dispatch. It
+still gates harness health only, never the failure count.
 
 ## Publishing (PyPI)
 
@@ -169,7 +170,7 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
    so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
 
-`tests/conformance/464_state_error_message` is the cross-target guard (it prints the caught
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.

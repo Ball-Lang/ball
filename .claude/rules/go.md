@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 349 passed,
-0 failed, 349 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 350 passed,
+0 failed, 350 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -31,49 +31,90 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   directive: the Go module proxy serves a nested module as its OWN directory tree only (never its
   siblings), and `go install` refuses outright — `The go.mod file for the module providing named
   packages contains one or more replace directives.` So the intra-repo dependencies are plain
-  `require github.com/ball-lang/ball/go/<dep> v0.1.0` lines, and the local pins live in
-  **`go/go.work`** instead, as versioned replaces:
+  `require github.com/ball-lang/ball/go/<dep> v0.2.0` lines (the module line #586 moved to), and
+  the local pins live in **`go/go.work`** instead, as versioned replaces:
 
   ```
   replace (
-  	github.com/ball-lang/ball/go/compiler v0.1.0 => ./compiler
+  	github.com/ball-lang/ball/go/compiler v0.2.0 => ./compiler
   	…
   )
   ```
 
   A `use` block alone is **not** enough — Go still loads the module graph, so a `require` on a
-  version that is not yet on the proxy fails with `unknown revision go/<m>/v0.1.0` even for a
+  version that is not yet on the proxy fails with `unknown revision go/<m>/vX.Y.Z` even for a
   module that is itself in the workspace (verified with go 1.25). `go.work` is never published, so
   the go.mod files stay proxy-clean. **Never re-add a `replace` to a `go/*/go.mod`.**
 - **The gate: `tools/go-module-proxy/smoke.sh`** (run by ci.yml's `go` job, gating). It synthesizes
-  the exact `file://` module proxy the `go/<module>/v0.1.0` tags will produce — from the tracked
-  files of the current commit, so the module hashes match what proxy.golang.org will compute — then
-  (leg 1) builds every module standalone with no `go.work` and no siblings and (leg 2) runs
-  `go install github.com/ball-lang/ball/go/cli/cmd/ball@v0.1.0` into a clean GOPATH/GOMODCACHE and
-  executes the installed binary. Run it locally after touching any `go.mod`/`go.work`; it needs
+  the exact `file://` module proxy the `go/<module>/vX.Y.Z` tags will produce — from the TRACKED
+  files of the current commit, so the module hashes match what proxy.golang.org will compute (and
+  so #586's two committed artifacts are inside the zips) — then (leg 1) builds every module
+  standalone with no `go.work` and no siblings and (leg 2) runs
+  `go install github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH/GOMODCACHE and
+  (leg 2b) EXECUTES the installed binary: `ball run` over conformance fixtures plus `ball info` and
+  `ball version`, byte-compared against the in-repo goldens behind a >= 4 execution floor. The
+  version is derived from the go.mod files, never spelled. Run it locally after touching any
+  `go.mod`/`go.work`; it needs
   `go` + `python3` and no network beyond the public proxy for `google.golang.org/protobuf`.
 - **Both legs use a FRESH `GOMODCACHE`** — do not "simplify" that away. The intra-repo modules
-  always resolve at the same version string (`v0.1.0` names a tag, not a commit), so a warm module
-  cache holding `go/<m>@v0.1.0` from an earlier run serves the OLD content and the sweep measures
+  always resolve at the same version string (the module line names a tag, not a commit), so a warm
+  module cache holding `go/<m>@vX.Y.Z` from an earlier run serves the OLD content and the sweep measures
   stale code: a false red when the tree just gained an API the cached copy lacks, and — the
   dangerous direction — a false green when a change breaks external resolution but the cached copy
   still builds. `actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the committed
   `go.sum` files, so this bit CI as well as local runs (found while landing #537).
-- **Bumping the module version is one edit in two files, and the smoke asserts they agree.**
+- **Never bump the module version by hand — run `tools/go-module-proxy/bump_go_modules.sh vX.Y.Z`.**
+  The same number lives in NINE places: six `go/*/go.mod` `require` blocks, `go/go.work`'s five
+  `replace` pins, `tools/coverage-study/go/go.mod`, and `go/cli/version.go`'s `moduleVersion`
+  fallback (unprefixed — what `ball version` prints from a checkout build; `go/cli`'s
+  `TestModuleVersionMatchesGoMod` guards it). The script is idempotent, refuses a non-semver
+  version, refuses any major >= 2 (the module paths carry no `/vN` suffix, which Go requires from
+  v2 on — <https://go.dev/ref/mod#major-version-suffixes>, so the line stays 0.x/1.x until the
+  paths are renamed), and re-derives through `build_local_proxy.py --print-version`.
+  `tools/test/test_bump_go_modules.sh` (ci.yml's always-on `proto` job) proves it and every
+  assertion on a scratch tree.
+
   `build_local_proxy.py` (which `smoke.sh` runs first) refuses unless every intra-repo `require`
-  names the same version, no `go.mod` carries a `replace`, and `go/go.work`'s versioned pins name
-  that same version and cover every required module — e.g.
+  names the same version, no `go.mod` carries a `replace`, `go/go.work`'s versioned pins name that
+  same version and cover every required module, and `go.work`'s `use` block matches the modules on
+  disk (`tag_go_modules.sh` enumerates the tags from DISK) — e.g.
   `go/go.work's replace pins disagree with the go.mod requires; bump both in lockstep:
-  go/encoder: go.work pins v0.2.0, go.mod requires v0.1.0`. Without that check a half-bumped
-  workspace only fails later, in the `go` job's Build step, as `unknown revision go/<m>/vX.Y.Z`.
-- **`go install` off the public proxy needs the tags.** `go/<module>/v0.1.0` for all six modules
-  must be pushed on one commit before `go install github.com/ball-lang/ball/go/cli/cmd/ball@go/cli/v0.1.0`
+  go/encoder: go.work pins v0.2.0, go.mod requires v0.1.0`. Its `--version` flag is a redundant
+  CROSS-CHECK, not an override: it must equal the derived version, so the proxy CI proves is by
+  construction the one `tag-go-modules.yml` will publish. Without those checks a half-bumped
+  workspace only fails later, in the `go` job's Build step, as `unknown revision go/<m>/vX.Y.Z` —
+  or, worse, resolves off the PUBLIC proxy and silently measures released code while reading green.
+
+  Go module tags are **immutable** once fetched through `proxy.golang.org`/`sum.golang.org` (a
+  moved tag is a checksum mismatch for every consumer that already has it), so a released line is
+  never re-cut in place — a change ships as a NEW version.
+- **`go/go.work.sum` is gitignored, not committed.** It holds only "hashes used by the workspace
+  that are not in collective workspace modules' go.sum files"
+  (<https://go.dev/ref/mod#go-work-sum>); every dependency here is already in a committed `go.sum`,
+  and `go build`/`go test`/`go work sync` across all six modules produce no such file at all
+  (verified 2026-09-13). It is a derived, machine-local byproduct with no freshness gate, and
+  `go.work` is never published.
+- **`go install` off the public proxy needs the tags.** `go/<module>/vX.Y.Z` for all six modules
+  must be pushed on one commit before `go install github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z`
   resolves for a real outside consumer; until then the target is still clone-and-build in practice,
-  even though the module shape is now correct and CI proves it (#361). **No `go/` tag exists as of
-  v1.64.0.** The tags are cut by `.github/workflows/tag-go-modules.yml`, dispatched from `release.yml`
-  on every release; the already-shipped releases need a one-time maintainer backfill
-  (`gh workflow run tag-go-modules.yml --ref main`). `tools/release/check_release_dispatch_wiring.sh`
-  (ci.yml's `Proto Checks`) pins that dispatch so the channel cannot silently go dead again.
+  even though the module shape is now correct and CI proves it (#361). The `v0.1.0` tags exist but
+  predate #586, so a binary installed from them cannot run a program or answer a cli-core verb —
+  and they are not re-cut (see the immutability note above). **`v0.2.0` is the first Go module
+  line that carries the committed engine and CLI core** (cut on `71724734`, #618).
+- **The module VERSION moves on its own now (#361, second half).** It is a `semantic-release`
+  version line: `.github/release/go.releaserc.json` (tagFormat `go-modules/vX.Y.Z`, commits
+  path-filtered to `go/`) driven by `.github/workflows/go-release.yml`, which `release.yml`
+  dispatches on every release (`--ref main`). Its `verifyReleaseCmd` is
+  `bump_go_modules.sh --check-next` (legal semver, major < 2, and exactly `semver.inc` of the line
+  in the tree — this runs under `--dry-run` too), its `prepareCmd` is the bump itself, and its
+  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag — so `tag_go_modules.sh` stays
+  the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
+  `chore(go):` PR, so every release re-dispatched the tagger and it passed reporting "all six tags
+  already exist, nothing to do" while the published line stayed put — the #551 failure one level
+  down. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`) pins the lane's shape;
+  `check_release_dispatch_wiring.sh` still pins the tag-pinned channels and that no workflow
+  dispatches the tagger. Rehearse a change with
+  `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:
@@ -164,6 +205,26 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `go/runtime/state_error_contract_test.go` +
   `go/compiler/state_error_contract_test.go` are this target's halves.
   See `docs/TESTING_STRATEGY.md` §5b.
+- **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
+  emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
+  `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`
+  accepts the thrown value's type tag (matching its FULL `main:StateError` or
+  BARE `StateError` spelling, like `_evalLazyTry` in the reference engine), the
+  first untyped `catch (e)` is the unconditional fallback, and a clause list
+  where every typed clause misses ends in `ballrt.Rethrow()` so an enclosing
+  `try` sees the original value. Before #615 only `catches[0]` was compiled — as
+  an unconditional catch-all — so `throw StateError(...)` ran an
+  `on ArgumentError catch` body: silently wrong output, never an error. The
+  dispatch is compiled into the emitted closure on purpose; `ballrt.TryCatch`'s
+  `(body, catch, finally)` signature is public API of `go/runtime`.
+  `ballrt.Throw` also mirrors `std.throw`'s `arg0` -> `message` rename, so a
+  caught `e.message` reads the constructor argument instead of `null`. Guards:
+  `tests/conformance/464_typed_catch_clause_dispatch` +
+  `146_nested_try_catch_types` (cross-target),
+  `go/compiler/catch_clause_dispatch_test.go` and
+  `go/runtime/catch_match_test.go`. Those two are what gate the SHAPE: the
+  `go-compiler` matrix row is a PR gate since #619, but it is a RATCHET on a
+  passing count, and 146's failure sat inside its floor from day one.
 
 ### Encoder
 
@@ -192,7 +253,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 349 passed, 0 failed, 349 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 350 passed, 0 failed, 350 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the
@@ -232,7 +293,10 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `buf.build/protocolbuffers/go`, root `buf.gen.yaml`).
 - `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` — **committed**
   (#586), regenerated via `go run ./cmd/regen` in each module and diffed by ci.yml's
-  `Ball Artifact Freshness` job. Regenerate and commit; never hand-edit.
+  `Ball Artifact Freshness` job. Regenerate and commit; never hand-edit. Since #619 you rarely run
+  the regen locally: on drift that job uploads the regenerated bytes as the `regenerated-artifacts`
+  workflow artifact, so `bash tools/ci/apply_regenerated.sh <pr-number>` + `git commit` is the whole
+  fix (and with the optional `REGEN_PAT` secret configured, CI pushes that commit itself).
 
 ## Testing
 
@@ -270,5 +334,6 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in `support.go`). Honest baseline
   **0/321**, expected by construction and mirroring
   `csharp-roundtrip`; gated only on `total >= 1`, never on the failure count. Its CI home is the
-  `go-roundtrip` row in `conformance-matrix.yml`, which has **no `pull_request` trigger** — the row
-  is absent, not green, on a PR; dispatch the workflow and read the run.
+  `go-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** — the row runs
+  automatically on any PR touching a filtered path, gated on harness health (a parseable `Results:`
+  line, integer counts, `total >= 1`), never on the failure count. No dispatch needed.

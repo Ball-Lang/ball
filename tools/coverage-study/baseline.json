@@ -45,7 +45,7 @@
       "artifact": "coverage-study-tier-a-rust/tier_a.json",
       "scored": 110,
       "clean": 0,
-      "encoded": 0
+      "encoded": 1
     },
     {
       "language": "Go",

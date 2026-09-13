@@ -9,13 +9,13 @@
 # module at a time, with no workspace, no sibling directories, and no `replace`
 # directives (`go install` rejects a module whose go.mod carries any).
 #
-# This script builds the exact proxy tree the `go/<module>/v0.1.0` tags will
+# This script builds the exact proxy tree the `go/<module>/vX.Y.Z` tags will
 # produce (tools/go-module-proxy/build_local_proxy.py, from the tracked files of
 # the current checkout) and then runs the two things a real consumer does:
 #
 #   leg 1  every module builds standalone, copied out of the monorepo with no
 #          go.work and no siblings, resolving its dependencies off the proxy;
-#   leg 2  `go install github.com/ball-lang/ball/go/cli/cmd/ball@v0.1.0` into a
+#   leg 2  `go install github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` into a
 #          clean GOPATH/GOMODCACHE, and the installed binary actually runs.
 #
 # Both legs are gating: leg 1 asserts fail == 0 over a non-empty module set, and
@@ -25,6 +25,13 @@
 # "replacement directory ../<dep> does not exist" and leg 2 failed with "The
 # go.mod file for the module providing named packages contains one or more
 # replace directives."
+#
+# The version is never spelled here: it comes from build_local_proxy.py
+# --print-version, the same call .github/workflows/tag-go-modules.yml makes, and
+# that script now refuses any `--version` that disagrees with what the go.mod
+# files name. So the proxy this smoke proves is, by construction, the proxy the
+# tags will publish — a half-bumped tree fails here rather than synthesizing a
+# resolvable proxy at a version no tag will ever carry.
 #
 # Leg 2's behavioural assertions are the #586 gate. Until #586 the leg only ran
 # `--help` and `check`, which need neither the self-hosted engine nor the
@@ -68,9 +75,9 @@ export GOFLAGS=
 # ── leg 1: every module builds standalone off the proxy ──────────────────────
 #
 # Leg 1 gets its own EMPTY module cache, exactly as leg 2 does. The intra-repo
-# modules are always resolved at the SAME version string (`v0.1.0` — it names a
-# tag, not this commit), so a warm GOMODCACHE that already holds
-# `go/<m>@v0.1.0` from an earlier run serves that OLD content and the sweep
+# modules are always resolved at the SAME version string (the Go module line —
+# it names a tag, not this commit), so a warm GOMODCACHE that already holds
+# `go/<m>@vX.Y.Z` from an earlier run serves that OLD content and the sweep
 # silently measures stale code: a false RED when the tree just gained an API the
 # cached copy lacks, and — the dangerous direction — a false GREEN when a change
 # breaks external resolution but the cache still holds a copy that builds.

@@ -72,32 +72,53 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only).
 **No `go/*/go.mod` may carry a `replace` directive** — the Go module proxy serves
 a nested module as its own directory tree only (never its siblings), and
 `go install` refuses a module whose go.mod has one. Each module therefore
-`require`s its intra-repo dependencies at the real published version (`v0.1.0`),
-and the local pins live in `go/go.work`'s **versioned** `replace ... v0.1.0 =>
-./<dep>` block, which is never published. A bare `use` block is not enough: Go
-still loads the module graph, so an unpublished `require` fails with
-`unknown revision go/<m>/v0.1.0` even inside the workspace.
+`require`s its intra-repo dependencies at the real published version (**`v0.2.0`**
+since #586), and the local pins live in `go/go.work`'s **versioned**
+`replace ... vX.Y.Z => ./<dep>` block, which is never published. A bare `use`
+block is not enough: Go still loads the module graph, so an unpublished
+`require` fails with `unknown revision go/<m>/vX.Y.Z` even inside the workspace.
 
 ```bash
 bash tools/go-module-proxy/smoke.sh   # the gate ci.yml's `go` job runs
 ```
 
-It synthesizes the `file://` proxy the `go/<module>/v0.1.0` tags will produce
-(from this commit's tracked files, so the module hashes match what
-proxy.golang.org will compute), builds each module standalone with no `go.work`
-and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
-GOPATH and runs the binary. Off the *public* proxy this resolves only once the
-six `go/<module>/v0.1.0` tags are pushed on one commit — and **as of v1.64.0 they
-have not been**, so `go install …@latest` still does not resolve. Those tags come
-from `.github/workflows/tag-go-modules.yml`, which `release.yml` dispatches on
-every release (`gh workflow run tag-go-modules.yml --ref vX.Y.Z`); the releases
-that shipped before that wiring existed need a one-time maintainer backfill
-(`gh workflow run tag-go-modules.yml --ref main`). See `docs/RELEASE.md`'s
+It synthesizes the `file://` proxy the `go/<module>/vX.Y.Z` tags will produce
+(from this commit's **tracked** files, so the module hashes match what
+proxy.golang.org will compute — and so the two committed artifacts of #586 are
+inside the zips), builds each module standalone with no `go.work` and no
+siblings, then `go install`s `.../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and
+**runs** the binary: `ball run` over conformance fixtures plus `ball info` and
+`ball version`, byte-compared against the same goldens the in-repo sweeps use.
+Off the *public* proxy this resolves only once the six `go/<module>/vX.Y.Z` tags
+are pushed on one commit. The `v0.1.0` tags exist but predate #586, so a binary
+installed from them still cannot run a program; **`v0.2.0` is the first line that
+carries the committed engine and CLI core** (cut on `71724734`, #618). Those tags
+come from `.github/workflows/tag-go-modules.yml` — and since #361's second half
+nothing dispatches it but the release lane itself. See `docs/RELEASE.md`'s
 "Go modules lane".
 
+**Releasing a new Go module version is fully automatic.** The version is a
+`semantic-release` line of its own (`.github/release/go.releaserc.json`,
+tagFormat `go-modules/vX.Y.Z`), computed from the conventional commits that
+touched `go/` and driven by `.github/workflows/go-release.yml`, which
+`release.yml` dispatches on every release (`--ref main`). Its `prepareCmd` runs
+the same `bump_go_modules.sh` below, `@semantic-release/git` commits
+`chore(release): go vX.Y.Z [skip ci]`, and its `publishCmd` dispatches
+`tag-go-modules.yml` at the channel tag — so a `feat(go):`/`fix(go):` merge is
+all it takes to move the published line. `tag_go_modules.sh` remains the SINGLE
+tagging path; `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`
+job) pins all of that. Rehearse a change to the lane with
+`gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
+
+Until that landed, tagging was automatic but *versioning* was not: the tagger
+only ever cuts the version already in the `go.mod` files, so every release
+re-dispatched it and it passed reporting "all six tags already exist, nothing to
+do" while `go install …@latest` stayed on v0.1.0 — a green channel shipping
+nothing, the #551 failure one level down.
+
 **Both legs run against a fresh `GOMODCACHE`** — leg 1 gained one while landing
-#537. `v0.1.0` names a tag, not a commit, so a warm module cache already holding
-`go/<m>@v0.1.0` serves that older content and the sweep measures stale code: a
+#537. The module line names a tag, not a commit, so a warm module cache already
+holding `go/<m>@vX.Y.Z` serves that older content and the sweep measures stale code: a
 false red when the tree just gained an API the cached copy lacks, and a false
 green when a change breaks external resolution but the cached copy still builds.
 `actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the
@@ -106,9 +127,47 @@ committed `go.sum` files, so this affected CI too. Do not remove it.
 Before it builds anything, the script asserts the version story is internally
 consistent: every intra-repo `require` names the same version, no `go.mod` has a
 `replace`, and `go/go.work`'s versioned pins name that same version and cover
-every required module. So a version bump is a single lockstep edit across
-`go/*/go.mod` + `go/go.work`, and a half-bump fails here instead of surfacing
-later as `unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step.
+every required module — and the synthesized proxy's version must EQUAL that
+derived version (`--version` is a cross-check, never an override), so the proxy
+CI proves is by construction the one the tags will publish.
+
+**Never bump the version by hand** — and in the normal case, never bump it at
+all: the release lane above runs this script for you. The same number lives in
+nine places — six `go/*/go.mod` `require` blocks, `go/go.work`'s five `replace`
+pins, `tools/coverage-study/go/go.mod`, and `go/cli/version.go`'s
+`moduleVersion` fallback (unprefixed, what `ball version` prints from a checkout
+build). To move it out of band (a catch-up, a rename), use:
+
+```bash
+bash tools/go-module-proxy/bump_go_modules.sh v0.3.0   # ONE idempotent, self-verifying action
+
+# What the release lane's verifyReleaseCmd runs — validates and rewrites NOTHING.
+# Asserts the version is legal AND is exactly semver.inc(<the line in the tree>,
+# <type>), the same formula semantic-release applies.
+bash tools/go-module-proxy/bump_go_modules.sh --check-next v0.3.0 --type minor
+```
+
+It refuses a non-semver version and a major >= 2 (the module paths carry no
+`/vN` suffix, which Go requires from v2 on —
+<https://go.dev/ref/mod#major-version-suffixes>, so the line stays 0.x/1.x until
+the paths themselves are renamed), rewrites every site, asserts nothing still
+names the old version, and re-derives through `--print-version`.
+`tools/test/test_bump_go_modules.sh` (ci.yml's always-on `proto` job) proves both
+the rewriter and every assertion on a scratch tree. A half-bump fails there —
+and in `smoke.sh` — instead of surfacing later as
+`unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step, or (worse) as a
+silent fall-through to the PUBLIC proxy that measures released code while
+reading green.
+
+Tags are immutable once fetched through `proxy.golang.org`/`sum.golang.org` — a
+moved tag is a checksum mismatch for every consumer that already has it — so a
+released line is never re-cut in place: a change ships as a NEW version.
+
+`go/go.work.sum` is deliberately **gitignored**, not committed: it holds only
+"hashes used by the workspace that are not in collective workspace modules'
+go.sum files" (<https://go.dev/ref/mod#go-work-sum>), every dependency here is
+already in a committed `go.sum`, and `go build`/`go test`/`go work sync` across
+all six modules produce no such file at all.
 
 ## Encoder design (see `go/encoder/encoder.go` doc comment)
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks
@@ -161,6 +220,28 @@ later as `unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step.
   evaluated lazily (invariant #4). `return`/`break`/`continue`/`throw` →
   `ballrt` flow signals (panic/recover) so they cross IIFE boundaries; loops use
   `ballrt.RunLoopBody`, function bodies `defer ballrt.CatchReturn`.
+- **`try` dispatches EVERY catch clause, in source order** (issue #615).
+  `compileTry` emits one `ballrt.TryCatch` catch closure containing an
+  `if`-chain: an `on <Type> catch` clause runs only when
+  `ballrt.CatchMatches(__ex, "<Type>")` accepts the thrown value's type tag
+  (matched by its FULL `main:StateError` or BARE `StateError` spelling, as
+  `_evalLazyTry` does in `dart/engine/lib/engine_control_flow.dart`); the first
+  untyped `catch (e)` is the unconditional fallback; and a clause list where
+  every typed clause misses ends in `ballrt.Rethrow()`, so an enclosing `try`
+  sees the original value. Before #615 only `catches[0]` was compiled, as an
+  unconditional catch-all, so `throw StateError(...)` ran an
+  `on ArgumentError catch` body — silently wrong output, never an error. The
+  dispatch lives in the emitted closure on purpose: `ballrt.TryCatch`'s
+  `(body, catch, finally)` signature is public API of `go/runtime`, and generated
+  `if`-chains are what the compiled self-hosted engine already emits for this very
+  Dart logic. `ballrt.Throw` also mirrors `std.throw`'s `arg0` -> `message` rename
+  (`engine_std.dart`), so a caught `e.message` reads the constructor argument
+  rather than `null`. Guards: `tests/conformance/464_typed_catch_clause_dispatch`
+  and `146_nested_try_catch_types` cross-target, plus the PR-gated
+  `go/compiler/catch_clause_dispatch_test.go` + `go/runtime/catch_match_test.go`.
+  Those two are what gate the SHAPE: the compiler leg below is a PR gate since
+  #619, but it is a RATCHET on a passing count, and 146's failure sat inside its
+  floor from the day that leg came online.
 - **Fail-loud** (issue #55): an unsupported base function / expression shape is a
   compile error, never silent bad code.
 
@@ -199,8 +280,8 @@ go run ./cmd/ballgoconf 101_simple_class   # one fixture, full expected/actual d
   applied when it carries a body (`constructorInitializer` lowers a literal value,
   not only the `field = param` shape). Fixtures `436_recursive_ctor_named` and
   `438_ctor_initializer_list_with_body` measure it end to end;
-  `go/compiler/named_ctor_test.go` is the PR-gated guard (this leg is a **ratchet**
-  on a workflow with no `pull_request:` trigger, so it never was).
+  `go/compiler/named_ctor_test.go` is the fixture-level guard; the corpus leg itself
+  is a **ratchet**, and since #619 it does run on PRs touching `go/**`.
 
 ## Round-trip conformance leg (`go/engine/conformance/roundtrip.go`, issue #452 item 3)
 The third question, after the engine and compiler legs: **can `go/encoder` read
@@ -230,9 +311,11 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   `dart` on PATH (or `BALL_DART`); it skips loudly rather than reporting a fake
   zero when Dart is missing.
 - CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
-  **That workflow has no `pull_request:` trigger**, so the row is ABSENT (not
-  green) on a PR — `gh workflow run conformance-matrix.yml --ref <branch>` and
-  read the run before merging a change to this leg.
+  **That workflow is a PR gate since #619** — it has a path-filtered
+  `pull_request:` trigger sharing its `push` filter, and `go/**` is in that
+  filter, so the row runs on any PR touching this directory with no
+  `gh workflow run` dispatch. It still gates harness health only, never the
+  failure count.
 
 ## Status / deferred
 - Compiler runs end-to-end (compile → `go run`): `hello_world`, `fibonacci`, a
@@ -256,7 +339,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 349 passed, 0 failed, 349 total`; 4 golden-less
+  (`Results: 350 passed, 0 failed, 350 total`; 4 golden-less
   resource-limit/sandbox carve-outs). `compiled/compiled_engine.go` is a
   COMMITTED generated artifact since #586 (no build tag), kept fresh by ci.yml's
   `Ball Artifact Freshness` regen-and-diff job. See `go/engine/AGENTS.md`.
@@ -312,7 +395,7 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
    so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
 
-`tests/conformance/464_state_error_message` is the cross-target guard (it prints the caught
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.

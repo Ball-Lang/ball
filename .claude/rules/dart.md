@@ -50,7 +50,7 @@ for the authoritative member set).
   `BallException` whose value IS the canonical string instead, so the Dart
   observable is byte-identical and the same portable value travels every target.
   Never re-introduce a host `throw StateError(...)` in engine source — use
-  `_stateError`. `tests/conformance/464_state_error_message` is the cross-target
+  `_stateError`. `tests/conformance/465_state_error_message` is the cross-target
   guard. See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
@@ -303,6 +303,22 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   and `check_fixture_names.dart` (no false coverage). The conformance oracle is
   native `dart run`, so fixtures verify Dart→Ball→engine ≡ real Dart. See
   `docs/TESTING_STRATEGY.md` (the issue-#55 post-mortem and the full ruleset).
+- **Line coverage is a PR GATE (#605).** ci.yml's always-on `Dart Coverage
+  Ratchet` job runs `dart run tools/coverage_dart.dart --floor 99.9` over all
+  nine packages on every pull request. Adding a Dart line that no test reaches
+  now fails CI — the same command was previously push-to-main-only in
+  `coverage.yml`, so it went red for a week without blocking anything. Run it
+  locally before pushing a `dart/` change; it is slow (~2.5 min) because it
+  re-runs every package suite under the coverage collector.
+- **Marking a line `// coverage:ignore-*` is a claim you must PROVE.** Use it
+  only for a per-site, verified-unreachable defensive arm, with the caller
+  analysis written beside it (which callers can reach it, and which argument or
+  API contract rules the arm out) — never a file-level ignore, never on a line
+  you have not read, and never in place of a test for a reachable path. A
+  fail-loud `throw` that a program CAN trigger needs a test that triggers it.
+  Worked examples: `dart/encoder/lib/package_encoder.dart`'s two
+  `prepareStaticTypes` arms, and `dart/encoder/lib/encoder.dart`'s
+  `_encodeCollectionElement` guard.
 
 ## Dependencies
 

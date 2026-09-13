@@ -22,8 +22,8 @@ import (
 // self-hosted ENGINE, and roundtrip.go re-encodes and runs on DART), so without
 // it the compiler's route stays unexercised by the corpus.
 func TestStateErrorMessageContract(t *testing.T) {
-	fixture := filepath.Join("..", "..", "tests", "conformance", "464_state_error_message.ball.json")
-	golden := filepath.Join("..", "..", "tests", "conformance", "464_state_error_message.expected_output.txt")
+	fixture := filepath.Join("..", "..", "tests", "conformance", "465_state_error_message.ball.json")
+	golden := filepath.Join("..", "..", "tests", "conformance", "465_state_error_message.expected_output.txt")
 
 	prog := load(t, fixture)
 	src := compileFmt(t, prog)

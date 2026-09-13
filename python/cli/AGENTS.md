@@ -93,8 +93,11 @@ tag, the Rust CLI's `self_host` Cargo feature, and C#'s `-p:SelfHost=true`.
 
 `info`/`validate`/`tree`/`version` delegate to the compiled CLI core. Python has
 no compile-time feature flag, so **availability is the gate** — the analog of
-Go's `clicore` build tag, Rust's `cli_core` Cargo feature and C#'s
-`-p:CliCore=true`. `ball_cli.cli_core.reports()` resolves, in order:
+Rust's `cli_core` Cargo feature and C#'s `-p:CliCore=true`. (Go had a `clicore`
+build tag until #586 deleted it: Go's registry is the git tag itself, `go install`
+accepts no `-tags`, so Go commits the generated artifact instead. Python needs
+neither — the wheel ships the cli-core's Ball SOURCE and compiles it on first
+use.) `ball_cli.cli_core.reports()` resolves, in order:
 
 1. the generated `ball_cli/compiled_cli.py` (`python -m ball_cli.regen`;
    gitignored, absent from a fresh checkout, never shipped);

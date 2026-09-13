@@ -327,7 +327,8 @@ inline const std::vector<std::string>& program_names() {
         "461_named_ctor_super_and_this_formal",
         "462_set_mutation_in_place",
         "463_list_find_no_match",
-        "464_state_error_message",
+        "464_typed_catch_clause_dispatch",
+        "465_state_error_message",
     };
     return names;
 }

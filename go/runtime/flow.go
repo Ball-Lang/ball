@@ -3,6 +3,7 @@ package ballrt
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Flow signals model Ball's non-local control flow (return / break / continue)
@@ -84,7 +85,68 @@ func Continue(label string) Value { panic(flowSignal{kind: flowContinue, label: 
 // Throw implements std.throw.
 func Throw(v Value) Value {
 	debugTrace()
-	panic(Thrown{Value: v})
+	panic(Thrown{Value: normalizeThrown(v)})
+}
+
+// normalizeThrown mirrors the reference engine's std.throw (engine_std.dart):
+// the encoder stores a built-in exception's constructor argument positionally
+// (`FormatException('bad')` → `{arg0: 'bad'}`) while Dart source reads it back
+// as `e.message`, so a thrown instance carrying `arg0` and no `message` gains a
+// `message` alias. Without it, `on FormatException catch (e)` bound a value
+// whose `.message` read null (issue #615).
+func normalizeThrown(v Value) Value {
+	var fields *Map
+	switch t := v.(type) {
+	case *Message:
+		fields = t.Fields
+	case *Map:
+		fields = t
+	default:
+		return v
+	}
+	if fields == nil {
+		return v
+	}
+	if _, has := fields.Get("message"); has {
+		return v
+	}
+	if arg0, has := fields.Get("arg0"); has {
+		fields.Set("message", arg0)
+	}
+	return v
+}
+
+// ExceptionTypeName is the type tag a typed `on <Type> catch` clause matches a
+// thrown value against, following the reference engine's rule (std.throw in
+// engine_std.dart): a message's type tag, a map's `__type__` tag, and the
+// literal `Exception` for an untagged value (a thrown string/number/list) —
+// std.throw's own default.
+func ExceptionTypeName(thrown Value) string {
+	switch t := thrown.(type) {
+	case *Message:
+		return t.TypeName
+	case *Map:
+		if tag, ok := t.Get("__type__"); ok {
+			return ToStr(tag)
+		}
+	}
+	return "Exception"
+}
+
+// CatchMatches reports whether an `on <Type> catch` clause declaring typeName
+// handles thrown. A thrown value's tag may be module-qualified
+// (`main:StateError`) while the clause names the bare type, so BOTH spellings
+// match — exactly what _evalLazyTry does in the reference engine. An untyped
+// `catch (e)` clause is never routed through here: it matches unconditionally.
+func CatchMatches(thrown Value, typeName string) bool {
+	actual := ExceptionTypeName(thrown)
+	if actual == typeName {
+		return true
+	}
+	if i := strings.IndexByte(actual, ':'); i >= 0 {
+		return actual[i+1:] == typeName
+	}
+	return false
 }
 
 // CatchReturn is deferred at the top of every compiled function body. If the

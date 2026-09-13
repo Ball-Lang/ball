@@ -119,10 +119,11 @@ too, without a colour-forced CI leg.
 > EndToEndTests.cs`, for instance, hardcodes four fixtures — it was never in a
 > position to catch a corpus-wide regression. The leg that *does* compile the
 > whole corpus through the C# compiler is `csharp/engine/conformance --leg=
-> compiler`, which lives in `conformance-matrix.yml` — a workflow with **no
-> `pull_request` trigger** — and is a ratchet (`CSHARP_COMPILER_FLOOR`) that
-> already tolerates its known gaps. "A gate exists" and "a gate runs on your PR
-> and would have gone red" are different claims.
+> compiler`, which lives in `conformance-matrix.yml` — a PR gate since #619, but
+> a ratchet (`CSHARP_COMPILER_FLOOR`) that already tolerates its known gaps. "A
+> gate exists" and "a gate runs on your PR and would have gone red" are
+> different claims, and a ratcheted gate can be green over a real regression it
+> was already tolerating.
 
 > **An assertion that cannot fail documents an intent; it does not enforce it.**
 > Before adding an assertion, name the concrete change that would make it red. A
@@ -492,16 +493,44 @@ call. `tests/conformance/463_list_find_no_match` is the worked example: a hit
 (the element), a miss on a non-empty list, and a miss on an empty one, each
 caught by the program's own `on StateError catch`.
 
-One portability constraint that fixture had to respect, and that any successor
-will too: **every `try` in it carries exactly ONE catch clause.** The Go, C# and
-Rust compilers all dispatch only the first catch clause with no type matching (a
-pre-existing, separately documented gap — see `csharp/compiler/src/BaseCall.cs`'s
-`CompileTryStatement`), so a multi-clause `try` whose first arm names a
-non-matching type would fail those compile legs for a reason unrelated to the
-function under test. That the throw is genuinely TYPED — reachable by
-`on StateError`, not only by an untyped catch-all, which is what Rust's bare
-`panic!` gave before #597 — is pinned per runtime instead, next to each target's
-implementation.
+One portability constraint that fixture had to respect — and that **no longer
+applies** (#615): every `try` in it carries exactly one catch clause, because the
+Go, C# and Rust compilers all dispatched only the first catch clause with no type
+matching, so a multi-clause `try` whose first arm named a non-matching type would
+have failed those compile legs for a reason unrelated to the function under test.
+All three now walk `catches[]` in **source order**, run an `on <Type> catch`
+clause only when the thrown value's type tag matches, fall back to the first
+untyped `catch (e)`, and re-raise when every typed clause misses — the reference
+engine's `_evalLazyTry` contract. A new fixture may use as many clauses as it
+needs; `tests/conformance/464_typed_catch_clause_dispatch` is the cross-target
+guard for that, and each compiler carries its own **per-shape** unit test
+(`go/compiler/catch_clause_dispatch_test.go`,
+`csharp/compiler/test/CatchClauseDispatchTests.cs`,
+`rust/compiler/tests/catch_clause_dispatch.rs`) — see the gate lesson below for
+why the corpus leg alone is not enough. That the throw is genuinely TYPED —
+reachable by `on StateError`, not only by an untyped catch-all, which is what
+Rust's bare `panic!` gave before #597 — is pinned per runtime too, next to each
+target's implementation.
+
+**The gate lesson #615 adds: a RATCHETED gate is green over the regression it
+already tolerates.** The corpus fixture that would have gone red
+(`146_nested_try_catch_types`) already existed and was never carved out, yet it
+had been failing the Go/C#/Rust compiler rows since those pipelines came online.
+Two compounding reasons, and #619 only fixed the first:
+
+1. Until #619 those rows ran on push-to-main, the weekly cron and manual dispatch
+   only. A post-merge red on a non-blocking workflow stops and reopens nothing,
+   and a lane that never dispatched saw **no row at all**, which reads as green.
+   `conformance-matrix.yml` is a PR gate now, so that half is closed.
+2. **They are ratchets, not parity gates** — `*_COMPILER_FLOOR` fails only on a
+   *drop* in a passing count. 146's failure sat inside each floor from day one. A
+   count cannot name the fixture that is failing, so the row stayed green over a
+   real, permanent defect and would have stayed green even as a PR gate.
+
+So "a gate exists" and "a gate would have gone red on this" remain different
+claims even now. When a compiler documents a lowering gap in a doc comment — which
+is how #615 was found, off prose, not off any CI signal — that gap needs a test
+that fails *for that shape*, not a leg whose floor already absorbs it.
 
 #### "Observed" means the VALUE, not the fact that something threw (#616)
 
@@ -531,7 +560,7 @@ target's `to_string` rendered it its own way. The fix makes the engine throw a
 travels every target; each compiled runtime then renders its own typed error
 payload with Dart's `toString()` spelling (`Bad state: <message>`).
 
-`tests/conformance/464_state_error_message` is the guard, and the rule it states
+`tests/conformance/465_state_error_message` is the guard, and the rule it states
 generalises past StateError: **a fixture that catches must print the caught
 VALUE.** A hardcoded string in a catch body proves only that control reached it.
 The same fixture also covers `list_first` on an empty list, where the bug was
@@ -555,6 +584,64 @@ constructs the syntactic encoder mishandles. The one that bit #55's fix:
 written with `result.addAll(items)` works on Dart but silently drops elements on
 TS/C++. Append per-item with `.add`. Same caution for `Map.addAll`, `.keys`.
 See [.claude/rules/dart.md](../.claude/rules/dart.md).
+
+## CI produces the fix (issue #619)
+
+Two things used to force local toolchain work on every change:
+
+**1. The conformance matrix is now a PR gate.**
+`.github/workflows/conformance-matrix.yml` used to run on push-to-main, a weekly
+cron and manual dispatch only, so every contributor had to
+`gh workflow run conformance-matrix.yml --ref <branch>` by hand and read the run
+back — and anyone who forgot simply saw no row, which reads as green. It now
+also has a `pull_request:` trigger sharing the SAME path filter as `push`
+(one list, `&matrix_paths` / `*matrix_paths`; GitHub Actions has supported YAML
+anchors in workflow files since 2025-09-18). `tools/ci/check_matrix_paths.sh`
+compares the two lists after the parser expands the alias and fails on drift —
+a path present in one trigger only would silently un-gate exactly the PRs that
+touch it. Concurrency is per `github.ref` with `cancel-in-progress`, so a second
+push to a PR supersedes the run still in flight.
+
+**2. `Ball Artifact Freshness` hands you the regenerated bytes.**
+That job regenerates every committed Ball artifact (`std.json`, `ball_proto.json`,
+`ball_protobuf.json`, the conformance corpus, `std_coverage.json` +
+`STD_COVERAGE.md`, `compiled_engine.ts`, `compiled_cli.ts`, `compiled_engine.go`,
+`compiled_cli.go`) and `git diff --exit-code`s each family. The gates are
+unchanged — same fail-loud shape, same exit 1 — but on failure the job now
+uploads the regenerated files, at their exact repo-relative paths, as the
+`regenerated-artifacts` workflow artifact. Applying them needs **no Dart/TS/Go
+toolchain**:
+
+```bash
+bash tools/ci/apply_regenerated.sh <pr-number>     # or: --run <run-id>
+git commit -m "chore: apply the CI-regenerated Ball artifacts"
+```
+
+The script resolves the PR's latest `ci.yml` run, downloads the artifact, copies
+it into the checkout and stages it. It **refuses** to apply a run whose head SHA
+is not your current `HEAD` (the artifacts are a function of the sources at that
+commit, so applying them elsewhere commits bytes the tree does not produce), and
+it fails loud on an empty artifact rather than letting a lane commit nothing.
+Its cases run on every PR from the always-on `proto` job.
+
+**Optional auto-push (`REGEN_PAT`).** If the repository secret `REGEN_PAT`
+exists, the job additionally commits the regenerated files and pushes them to
+the PR's own branch, so nobody applies anything by hand. It is off by default and
+skipped with an explicit log line when the secret is absent; it never pushes to a
+fork (`github.event.pull_request.head.repo.full_name == github.repository`).
+
+It must be a PAT, not `GITHUB_TOKEN`: *"When you use the repository's
+GITHUB_TOKEN to perform tasks, events triggered by the GITHUB_TOKEN will not
+create a new workflow run"* (with only `workflow_dispatch` / `repository_dispatch`
+excepted) —
+[Triggering a workflow](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow).
+A `GITHUB_TOKEN` push would leave the PR sitting on a commit with **no CI at
+all**: a PR that looks settled and was never checked.
+
+*One-time owner setup:* create a **fine-grained** personal access token scoped to
+this repository only, with Repository permissions → **Contents: Read and write**,
+then `gh secret set REGEN_PAT --repo Ball-Lang/ball`. (`RELEASE_PAT` no longer
+exists in this repo's secrets; do not reuse that name.)
 
 ## Adding a language construct (the required workflow)
 
@@ -591,6 +678,21 @@ Beyond construct-completeness (§2), we measure **line coverage** and ratchet it
 upward, never down — across **all three stacks**, uploaded to Codecov with
 per-stack flags (`dart`/`typescript`/`cpp`) via OIDC (no token). Gate:
 `.github/workflows/coverage.yml`.
+
+**The Dart ratchet is a PR gate (#605).** `ci.yml`'s always-on `Dart Coverage
+Ratchet` job runs `dart run tools/coverage_dart.dart --floor 99.9` on every pull
+request and blocks the merge when the workspace total drops below the floor. It
+is its OWN job, not a step inside `Dart`, on measured cost: the ratchet re-runs
+every package suite under the VM coverage collector (2m31s on coverage.yml run
+34734567108) while the `Dart` job takes 3m40s end to end, so folding it in would
+have made Dart the PR critical path; as a sibling job it runs in parallel. It
+carries no `needs: changes` filter, deliberately — the measurement is
+whole-workspace, its inputs are not only `dart/**`, and a *skipped* check
+reports **success**, which is the exact failure mode that let the ratchet sit red
+on main for a week (2026-09-06 → 2026-09-13, 17140/17167 = 99.84%) while every
+required check stayed green. `coverage.yml`'s Dart job keeps its own copy of the
+ratchet because it owns the Codecov upload and is the push-to-main measurement;
+the two floors must move together.
 
 **Completeness is the whole point — measure every package and every file, or the
 number lies.** The Dart tool `tools/coverage_dart.dart`:
@@ -671,9 +773,11 @@ could not parse a summary at all).
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
-| Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
-| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | push to main + weekly + dispatch — **NOT a PR gate** (no floor either: an honest 0/321 is the product) |
+| Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
+| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
+| **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
+| **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
@@ -681,7 +785,8 @@ could not parse a summary at all).
 | **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, and regenerates the README table, committing both to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
 | The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
-| Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
+| **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
+| Line coverage ratchet (TS/Rust/C#) + the Dart Codecov upload | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |
 | **The artifact an outside consumer gets, not the checkout** — Python wheel (#496) | `python/tool/wheel_smoke.py` (`python -m build python/`, install into a venv OUTSIDE the repo with no `PYTHONPATH`, run `--version`/`check`/`compile`/`encode`/`run`, `run` diffed against a golden as BYTES) | every PR (`Python`) |

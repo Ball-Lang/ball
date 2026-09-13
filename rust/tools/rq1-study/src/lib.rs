@@ -34,6 +34,15 @@
 //! 2. **The declaration inventory is walked with `syn` DIRECTLY**, never
 //!    through the encoder's own walk, so a bug in the encoder's bookkeeping
 //!    cannot hide a lost declaration from the harness.
+//! 3. **Crate-aware stage 1** (issue #491). Real crates are `mod` graphs, not
+//!    piles of independent files, so each package's graph is walked once and
+//!    every file it reached is encoded through
+//!    [`ball_lang_encoder::CrateGraph::encode_file_library`] — with the whole
+//!    crate's types, `impl` blocks and free functions in hand. `--single-file`
+//!    turns that off and reproduces the older per-file measurement exactly, so
+//!    a before/after of a crate-aware change is ONE binary over ONE checkout.
+//!    Only stage 1 is crate-aware: stages 3 and 5 re-encode the compiler's own
+//!    single generated file, which has no `mod` graph of its own.
 //!
 //! # Panics are data
 //!
@@ -49,6 +58,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 use ball_lang_compiler::Compiler;
+use ball_lang_encoder::CrateGraph;
 use ball_lang_shared::DESCRIPTOR_POOL;
 use ball_lang_shared::proto::ball::v1::Program;
 use prost::Message;
@@ -70,6 +80,14 @@ pub struct FileResult {
     pub ir_stable: bool,
     /// Taxonomy tag plus detail, e.g. `encode-error: …`.
     pub reason: String,
+    /// The Ball module name this file was encoded AS, when the crate's `mod`
+    /// graph reached it (issue #491's `encode_crate`). `None` means the file
+    /// was encoded with no crate context at all — either the package has no
+    /// resolvable crate root, or its `mod` graph does not name this file (a
+    /// `#[cfg(test)]` module, an unreferenced leftover). Recorded per file
+    /// because "the crate walk never saw it" is a materially different
+    /// measurement from "it was measured crate-aware and still failed".
+    pub crate_module: Option<String>,
 }
 
 impl FileResult {
@@ -82,6 +100,7 @@ impl FileResult {
             "clean": self.clean,
             "irStable": self.ir_stable,
             "reason": self.reason,
+            "crateModule": self.crate_module,
         })
     }
 }
@@ -253,11 +272,50 @@ fn verdict(package: &str, file: &str, reason: String) -> FileResult {
         clean: false,
         ir_stable: false,
         reason,
+        crate_module: None,
     }
 }
 
-/// Runs Tier A over one file's `source` and returns its verdict.
+/// The crate context one file is measured in: the walked `mod` graph plus the
+/// Ball module name this file is encoded as (issue #491).
+pub struct CrateContext<'a> {
+    pub graph: &'a CrateGraph,
+    pub module: String,
+}
+
+/// Runs Tier A over one file's `source` with NO crate context — the
+/// single-file measurement this harness made before issue #491's crate-aware
+/// encoder existed. Kept as its own entry point because the self-test uses it
+/// to show what crate-awareness actually changes.
 pub fn study_file(package: &str, file: &str, source: &str) -> FileResult {
+    study_file_in_crate(package, file, source, None)
+}
+
+/// Runs Tier A over one file's `source` and returns its verdict.
+///
+/// **Only stage 1 is crate-aware, and deliberately so.** Stages 3 and 5
+/// re-encode the compiler's OWN output, which is one self-contained generated
+/// file with no `mod` graph of its own — feeding it a crate context would
+/// resolve names against a crate it did not come from. What the context
+/// changes is exactly the thing #491 measured as blocking: whether the
+/// original file's cross-file callees resolve at all.
+pub fn study_file_in_crate(
+    package: &str,
+    file: &str,
+    source: &str,
+    crate_context: Option<&CrateContext<'_>>,
+) -> FileResult {
+    let mut result = study_file_core(package, file, source, crate_context);
+    result.crate_module = crate_context.map(|context| context.module.clone());
+    result
+}
+
+fn study_file_core(
+    package: &str,
+    file: &str,
+    source: &str,
+    crate_context: Option<&CrateContext<'_>>,
+) -> FileResult {
     let before = match declaration_inventory(source) {
         Ok(names) => names,
         Err(err) => return verdict(package, file, format!("parse-error: {}", first_line(&err))),
@@ -270,11 +328,16 @@ pub fn study_file(package: &str, file: &str, source: &str) -> FileResult {
             clean: false,
             ir_stable: false,
             reason: "skipped: no top-level declarations to compile".to_string(),
+            crate_module: None,
         };
     }
 
-    // Stage 1 — encode in LIBRARY mode (see the module doc).
-    let program = match caught(|| ball_lang_encoder::encode_library(source)) {
+    // Stage 1 — encode in LIBRARY mode (see the module doc), crate-aware when
+    // the caller supplied the crate's symbol table.
+    let program = match caught(|| match crate_context {
+        Some(context) => context.graph.encode_file_library(source, &context.module),
+        None => ball_lang_encoder::encode_library(source),
+    }) {
         Ok(program) => program,
         Err(err) => return verdict(package, file, format!("encode-error: {err}")),
     };
@@ -296,6 +359,7 @@ pub fn study_file(package: &str, file: &str, source: &str) -> FileResult {
             clean: false,
             ir_stable: false,
             reason: "skipped: the file compiles to nothing (no user module)".to_string(),
+            crate_module: None,
         };
     }
 
@@ -402,6 +466,7 @@ pub fn study_file(package: &str, file: &str, source: &str) -> FileResult {
         clean: true,
         ir_stable,
         reason: "clean".to_string(),
+        crate_module: None,
     }
 }
 
@@ -430,8 +495,48 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Runs Tier A over every `.rs` file under `dir`.
+/// Runs Tier A over every `.rs` file under `dir`, CRATE-AWARE where possible
+/// (issue #491).
+///
+/// The `mod` graph rooted at `dir` is walked once per package, and each file
+/// the walk reached is then encoded with the whole crate's symbol table in
+/// hand — which is what lets a `receiver.method(args)` or a bare-name call
+/// whose callee lives in a sibling file resolve instead of failing loud. A file
+/// the walk did not reach (a `#[cfg(test)]` module, an unreferenced leftover)
+/// is still measured, with no crate context, exactly as before; so is every
+/// file of a package whose crate root or `mod` graph could not be resolved at
+/// all. Both cases are visible per file in the JSON report's `crateModule`,
+/// never silently folded into the crate-aware count.
 pub fn study_directory(package: &str, dir: &Path) -> Vec<FileResult> {
+    study_directory_with(package, dir, true)
+}
+
+/// [`study_directory`], with the crate walk switchable off (`rq1-study
+/// --single-file`).
+///
+/// This exists so the before/after of issue #491's crate-aware slice is
+/// reproducible **with one binary over one checkout**, rather than by
+/// comparing two builds of the harness and hoping nothing else moved. Off, it
+/// is exactly the measurement this harness made before `encode_crate` existed.
+pub fn study_directory_with(package: &str, dir: &Path, crate_aware: bool) -> Vec<FileResult> {
+    let graph = if !crate_aware {
+        None
+    } else {
+        match caught(|| ball_lang_encoder::CrateGraph::load(dir)) {
+            Ok(graph) => Some(graph),
+            Err(err) => {
+                // Not a silent fallback: the whole package is about to be
+                // measured the OLD way, and a reader of the numbers has to
+                // know that.
+                eprintln!(
+                    "note: {package}: no crate-aware measurement — the mod graph under {} could \
+                     not be walked ({err}); every file is measured single-file",
+                    dir.display()
+                );
+                None
+            }
+        }
+    };
     rust_files_under(dir)
         .into_iter()
         .map(|path| {
@@ -440,11 +545,17 @@ pub fn study_directory(package: &str, dir: &Path) -> Vec<FileResult> {
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
+            let context = graph.as_ref().and_then(|graph| {
+                graph.module_name_for(&path).map(|module| CrateContext {
+                    graph,
+                    module: module.to_string(),
+                })
+            });
             // Read as BYTES and decode explicitly: no newline translation, so a
             // semantic lone \r survives into the measurement.
             match std::fs::read(&path) {
                 Ok(bytes) => match String::from_utf8(bytes) {
-                    Ok(source) => study_file(package, &rel, &source),
+                    Ok(source) => study_file_in_crate(package, &rel, &source, context.as_ref()),
                     Err(err) => verdict(package, &rel, format!("read-error: {err}")),
                 },
                 Err(err) => verdict(package, &rel, format!("read-error: {err}")),

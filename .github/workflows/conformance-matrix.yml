@@ -1,9 +1,31 @@
 name: Conformance Matrix
 
+# THIS MATRIX IS A PR GATE (issue #619). It used to run on push-to-main, the
+# weekly cron and manual dispatch only, so every lane had to `gh workflow run
+# conformance-matrix.yml --ref <branch>` by hand after each push and read the
+# run back — and a lane that forgot simply saw no row at all, which reads as
+# green. The `pull_request:` trigger below closes that: the same path filter now
+# decides both, so a PR touching any compiler/encoder/engine/corpus path gets
+# the full matrix automatically, on the PR, with no dispatch.
+#
+# ONE PATH LIST, REFERENCED TWICE. `&matrix_paths` / `*matrix_paths` is a YAML
+# anchor + alias; GitHub Actions has supported anchors in workflow files since
+# 2025-09-18 ("GitHub Actions now supports YAML anchors ... automatically
+# enabled for all GitHub Actions users and repositories" —
+# https://github.blog/changelog/2025-09-18-actions-yaml-anchors-and-non-public-workflow-templates/,
+# documented at
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
+# Two hand-kept copies would drift the moment a language directory is added, and
+# the drift would be INVISIBLE: a PR whose only changed path is missing from one
+# copy simply does not get the matrix, and an absent check reads as green.
+# `tools/ci/check_matrix_paths.sh` pins the invariant anyway — it compares the
+# two lists AFTER the YAML parser has expanded the alias, so replacing the alias
+# with a divergent literal list still fails — and runs on every PR from ci.yml's
+# always-on `proto` job.
 on:
   push:
     branches: [main]
-    paths:
+    paths: &matrix_paths
       - "tests/conformance/**"
       - "dart/engine/**"
       - "dart/shared/**"
@@ -17,6 +39,9 @@ on:
       - "go/**"
       - "python/**"
       - "dart/self_host/**"
+  pull_request:
+    # The SAME list as `push` above, by YAML alias — never a second copy.
+    paths: *matrix_paths
   schedule:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
   workflow_dispatch:
@@ -25,6 +50,10 @@ on:
 permissions:
   contents: read
 
+# Per-ref, cancel-in-progress. Since #619 this covers PR refs too
+# (`refs/pull/<n>/merge`), so a second push to a PR supersedes the matrix run
+# still in flight for the first — a push-to-main run and a PR run are different
+# refs and therefore never cancel each other.
 concurrency:
   group: conformance-${{ github.ref }}
   cancel-in-progress: true
@@ -868,7 +897,17 @@ jobs:
       # read the wrapped list, and 394_mappattern_excludes_set matched
       # `case {…}:` until the map-pattern gate excluded the tagged shape.
       # Measured locally at 258, never predicted.
-      CSHARP_COMPILER_FLOOR: "258"
+      #
+      # 258 was the value recorded at #527/#528, when the corpus was 335
+      # fixtures; it is 349 now, so part of the gap below is corpus growth this
+      # floor was never re-measured against, not one change's yield. #615 makes
+      # `CompileTryStatement` dispatch EVERY catch clause by exception type (it
+      # used to run `catches[0]` unconditionally) and gives `BallThrow` the
+      # reference engine's `arg0` -> `message` rename; 146_nested_try_catch_types
+      # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
+      # fixture-by-fixture to flip. Measured by this very row at 270 (run
+      # 34739969708, and 270 again on the run before it), never predicted.
+      CSHARP_COMPILER_FLOOR: "270"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1088,12 +1127,13 @@ jobs:
   # total must be >= 1. Each leg's own exit code is EXPECTED to be non-zero
   # while fixtures fail.
   #
-  # NOT A PR GATE, and that is the actual limitation, not a softening: this
-  # workflow has NO `pull_request:` trigger, so these rows run on push-to-main,
-  # the weekly schedule, or manual dispatch only. On a PR they are ABSENT, and
-  # an absent check reads as green — always `gh workflow run
-  # conformance-matrix.yml --ref <branch>` and read the run before merging a
-  # change to any of them.
+  # THESE ROWS RUN ON PRs SINCE #619: this workflow gained a path-filtered
+  # `pull_request:` trigger, so a PR touching any filtered path gets every row —
+  # these measurement legs included — as a PR check, with no dispatch. What is
+  # still deliberately NOT gated is their FAILURE COUNT: each leg's own exit code
+  # is expected to be non-zero, and the assertion stays "the harness produced a
+  # parseable `Results:` line, its counts are bare integers, and total >= 1". A
+  # red row here means the harness broke, never that a fixture regressed.
   # ──────────────────────────────────────────────────
   python-roundtrip:
     name: Python Round-Trip Leg (measurement)
@@ -1391,7 +1431,18 @@ jobs:
       # `set.add(x)` to the generic `list_push`, which panicked on the tagged
       # map until every mutating list op learned to write through it
       # (129_unique_elements). Measured locally at 265, never predicted.
-      RUST_COMPILER_FLOOR: "265"
+      #
+      # 265 was the value recorded at #527/#528, when the corpus was 335
+      # fixtures; it is 349 now, so part of the gap below is corpus growth this
+      # floor was never re-measured against, not one change's yield. #615 makes
+      # `compile_try` dispatch EVERY catch clause by exception type (it used to
+      # run `catches.first()` unconditionally) and gives `ball_throw` the
+      # reference engine's `arg0` -> `message` rename;
+      # 146_nested_try_catch_types and the new 464_typed_catch_clause_dispatch
+      # are the two fixtures verified fixture-by-fixture to flip. Measured by
+      # this very row at 273 (run 34739969708, and 273 again on the run before
+      # it), never predicted.
+      RUST_COMPILER_FLOOR: "273"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1482,7 +1533,18 @@ jobs:
       # leg (+2); a local before/after per-fixture diff accounted for every
       # change (106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 273, never predicted.
-      GO_COMPILER_FLOOR: "273"
+      #
+      # 273 was the value recorded at #527/#528, when the corpus was 335
+      # fixtures; it is 349 now, so part of the gap below is corpus growth this
+      # floor was never re-measured against. #615's OWN yield was measured
+      # directly, by running this leg's whole corpus at origin/main and again on
+      # the fix branch on one machine: 281 -> 283 of 348 -> 349, and a
+      # per-fixture diff over the WHOLE failure list accounted for every change
+      # — exactly 146_nested_try_catch_types flipped to passing, the new
+      # 464_typed_catch_clause_dispatch passes, and nothing flipped to failing.
+      # Measured by this very row at 283 (run 34739969708, and 283 again on the
+      # run before it), matching the local sweep, never predicted.
+      GO_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

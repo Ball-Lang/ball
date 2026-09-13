@@ -107,7 +107,7 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
    so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
 
-`tests/conformance/464_state_error_message` is the cross-target guard (it prints the caught
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.

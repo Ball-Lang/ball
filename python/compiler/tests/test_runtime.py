@@ -214,7 +214,7 @@ def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
 #     same here as on the Dart reference engine. The `.reduce`/`.firstWhere`
 #     method arms threw a bare STRING with that text: right text, no type.
 #
-# The cross-target guard is conformance fixture 464_state_error_message (wired
+# The cross-target guard is conformance fixture 465_state_error_message (wired
 # into test_conformance.py's PROVEN list); this is the runtime half.
 @pytest.mark.parametrize(
     "call",

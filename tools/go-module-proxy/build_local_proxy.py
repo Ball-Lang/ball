@@ -5,11 +5,18 @@ Why this exists (issue #361): the only way to prove that an EXTERNAL consumer
 can resolve `github.com/ball-lang/ball/go/<module>` is to resolve it the way
 the `go` command does for a real consumer — through a module proxy, with no
 `go.work`, no sibling directories on disk, and no `replace` directives. The
-published go.mod files name intra-repo dependencies at `v0.1.0`, which is only
-resolvable off proxy.golang.org once the `go/<module>/v0.1.0` git tags are
-pushed. This script builds the exact proxy tree those tags would produce, from
-the current checkout, so CI can run that end-to-end resolution BEFORE (and
-independently of) any tag being cut.
+published go.mod files name intra-repo dependencies at one version (the Go
+module line, currently v0.2.0), which is only resolvable off proxy.golang.org
+once the matching `go/<module>/vX.Y.Z` git tags are pushed. This script builds
+the exact proxy tree those tags would produce, from the current checkout, so CI
+can run that end-to-end resolution BEFORE (and independently of) any tag being
+cut.
+
+The version is DERIVED, never passed in: `--print-version` is the single source
+of truth for both this proxy and .github/workflows/tag-go-modules.yml, so the
+proxy CI proves is, by construction, the proxy the tags will publish. `--version`
+is kept only as a redundant cross-check and must equal the derived version — see
+`module_version` for the four invariants asserted before it is printed.
 
 The proxy layout is the one documented at https://go.dev/ref/mod#goproxy-protocol:
 
@@ -22,14 +29,18 @@ and the zip is the module zip file format from https://go.dev/ref/mod#zip-files:
 every path is prefixed with `<module path>@<version>/`.
 
 File selection uses `git ls-files`, so the zip holds exactly the tracked files a
-git tag would carry — gitignored build output (for example the generated
-`go/engine/compiled/compiled_engine.go`) is excluded, which is also what makes
-the resulting module hashes identical to the ones proxy.golang.org will compute
-for the real tag.
+git tag would carry — and only those: any gitignored build output is excluded,
+which is what makes the resulting module hashes identical to the ones
+proxy.golang.org will compute for the real tag. Since #586 the two generated
+artifacts a consumer needs at runtime (`go/engine/compiled/compiled_engine.go`
+and `go/cli/compiled/compiled_cli.go`) are TRACKED, so they are inside the zips
+and a `go install`-acquired `ball` can run programs and the cli-core verbs;
+`Ball Artifact Freshness` in ci.yml is what keeps them honest.
 
 Usage:
 
-    python3 tools/go-module-proxy/build_local_proxy.py <out-dir> [--version v0.1.0]
+    python3 tools/go-module-proxy/build_local_proxy.py <out-dir> [--version vX.Y.Z]
+    python3 tools/go-module-proxy/build_local_proxy.py --print-version
 
 Prints the `file://` URL of the generated proxy root on stdout (and nothing
 else), so a caller can do `GOPROXY="$(build_local_proxy.py "$dir"),…"`.
@@ -85,6 +96,20 @@ def workspace_modules(root: pathlib.Path) -> list[str]:
         dirs.append(line.lstrip("./"))
     if not dirs:
         raise SystemExit("go/go.work's `use (...)` block is empty")
+    # Cross-check against the module directories actually on disk. This script
+    # enumerates go.work's `use` block; tools/go-module-proxy/tag_go_modules.sh
+    # enumerates `go/*/go.mod` from DISK. If the two sets ever diverge, the tags
+    # that get cut cover a DIFFERENT module set than the proxy this smoke
+    # proved — a seventh module added to the tree but not to go.work would be
+    # tagged untested, and a module dropped from the tree but left in go.work
+    # would fail the tag run after a green smoke.
+    on_disk = sorted(p.parent.name for p in sorted((root / "go").glob("*/go.mod")))
+    if sorted(dirs) != on_disk:
+        raise SystemExit(
+            "go/go.work's `use (...)` block and the module directories on disk "
+            "disagree; the tags are cut from the on-disk set, so they must match "
+            f"exactly:\n  go.work use: {sorted(dirs)}\n  on disk:     {on_disk}"
+        )
     return sorted(dirs)
 
 
@@ -222,7 +247,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--version",
         default=None,
-        help="module version to publish (default: the version every go/*/go.mod names)",
+        help=(
+            "redundant cross-check: must EQUAL the version every go/*/go.mod "
+            "names (which is the version the go/<module>/vX.Y.Z tags carry); "
+            "it is not an override"
+        ),
+    )
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="repository root to read go/go.work and go/*/go.mod from (default: this checkout)",
     )
     parser.add_argument(
         "--print-version",
@@ -231,10 +265,26 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
-    root = repo_root()
-    version = args.version or module_version(root)
-    if not _SEMVER.fullmatch(version):
-        raise SystemExit(f"module version must look like vX.Y.Z, got {version!r}")
+    root = pathlib.Path(args.root).resolve() if args.root else repo_root()
+    # ALWAYS derive, even when --version is given: module_version() is where the
+    # four cross-file invariants are asserted, and skipping it for an explicit
+    # --version is how a half-bumped tree used to synthesize a perfectly
+    # resolvable proxy at a version no tag would ever carry.
+    declared = module_version(root)
+    if not _SEMVER.fullmatch(declared):
+        raise SystemExit(f"module version must look like vX.Y.Z, got {declared!r}")
+    version = args.version or declared
+    if version != declared:
+        raise SystemExit(
+            f"--version {version} disagrees with the version go/*/go.mod name "
+            f"({declared}). The synthesized proxy MUST carry the version the "
+            "go/<module>/vX.Y.Z tags will carry: tag-go-modules.yml derives the "
+            "tag from --print-version, and a module zip whose go.mod requires a "
+            "version this proxy does not serve either falls through to the "
+            "PUBLIC proxy (a false pass, measuring released code instead of this "
+            "commit) or fails with 'unknown revision'. To move the line, run "
+            "tools/go-module-proxy/bump_go_modules.sh <vX.Y.Z>."
+        )
 
     if args.print_version:
         print(version)

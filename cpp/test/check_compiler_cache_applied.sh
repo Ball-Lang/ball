@@ -245,13 +245,34 @@ self_test() {
   }
 
   # Verbatim shapes of the two tools' machine-readable output.
-  sccache_stats() { # <requests> <hits>
+  #
+  # `Non-cacheable compilations` and `Non-cacheable calls` are DIFFERENT sccache
+  # counters and the gate reads the first one, so the fixtures carry both and a
+  # case below drives them apart to pin the anchor.
+  sccache_stats() { # <requests> <hits> [non-cacheable compilations] [non-cacheable calls]
+    local nc="${3:-0}"
     printf 'Compile requests %39s\n' "$1"
     printf 'Compile requests executed %30s\n' "$1"
     printf 'Cache hits %45s\n' "$2"
     printf 'Cache misses %43s\n' "$(($1 - $2))"
+    printf 'Non-cacheable compilations %29s\n' "$nc"
+    printf 'Non-cacheable calls %36s\n' "${4:-$nc}"
   }
-  ccache_stats() { # <direct hits> <preprocessed hits> <misses>
+  # ccache's stats file carries BOTH forms, exactly as the gate collects them:
+  # `ccache -s`'s human summary first (the only place ccache reports the
+  # cacheable/uncacheable split — `--print-stats` has no such counter pair),
+  # then the tab-separated `--print-stats` counters. The human lines are not
+  # tab-separated, so the counter parsers ignore them and vice versa.
+  ccache_stats() { # <direct hits> <preprocessed hits> <misses> [uncacheable]
+    local u="${4:-0}" cacheable total
+    cacheable=$(($1 + $2 + $3))
+    total=$((cacheable + u))
+    awk -v c="$cacheable" -v t="$total" \
+      'BEGIN { printf "Cacheable calls: %5d / %d (%.2f%%)\n", c, t, (t ? 100 * c / t : 0) }'
+    if [ "$u" -gt 0 ]; then
+      awk -v u="$u" -v t="$total" \
+        'BEGIN { printf "Uncacheable calls: %3d / %d (%.2f%%)\n", u, t, (t ? 100 * u / t : 0) }'
+    fi
     printf 'cache_miss\t%s\n' "$3"
     printf 'direct_cache_hit\t%s\n' "$1"
     printf 'files_in_cache\t17\n'
@@ -338,13 +359,81 @@ self_test() {
   run_case "missing compiled source rejected" 1 \
     --tool sccache --stats-file "$tmp/sccache_warm.txt"
 
+  # ── 15-24. The NON-CACHEABLE ceiling (issue #599) ────────────────────────
+  #
+  # The cases above all describe one failure mode: the cache is never consulted
+  # (`requests == 0`). Its mirror image — the cache IS consulted and declines
+  # every single compile — is invisible to them: requests, hits and misses all
+  # look healthy while nothing is ever cached. That is not hypothetical, it is
+  # #594's own first Ninja run on Windows (`Non-cacheable compilations 296`,
+  # every generated fixture, because CMake's MSVC module defaulted the scratch
+  # project to Debug and sccache refuses a `/Zi` shared PDB). The fix landed;
+  # nothing asserts it stays fixed.
+
+  # 15. THE REGRESSION SHAPE: every generated TU declined, at the measured
+  #     ceiling of 0.
+  sccache_stats 600 304 296 >"$tmp/sccache_declined.txt"
+  run_case "sccache declining every compile fails" 1 \
+    --tool sccache --compiled 600 --stats-file "$tmp/sccache_declined.txt"
+
+  # 16. The healthy measured shape: nothing declined.
+  sccache_stats 600 600 0 >"$tmp/sccache_clean.txt"
+  run_case "sccache with zero non-cacheable stays green" 0 \
+    --tool sccache --compiled 600 --stats-file "$tmp/sccache_clean.txt"
+
+  # 17. `Non-cacheable calls` is a DIFFERENT counter and must not be read in
+  #     place of `Non-cacheable compilations` (the same anchoring bug the
+  #     "Compile requests executed" $3 test above guards against).
+  sccache_stats 600 600 0 296 >"$tmp/sccache_other_counter.txt"
+  run_case "sccache reads compilations, not calls" 0 \
+    --tool sccache --compiled 600 --stats-file "$tmp/sccache_other_counter.txt"
+
+  # 18. Same ceiling on the ccache side: 322 of 326 calls cacheable -> 4
+  #     declined, above the measured ceiling of 0.
+  ccache_stats 322 0 0 4 >"$tmp/ccache_declined.txt"
+  run_case "ccache with uncacheable calls fails" 1 \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_declined.txt"
+
+  # 19. The healthy measured shape on ccache: 322 / 322.
+  ccache_stats 322 0 0 0 >"$tmp/ccache_clean.txt"
+  run_case "ccache with zero uncacheable stays green" 0 \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_clean.txt"
+
+  # 20-21. The comparison is a real `<=`, not a hardcoded "is it zero": at or
+  #     below an explicit ceiling passes, above it fails.
+  run_case "non-cacheable at/below an explicit ceiling stays green" 0 \
+    --tool ccache --compiled 322 --max-noncacheable 5 \
+    --stats-file "$tmp/ccache_declined.txt"
+  ccache_stats 320 0 0 6 >"$tmp/ccache_over.txt"
+  run_case "non-cacheable above an explicit ceiling fails" 1 \
+    --tool ccache --compiled 320 --max-noncacheable 5 \
+    --stats-file "$tmp/ccache_over.txt"
+
+  # 22-23. An unreadable non-cacheable count must FAIL, never pass by default —
+  #     the same rule the request count already lives under.
+  {
+    printf 'Compile requests %39s\n' 600
+    printf 'Cache hits %45s\n' 600
+    printf 'Non-cacheable compilations %29s\n' 'many'
+  } >"$tmp/sccache_nan.txt"
+  run_case "non-integer non-cacheable count fails loud" 1 \
+    --tool sccache --compiled 600 --stats-file "$tmp/sccache_nan.txt"
+  grep -v '^Cacheable calls:' "$tmp/ccache_clean.txt" >"$tmp/ccache_no_summary.txt"
+  run_case "ccache stats without the cacheable/total summary fail loud" 1 \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_no_summary.txt"
+
+  # 24. Misconfiguration of the new knob itself must be loud, like --compiled.
+  run_case "non-integer --max-noncacheable rejected" 1 \
+    --tool sccache --compiled 600 --max-noncacheable "none" \
+    --stats-file "$tmp/sccache_clean.txt"
+
   rm -rf "$tmp"
 
   local total=$((pass + fail))
   # Positive floor: an exit code plus a failure count cannot tell "everything
   # passed" from "nothing ran".
-  if [ "$total" -lt 10 ]; then
-    echo "::error::compiler-cache gate self-test ran only $total case(s) — expected at least 10."
+  if [ "$total" -lt 20 ]; then
+    echo "::error::compiler-cache gate self-test ran only $total case(s) — expected at least 20."
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"

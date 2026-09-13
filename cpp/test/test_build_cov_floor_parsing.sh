@@ -106,11 +106,83 @@ run_case "malformed summary fails loud" 1 \
   "lcov: ERROR: no valid records found in tracefile" \
   "$(summary_line 89.1)" "$(summary_line 81.7)"
 
+# ── The committed FLOORS table itself (issues #63 / #599) ──────────────────
+#
+# Cases 1-4 feed SYNTHETIC percentages; nothing in this suite had ever looked at
+# the numbers the gate actually compares against. A table that stops parsing is
+# a gate that stops gating, silently: build-cov-floor.sh reads each floor
+# straight into `awk -v f="$floor"`, where a non-numeric value degrades to 0 —
+# `f=` (an emptied entry) and `f=ninety` both make "is coverage below the
+# floor?" permanently false, and a renamed/dropped key simply stops checking
+# that target. Neither shows up as an error; both read as a green gate.
+#
+# So: pin the SHAPE of the table (three known targets, each a bare number in
+# range) and then drive the real script at those exact numbers — at the floor
+# must pass, a tenth of a point under must fail. The boundary cases read the
+# committed values rather than hardcoding them, so a ratchet moves them
+# automatically and this file never has to be kept in sync by hand.
+
+# floors_of — "<target> <floor>" per line, straight out of the committed script.
+floors_of() {
+  sed -n '/^declare -A FLOORS=(/,/^)/p' "$SCRIPT" \
+    | sed -n 's/^[[:space:]]*\[\([A-Za-z_][A-Za-z0-9_]*\)\]=\(.*\)$/\1 \2/p'
+}
+
+floor_for() { floors_of | awk -v t="$1" '$1 == t { print $2; found = 1 } END { exit !found }'; }
+
+table_ok=1
+names="$(floors_of | awk '{ print $1 }' | sort | tr '\n' ' ')"
+if [ "$names" != "compiler encoder shared " ]; then
+  table_ok=0
+  echo "FAIL  FLOORS table targets: expected 'compiler encoder shared ', got '$names'"
+fi
+while read -r t f; do
+  case "$f" in
+    '' | *[!0-9]*)
+      table_ok=0
+      echo "FAIL  FLOORS[$t] is '$f' — not a bare integer; awk would read it as 0 and the gate could never fail"
+      continue
+      ;;
+  esac
+  if [ "$f" -gt 100 ]; then
+    table_ok=0
+    echo "FAIL  FLOORS[$t] is $f — a line-coverage floor above 100% can never be met"
+  fi
+done <<EOF
+$(floors_of)
+EOF
+if [ "$table_ok" -eq 1 ]; then
+  pass=$((pass + 1))
+  echo "PASS  FLOORS table parses and every floor is a bare number in range ($(floors_of | tr '\n' ';' | sed 's/;$//'))"
+else
+  fail=$((fail + 1))
+fi
+
+# 5-8. Boundary cases against the COMMITTED floors, not synthetic ones.
+c_floor="$(floor_for compiler)"
+e_floor="$(floor_for encoder)"
+s_floor="$(floor_for shared)"
+# just_under <int-floor> — a tenth of a point below it, without floating-point
+# arithmetic in bash.
+just_under() { printf '%s.9\n' "$(($1 - 1))"; }
+
+run_case "every target exactly at its committed floor" 0 \
+  "$(summary_line "$c_floor")" "$(summary_line "$e_floor")" "$(summary_line "$s_floor")"
+run_case "compiler a tenth of a point under its committed floor" 1 \
+  "$(summary_line "$(just_under "$c_floor")")" \
+  "$(summary_line "$e_floor")" "$(summary_line "$s_floor")"
+run_case "encoder a tenth of a point under its committed floor" 1 \
+  "$(summary_line "$c_floor")" \
+  "$(summary_line "$(just_under "$e_floor")")" "$(summary_line "$s_floor")"
+run_case "shared a tenth of a point under its committed floor" 1 \
+  "$(summary_line "$c_floor")" "$(summary_line "$e_floor")" \
+  "$(summary_line "$(just_under "$s_floor")")"
+
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything
 # passed" from "nothing ran".
-if [ "$total" -lt 1 ]; then
-  echo "::error::floor-parsing test ran zero cases"
+if [ "$total" -lt 9 ]; then
+  echo "::error::floor-parsing test ran only $total case(s) — expected at least 9."
   exit 1
 fi
 echo "Results: $pass passed, $fail failed, $total total"

@@ -938,7 +938,12 @@ encoder 97 / shared 92 against six consecutive agreeing main runs (#63; the run
 ids and the derivation live in that script's header, which is where the numbers
 belong). That script's parser is pinned by
 `cpp/test/test_build_cov_floor_parsing.sh` (it used to pass silently when it
-could not parse a summary at all).
+could not parse a summary at all). Every percentage that suite feeds is DERIVED
+from the committed `FLOORS` table — including its future-ratchet simulation,
+whose scratch floors are `committed + 2` since #700, so the control keeps
+simulating a ratchet the table has not reached yet rather than the numbers it is
+already running at. The script itself is PCRE-free (`sed -E`, never
+`grep -P`), so that suite runs on native Windows Git Bash as well as on CI.
 
 > A failing/ungated package suite (e.g. `ball_protobuf`, issue #75) is measured
 > but surfaced as a loud WARNING and under-counted — `coverage_dart.dart`

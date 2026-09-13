@@ -30,6 +30,13 @@
 #   (e) the job carries no `continue-on-error`, which would let the gate's exit
 #       code evaporate.
 #
+# HOUSE RULE THIS FILE ALSO ENFORCES ON ITSELF (#700): no pipeline here may end
+# in `head`. `head -N` exits as soon as it has its N lines, the producer
+# upstream takes SIGPIPE, and `set -o pipefail` turns that into exit 141 — a
+# "failure" with nothing wrong, which is what produced RED run 34755211709.
+# Every first-line read goes through `awk 'NR == 1'`, which consumes its whole
+# input. The `no_head_after_a_pipe` case at the bottom is the negative control.
+#
 # ...and then proves the assertion is not vacuous with a NEGATIVE CONTROL: the
 # real ci.yml, rewritten so the gate step is relocated to the end of the `cpp`
 # job, must be REJECTED. A checker that cannot fail is not a checker.
@@ -137,9 +144,11 @@ check_order() {
   fi
   [ "$rc" -eq 0 ] || return 1
 
+  # `awk 'NR == 1'`, never a first-line reader that exits early: see the
+  # no_head_after_a_pipe control at the bottom of this file.
   local gate_step
-  gate_step="$(printf '%s\n' "$gates" | head -1)"
-  first_smoke="$(printf '%s\n' "$smokes" | head -1)"
+  gate_step="$(printf '%s\n' "$gates" | awk 'NR == 1')"
+  first_smoke="$(printf '%s\n' "$smokes" | awk 'NR == 1')"
   if [ "$gate_step" -ge "$first_smoke" ]; then
     echo "::error::the 'Compiler cache applied' step is step $gate_step, at or after the first full_e2e.sh step ($first_smoke). full_e2e.sh's compile-and-link smoke adds uncacheable ccache calls, so the gate MUST read the statistics before it runs or the ubuntu/macOS legs go red at 4 against a ceiling of 0. See issues #660 / #599."
     return 1
@@ -157,7 +166,7 @@ check_order() {
   # One steps list over the 3-OS matrix is what makes the order above true for
   # EVERY leg. A per-OS split would need its own assertion.
   local oses
-  oses="$(slice_cpp_job "$wf" | sed -n 's/^[[:space:]]*os:[[:space:]]*\[\(.*\)\]$/\1/p' | head -1)"
+  oses="$(slice_cpp_job "$wf" | sed -n 's/^[[:space:]]*os:[[:space:]]*\[\(.*\)\]$/\1/p' | awk 'NR == 1')"
   local n_os
   n_os="$(printf '%s' "$oses" | tr ',' '\n' | grep -c 'latest')"
   if [ "$n_os" -ne 3 ]; then

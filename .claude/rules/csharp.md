@@ -171,12 +171,13 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
   (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 8 passed, 2 failed, 10 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  `Results: 9 passed, 2 failed, 11 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
   `1 passed, 6 failed`; slices A/B closed buckets b, c and g; slice C added and closed bucket
   (h), `enum` declarations; slice C's line was `5 passed, 3 failed, 8 total`; slice E closed
   bucket (e), `6 passed, 2 failed, 8 total`; slice 3 added and closed bucket (i), BCL static guard
   calls, `7 passed, 2 failed, 9 total`; slice 3b added and closed bucket (j), the 0-argument LINQ
-  terminals — the taxonomy grows only when a fresh measurement says so, which is
+  terminals, `8 passed, 2 failed, 10 total`; slice 4 added and closed bucket (k), the 2-argument
+  `string.Join` — the taxonomy grows only when a fresh measurement says so, which is
   how the enum bucket stayed invisible until it was the largest). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a

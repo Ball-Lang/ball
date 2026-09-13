@@ -660,12 +660,12 @@ purpose: no network fetch and no third-party licensing (vendoring real packages 
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slices A, B, C, E, 3 and 3b: **`Results: 8 passed, 2 failed, 10 total`** (slice 1's was
+Baseline after slices A, B, C, E, 3, 3b and 4: **`Results: 9 passed, 2 failed, 11 total`** (slice 1's was
 `0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`;
 slice C's, `5 passed, 3 failed, 8 total`; slice E's, `6 passed, 2 failed, 8 total`; slice 3's,
-`7 passed, 2 failed, 9 total`).
-Buckets (b), (c) and (g) closed together, then (h), then (e), then (i), then (j); (d) cross-file and
-(f) target-typed `new()` remain open.
+`7 passed, 2 failed, 9 total`; slice 3b's, `8 passed, 2 failed, 10 total`).
+Buckets (b), (c) and (g) closed together, then (h), then (e), then (i), then (j), then (k);
+(d) cross-file and (f) target-typed `new()` remain open.
 
 **The taxonomy is fixed only until a measurement says otherwise.** Rows (a)-(g) were transcribed
 once from #492's original manual study and cannot grow on their own — which is exactly how the
@@ -673,7 +673,12 @@ once from #492's original manual study and cannot grow on their own — which is
 b, c and g. Row (h) was added by slice C from a fresh Tier A measurement (66 of 398 encode errors,
 100% of them enums), row (i) by slice 3 from another (104 of 349, the `unsupported method call`
 fallback throw), and row (j) by slice 3b from a re-measurement of that same bucket after slice 3
-(97 of 349, spread over 84 distinct `(name, argCount)` pairs). When a later measurement shows a new
+(97 of 349, spread over 84 distinct `(name, argCount)` pairs), and row (k) by slice 4 from a
+re-measurement that found the residual `unsupported method call` bucket (96 files, 83 distinct
+pairs) had no routable BCL shape left above 1-2 occurrences — every remaining named shape being
+a documented deferral, another lane's territory, reflection, or a cross-file user helper — while
+the SEPARATE `unsupported static call` bucket held one dominant routable shape, `string.Join`
+(12 of 19). When a later measurement shows a new
 dominant shape, add its row the same way rather than assuming this table still describes reality.
 The **global** passed count is printed, never asserted on —
 asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets

@@ -138,6 +138,16 @@ impl Encoder {
             Some(init) => self.encode_expr(&init.expr),
             None => null_literal(),
         };
+        // Not an alias binding: this `let` SHADOWS any alias of the same name
+        // that is still in scope (`let r = &mut y; ... let r = 5; ... r` reads
+        // the 5, not `y`). Dropping the entry is what makes a later read of the
+        // name resolve to this binding instead of silently to the borrowed
+        // variable. The block that declared the alias restores it on exit.
+        //
+        // AFTER the initializer is encoded, never before: in `let r = r + 1;`
+        // the right-hand `r` is the OLD binding, so it must still resolve
+        // through the alias.
+        self.ref_aliases.remove(&name);
         // Cosmetic mutability round-trip (issue #43): `let mut x = ...;` ->
         // `metadata.is_mut = true`; a plain `let x = ...;` (Rust's default,
         // conceptually Dart's `final`) carries no metadata at all — matches

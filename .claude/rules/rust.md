@@ -362,9 +362,16 @@ cargo fmt --check && cargo clippy --workspace
   `encode_path_expr` resolves a read of the alias to the borrowed variable. Deliberately narrow:
   only a borrow of a plain NAMED variable — `&mut v[0]`/`&mut p.x` are left exactly as they were
   rather than guessed at, and a `&mut` passed to a callee is still the wider, open
-  reference-semantics gap. Guards: `rust/encoder/tests/compiler_output.rs`'s
-  `mutation_through_a_mut_alias_targets_the_borrowed_variable` and
-  `a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias`.
+  reference-semantics gap. The alias is SHADOWED like any other Rust binding — by a later `let` of
+  the same name (cleared in `encode_local` AFTER its initializer is encoded, so `let r = r + 1;`
+  still reads the old one) and by a fn/closure PARAMETER of the same name (saved and restored
+  around every `push_fn_scope`/`pop_fn_scope`) — or a read of the shadowing binding would silently
+  resolve to the borrowed variable instead, the same class of wrong answer in the other direction.
+  Guards: `rust/encoder/tests/compiler_output.rs`'s
+  `mutation_through_a_mut_alias_targets_the_borrowed_variable`,
+  `a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias`,
+  `a_later_let_of_the_same_name_shadows_the_alias` and
+  `a_parameter_shadows_an_alias_of_the_same_name`.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which

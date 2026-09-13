@@ -248,6 +248,112 @@ fn a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias() {
     );
 }
 
+/// An alias is SHADOWED by a later `let` of the same name, like any other Rust
+/// binding.
+///
+/// `let r = &mut y; let r = 9; r` reads the 9. Recording the alias and never
+/// clearing it made the final read resolve to `y` instead — the same silent
+/// wrong answer the alias table was added to remove, just in the other
+/// direction. `y` is never read in this program, so its appearance anywhere in
+/// the encoded references IS the bug.
+#[test]
+fn a_later_let_of_the_same_name_shadows_the_alias() {
+    let program = ball_lang_encoder::encode(
+        "fn main() { let mut y = BallValue::Int(1i64);          let r: &mut BallValue = (&mut y);          let r = BallValue::Int(9i64);          println!(\"{}\", r); }",
+    );
+
+    let names = referenced_names(&program);
+    assert!(
+        names.iter().any(|n| n == "r"),
+        "the read after the shadowing `let` must name that binding: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "y"),
+        "`y` is never read in this program — resolving through the shadowed alias is the bug: {names:?}"
+    );
+}
+
+/// A fn/closure PARAMETER shadows an alias of the same name for the body's
+/// duration, and only for it.
+///
+/// In `let r = &mut y; let f = |r| r;` the closure's `r` is its own parameter.
+/// Resolving it to the borrowed `y` would capture a variable the closure never
+/// mentions — again silent, again a wrong answer rather than a refusal.
+#[test]
+fn a_parameter_shadows_an_alias_of_the_same_name() {
+    let program = ball_lang_encoder::encode(
+        "fn main() { let mut y = BallValue::Int(1i64);          let r: &mut BallValue = (&mut y);          let f = |r| r;          println!(\"{}\", f); }",
+    );
+
+    let names = referenced_names(&program);
+    assert!(
+        names.iter().any(|n| n == "r"),
+        "the closure body must read its own parameter: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "y"),
+        "a parameter must shadow the alias — `y` is never read here: {names:?}"
+    );
+}
+
+/// Every `reference` name the program reads, in encounter order.
+fn referenced_names(program: &Program) -> Vec<String> {
+    let mut found = Vec::new();
+    for module in &program.modules {
+        for function in &module.functions {
+            if let Some(body) = &function.body {
+                collect_reference_names(body, &mut found);
+            }
+        }
+    }
+    found
+}
+
+fn collect_reference_names(expr: &Expression, out: &mut Vec<String>) {
+    match expr.expr.as_ref() {
+        Some(Expr::Reference(reference)) => out.push(reference.name.clone()),
+        Some(Expr::Call(call)) => {
+            if let Some(input) = &call.input {
+                collect_reference_names(input, out);
+            }
+        }
+        Some(Expr::Lambda(lambda)) => {
+            if let Some(body) = &lambda.body {
+                collect_reference_names(body, out);
+            }
+        }
+        Some(Expr::FieldAccess(access)) => {
+            if let Some(object) = &access.object {
+                collect_reference_names(object, out);
+            }
+        }
+        Some(Expr::Block(block)) => {
+            for statement in &block.statements {
+                match statement.stmt.as_ref() {
+                    Some(Stmt::Let(binding)) => {
+                        if let Some(value) = &binding.value {
+                            collect_reference_names(value, out);
+                        }
+                    }
+                    Some(Stmt::Expression(inner)) => collect_reference_names(inner, out),
+                    _ => {}
+                }
+            }
+            if let Some(result) = &block.result {
+                collect_reference_names(result, out);
+            }
+        }
+        Some(Expr::MessageCreation(message)) => {
+            for field in &message.fields {
+                if let Some(value) = &field.value {
+                    collect_reference_names(value, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Every `std.assign` target name in the program, in encounter order.
 fn assign_targets(program: &Program) -> Vec<String> {
     let mut found = Vec::new();

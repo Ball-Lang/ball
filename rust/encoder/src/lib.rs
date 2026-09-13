@@ -810,8 +810,14 @@ pub(crate) struct Encoder {
     /// [`Self::encode_local`] records the alias and emits no binding instead,
     /// and [`Self::encode_path_expr`] resolves a read of it back to the borrowed
     /// variable, which IS what the Rust means. Block-scoped: saved and restored
-    /// around every block (see `block.rs`).
+    /// around every block (see `block.rs`), and SHADOWED by any later binding of
+    /// the same name — a plain `let` of that name in [`Self::encode_local`], or
+    /// a fn/closure parameter in [`Self::push_fn_scope`].
     pub(crate) ref_aliases: HashMap<String, String>,
+    /// One saved [`Self::ref_aliases`] per fn/closure scope currently being
+    /// encoded, so a parameter that shadows an alias stops resolving to the
+    /// borrowed variable for the body's duration and starts again after it.
+    pub(crate) alias_scopes: Vec<HashMap<String, String>>,
 }
 
 impl Encoder {
@@ -831,6 +837,7 @@ impl Encoder {
             crate_symbols,
             referenced_crate_modules: BTreeSet::new(),
             ref_aliases: HashMap::new(),
+            alias_scopes: Vec::new(),
         }
     }
 
@@ -975,6 +982,17 @@ impl Encoder {
     /// the module doc comment's "one input" section). Must be paired with
     /// [`Self::pop_fn_scope`] once the body has been encoded.
     fn push_fn_scope(&mut self, params: &[(String, String)]) -> Option<Struct> {
+        // A parameter SHADOWS a `&mut` alias of the same name from an enclosing
+        // scope (issue #642): in `let x = &mut y; list.map(|x| x)`, the closure's
+        // `x` is its own parameter, not the borrowed `y`. Without this, the read
+        // inside the body resolves to `y` — a silent wrong answer, the shape the
+        // alias table was added to remove. The whole table is saved and put back
+        // in `pop_fn_scope`, which also discards any alias the body declared;
+        // those are block-scoped and `encode_block` restores them anyway.
+        self.alias_scopes.push(self.ref_aliases.clone());
+        for (name, _) in params {
+            self.ref_aliases.remove(name);
+        }
         if params.len() >= 2 {
             self.scopes
                 .push(params.iter().map(|(name, _)| name.clone()).collect());
@@ -990,6 +1008,9 @@ impl Encoder {
 
     fn pop_fn_scope(&mut self) {
         self.scopes.pop();
+        if let Some(saved) = self.alias_scopes.pop() {
+            self.ref_aliases = saved;
+        }
     }
 
     /// Is `name` one of the **currently-being-encoded** fn/closure's own

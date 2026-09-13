@@ -185,6 +185,45 @@ void main() {
         );
       });
 
+      // Negative control for the INSTRUMENT. The next test asserts that
+      // strict-casts analysis of the compiled output is SILENT, and
+      // silence cannot tell "the analyzer found nothing" from "the
+      // analyzer never ran": a `dart` that is not on PATH, a change to
+      // `--format=machine`, or a scratch package the analyzer declines to
+      // load would each leave `errors` empty and pass it vacuously. This
+      // feeds `_analyzeStrict` the exact PRE-FIX line and REQUIRES the
+      // diagnostic back, so the gate is proven to bite before its silence
+      // is read as a pass.
+      test(
+        '_analyzeStrict rejects the pre-fix `null as dynamic` line',
+        () async {
+          final errors = await _analyzeStrict('''
+Future<int> preFix() async {
+  return null as dynamic;
+}
+
+void main() {
+  preFix();
+}
+''');
+          expect(
+            errors,
+            isNotEmpty,
+            reason:
+                'strict-casts analysis produced NO error for the very line '
+                'this suite exists to keep out, so it did not run and its '
+                'silence on the compiled output proves nothing.',
+          );
+          expect(
+            errors.join('\n'),
+            contains('RETURN_OF_INVALID_TYPE'),
+            reason:
+                'expected the strict-casts return-type diagnostic; got:\n'
+                '${errors.join('\n')}',
+          );
+        },
+      );
+
       test(
         'compiled async output passes `dart analyze --strict-casts`',
         () async {

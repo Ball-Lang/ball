@@ -55,10 +55,12 @@
 //!   `tests/conformance/105_static_methods.ball.json` (issue #288). What was
 //!   missing was *encoder-side mapping only*: turning `Point::new(...)`
 //!   syntax into that already-supported `is_static` shape — closed by slice 3.
-//! - **`methods.rs`' cross-file METHOD-call gap** (`receiver.method(args)`
-//!   whose method name isn't in the `collect_impl_method_params` pre-pass —
-//!   24 of 196 study files, the largest remaining bucket). It has no pin here
-//!   yet; adding one belongs with the slice that closes it.
+//!
+//! `methods.rs`' cross-file METHOD-call gap — 24 of 196 study files, the
+//! largest remaining bucket — used to be listed above as unpinned. It is
+//! pinned now, at the bottom of this file, *without* being closed: a gate
+//! nothing observes is a missing-test bug on its own, independent of whether
+//! the behaviour ever changes.
 
 /// Source is only ever encoded, never compiled, so every snippet here is
 /// minimal — the panic must fire on the shape, not on anything downstream.
@@ -161,11 +163,25 @@ fn impl_for_a_non_named_self_type_is_a_documented_gap() {
     );
 }
 
-/// The trait-block sibling is still a gap, deliberately: `ball-lang-compiler`'s
-/// `compile_method_dispatchers` skips every `is_abstract` member, so a
+/// The trait-block sibling, **narrowed** to the signature-only sub-case.
+///
+/// The example below has no default body, and that is now the load-bearing
+/// half: `ball-lang-compiler`'s `compile_struct_def` and
+/// `compile_method_dispatchers` both skip every `is_abstract` member, so a
 /// signature-only static trait item would have no dispatcher for a
-/// `Maker::make()` call site to resolve to. Closing it needs compiler-side
-/// work with no #288-style precedent — see `types.rs`'s module doc comment.
+/// `Maker::make()` call site to resolve to. Closing THAT still needs
+/// compiler-side work with no #288-style precedent.
+///
+/// What used to be lumped in here and no longer is: a **default-bodied**
+/// receiver-less trait fn. Those two compiler passes filter on `is_abstract`
+/// alone — never on whether a member's owner is a `trait` — so a concrete
+/// trait member is architecturally the same thing as `impl Point { fn
+/// new(..) }`, and needs zero compiler change. `types.rs`'s guard therefore
+/// keys on the missing BODY, not on the missing receiver; the encode →
+/// compile → `cargo build` → run proof is
+/// `static_methods.rs::default_bodied_trait_fn_without_receiver_encodes_and_round_trips`.
+/// This test stays `#[should_panic]`: the PR that separated the two narrowed
+/// this gap, it did not close it.
 #[test]
 #[should_panic(expected = "no `self` receiver inside a `trait`")]
 fn trait_associated_fn_without_receiver_is_a_documented_gap() {
@@ -206,4 +222,33 @@ fn top_level_const_is_a_documented_gap() {
 #[should_panic(expected = "unsupported macro invocation")]
 fn unmapped_macro_invocation_is_a_documented_gap() {
     encode("fn main() { assert!(1 + 1 == 2); }");
+}
+
+// ── methods.rs: instance-method resolution ───────────────────────────────────
+
+/// The single largest remaining bucket of issue #491 — **24 of 196 study
+/// files**, bigger than the 26-file associated-fn bucket was after that one
+/// closed — and, until now, the only gap in this file's list with no pin at
+/// all. `methods.rs::encode_method_call`'s catch-all fires for a
+/// `receiver.method(args)` whose method is neither a recognized built-in arm
+/// nor a same-file `impl` method name recorded by the
+/// `collect_impl_method_params` pre-pass; the overwhelmingly common real-world
+/// cause is that the method IS user-defined, just in another file.
+///
+/// Behaviour is unchanged by the PR that added this test — the gate already
+/// existed, nothing observed it. It is deliberately NOT closed here: unlike
+/// the cross-file *free-function* call (`other_file::helper(1)`, closed
+/// earlier), `receiver.method(args)` carries no module-qualifying path segment
+/// for a syntax-only encoder to attribute the callee to, so closing it needs a
+/// multi-file-aware encoding mode — a design decision, not a dispatch-table
+/// arm. See `methods.rs`'s module doc comment for the neighbouring PERMANENT
+/// carve-outs, which this bucket is explicitly not one of.
+#[test]
+#[should_panic(expected = "unsupported method call")]
+fn cross_file_method_call_is_a_documented_gap() {
+    encode(
+        "struct Foo { x: i32 }\n\
+         impl Foo { fn get(&self) -> i32 { self.x } }\n\
+         fn main() { let f = Foo { x: 1 }; println!(\"{}\", f.other_method()); }",
+    );
 }

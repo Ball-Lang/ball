@@ -116,7 +116,8 @@ cargo fmt --check && cargo clippy --workspace
   `param_alias_prologue` turns it into a real local binding); 2+ params → packed into one
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
-  variants, signature-only **trait** associated functions, a
+  variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
+  encodes — see below; the guard keys on the missing BODY, not the missing receiver), a
   `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic — the
   largest remaining bucket), an `impl` whose **self type** is not a plain named type
   (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
@@ -125,7 +126,13 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. Five are flipped
   that way today: the two cross-file/associated-fn ones (below), the non-`Fn` impl item, and
-  tuple + unit structs.
+  tuple + unit structs. **A pin is owed the moment a gate exists, not the moment it closes** —
+  the 24-file cross-file METHOD-call bucket went three merged #491 PRs with a live gate and no
+  test observing it; `cross_file_method_call_is_a_documented_gap` now pins it, still open.
+  Closing that one needs a multi-file-aware encoding mode (`receiver.method(args)` carries no
+  module-qualifying segment for a syntax-only encoder to attribute the callee to, unlike
+  `other_file::helper(1)`) — an owner design decision, not a dispatch-table arm; see
+  `rust/AGENTS.md`.
 - **Tuple + unit structs (#491).** All three `struct` shapes encode to the same class-shaped
   `TypeDefinition`; only the field names differ. A tuple element is declared under its
   **positional index as a decimal string** (`"0"`, `"1"`) — the very name
@@ -183,6 +190,23 @@ cargo fmt --check && cargo clippy --workspace
   for an empty `entry_function`. Keep this decision consistent with the C# encoder's eventual
   cross-file slice (#492 bucket d). Known limitation: a `crate::`/`self::`-qualified call to a
   same-file function is treated as external too.
+- **Default-bodied receiver-less `trait` functions (#491).** `trait Maker { fn make(n, m) -> i64
+  { n + m } }` encodes as the same `metadata.is_static` class member an `impl`-declared associated
+  fn does, and `Maker::make(3, 4)` resolves through the same short-name dispatcher — the compiler
+  needed **zero** change, because `compile_struct_def`/`compile_method_dispatchers` filter members
+  by `is_abstract` **alone** and never look at whether the owner is a `trait`. So the guard in
+  `types.rs::encode_item_trait` keys on the missing *body*, not the missing *receiver*; a
+  signature-only one still fails loud and keeps its `#[should_panic]` pin. A new pre-pass,
+  `collect_trait_static_params`, registers each such member into `static_method_params` under the
+  same owner-qualified `(owner, method)` key `collect_impl_method_params` uses.
+  **Gotcha worth remembering:** a receiver-less member's `metadata.params` must come from
+  `param_names_and_types`, never `method_non_self_params` — the latter unconditionally `.skip(1)`s
+  a `self` that isn't there and silently drops the FIRST real parameter. A 0-/1-parameter example
+  cannot expose that, so the proof test declares two. Proof: `rust/encoder/tests/static_methods.rs::
+  default_bodied_trait_fn_without_receiver_encodes_and_round_trips` (encode → compile →
+  `cargo build` → run, prints `12`). Like every #491 slice so far, this did **not** move the Tier A
+  aggregate (`0 passed, 110 failed, 110 total`) — a default-bodied *receiver-less* trait fn is a
+  narrow idiom; state that plainly rather than implying a moved floor.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which

@@ -25,10 +25,12 @@
 package rq1study
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	ballv1 "github.com/ball-lang/ball/go/shared/gen/ball/v1"
@@ -289,5 +291,119 @@ func TestEntryPointLessFilesAreEncodedThroughLibraryMode(t *testing.T) {
 	}
 	if stage < 1 {
 		t.Fatalf("an entry-point-less file only reached stage %d — library-mode encoding failed", stage)
+	}
+}
+
+// ── test-only exclusion (the owner's 2026-09-14 decision on #491) ───────────
+//
+// Tier A scores the LIBRARY code a user would encode; a package's own test
+// suite is a different population and is out of the denominator. The rule must
+// be EXPLICIT, self-tested and COUNTED in the run summary — a silent filter is
+// how a denominator shrinks without anyone noticing, and this harness already
+// had exactly such a filter (`_test.go` and `testdata/` were dropped with no
+// count printed anywhere).
+//
+// Both directions are pinned below: every test-only shape is excluded WITH the
+// rule that excluded it, and every library file whose NAME merely contains
+// "test" ("la-test", "con-test", "at-test-ation") is still studied. A sloppy
+// substring rule passes the first half and fails the second, which is the point.
+
+// Library files whose name merely contains "test" — the negative control.
+var libraryLookalikes = []string{"latest.go", "contest.go", "attestation/verify.go"}
+
+// Go's own convention: `*_test.go`, and anything under `testdata/`.
+var testOnlyFiles = []string{"core_test.go", "inner/helper_test.go", "testdata/fixture.go"}
+
+func writeFixture(t *testing.T, root, rel, source string) {
+	t.Helper()
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTestOnlyFilesAreExcludedCountedAndNamed(t *testing.T) {
+	root := t.TempDir()
+	library := append([]string{"core.go"}, libraryLookalikes...)
+	for _, rel := range library {
+		writeFixture(t, root, rel, "package demo\n\nfunc Value() int { return 1 }\n")
+	}
+	for _, rel := range testOnlyFiles {
+		writeFixture(t, root, rel, "package demo\n\nfunc Check() int { return 1 }\n")
+	}
+
+	studied, excluded, err := ClassifyGoFiles("synthetic", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	studiedRel := map[string]bool{}
+	for _, path := range studied {
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			t.Fatal(relErr)
+		}
+		studiedRel[filepath.ToSlash(rel)] = true
+	}
+	if len(studiedRel) != len(library) {
+		t.Errorf("studied %v, want exactly %v — a name that merely contains "+
+			`"test" is library code, not a test`, studiedRel, library)
+	}
+	for _, rel := range library {
+		if !studiedRel[rel] {
+			t.Errorf("library file %q was not studied — the rule is excluding library code", rel)
+		}
+	}
+
+	excludedRel := map[string]string{}
+	for _, e := range excluded {
+		if e.Rule == "" {
+			t.Errorf("exclusion of %q names no rule", e.File)
+		}
+		excludedRel[e.File] = e.Rule
+	}
+	if len(excludedRel) != len(testOnlyFiles) {
+		t.Errorf("excluded %v, want exactly %v", excludedRel, testOnlyFiles)
+	}
+	for _, rel := range testOnlyFiles {
+		if _, ok := excludedRel[rel]; !ok {
+			t.Errorf("test-only file %q was not excluded", rel)
+		}
+	}
+
+	results, err := StudyDirectory("synthetic", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		for _, rel := range testOnlyFiles {
+			if r.File == rel {
+				t.Errorf("excluded file %q reached the scored results", rel)
+			}
+		}
+	}
+
+	var out strings.Builder
+	if _, err := Report(&out, results, excluded, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("  excluded (test-only): %d\n", len(testOnlyFiles))
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("the summary must print %q so nothing disappears silently; got:\n%s", want, out.String())
+	}
+}
+
+// A run that excluded nothing STILL prints the line: a missing line is
+// indistinguishable from a rule that vanished, and summarize.sh fails on it.
+func TestTheExclusionCountIsPrintedEvenWhenZero(t *testing.T) {
+	var out strings.Builder
+	if _, err := Report(&out, []FileResult{StudyFile("synthetic", "helper.go", helperSource)}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "  excluded (test-only): 0\n") {
+		t.Errorf("a zero exclusion count must still be printed; got:\n%s", out.String())
 	}
 }

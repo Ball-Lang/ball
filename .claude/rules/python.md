@@ -253,5 +253,6 @@ python -m conformance.runner                             # prints the CI-parseab
   `dart` on PATH (or `BALL_DART`), not the compiled engine. Honest baseline **0/321**, expected by
   construction and mirroring `csharp-roundtrip`; gated only on "the sweep ran something", never on
   the failure count. Its CI home is the `python-roundtrip` row in `conformance-matrix.yml`, which
-  has **no `pull_request` trigger** — the row is absent, not green, on a PR; dispatch the workflow
-  and read the run.
+  **is a PR gate since #619** — the row runs automatically on any PR touching a filtered path, gated
+  on harness health (a parseable `Results:` line, integer counts, `total >= 1`), never on the
+  failure count. No dispatch needed.

@@ -73,10 +73,10 @@ cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --igno
 ```
 
 Its CI home is the `rust-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
-**That workflow has no `pull_request:` trigger** — it runs on push-to-main, the weekly schedule,
-or manual dispatch only, so the row is ABSENT (not green) on a PR. Dispatch it
-(`gh workflow run conformance-matrix.yml --ref <branch>`) and read the run before merging a change
-to this leg.
+**That workflow is a PR gate since #619** — it has a path-filtered `pull_request:` trigger sharing
+its `push` filter, and `rust/**` is in that filter, so the row runs on any PR touching this
+directory with no `gh workflow run` dispatch. It still gates harness health only, never the
+failure count.
 
 ## Build & Test
 

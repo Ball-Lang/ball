@@ -2127,18 +2127,14 @@ pub fn ball_throw(value: BallValue) -> ! {
 /// whose `.message` read null (issue #615).
 fn ball_normalize_thrown(value: BallValue) -> BallValue {
     match &value {
-        BallValue::Message(message) => {
-            if !message.contains_key("message") {
-                if let Some(arg0) = message.get("arg0") {
-                    message.insert("message", arg0);
-                }
+        BallValue::Message(message) if !message.contains_key("message") => {
+            if let Some(arg0) = message.get("arg0") {
+                message.insert("message", arg0);
             }
         }
-        BallValue::Map(map) => {
-            if !map.contains_key("message") {
-                if let Some(arg0) = map.get("arg0") {
-                    map.insert("message", arg0);
-                }
+        BallValue::Map(map) if !map.contains_key("message") => {
+            if let Some(arg0) = map.get("arg0") {
+                map.insert("message", arg0);
             }
         }
         _ => {}

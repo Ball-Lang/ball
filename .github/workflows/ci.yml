@@ -356,6 +356,21 @@ jobs:
       - name: Regenerated-artifact apply script self-test (#619)
         run: bash tools/ci/apply_regenerated.sh --self-test
 
+      # Two engine-row docs both claim to enumerate "every engine that runs a
+      # Ball program" independently of conformance-matrix.yml, the one place
+      # that set is actually defined — and both drifted (#610, #613):
+      # tests/editions/portability_matrix.md hard-coded a fixture count and
+      # named only 3 of the 7 engines that run `256_editions_resolver`;
+      # plugins/ball/skills/embed/SKILL.md's per-target table called C# "No"
+      # and had no Go/Python rows. This derives the current engine set from
+      # the workflow's own `summary.needs` and requires both docs to name
+      # every one of them, with no hard-coded fixture count in the first.
+      # `--self-test` first: a guard that stopped deriving must not pass.
+      - name: Engine-row doc drift guard (#610, #613)
+        run: |
+          bash tools/ci/check_engine_row_docs.sh --self-test
+          bash tools/ci/check_engine_row_docs.sh
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

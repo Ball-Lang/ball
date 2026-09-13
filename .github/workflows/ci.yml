@@ -29,8 +29,12 @@ on:
     - cron: "0 5 * * 1" # Weekly on Monday at 05:00 UTC (an hour before conformance-matrix.yml)
   workflow_dispatch:
 
-# Least-privilege default token: read-only. No job in this workflow writes to
-# the repo (build + test only). https://docs.github.com/actions/security
+# Least-privilege default token: read-only, and it STAYS read-only. The one job
+# that can write to the repo — `ball-freshness`'s optional auto-push of the
+# regenerated Ball artifacts — deliberately does NOT use `GITHUB_TOKEN`: it
+# authenticates with the `REGEN_PAT` secret (absent by default, so the step is
+# skipped), for the reason spelled out at that step. Nothing else here writes.
+# https://docs.github.com/actions/security
 permissions:
   contents: read
 
@@ -190,6 +194,29 @@ jobs:
       # module paths.
       - name: Go module release lane wiring guard (#361)
         run: bash tools/release/check_go_release_wiring.sh
+
+      # #627: the two halves the guard above can only assert the EXISTENCE of.
+      #
+      # The freshness classifier is the Go lane's answer to pubdev-freshness.yml
+      # — "does proxy.golang.org actually serve the version the six go.mod files
+      # name?" Its live legs run on a schedule (go-freshness.yml), because a
+      # per-PR dependency on proxy.golang.org would redden unrelated work on a
+      # CDN hiccup and the proxy does not change between two pushes of the same
+      # PR. The classification is driven here, offline, on synthetic fixtures,
+      # so a classifier that silently stopped classifying — and would therefore
+      # report a lane that has cut no tags in months as healthy — cannot reach
+      # main.
+      - name: Go module freshness classifier self-test (#627)
+        run: bash tools/release/check_go_freshness.sh --self-test
+
+      # The poller is what makes go.releaserc.json's publishCmd AWAIT the
+      # tag-go-modules.yml run it dispatches instead of firing and forgetting.
+      # It only ever executes inside a real release, so without a self-test its
+      # budget loop and its conclusion classification would first be exercised
+      # on the day a tag cut went wrong — the same argument that put
+      # resolve_published.py's self-test here (#568).
+      - name: Awaited workflow-dispatch poller self-test (#627)
+        run: python3 tools/release/await_workflow_run.py --self-test
 
       # The freshness guard itself runs on a schedule (pubdev-freshness.yml) —
       # it queries the live pub.dev API, which must not be a per-PR dependency.
@@ -355,6 +382,30 @@ jobs:
       # equality guard) run here, offline, on every PR.
       - name: Regenerated-artifact apply script self-test (#619)
         run: bash tools/ci/apply_regenerated.sh --self-test
+
+      # The `Ball Artifact Freshness` job only exercises its collect/upload/push
+      # chain on a RED run, so a regression in HOW that chain is gated is
+      # invisible until the day it matters — and the failure mode is the bad one:
+      # a Regenerate step that dies mid-write leaves PARTIAL bytes that a bare
+      # `failure()` would happily upload as "the fix" and, with REGEN_PAT set,
+      # commit to the PR (#625). This parses the job and asserts every gate is on
+      # `steps.<assert-id>.outcome == 'failure'`, that every `Assert` step carries
+      # an id, and that the push consults the loop-breaker. `--self-test` first: a
+      # guard that stopped asserting must not pass.
+      - name: Regeneration-flow wiring guard (#625)
+        run: |
+          bash tools/ci/check_ci_regen_wiring.sh --self-test
+          bash tools/ci/check_ci_regen_wiring.sh
+
+      # The loop-breaker itself (#625): one auto-push per HUMAN commit. It is the
+      # only thing standing between a nondeterministic generator and an infinite
+      # push -> run -> drift -> push cycle once REGEN_PAT exists, and — like the
+      # apply script above — it only ever runs on a RED freshness run. Its cases
+      # (the two trailer-paragraph shapes, the lowercased key, an indented
+      # quotation that must NOT match, and the empty/unreadable message fail-loud)
+      # run here on every PR, offline.
+      - name: Regeneration loop-breaker self-test (#625)
+        run: bash tools/ci/regen_loop_breaker.sh --self-test
 
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
@@ -704,6 +755,7 @@ jobs:
           ( cd dart/encoder && dart run bin/gen_ball_protobuf.dart ../shared )
 
       - name: Assert no drift
+        id: assert-shared
         run: |
           if ! git diff --exit-code -- \
               dart/shared/std.json \
@@ -717,6 +769,7 @@ jobs:
       # Every conformance .ball.json must be sourced from a src/<name>.dart, or
       # be an explicitly documented carve-out (tests/conformance/CARVEOUTS.md).
       - name: Assert conformance fixtures are sourced (no orphans)
+        id: assert-fixture-sources
         run: cd dart/encoder && dart run bin/check_conformance_sources.dart
 
       # FORWARD-direction completeness (the gap that hid #55): every std base
@@ -724,11 +777,13 @@ jobs:
       # fixture, or be a documented carve-out
       # (tests/conformance/ENCODER_COMPLETENESS_CARVEOUTS.md).
       - name: Assert encoder completeness (no untested emittable constructs)
+        id: assert-encoder-completeness
         run: cd dart/encoder && dart run bin/check_encoder_completeness.dart
 
       # A fixture's NAME must not overstate its coverage — no "false coverage"
       # like the old imperative 92_list_comprehension (which let #55 hide).
       - name: Assert fixture names match their content
+        id: assert-fixture-names
         run: cd dart/encoder && dart run bin/check_fixture_names.dart
 
       # STRUCTURAL completeness: every Expression NODE SHAPE (the 7
@@ -738,6 +793,7 @@ jobs:
       # encoder-completeness gate above, which only gates std FUNCTIONS — this
       # closes the ungated node-shape surface (issue #64).
       - name: Assert node-shape coverage (no untested Expression shapes)
+        id: assert-node-shapes
         run: cd dart/encoder && dart run bin/check_node_shape_coverage.dart
 
       # Every conformance .ball.json must be a fresh generator output, never
@@ -746,6 +802,7 @@ jobs:
         run: cd dart/encoder && dart run bin/generate_conformance.dart
 
       - name: Assert conformance corpus is up to date
+        id: assert-corpus
         run: |
           if ! git diff --exit-code -- 'tests/conformance/*.ball.json'; then
             echo "::error::A conformance .ball.json is stale. Regenerate with 'cd dart/encoder && dart run bin/generate_conformance.dart' and commit — these files must never be hand-edited (see tests/conformance/CARVEOUTS.md for the only exceptions)."
@@ -763,6 +820,7 @@ jobs:
         run: cd dart/encoder && dart run bin/gen_std_coverage.dart
 
       - name: Assert std coverage inventory is up to date
+        id: assert-std-coverage
         run: |
           if ! git diff --exit-code -- \
               tests/conformance/std_coverage.json \
@@ -780,7 +838,7 @@ jobs:
       # dart/engine/lib/ or dart/shared/lib/ silently invalidates it, and the
       # six conformance sweeps cannot see the drift whenever the corpus does not
       # happen to emit the shape that diverged. That is exactly how a stale
-      # `_isBareSelfConstruction` guard (#499) shipped with all 18 checks green
+      # `_isBareSelfConstruction` guard (#499) shipped with every required check green
       # while the TS engine infinitely recursed on a program the Dart reference
       # engine ran fine. Regenerate-and-diff, same contract as the artifacts
       # above; ts/engine/test/compiled_engine_parity.test.ts is its behavioural
@@ -804,6 +862,7 @@ jobs:
           ( cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs )
 
       - name: Assert compiled TS engine is up to date
+        id: assert-ts-engine
         run: |
           if ! git diff --exit-code -- ts/engine/src/compiled_engine.ts; then
             echo "::error::ts/engine/src/compiled_engine.ts is stale. Regenerate it with 'cd dart && dart run compiler/tool/gen_engine_json.dart' then 'cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs' and commit — this file is generated (see CLAUDE.md 'Regenerate compiled TS engine'), never hand-edited."
@@ -829,6 +888,7 @@ jobs:
           ( cd ts/compiler && node --experimental-strip-types tool/regen_compiled_cli.mjs )
 
       - name: Assert compiled TS CLI core is up to date
+        id: assert-ts-cli
         run: |
           if ! git diff --exit-code -- ts/cli/src/compiled_cli.ts; then
             echo "::error::ts/cli/src/compiled_cli.ts is stale. Regenerate it with 'cd dart && dart run compiler/tool/gen_cli_json.dart' then 'cd ts/compiler && node --experimental-strip-types tool/regen_compiled_cli.mjs' and commit — this file is generated (see CLAUDE.md 'Regenerate compiled TS CLI core'), never hand-edited."
@@ -864,6 +924,7 @@ jobs:
           ( cd go/cli    && go run ./cmd/regen )
 
       - name: Assert compiled Go engine and CLI core are up to date
+        id: assert-go
         run: |
           if ! git diff --exit-code -- \
               go/engine/compiled/compiled_engine.go \
@@ -895,9 +956,35 @@ jobs:
       # `git diff --name-only`: `dart pub get` / `npm ci` / `go run` can touch
       # lockfiles and caches, and an artifact that quietly carried one of those
       # into a lane's commit would be worse than no artifact at all.
-      - name: Collect the regenerated artifacts (on drift)
+      # ONLY from a failed `Assert …` gate, never from a bare `failure()` (#625).
+      # The two failures look identical to `failure()` and mean opposite things:
+      #   * an `Assert …` gate failed  -> the working tree holds freshly
+      #     regenerated, CORRECT bytes and the COMMITTED copy is stale. Those
+      #     bytes are the fix; upload them.
+      #   * a `Regenerate …` step failed -> it died part-way under
+      #     `set -euo pipefail`, so the file it was writing may be TRUNCATED.
+      #     Uploading that would hand a lane (or, with REGEN_PAT, the auto-push)
+      #     a corrupt artifact labelled "the fix". Upload nothing; fail loud.
+      # The same per-artifact outcomes also pick the pathspec list below, so a
+      # Regenerate failure contributes no paths even when an EARLIER family in
+      # the same run legitimately drifted.
+      - name: Collect the regenerated artifacts (only from a failed Assert gate)
         id: collect
-        if: failure()
+        if: >-
+          failure() && (
+          steps.assert-shared.outcome == 'failure' ||
+          steps.assert-corpus.outcome == 'failure' ||
+          steps.assert-std-coverage.outcome == 'failure' ||
+          steps.assert-ts-engine.outcome == 'failure' ||
+          steps.assert-ts-cli.outcome == 'failure' ||
+          steps.assert-go.outcome == 'failure' )
+        env:
+          ASSERT_SHARED: ${{ steps.assert-shared.outcome }}
+          ASSERT_CORPUS: ${{ steps.assert-corpus.outcome }}
+          ASSERT_STD_COVERAGE: ${{ steps.assert-std-coverage.outcome }}
+          ASSERT_TS_ENGINE: ${{ steps.assert-ts-engine.outcome }}
+          ASSERT_TS_CLI: ${{ steps.assert-ts-cli.outcome }}
+          ASSERT_GO: ${{ steps.assert-go.outcome }}
         run: |
           set -euo pipefail
           dest="$RUNNER_TEMP/regenerated"
@@ -905,29 +992,55 @@ jobs:
           mkdir -p "$dest"
 
           # Every committed artifact this job regenerates, by repo-relative
-          # path. The `.bin` siblings are included deliberately: each generator
-          # writes them in the same run as the `.json` it is gated on, so a
-          # commit that applied only the `.json` would be half a fix.
-          mapfile -t drifted < <(git diff --name-only -- \
-            dart/shared/std.json \
-            dart/shared/std.bin \
-            dart/shared/ball_proto.json \
-            dart/shared/ball_proto.bin \
-            dart/shared/ball_protobuf.json \
-            dart/shared/ball_protobuf.bin \
-            'tests/conformance/*.ball.json' \
-            tests/conformance/std_coverage.json \
-            tests/conformance/STD_COVERAGE.md \
-            ts/engine/src/compiled_engine.ts \
-            ts/cli/src/compiled_cli.ts \
-            go/engine/compiled/compiled_engine.go \
-            go/cli/compiled/compiled_cli.go)
+          # path, grouped under the Assert gate that owns it. The `.bin`
+          # siblings are included deliberately: each generator writes them in
+          # the same run as the `.json` it is gated on, so a commit that applied
+          # only the `.json` would be half a fix.
+          pathspec=()
+          if [ "${ASSERT_SHARED:-}" = "failure" ]; then
+            pathspec+=(
+              dart/shared/std.json
+              dart/shared/std.bin
+              dart/shared/ball_proto.json
+              dart/shared/ball_proto.bin
+              dart/shared/ball_protobuf.json
+              dart/shared/ball_protobuf.bin
+            )
+          fi
+          if [ "${ASSERT_CORPUS:-}" = "failure" ]; then
+            pathspec+=('tests/conformance/*.ball.json')
+          fi
+          if [ "${ASSERT_STD_COVERAGE:-}" = "failure" ]; then
+            pathspec+=(
+              tests/conformance/std_coverage.json
+              tests/conformance/STD_COVERAGE.md
+            )
+          fi
+          if [ "${ASSERT_TS_ENGINE:-}" = "failure" ]; then
+            pathspec+=(ts/engine/src/compiled_engine.ts)
+          fi
+          if [ "${ASSERT_TS_CLI:-}" = "failure" ]; then
+            pathspec+=(ts/cli/src/compiled_cli.ts)
+          fi
+          if [ "${ASSERT_GO:-}" = "failure" ]; then
+            pathspec+=(
+              go/engine/compiled/compiled_engine.go
+              go/cli/compiled/compiled_cli.go
+            )
+          fi
+
+          if [ "${#pathspec[@]}" -eq 0 ]; then
+            echo "::error::the collect step ran with no failing Assert gate, so its condition and this pathspec table have drifted apart (issue #625). Refusing to guess which artifact to upload."
+            exit 1
+          fi
+
+          mapfile -t drifted < <(git diff --name-only -- "${pathspec[@]}")
 
           count="${#drifted[@]}"
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
           if [ "$count" -eq 0 ]; then
-            echo "No regenerated artifact drifted — this job failed for some other reason."
+            echo "An Assert gate failed but git reports no drift in the files it owns — nothing to upload."
             exit 0
           fi
 
@@ -940,7 +1053,14 @@ jobs:
           printf '  %s\n' "${drifted[@]}"
 
       - name: Upload the regenerated artifacts
-        if: failure() && steps.collect.outputs.count > 0
+        if: >-
+          failure() && steps.collect.outputs.count > 0 && (
+          steps.assert-shared.outcome == 'failure' ||
+          steps.assert-corpus.outcome == 'failure' ||
+          steps.assert-std-coverage.outcome == 'failure' ||
+          steps.assert-ts-engine.outcome == 'failure' ||
+          steps.assert-ts-cli.outcome == 'failure' ||
+          steps.assert-go.outcome == 'failure' )
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: regenerated-artifacts
@@ -992,13 +1112,28 @@ jobs:
       # == github.repository` is the guard, and it is also why this step cannot
       # fire on a `push` event (the expression is empty there).
       - name: Commit and push the regenerated artifacts (needs REGEN_PAT)
-        if: failure() && github.event.pull_request.head.repo.full_name == github.repository && env.HAS_REGEN_PAT == 'true' && steps.collect.outputs.count > 0
+        if: >-
+          failure() && steps.collect.outputs.count > 0 &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          env.HAS_REGEN_PAT == 'true' && (
+          steps.assert-shared.outcome == 'failure' ||
+          steps.assert-corpus.outcome == 'failure' ||
+          steps.assert-std-coverage.outcome == 'failure' ||
+          steps.assert-ts-engine.outcome == 'failure' ||
+          steps.assert-ts-cli.outcome == 'failure' ||
+          steps.assert-go.outcome == 'failure' )
         env:
           REGEN_PAT: ${{ secrets.REGEN_PAT }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # Take the loop-breaker OUT of the tree before touching it: the
+          # `git checkout -f -B` below replaces every tracked file with the PR
+          # branch's copy, and the branch may not carry this script at all. The
+          # decision must be made by the workflow's own version.
+          cp tools/ci/regen_loop_breaker.sh "$RUNNER_TEMP/regen_loop_breaker.sh"
+
           # A pull_request checkout is the detached MERGE commit, so move onto
           # the PR's own branch before committing. `-f` discards the working
           # tree's regenerated copies on purpose — the authoritative ones were
@@ -1026,6 +1161,39 @@ jobs:
             exit 0
           fi
 
+          # LOOP-BREAKER (issue #625): at most ONE auto-push per human commit.
+          # A PAT push triggers a fresh run by design, so this job runs again on
+          # the commit it just made. `git diff --cached --quiet` below stops the
+          # identical-bytes case and nothing else — a NONDETERMINISTIC generator
+          # would drift again, push again, and re-trigger forever. If the head we
+          # are about to build on already carries the regeneration marker, the
+          # previous auto-push did not settle the drift: that is a generator bug,
+          # not something another commit fixes.
+          loop_rc=0
+          bash "$RUNNER_TEMP/regen_loop_breaker.sh" --rev HEAD || loop_rc=$?
+          if [ "$loop_rc" -eq 3 ]; then
+            {
+              echo "### Ball Artifact Freshness — auto-push SKIPPED (loop-breaker)"
+              echo
+              echo "The PR head commit is itself a CI regeneration commit, and the artifacts"
+              echo "drifted AGAIN on top of it. Pushing a second time would loop"
+              echo "(push -> run -> drift -> push), so this run pushed nothing."
+              echo
+              echo "That means a generator is **not deterministic**. Find it by regenerating the"
+              echo "same commit twice and diffing; the 'regenerated-artifacts' artifact from this"
+              echo "run holds the bytes CI produced this time."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::auto-push skipped by the loop-breaker: the PR head is already a regeneration commit (issue #625)."
+            exit 0
+          elif [ "$loop_rc" -ne 0 ]; then
+            echo "::error::the regeneration loop-breaker failed (exit $loop_rc) — not pushing."
+            exit 1
+          fi
+
+          # The marker the next run reads back. Taken from the script so there is
+          # exactly one copy of the literal in the repo.
+          regen_marker="$(bash "$RUNNER_TEMP/regen_loop_breaker.sh" --print-marker)"
+
           # Stage EXACTLY the files the collect step captured — never a
           # directory pathspec, which would sweep up anything else the job's
           # toolchains happened to touch.
@@ -1045,7 +1213,8 @@ jobs:
             -m "Generated-By: claude-code (model: ci; operator: ahmednfwela@digrum.com)" \
             -m "Signed-off-by: Ahmed Fwela <ahmednfwela@digrum.com>" \
             -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" \
-            -m "Claude-Session: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            -m "Claude-Session: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -m "$regen_marker"
           git push origin "HEAD:refs/heads/${HEAD_REF}"
           echo "Pushed the regenerated artifacts to ${HEAD_REF}; this job stays RED and the new commit gets its own CI run."
 
@@ -1060,8 +1229,10 @@ jobs:
             echo "### Ball Artifact Freshness — the fix is downloadable"
             echo
             if [ "${{ steps.collect.outputs.count }}" = "0" ] || [ -z "${{ steps.collect.outputs.count }}" ]; then
-              echo "No committed artifact drifted in this run, so there is nothing to apply —"
-              echo "this job failed for another reason; read the failing step above."
+              echo "No \`Assert …\` gate reported drift in this run, so there is nothing to"
+              echo "apply. Read the failing step above: if a \`Regenerate …\` step is what"
+              echo "failed, the file it was writing may be TRUNCATED and is deliberately NOT"
+              echo "uploaded (issue #625) — fix the generator, do not apply anything."
             else
               echo "CI regenerated ${{ steps.collect.outputs.count }} file(s) and uploaded them as the"
               echo '`regenerated-artifacts` workflow artifact. Apply them with NO local Dart/TS/Go'
@@ -1074,6 +1245,9 @@ jobs:
               echo
               if [ "${HAS_REGEN_PAT:-false}" = "true" ]; then
                 echo "Auto-push: REGEN_PAT is configured, so CI may already have pushed this commit."
+                echo "It pushes at most ONCE per human commit: if the head already carries the"
+                echo '`Ball-Regen-Autopush:` trailer the loop-breaker skips the push and says so'
+                echo "above, because a second push would mean a nondeterministic generator."
               else
                 echo "Auto-push: SKIPPED — the repository secret \`REGEN_PAT\` is not set."
                 echo "To let CI push the fix itself, an owner creates a fine-grained PAT scoped to"
@@ -1298,14 +1472,14 @@ jobs:
         run: rm -f cpp/build/test/e2e_coverage.txt
 
       # Step-level budget — the actual ratchet (#521, re-derived in #594).
-      # `Run tests` is dominated by test_e2e, which builds ~296 generated
+      # `Run tests` is dominated by test_e2e, which builds ~297 generated
       # fixture programs in a scratch CMake project. Budget: 13 min on Windows,
       # 8 min on Linux/macOS.
       #
       # A ratchet has to be sized against the SLOWEST healthy run, not the
       # fastest. With the cache warm the Linux/macOS step is 11s / 19s, but a
       # COLD cache is a normal, blameless event: any PR that touches the
-      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~296
+      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~297
       # generated TUs, and an Actions cache eviction or a first run on a new
       # key does the same. #521 measured that case on its run 33698642352 —
       # ubuntu `Run tests` 5m19s with `ccache -s` reporting 22 hits out of 292
@@ -1347,7 +1521,7 @@ jobs:
       # registering the tests would otherwise be indistinguishable from green.
       #
       # BALL_E2E_JOBS / BALL_E2E_LAUNCHER are read by cpp/test/test_e2e.cpp for
-      # the nested scratch project: build the ~269 fixture targets in parallel,
+      # the nested scratch project: build the ~297 fixture targets in parallel,
       # and route their compiles through the same compiler cache as the parent
       # build. The launcher is now set on ALL THREE legs (#594). It used to be
       # Linux/macOS only, because CMake honours <LANG>_COMPILER_LAUNCHER for the
@@ -1359,6 +1533,18 @@ jobs:
       # passes `-G Ninja` on Windows, the scratch project inherits that generator
       # through BALL_E2E_GENERATOR, and the "Compiler cache applied" step below
       # fails the job if any of that ever stops being true.
+      #
+      # Note that test_e2e configures that scratch project with `CMAKE_BUILD_TYPE`
+      # explicitly EMPTY, on every platform (#594) — do not "fix" it to Release.
+      # An unset build type is not neutral on MSVC: CMake's module initialises it
+      # to Debug, whose `/Zi` writes a PDB shared by a target's TUs, and sccache
+      # refuses to cache that — the first Ninja run reported
+      # `Non-cacheable compilations 296`, i.e. every fixture. Empty means "no
+      # configuration-specific flags" (what Linux/macOS always had), which is
+      # semantics-neutral here: these binaries are compiled, run, and their
+      # stdout diffed against a golden — never optimised for, never debugged.
+      # The `Compiler cache applied` step's non-cacheable ceiling (#599) is what
+      # now fails the job if that regresses.
       - name: Run tests
         timeout-minutes: ${{ runner.os == 'Windows' && 13 || 8 }}
         env:
@@ -1414,6 +1600,16 @@ jobs:
       # Deliberately NOT a hit RATE. A cold cache is blameless and routine (a
       # new key, an eviction, an emitter change that invalidates every
       # generated TU) and must stay green.
+      #
+      # It also asserts the MIRROR IMAGE of that defect (issue #599): the cache
+      # is consulted and DECLINES every compile. Requests, hits and misses all
+      # read healthy in that state, so the check above cannot see it — and it is
+      # exactly what #594's first Ninja run did on Windows
+      # (`Non-cacheable compilations 296`, one per generated fixture, from the
+      # MSVC-default Debug build type's shared PDB). The ceiling is 0 on all
+      # three legs, measured from this step's own output in three consecutive
+      # green main runs; the run ids and the per-OS rows live in the script's
+      # header, which is where to change them — against a fresh measurement.
       #
       # It runs AFTER the coverage step on purpose: the coverage assertion is
       # the stronger invariant and has to report first, and this step reads the

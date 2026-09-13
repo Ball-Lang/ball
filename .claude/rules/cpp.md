@@ -377,6 +377,61 @@ like, so check both before writing a test against a "dead" line:
   ranges against the source at the reported `commit_sha` rather than reusing a
   range from an issue comment.
 
+### Exclusions: `LCOV_EXCL_*` is a last resort, per site, with a proof
+
+The #63 reachability audit of the two biggest miss buckets (`ball_dyn.h`, 246
+missed lines / 75 clusters, and `encoder.cpp`, 96 / 38, at main @ `f673169c`)
+found that **330 of those 342 missed lines were reachable from an instrumented
+ctest binary** and simply untested; the other **12** are dead by domination and
+carry the three per-site exclusions listed below. The default answer to an
+uncovered line here is a test:
+
+- `cpp/encoder/src/encoder.cpp` is a pure JSON-AST -> `ball::ir` transform — no
+  I/O, no toolchain, no engine — so every branch is selected by handing
+  `encode_from_clang_ast` the AST shape that reaches it. Nothing in it is
+  self-host-only.
+- `ball_dyn.h`'s misses are the structural undercount above, NOT
+  self-host-exclusivity. A 0% line there means "no instrumented binary called it
+  in-process", never "only the self-hosted engine can reach it" — every member
+  is an `inline` function on a plain value type. Where the public constructor
+  normalises a value away from the shape you need (e.g. `BallDyn(BallOrderedMap)`
+  upgrades to a shared `BallOrderedMapRef`, hiding the by-value arms the
+  self-hosted engine actually produces), assign `_val` directly instead of
+  reaching for an exclusion.
+
+The tree carries exactly **three** exclusion sites, all added by that audit and
+all **dominated dead code** — unreachable in every build, not merely outside
+self-host. Each one is named here so this rule can be checked against the tree
+(`grep -n LCOV_EXCL cpp/shared/include/ball_dyn.h cpp/encoder/src/encoder.cpp`
+must return these three and nothing else). The line numbers below were
+re-derived from the `file_report` at main @ `07344ca9`, where both files' miss
+totals are still the audited 246 and 96 — always re-derive rather than reusing
+these:
+
+| site | dominating guard | missed lines excluded |
+|---|---|---|
+| `ball_dyn.h` `operator==`'s `BallListRef`/`BallList` arms (main @ `07344ca9` lines 1003-1016) | the earlier `_listPtr()` arm already handles **both** list representations element-wise, with the same aliasing short-circuit, so control never arrives here with a list on either side | 9 (the two `if` guard lines themselves are HIT — the arms are entered, never taken — so the denominator drops by 11, not 9) |
+| `ball_dyn.h` `_BallRefDeref::_obj_map_fn` lambda body (main @ `07344ca9` lines 1465-1466) | both call sites of `_BallRefDeref::obj_map` test `typeid(BallObjectRef)` themselves and short-circuit first | 2 |
+| `encoder.cpp` `has_qualifier`'s `"static"` clause (main @ `07344ca9` line 1337) | line 1 of the same function (`node.value("storageClass", "") == qualifier`) already returns true for exactly that case | 1 |
+
+That is where the "12 dead of 342" above comes from, and it is also the check
+that the markers took effect: the two files' instrumented denominators fall by
+13 and 1 respectively (a `LCOV_EXCL_START`/`STOP` removes the HIT guard lines
+inside its range too, which is why the denominator delta is larger than the
+missed-line count). Rules for adding a fourth:
+
+- Per site only (`LCOV_EXCL_LINE`, or a tight `LCOV_EXCL_START`/`STOP` around the
+  guarded body). **Never `LCOV_EXCL_FILE` and never a whole function.**
+- Write the reachability proof next to it — name the dominating guard or the
+  platform that makes it unreachable. "Hard to test" is not a reason.
+- Prove unreachability before writing it, and never write a test against a line
+  whose reachability you have not established: a blind test that happens to pass
+  hides the fact that the line was dead.
+- Genuinely dead code should ultimately be deleted, not excluded. When it lives
+  in the runtime spliced into every emitted program (`ball_dyn.h` /
+  `ball_emit_runtime.h`), that deletion needs the C++ self-host conformance sweep
+  and belongs in its own change.
+
 **Always add tests alongside every C++ change.** Conformance tests automatically pick up new programs added to `tests/conformance/`.
 
 ## When Adding Features

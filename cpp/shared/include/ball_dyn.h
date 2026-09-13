@@ -1000,6 +1000,18 @@ public:
                    std::any_cast<const BallUserRef&>(o._val).get();
         }
         if (_val.type() == typeid(BallDispatchNotFound)) return true;
+        // REACHABILITY (issue #63 audit): both arms below are dominated by the
+        // `_listPtr()` arm above, which already handles BOTH list
+        // representations — `_listPtr()` is non-null exactly when `_val` holds a
+        // BallListRef or a BallList, and it compares element-wise with the same
+        // aliasing short-circuit. Control can therefore never arrive here with a
+        // list on either side, in any build. Dead by domination, not
+        // self-host-only, so no test can reach it; excluded per site with this
+        // proof rather than by a file rule. Deleting it is the real fix and is
+        // behaviour-preserving for the same reason, but it edits the runtime
+        // spliced into every emitted program, so it belongs in its own change
+        // gated on the C++ self-host conformance sweep.
+        // LCOV_EXCL_START
         if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
             return std::any_cast<const BallListRef&>(_val) ==
                    std::any_cast<const BallListRef&>(o._val);
@@ -1014,6 +1026,7 @@ public:
             }
             return true;
         }
+        // LCOV_EXCL_STOP
         if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == std::any_cast<int64_t>(o._val);
         if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == std::any_cast<bool>(o._val);
@@ -1460,10 +1473,26 @@ struct _BallDynUnwrapRegistrar {
             if (v.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(v).get();
             return nullptr;
         };
+        // REACHABILITY (issue #63 audit). Both call sites of
+        // `_BallRefDeref::obj_map` in ball_emit_runtime.h — `_ball_any_is_object`
+        // and `_ball_object_base_map` — test `u.type() == typeid(BallObjectRef)`
+        // THEMSELVES and short-circuit before consulting this hook, and
+        // `BallObjectRef` is a single `using` in ball_emit_runtime.h shared by
+        // both headers (never redeclared here), so the guarded body below can
+        // never be entered in any build: compiled program, self-hosted engine or
+        // native engine alike. It is dominated dead code, not merely
+        // self-host-only, so no test can reach it and the two lines carry a
+        // per-site exclusion rather than a blanket file rule. Deleting the
+        // registration entirely is the real fix and is provably behaviour-
+        // preserving for the same reason — but it edits the runtime spliced into
+        // every emitted program, so it belongs in its own change gated on the
+        // C++ self-host conformance sweep, not in a coverage slice.
         _BallRefDeref::_obj_map_fn = [](const std::any& v) -> const std::map<std::string, std::any>* {
             if (v.type() == typeid(BallObjectRef)) {
+                // LCOV_EXCL_START — dominated by the callers' own BallObjectRef test (above).
                 const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(v);
                 if (ref) return &static_cast<const BallMap&>(*ref);
+                // LCOV_EXCL_STOP
             }
             return nullptr;
         };

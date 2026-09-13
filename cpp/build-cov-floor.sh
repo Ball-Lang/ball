@@ -174,6 +174,22 @@ cd "$(dirname "$0")"
 #   shared    81 -> 79   (81.8 - 2 = 79.8; same reasoning, old margin +0.8pt)
 # RAISE these as tests land — that is the ratchet's whole point. They are a
 # regression floor, never a completion target; #63's target is 100%.
+#
+# NOT RATCHETED 2026-09-13 (#63 reachability-audit lane), deliberately. The
+# precondition for a ratchet is TWO consecutive SUCCESSFUL coverage.yml runs on
+# main printing the same triple — the same standard the 2026-09-02 derivation
+# above used. At that point exactly ONE run existed at or after f673169c
+# (run 34007457709: compiler 94.8 / encoder 89.1 / shared 85.8, aggregate
+# 91.2%), and it DISAGREED with the two before it (runs 34007051138 and
+# 34003724809, both compiler 94.0 / encoder 89.1 / shared 81.5, aggregate
+# 89.6%) because #587 had just landed and moved `shared` +4.3pt. One sample is
+# not a stable reading, so the floors stay where they are and the ratchet is
+# the next lane's job once main has two agreeing runs — including the coverage
+# this lane's own tests add.
+#   (Note for whoever does it: every coverage.yml run on main is currently RED,
+#   but on the DART ratchet — "line coverage 99.85% is below the floor of
+#   99.90%" — not on C++. The C++ job itself passes; read its per-target lines
+#   out of the job log rather than judging by the run's overall conclusion.)
 declare -A FLOORS=(
   [compiler]=90
   [encoder]=87

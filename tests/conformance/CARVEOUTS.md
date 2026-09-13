@@ -139,8 +139,12 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   exact shadowing defect #597 removed one line below, for `list_find`.
   Hand-authored for the same reason `463` is (the Dart encoder routes no Dart
   syntax to `list_find`), by the same tool,
-  `dart/encoder/tool/gen_std_gap_fixtures.dart`. One catch clause per `try`, for
-  the same first-clause-only compiler reason `463` documents.
+  `dart/encoder/tool/gen_std_gap_fixtures.dart`. Each `try` in it has exactly one
+  catch clause — a fixture-shape choice, NOT a constraint. It was a constraint
+  until #615, which taught the Go, C# and Rust compilers to walk `catches[]` in
+  source order and match each clause's `type`; `464_typed_catch_clause_dispatch`
+  is the cross-target guard for that multi-clause dispatch. This fixture stays
+  single-clause on purpose, so what it pins is the caught VALUE and nothing else.
 - `399_bytes_literal` — exercises a `Literal.bytes_value` node (the `literal.bytes_value`
   node-shape carve-out, #64 Phase 2b). No Dart source construct maps to a bytes literal
   (`Uint8List.fromList([...])` encodes as a constructor call), so it cannot be generated

@@ -911,8 +911,13 @@ Future<void> main() async {
   // untyped `panic!`/`Thrown{string}`/`BallRuntimeException` paths, so a typed
   // `on StateError catch` could not even see it on Rust/Go/C#/Python).
   //
-  // One catch clause per `try`, for the same reason `463` has one: the Go, C#
-  // and Rust COMPILERS dispatch only the first clause with no type matching.
+  // Each `try` here has exactly one catch clause -- a fixture-shape choice, NOT
+  // a constraint. It WAS one until #615: the Go, C# and Rust COMPILERS each
+  // dispatched only the first clause with no type matching. All three now walk
+  // `catches[]` in source order and match each clause's `type` against the
+  // thrown value's type tag, and `464_typed_catch_clause_dispatch` is the
+  // cross-target guard for that. This fixture stays single-clause on purpose so
+  // that what it pins is the caught VALUE, not the clause dispatch.
   //
   // Not generatable from Dart source: the Dart encoder routes no Dart syntax to
   // `list_find` at all (see `463`'s note), so `generate_conformance` cannot

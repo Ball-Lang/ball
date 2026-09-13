@@ -914,13 +914,15 @@ extension BallEngineEval on BallEngine {
         // portable across every self-hosted engine.
         case 'first':
           if (items.isNotEmpty) return items.first;
-          throw _stateError('No element');
+          throw BallException('StateError', 'Bad state: No element');
         case 'last':
           if (items.isNotEmpty) return items.last;
-          throw _stateError('No element');
+          throw BallException('StateError', 'Bad state: No element');
         case 'single':
-          if (items.isEmpty) throw _stateError('No element');
-          if (items.length > 1) throw _stateError('Too many elements');
+          if (items.isEmpty)
+            throw BallException('StateError', 'Bad state: No element');
+          if (items.length > 1)
+            throw BallException('StateError', 'Bad state: Too many elements');
           return items.single;
       }
     }
@@ -1114,7 +1116,8 @@ extension BallEngineEval on BallEngine {
       // target reproduces (issue #616).
       case 'first':
         if (rawList != null) {
-          if (rawList.isEmpty) throw _stateError('No element');
+          if (rawList.isEmpty)
+            throw BallException('StateError', 'Bad state: No element');
           return rawList.first;
         }
         // coverage:ignore-start
@@ -1122,7 +1125,8 @@ extension BallEngineEval on BallEngine {
       // coverage:ignore-end
       case 'last':
         if (rawList != null) {
-          if (rawList.isEmpty) throw _stateError('No element');
+          if (rawList.isEmpty)
+            throw BallException('StateError', 'Bad state: No element');
           return rawList.last;
         }
         // coverage:ignore-start
@@ -1130,8 +1134,10 @@ extension BallEngineEval on BallEngine {
       // coverage:ignore-end
       case 'single':
         if (rawList != null) {
-          if (rawList.isEmpty) throw _stateError('No element');
-          if (rawList.length > 1) throw _stateError('Too many elements');
+          if (rawList.isEmpty)
+            throw BallException('StateError', 'Bad state: No element');
+          if (rawList.length > 1)
+            throw BallException('StateError', 'Bad state: Too many elements');
           return rawList.single;
         }
         // coverage:ignore-start

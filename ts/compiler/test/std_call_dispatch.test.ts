@@ -302,15 +302,24 @@ const cases: Case[] = [
     body: std("list_is_empty", { list: ref("l") }),
     expect: [/\(l\.length === 0\)/],
   },
+  // #616: an EMPTY list is Dart's StateError, not `undefined`. Both halves are
+  // asserted — the element is still returned, AND the guard throws the tagged
+  // shape every emitted typed-`catch` guard tests for.
   {
     name: "listFirst",
     body: std("list_first", { list: ref("l") }),
-    expect: [/l\[0\]/],
+    expect: [
+      /__ball_lfst\[0\]/,
+      /if \(__ball_lfst\.length === 0\) throw \{\s*'__type__': 'StateError', 'message': 'No element'\s*\}/,
+    ],
   },
   {
     name: "listLast",
     body: std("list_last", { list: ref("l") }),
-    expect: [/l\[l\.length - 1\]/],
+    expect: [
+      /__ball_llst\[__ball_llst\.length - 1\]/,
+      /if \(__ball_llst\.length === 0\) throw \{\s*'__type__': 'StateError', 'message': 'No element'\s*\}/,
+    ],
   },
   {
     name: "listContains",

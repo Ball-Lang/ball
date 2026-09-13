@@ -425,27 +425,32 @@ class BallException extends BallValue implements Exception {
   String toString() => value?.toString() ?? typeName;
 }
 
-/// Dart's `StateError`, raised PORTABLY (issue #616).
-///
-/// The engine used to raise the host language's own `StateError` for an empty
-/// `.first`/`.last`/`.single`/`reduce` and a no-match `firstWhere`. On the Dart
-/// reference engine that reads back correctly — `_evalLazyTry` binds
-/// `e is BallException ? e.value : e.toString()`, and a host error collapses to
-/// `'Bad state: No element'`. But every SELF-HOSTED engine is this same source
-/// compiled through the Ball pipeline, where `StateError('No element')` is just
-/// a construction of a class the program never declares: the catch variable
-/// then bound a target-shaped object, and `to_string(e)` printed
-/// `{message: No element}` (TS), `main:StateError` (Go), … — one contract,
-/// three answers, all different from Dart.
-///
-/// Raising a [BallException] whose value IS the canonical
-/// `StateError.toString()` string keeps the Dart observable byte-identical
-/// (`e.value` is that string) and makes every target agree, because the same
-/// portable string now travels all of them. [message] is the bare Dart
-/// `StateError.message` (`'No element'`); the `'Bad state: '` prefix is Dart's
-/// own `Error.toString()` rendering, verified against the SDK.
-BallException _stateError(String message) =>
-    BallException('StateError', 'Bad state: $message');
+// ── Dart's `StateError`, raised PORTABLY (issue #616) ──
+//
+// The engine used to raise the HOST language's own `StateError` for an empty
+// `.first`/`.last`/`.single`/`reduce` and a no-match `firstWhere`. On the Dart
+// reference engine that reads back correctly — `_evalLazyTry` binds
+// `e is BallException ? e.value : e.toString()`, and a host error collapses to
+// `'Bad state: No element'`. But every SELF-HOSTED engine is this same source
+// compiled through the Ball pipeline, where `StateError('No element')` is just a
+// construction of a class the program never declares: the catch variable then
+// bound a target-shaped object, and `to_string(e)` printed
+// `{message: No element}` (TS), `main:StateError` (Go), … — one contract, three
+// answers, all different from Dart.
+//
+// Every such site now throws `BallException('StateError', 'Bad state: <msg>')`
+// — a value whose payload IS the canonical `StateError.toString()` string. The
+// Dart observable is byte-identical (`e.value` is that string) and every target
+// agrees, because the same portable string now travels all of them. The
+// `'Bad state: '` prefix is Dart's own `Error.toString()` rendering, verified
+// against the SDK.
+//
+// Written out at each site rather than behind a helper, deliberately: a helper
+// whose RETURN TYPE is `BallException` is lowered by the C++ self-host compiler
+// as a CAST (`ball_obj_as<BallException>(…)`) because the name collides with the
+// C++ runtime's own `BallException` struct, and the emitted engine stops
+// compiling. `throw BallException(typeName, value)` is the shape `std.throw`
+// itself already uses and every target already lowers.
 
 /// Thrown by `std_io.exit` / `std_io.panic` to terminate gracefully.
 class _ExitSignal extends BallValue implements Exception {

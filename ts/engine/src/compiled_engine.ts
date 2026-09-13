@@ -253,6 +253,23 @@ function __ball_to_string(v: any): string {
     return '{' + [...v].map(__ball_to_string).join(', ') + '}';
   }
   if (typeof v === 'object' && !Array.isArray(v)) {
+    // A built-in Dart error/exception -- the tagged {__type__, message} shape
+    // every typed throw in this compiler emits -- renders as Dart own
+    // toString() (issue #616). Without this it fell through to the Map-like
+    // branch below and a program that printed its CAUGHT exception read
+    // "{message: No element}", where the Dart reference engine prints
+    // "Bad state: No element". The table is EXPLICIT and closed over the type
+    // names this compiler throws: a user object that merely carries a
+    // message field is not a Dart error and keeps the map form.
+    const __ball_err_prefix: Record<string, string> = {
+      StateError: 'Bad state',
+      FormatException: 'FormatException',
+      RangeError: 'RangeError',
+    };
+    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
+        && __ball_err_prefix[v['__type__']] !== undefined) {
+      return __ball_err_prefix[v['__type__']] + ': ' + v['message'];
+    }
     // StringBuffer-like objects
     if (v['__buffer__'] && Array.isArray(v['__buffer__'])) {
       return v['__buffer__'].join('');
@@ -3884,20 +3901,20 @@ export class BallEngine {
           if (!(items.length === 0)) {
             return items.first;
           }
-          throw _stateError('No element');
+          throw new BallException('StateError', 'Bad state: No element');
         }
         else if ((__sw === 'last')) {
           if (!(items.length === 0)) {
             return items.last;
           }
-          throw _stateError('No element');
+          throw new BallException('StateError', 'Bad state: No element');
         }
         else if ((__sw === 'single')) {
           if ((items.length === 0)) {
-            throw _stateError('No element');
+            throw new BallException('StateError', 'Bad state: No element');
           }
           if (__ball_gt(items.length, 1)) {
-            throw _stateError('Too many elements');
+            throw new BallException('StateError', 'Bad state: Too many elements');
           }
           return items.single;
         }
@@ -4065,7 +4082,7 @@ export class BallEngine {
       else if ((__sw === 'first')) {
         if (!__ball_eq(rawList, null)) {
           if ((rawList.length === 0)) {
-            throw _stateError('No element');
+            throw new BallException('StateError', 'Bad state: No element');
           }
           return rawList.first;
         }
@@ -4076,7 +4093,7 @@ export class BallEngine {
       else if ((__sw === 'last')) {
         if (!__ball_eq(rawList, null)) {
           if ((rawList.length === 0)) {
-            throw _stateError('No element');
+            throw new BallException('StateError', 'Bad state: No element');
           }
           return rawList.last;
         }
@@ -4087,10 +4104,10 @@ export class BallEngine {
       else if ((__sw === 'single')) {
         if (!__ball_eq(rawList, null)) {
           if ((rawList.length === 0)) {
-            throw _stateError('No element');
+            throw new BallException('StateError', 'Bad state: No element');
           }
           if (__ball_gt(rawList.length, 1)) {
-            throw _stateError('Too many elements');
+            throw new BallException('StateError', 'Bad state: Too many elements');
           }
           return rawList.single;
         }
@@ -6634,7 +6651,7 @@ export class BallEngine {
               acc = r;
             }
             if (!seeded) {
-              throw _stateError('No element');
+              throw new BallException('StateError', 'Bad state: No element');
             }
             return acc;
           }
@@ -7523,24 +7540,24 @@ export class BallEngine {
         const input = i;
         let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
         if ((list.length === 0)) {
-          throw _stateError('No element');
+          throw new BallException('StateError', 'Bad state: No element');
         }
         return list.first;
       }), ['list_last']: ((i) => {
         const input = i;
         let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
         if ((list.length === 0)) {
-          throw _stateError('No element');
+          throw new BallException('StateError', 'Bad state: No element');
         }
         return list.last;
       }), ['list_single']: ((i) => {
         const input = i;
         let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
         if ((list.length === 0)) {
-          throw _stateError('No element');
+          throw new BallException('StateError', 'Bad state: No element');
         }
         if (__ball_gt(list.length, 1)) {
-          throw _stateError('Too many elements');
+          throw new BallException('StateError', 'Bad state: Too many elements');
         }
         return list.first;
       }), ['list_contains']: ((i) => {
@@ -7621,7 +7638,7 @@ export class BallEngine {
           acc = v;
         }
         if (!seeded) {
-          throw _stateError('No element');
+          throw new BallException('StateError', 'Bad state: No element');
         }
         return acc;
       }), ['list_find']: (async (i) => {
@@ -7638,7 +7655,7 @@ export class BallEngine {
             return e;
           }
         }
-        throw _stateError('No element');
+        throw new BallException('StateError', 'Bad state: No element');
       }), ['list_any']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -10828,11 +10845,6 @@ function _unwrapBallFuture(value: any): any {
     return __ball_index(map, 'value');
   }
   return value;
-}
-
-function _stateError(message: any): any {
-  const input = message;
-  return new BallException('StateError', ('Bad state: ' + __ball_to_string(message)));
 }
 
 function _mathSqrt(v: any): any {

@@ -23,7 +23,7 @@
   },
   "summary": {
     "encoderEmittable": 121,
-    "coveredByFixture": 130,
+    "coveredByFixture": 131,
     "engineImplementedDart": 233,
     "carvedOut": 0
   },
@@ -937,6 +937,7 @@
         "43_countdown",
         "442_switch_goto_fallthrough_guard_or_pattern",
         "463_list_find_no_match",
+        "464_state_error_message",
         "47_do_while",
         "50_if_else_chain",
         "51_nested_if",
@@ -2351,6 +2352,7 @@
         "461_named_ctor_super_and_this_formal",
         "462_set_mutation_in_place",
         "463_list_find_no_match",
+        "464_state_error_message",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -3190,6 +3192,7 @@
         "459_set_add_remove_bool",
         "462_set_mutation_in_place",
         "463_list_find_no_match",
+        "464_state_error_message",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -3287,6 +3290,7 @@
         "397_map_values",
         "451_thrown_builtin_exception_tearoff",
         "463_list_find_no_match",
+        "464_state_error_message",
         "53_try_catch_finally",
         "84_exception_chain",
         "91_nested_try_catch"
@@ -3454,7 +3458,8 @@
       "inputType": "ListCallbackInput",
       "encoderEmittable": false,
       "coveredByFixtures": [
-        "463_list_find_no_match"
+        "463_list_find_no_match",
+        "464_state_error_message"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3464,7 +3469,9 @@
       "name": "list_first",
       "inputType": "ListInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "464_state_error_message"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },

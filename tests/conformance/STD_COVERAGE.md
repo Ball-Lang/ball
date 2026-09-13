@@ -15,7 +15,7 @@ Every base function across the 8 universal std modules, generated directly from 
 |---|---|
 | Total base functions | 271 |
 | Encoder-emittable | 121 |
-| Covered by a conformance fixture | 130 |
+| Covered by a conformance fixture | 131 |
 | Dart engine-implemented | 233 |
 | Documented carve-outs | 0 |
 
@@ -47,7 +47,7 @@ Universal standard library base module. Every function here represents a languag
 | `for` | ✅ | ✅ 93 fixture(s): `100_complex_control_flow`, `103_abstract_class`, `105_static_methods` +90 more | ✅ |
 | `for_in` | ✅ | ✅ 47 fixture(s): `103_abstract_class`, `109_enum_values`, `117_list_generate` +44 more | ✅ |
 | `goto` | ❌ | ✅ 1 fixture(s): `390_goto_label` | ✅ |
-| `greater_than` | ✅ | ✅ 45 fixture(s): `100_complex_control_flow`, `105_static_methods`, `131_insertion_sort` +42 more | ✅ |
+| `greater_than` | ✅ | ✅ 46 fixture(s): `100_complex_control_flow`, `105_static_methods`, `131_insertion_sort` +43 more | ✅ |
 | `gte` | ✅ | ✅ 11 fixture(s): `131_insertion_sort`, `140_caesar_cipher`, `151_recursive_descent_parser` +8 more | ✅ |
 | `if` | ✅ | ✅ 87 fixture(s): `100_complex_control_flow`, `105_static_methods`, `106_factory_constructor` +84 more | ✅ |
 | `index` | ✅ | ✅ 57 fixture(s): `106_factory_constructor`, `119_nested_maps`, `120_list_of_maps` +54 more | ✅ |
@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 349 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +346 more | ✅ |
+| `print` | ✅ | ✅ 350 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +347 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -143,11 +143,11 @@ Universal standard library base module. Every function here represents a languag
 | `throw` | ✅ | ✅ 21 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +18 more | ✅ |
 | `to_double` | ✅ | ✅ 4 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +1 more | ✅ |
 | `to_int` | ✅ | ✅ 5 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +2 more | ✅ |
-| `to_string` | ✅ | ✅ 189 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +186 more | ✅ |
+| `to_string` | ✅ | ✅ 190 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +187 more | ✅ |
 | `to_string_as_exponential` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
 | `to_string_as_fixed` | ✅ | ✅ 1 fixture(s): `316_to_string_as_fixed` | ✅ |
 | `to_string_as_precision` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
-| `try` | ✅ | ✅ 25 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `199_malicious_input_patterns` +22 more | ✅ |
+| `try` | ✅ | ✅ 26 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `199_malicious_input_patterns` +23 more | ✅ |
 | `type_of` | ✅ | ✅ 1 fixture(s): `434_type_of` | ✅ |
 | `unsigned_right_shift` | ✅ | ✅ 1 fixture(s): `381_unsigned_right_shift` | ✅ |
 | `while` | ✅ | ✅ 26 fixture(s): `100_complex_control_flow`, `108_class_tostring`, `123_queue_simulation` +23 more | ✅ |
@@ -166,8 +166,8 @@ Standard collections module. List and map operations. Separate from std because 
 | `list_contains` | ✅ | ✅ 6 fixture(s): `118_set_operations`, `129_unique_elements`, `260_string_functions` +3 more | ✅ |
 | `list_drop` | ❌ | ❌ | ✅ |
 | `list_filter` | ✅ | ✅ 1 fixture(s): `384_list_filter_where` | ✅ |
-| `list_find` | ❌ | ✅ 1 fixture(s): `463_list_find_no_match` | ✅ |
-| `list_first` | ❌ | ❌ | ✅ |
+| `list_find` | ❌ | ✅ 2 fixture(s): `463_list_find_no_match`, `464_state_error_message` | ✅ |
+| `list_first` | ❌ | ✅ 1 fixture(s): `464_state_error_message` | ✅ |
 | `list_flat_map` | ❌ | ❌ | ✅ |
 | `list_foreach` | ✅ | ✅ 4 fixture(s): `116_map_iteration`, `119_nested_maps`, `121_map_from_entries` +1 more | ✅ |
 | `list_get` | ❌ | ❌ | ✅ |

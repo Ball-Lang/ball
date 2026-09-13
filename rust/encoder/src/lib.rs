@@ -81,13 +81,22 @@
 //! names are recorded ([`Encoder::skipped_item_names`]) and a reference to
 //! one fails **loud** at the use site, naming the declaration.
 //!
-//! A top-level **macro invocation** stays a loud panic on purpose: a macro at
-//! item level can be the very thing that DEFINES a type the rest of the file
-//! references (`bitflags::bitflags! { … }` produces the `TestFlags` every
-//! `bitflags/tests/*.rs` file then calls into — 28 of those 110 scored
-//! files), so skipping it would orphan those references into a confusing
-//! downstream panic instead of a clean boundary. Closing that bucket needs
-//! macro *expansion*, a materially bigger feature.
+//! A top-level **macro invocation** is never SKIPPED: a macro at item level can
+//! be the very thing that DEFINES a type the rest of the file references
+//! (`bitflags::bitflags! { … }` produces the `TestFlags` every
+//! `bitflags/tests/*.rs` file then calls into), so skipping it would orphan
+//! those references into a confusing downstream panic instead of a clean
+//! boundary. Since issue #629 a **`macro_rules!`** invocation is *expanded*
+//! instead ([`macro_expand`]); one no `macro_rules!` in scope defines — every
+//! proc-macro, `#[derive]` helper and attribute macro — still panics, by design.
+//!
+//! **Do not read the `TestFlags` family as a macro bucket.** Measured on the
+//! pinned Tier A corpus: only 4 of the 110 scored files are first-blocked by a
+//! `macro_rules!` invocation at all. The 28 `bitflags/tests/*.rs` files come
+//! from a `bitflags!` invocation inside a `#[cfg(test)] mod tests`, which
+//! `crate_graph` deliberately does not walk (issue #621), and they then need
+//! generic bounds, associated-type paths and `impl Trait` parameters as well —
+//! three separate things, of which expansion is one.
 //!
 //! ## Cross-file calls: an unresolved `ModuleImport`, not a panic (issue #491)
 //!

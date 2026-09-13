@@ -6331,9 +6331,8 @@ class DartEncoder {
       }
       if (p is ast.FieldFormalParameter) {
         pm['is_this'] = true;
-        if (p.type != null) {
-          pm['type'] = _portableTypeSource(p.type!.toSource());
-        }
+        final t = p.type;
+        if (t != null) pm['type'] = _portableTypeSource(t.toSource());
       }
       if (p is ast.SuperFormalParameter) {
         pm['is_super'] = true;

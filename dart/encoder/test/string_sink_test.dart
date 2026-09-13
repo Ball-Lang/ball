@@ -97,6 +97,35 @@ void main() {
       });
     });
 
+    test('the explicit-`new` spelling routes too', () {
+      final js = encode('''
+void main() {
+  StringBuffer sb = new StringBuffer('x');
+  print(sb.toString());
+}
+''');
+      final creates = _callsTo(js, 'std', 'sink_create');
+      expect(creates, hasLength(1));
+      expect(_inputFields(creates.single).keys, ['initial']);
+    });
+
+    test('a zero-argument writeln writes only the newline', () {
+      final js = encode('''
+void main() {
+  StringBuffer sb = StringBuffer();
+  sb.writeln();
+  print(sb.toString());
+}
+''');
+      final writes = _callsTo(js, 'std', 'sink_write');
+      expect(writes, hasLength(1));
+      // No operand to stringify and nothing to concatenate — just "\\n".
+      expect(_inputFields(writes.single)['text'], {
+        'literal': {'stringValue': '\n'},
+      });
+      expect(_callsTo(js, 'std', 'concat'), isEmpty);
+    });
+
     test('write / writeln / writeCharCode all route to std.sink_write', () {
       final js = encode('''
 void main() {

@@ -4586,11 +4586,14 @@ function __isUnknownFnError(e: any): boolean {
       return `new ${shortTn}(${args})`;
     }
 
-    // Dart StringBuffer → empty string in TS (string concatenation replaces
-    // the mutable buffer). writeCharCode / write are handled in compileCall.
-    if (shortTn === "StringBuffer") {
-      return `""`;
-    }
+    // (issue #630/#633) A `main:StringBuffer` messageCreation used to compile to
+    // `""` here — the by-value representation this whole issue is about: the
+    // buffer was a bare string, so `type_of` answered "String" and an append
+    // inside a callee was lost. The Dart encoder no longer emits that typeName
+    // (a `StringBuffer` routes to `std.sink_create`), so the arm was dead code
+    // asserting the wrong contract. Removed rather than kept and blessed; a
+    // legacy program carrying that typeName now takes the ordinary
+    // class-construction path below, which at least produces an object.
 
     // BallValue wrapper types — transparent in TS (no wrapper needed).
     // BallMap(map) → just the map; BallList(list) → just the list; etc.
@@ -5002,9 +5005,7 @@ function __isUnknownFnError(e: any): boolean {
       case "sink_write": {
         const sink = f.get("sink");
         const text = f.get("text");
-        if (!sink || !text) {
-          throw new Error("TS compiler: std.sink_write requires both `sink` and `text` fields");
-        }
+        if (!sink || !text) throw new Error("TS compiler: std.sink_write requires both `sink` and `text` fields");
         return `__ball_sink_write(${this.expr(sink)}, ${this.expr(text)})`;
       }
       case "sink_to_string": {

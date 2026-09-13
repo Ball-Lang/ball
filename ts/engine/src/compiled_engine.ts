@@ -9086,33 +9086,23 @@ export class BallEngine {
     }
   }
 
-  _stdSinkCreate(input: any): any {
-    let m = this._stdAsMap(input);
-    let seed = (__ball_eq(m, null) ? null : __ball_index(m, 'initial'));
+  async _stdSinkCreate(input: any): Promise<any> {
+    let seed = this._stdAsMap(input)?.['initial'];
     let sink = _ballUserMap();
     sink['__type__'] = _kBallSinkTag;
-    sink[_kBallSinkBuffer] = (__ball_eq(seed, null) ? '' : this._ballSinkText(seed));
+    sink[_kBallSinkBuffer] = (__ball_eq(seed, null) ? '' : await this._ballToStringAsync(seed));
     return sink.cast();
   }
 
-  _stdSinkWrite(input: any): any {
+  async _stdSinkWrite(input: any): Promise<any> {
     let m = this._stdAsMap(input);
-    if (__ball_eq(m, null)) {
-      throw new BallRuntimeError('std.sink_write: expected an input message');
-    }
-    let sink = this._stdSinkBacking(__ball_index(m, 'sink'), 'sink_write');
-    let existing = __ball_index(sink, _kBallSinkBuffer);
-    sink[_kBallSinkBuffer] = __ball_add(((__ball_eq(existing, null) ? '' : this._ballSinkText(existing))), this._ballSinkText(__ball_index(m, 'text')));
+    let sink = this._stdSinkBacking(m?.['sink'], 'sink_write');
+    let text = await this._ballToStringAsync(m?.['text']);
+    sink[_kBallSinkBuffer] = (__ball_to_string(__ball_index(sink, _kBallSinkBuffer)) + __ball_to_string(text));
   }
 
   _stdSinkToString(input: any): any {
-    let m = this._stdAsMap(input);
-    if (__ball_eq(m, null)) {
-      throw new BallRuntimeError('std.sink_to_string: expected an input message');
-    }
-    let sink = this._stdSinkBacking(__ball_index(m, 'sink'), 'sink_to_string');
-    let buffer = __ball_index(sink, _kBallSinkBuffer);
-    return (__ball_eq(buffer, null) ? '' : this._ballSinkText(buffer));
+    return __ball_index(this._stdSinkBacking(this._stdAsMap(input)?.['sink'], 'sink_to_string'), _kBallSinkBuffer);
   }
 
   _stdSinkBacking(value: any, function_: any): any {
@@ -9121,38 +9111,6 @@ export class BallEngine {
       throw new BallRuntimeError(((('std.' + __ball_to_string(function_)) + ': expected a sink (std.sink_create), got ') + __ball_to_string(this._typeNameOf(value))));
     }
     return map;
-  }
-
-  _ballSinkText(v: any): any {
-    const input = v;
-    if ((typeof v === 'string')) {
-      return v;
-    }
-    if ((typeof v === 'string')) {
-      return v.value;
-    }
-    if ((__ball_eq(v, null) || (v == null))) {
-      return 'null';
-    }
-    if ((typeof v === 'boolean')) {
-      return __ball_to_string(v);
-    }
-    if ((typeof v === 'boolean')) {
-      return __ball_to_string(v.value);
-    }
-    if ((typeof v === 'number' && Number.isInteger(v))) {
-      return __ball_to_string(v);
-    }
-    if ((typeof v === 'number' && Number.isInteger(v))) {
-      return __ball_to_string(v.value);
-    }
-    if ((v instanceof BallDouble || (typeof v === 'number' && !Number.isInteger(v)))) {
-      return __ball_to_string(v);
-    }
-    if ((typeof v === 'number' || v instanceof BallDouble)) {
-      return __ball_to_string(v);
-    }
-    return __ball_to_string(v);
   }
 
   _stdTypeCheck(input: any): any {

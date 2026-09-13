@@ -2269,15 +2269,6 @@ func _stdSinkBacking(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_stdSinkBacking' for " + __t})
 }
 
-func _ballSinkText(input ballrt.Value) ballrt.Value {
-	self := ballrt.FieldGet(input, "self")
-	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
-	if __t == "main:BallEngine" || __t == "BallEngine" {
-		return BallEngine___ballSinkText(input)
-	}
-	panic(ballrt.Thrown{Value: "no method '_ballSinkText' for " + __t})
-}
-
 func _stdTypeCheck(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -35749,14 +35740,7 @@ func BallEngine___stdSinkCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = ball_input
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
-		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
-		_ = m
-		var seed ballrt.Value = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
-				return ballrt.Value(nil)
-			}
-			return ballrt.IndexGet(m, "initial")
-		}()
+		var seed ballrt.Value = ballrt.IndexGet(_stdAsMap(ballrt.Arg0WithSelf(ball_input, __self)), "initial")
 		_ = seed
 		var sink ballrt.Value = _ballUserMap(ballrt.Value(nil))
 		_ = sink
@@ -35765,7 +35749,7 @@ func BallEngine___stdSinkCreate(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Truthy(ballrt.Eq(seed, ballrt.Value(nil))) {
 				return ""
 			}
-			return _ballSinkText(ballrt.Arg0WithSelf(seed, __self))
+			return _ballToStringAsync(ballrt.Arg0WithSelf(seed, __self))
 		}())
 		return func() ballrt.Value {
 			__m := ballrt.NewMap()
@@ -35848,16 +35832,6 @@ func BallEngine___stdSinkWrite(input ballrt.Value) (__ret ballrt.Value) {
 	__ret = func() ballrt.Value {
 		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
 		_ = m
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
-				return ballrt.Throw(func() ballrt.Value {
-					__m := ballrt.NewMap()
-					__m.Set("message", "std.sink_write: expected an input message")
-					return ballrt.NewMessage("main:BallRuntimeError", __m)
-				}())
-			}
-			return ballrt.Value(nil)
-		}()
 		var sink ballrt.Value = _stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
 			__m := ballrt.NewMap()
 			__m.Set("arg0", ballrt.IndexGet(m, "sink"))
@@ -35865,14 +35839,9 @@ func BallEngine___stdSinkWrite(input ballrt.Value) (__ret ballrt.Value) {
 			return __m
 		}(), __self))
 		_ = sink
-		var existing ballrt.Value = ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))
-		_ = existing
-		_ = ballrt.IndexSet(sink, _kBallSinkBuffer(ballrt.Value(nil)), ballrt.Add(func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Eq(existing, ballrt.Value(nil))) {
-				return ""
-			}
-			return _ballSinkText(ballrt.Arg0WithSelf(existing, __self))
-		}(), _ballSinkText(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "text"), __self))))
+		var text ballrt.Value = _ballToStringAsync(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "text"), __self))
+		_ = text
+		_ = ballrt.IndexSet(sink, _kBallSinkBuffer(ballrt.Value(nil)), ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))), ballrt.ToStr(text)))
 		return ballrt.Value(nil)
 	}()
 	return
@@ -35943,35 +35912,12 @@ func BallEngine___stdSinkToString(input ballrt.Value) (__ret ballrt.Value) {
 	ball_input := ballrt.ArgGet(input, "input", "arg0")
 	_ = ball_input
 	defer ballrt.CatchReturn(&__ret)
-	__ret = func() ballrt.Value {
-		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
-		_ = m
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
-				return ballrt.Throw(func() ballrt.Value {
-					__m := ballrt.NewMap()
-					__m.Set("message", "std.sink_to_string: expected an input message")
-					return ballrt.NewMessage("main:BallRuntimeError", __m)
-				}())
-			}
-			return ballrt.Value(nil)
-		}()
-		var sink ballrt.Value = _stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
-			__m := ballrt.NewMap()
-			__m.Set("arg0", ballrt.IndexGet(m, "sink"))
-			__m.Set("arg1", "sink_to_string")
-			return __m
-		}(), __self))
-		_ = sink
-		var buffer ballrt.Value = ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))
-		_ = buffer
-		return func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Eq(buffer, ballrt.Value(nil))) {
-				return ""
-			}
-			return _ballSinkText(ballrt.Arg0WithSelf(buffer, __self))
-		}()
-	}()
+	__ret = ballrt.IndexGet(_stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
+		__m := ballrt.NewMap()
+		__m.Set("arg0", ballrt.IndexGet(_stdAsMap(ballrt.Arg0WithSelf(ball_input, __self)), "sink"))
+		__m.Set("arg1", "sink_to_string")
+		return __m
+	}(), __self)), _kBallSinkBuffer(ballrt.Value(nil)))
 	return
 }
 
@@ -36056,131 +36002,6 @@ func BallEngine___stdSinkBacking(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		return ball_map
-	}()
-	return
-}
-
-func BallEngine___ballSinkText(input ballrt.Value) (__ret ballrt.Value) {
-	_ = input
-	__self := ballrt.FieldGet(input, "self")
-	_ = __self
-	program := ballrt.FieldGet(__self, "program")
-	_ = program
-	_types := ballrt.FieldGet(__self, "_types")
-	_ = _types
-	_functions := ballrt.FieldGet(__self, "_functions")
-	_ = _functions
-	_getters := ballrt.FieldGet(__self, "_getters")
-	_ = _getters
-	_setters := ballrt.FieldGet(__self, "_setters")
-	_ = _setters
-	_globalScope := ballrt.FieldGet(__self, "_globalScope")
-	_ = _globalScope
-	stdout := ballrt.FieldGet(__self, "stdout")
-	_ = stdout
-	_paramCache := ballrt.FieldGet(__self, "_paramCache")
-	_ = _paramCache
-	_callCache := ballrt.FieldGet(__self, "_callCache")
-	_ = _callCache
-	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
-	_ = _typeMethodDispatch
-	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
-	_ = _instanceMethodCache
-	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
-	_ = _topLevelRefs
-	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
-	_ = _staticFieldRefs
-	_enumValues := ballrt.FieldGet(__self, "_enumValues")
-	_ = _enumValues
-	_constructors := ballrt.FieldGet(__self, "_constructors")
-	_ = _constructors
-	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
-	_ = maxRecursionDepth
-	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
-	_ = timeoutMs
-	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
-	_ = maxMemoryBytes
-	maxModules := ballrt.FieldGet(__self, "maxModules")
-	_ = maxModules
-	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
-	_ = maxExpressionDepth
-	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
-	_ = maxProgramSizeBytes
-	sandbox := ballrt.FieldGet(__self, "sandbox")
-	_ = sandbox
-	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
-	_ = moduleHandlers
-	_random := ballrt.FieldGet(__self, "_random")
-	_ = _random
-	stderr := ballrt.FieldGet(__self, "stderr")
-	_ = stderr
-	stdinReader := ballrt.FieldGet(__self, "stdinReader")
-	_ = stdinReader
-	_envGet := ballrt.FieldGet(__self, "_envGet")
-	_ = _envGet
-	_args := ballrt.FieldGet(__self, "_args")
-	_ = _args
-	_resolver := ballrt.FieldGet(__self, "_resolver")
-	_ = _resolver
-	v := ballrt.ArgGet(input, "v", "arg0")
-	_ = v
-	defer ballrt.CatchReturn(&__ret)
-	__ret = func() ballrt.Value {
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "String")) {
-				return ballrt.Return(v)
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "BallString")) {
-				return ballrt.Return(ballrt.FieldGet(v, "value"))
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(v, ballrt.Value(nil))) || ballrt.Truthy(ballrt.IsType(v, "BallNull")))) {
-				return ballrt.Return("null")
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "bool")) {
-				return ballrt.Return(ballrt.ToStr(v))
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "BallBool")) {
-				return ballrt.Return(ballrt.ToStr(ballrt.FieldGet(v, "value")))
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "int")) {
-				return ballrt.Return(ballrt.ToStr(v))
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "BallInt")) {
-				return ballrt.Return(ballrt.ToStr(ballrt.FieldGet(v, "value")))
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "double")) {
-				return ballrt.Return(ballrt.ToStr(v))
-			}
-			return ballrt.Value(nil)
-		}()
-		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.IsType(v, "BallDouble")) {
-				return ballrt.Return(ballrt.ToStr(v))
-			}
-			return ballrt.Value(nil)
-		}()
-		return ballrt.ToStr(v)
 	}()
 	return
 }

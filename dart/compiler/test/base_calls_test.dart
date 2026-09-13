@@ -829,5 +829,27 @@ void main() {
         contains("_ballSinkCreate('x')"),
       );
     });
+
+    // Fail loud on a malformed call rather than emitting a comment that
+    // compiles to nothing and silently DROPS the write — the shape issue #55
+    // was about. No encoder can produce these, so they are only reachable
+    // from hand-written Ball IR, which is exactly what these assert.
+    test('sink_write without both operands is a loud error', () {
+      expect(
+        () => _compileFlat(
+          _call('std', 'sink_write', [_field('sink', _ref('sb'))]),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('sink_to_string without a `sink` operand is a loud error', () {
+      expect(
+        () => _compileFlat(
+          _call('std', 'sink_to_string', [_field('text', _strLit('a'))]),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
   });
 }

@@ -10057,6 +10057,83 @@ void main() {
       );
       expect(() => runAndCapture(program), throwsA(isA<BallRuntimeError>()));
     });
+
+    test('std.to_string on a sink yields its text, not the tag map', () async {
+      // `print(sb)` / `'$sb'` reach `std.to_string`, not `sink_to_string`, and
+      // must still answer the accumulated TEXT — a sink is map-shaped, so the
+      // generic map rendering would print `{__type__: std:Sink, …}`.
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'sink_create', 'isBase': true},
+          {'name': 'sink_write', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt(
+              'sb',
+              stdCall(
+                'sink_create',
+                msg([
+                  field('initial', literal('a')),
+                ], typeName: 'SinkCreateInput'),
+              ),
+            ),
+            stmt(
+              stdCall(
+                'sink_write',
+                msg([
+                  field('sink', ref('sb')),
+                  field('text', literal('b')),
+                ], typeName: 'SinkWriteInput'),
+              ),
+            ),
+            stmt(printToString(ref('sb'))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['ab']);
+    });
+
+    // The legacy Dart-SDK StringBuffer method surface (#630 R4). The encoder no
+    // longer emits these for `StringBuffer` source — `write`/`writeln`/
+    // `writeCharCode`/`toString`/`length` all route to `std.sink_*` — but a
+    // hand-written Ball program (and `clear`/`writeAll`, which have no declared
+    // std function) still reaches them, and they must keep working on the
+    // declared `std:Sink` tag as well as the legacy `:StringBuffer` one.
+    test('the legacy StringBuffer method surface accepts a std:Sink', () async {
+      Map<String, dynamic> method(
+        String name,
+        Map<String, dynamic> self, [
+        Map<String, dynamic>? arg,
+      ]) => call(
+        name,
+        input: msg([field('self', self), if (arg != null) field('arg0', arg)]),
+      );
+
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'sink_create', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt(
+              'sb',
+              stdCall('sink_create', msg([], typeName: 'SinkCreateInput')),
+            ),
+            stmt(method('write', ref('sb'), literal('a'))),
+            stmt(method('writeln', ref('sb'), literal('b'))),
+            stmt(method('writeCharCode', ref('sb'), literal(67))),
+            stmt(printExpr(method('toString', ref('sb')))),
+            stmt(printToString(method('length', ref('sb')))),
+            stmt(method('clear', ref('sb'))),
+            stmt(printToString(method('length', ref('sb')))),
+          ]),
+        ],
+      );
+      // `toString()` is ONE print, so the writeln's newline is inside the
+      // first captured line, not a line break between two of them.
+      expect(await runAndCapture(program), ['ab\nC', '4', '0']);
+    });
   });
 }
 

@@ -2010,40 +2010,38 @@ extension BallEngineStd on BallEngine {
   // `466_string_sink`.
 
   /// `std.sink_create` — a new text sink, optionally seeded with `initial`.
-  Object? _stdSinkCreate(Object? input) {
-    final m = _stdAsMap(input);
-    final seed = m == null ? null : m['initial'];
+  Future<Object?> _stdSinkCreate(Object? input) async {
+    final seed = _stdAsMap(input)?['initial'];
     final sink = _ballUserMap();
     sink['__type__'] = _kBallSinkTag;
-    sink[_kBallSinkBuffer] = seed == null ? '' : _ballSinkText(seed);
+    sink[_kBallSinkBuffer] = seed == null ? '' : await _ballToStringAsync(seed);
     return BallMap(sink.cast<String, Object?>());
   }
 
   /// `std.sink_write` — append `text` to `sink`. Returns null: the observable
   /// effect is the mutation, which is what makes the sink reference-semantic.
-  Object? _stdSinkWrite(Object? input) {
+  ///
+  /// `text` goes through the same `_ballToStringAsync` every other stringifying
+  /// op uses, so `sink.write(3)` matches Dart's `StringBuffer.write(3)` without
+  /// this file re-deriving a second, divergent number/bool rendering.
+  Future<Object?> _stdSinkWrite(Object? input) async {
     final m = _stdAsMap(input);
-    if (m == null) {
-      throw BallRuntimeError('std.sink_write: expected an input message');
-    }
-    final sink = _stdSinkBacking(m['sink'], 'sink_write');
-    final existing = sink[_kBallSinkBuffer];
-    sink[_kBallSinkBuffer] =
-        (existing == null ? '' : _ballSinkText(existing)) +
-        _ballSinkText(m['text']);
+    final sink = _stdSinkBacking(m?['sink'], 'sink_write');
+    final text = await _ballToStringAsync(m?['text']);
+    sink[_kBallSinkBuffer] = '${sink[_kBallSinkBuffer]}$text';
     return null;
   }
 
   /// `std.sink_to_string` — the text accumulated in `sink`, in write order.
-  Object? _stdSinkToString(Object? input) {
-    final m = _stdAsMap(input);
-    if (m == null) {
-      throw BallRuntimeError('std.sink_to_string: expected an input message');
-    }
-    final sink = _stdSinkBacking(m['sink'], 'sink_to_string');
-    final buffer = sink[_kBallSinkBuffer];
-    return buffer == null ? '' : _ballSinkText(buffer);
-  }
+  ///
+  /// Reads the buffer directly: `_stdSinkBacking` has already proven the value
+  /// is a sink, and a sink's `__buffer__` is a String from the moment
+  /// `sink_create` seeds it, so there is no "missing buffer" case to invent a
+  /// default for.
+  Object? _stdSinkToString(Object? input) => _stdSinkBacking(
+    _stdAsMap(input)?['sink'],
+    'sink_to_string',
+  )[_kBallSinkBuffer];
 
   /// The live backing map of [value], or a loud error when it is not a sink.
   ///
@@ -2059,23 +2057,6 @@ extension BallEngineStd on BallEngine {
       );
     }
     return map;
-  }
-
-  /// A sink operand's text form. Deliberately narrow — `sink_write` takes
-  /// TEXT, and every encoder wraps a non-string operand in `std.to_string`
-  /// before it gets here — but a bare number/bool still stringifies rather than
-  /// crashing, matching what `StringBuffer.write` does in Dart.
-  String _ballSinkText(Object? v) {
-    if (v is String) return v;
-    if (v is BallString) return v.value;
-    if (v == null || v is BallNull) return 'null';
-    if (v is bool) return v.toString();
-    if (v is BallBool) return v.value.toString();
-    if (v is int) return v.toString();
-    if (v is BallInt) return v.value.toString();
-    if (v is double) return v.toString();
-    if (v is BallDouble) return v.toString();
-    return '$v';
   }
 
   Object? _stdTypeCheck(Object? input) {

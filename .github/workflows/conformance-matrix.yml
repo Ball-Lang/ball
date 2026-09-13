@@ -1016,7 +1016,7 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "274"
+      CSHARP_COMPILER_FLOOR: "275"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1457,7 +1457,7 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "275"
+      RUST_COMPILER_FLOOR: "276"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1566,7 +1566,7 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "290"
+      GO_COMPILER_FLOOR: "291"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

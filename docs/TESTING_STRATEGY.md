@@ -424,10 +424,10 @@ The rule this repo now follows on any measurement leg:
    falls through to a green exit. `tools/test/test_roundtrip_floor.sh` runs on
    every PR and pins all of it, the wiring included.
 
-Measured on PR #646's own matrix (run 34768892821), after teaching each encoder
+Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
 its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
 loop fixtures re-encode clean and then hang (#693): Rust **99**, C# **76**,
-Python **41**, Go **31** of 351. Those are the floors. None of the four is a parity gate — most of
+Python **41**, Go **31** of 352. Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 

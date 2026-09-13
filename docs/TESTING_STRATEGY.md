@@ -696,7 +696,7 @@ adds it until all four places agree.
 ## The required status checks
 
 The list is not a convention: since 2026-09-14 it is enforced by the
-repository's `Protect main` ruleset, whose **18 required status check contexts** are
+repository's `Protect main` ruleset, whose **19 required status check contexts** are
 (see the #59 comment of that date):
 
 <!-- BEGIN REQUIRED-CONTEXTS repo=Ball-Lang/ball ruleset=17056238 -->
@@ -711,6 +711,7 @@ repository's `Protect main` ruleset, whose **18 required status check contexts**
 - `Dart Coverage Ratchet`
 - `Dart Regression Gate (engine + encoder + compiler)`
 - `Detect changed stacks`
+- `Go`
 - `Proto Checks`
 - `Protobuf Codegen (gen + rpc)`
 - `Python`
@@ -720,7 +721,7 @@ repository's `Protect main` ruleset, whose **18 required status check contexts**
 - `Upstream Conformance (Editions)`
 <!-- END REQUIRED-CONTEXTS -->
 
-A PR is BLOCKED until all 18 report success, so "the checks are green" is a
+A PR is BLOCKED until all 19 report success, so "the checks are green" is a
 mechanical statement about that list, not a judgement call. `Dart Coverage
 Ratchet` is on it too — it is easy to overlook because it lives in
 `coverage.yml`, not `ci.yml`.

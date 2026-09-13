@@ -484,29 +484,61 @@ pub struct Exclusion {
     pub rule: String,
 }
 
-/// Directory names that are a crate's own tests, benches or examples.
+/// Directory names that are a crate's own tests, benches or examples — as
+/// PACKAGE-ROOT directories, siblings of `src/`.
 ///
 /// Cargo compiles each of these as its OWN crate against the library's public
 /// API, not as part of the library — `cargo build` builds none of them. A user
-/// encoding a dependency encodes `src/`, never `tests/`.
+/// encoding a dependency encodes `src/`, never `tests/`. That is true only of
+/// the package-root directories: `src/tests/` is an ordinary module directory,
+/// and `src/tests/foo.rs` declared `pub mod tests;` is public library code
+/// `cargo build` builds like any other file (see [`test_only_path_rule`]).
 const TEST_DIRS: [&str; 3] = ["tests", "benches", "examples"];
 
 /// The PATH half of the Rust test-only rule: the rule excluding
-/// `relative_path`, or `None` when nothing about its path says "test".
+/// `package_relative_path`, or `None` when nothing about its path says "test".
+///
+/// The argument is the path relative to the PACKAGE ROOT (the directory holding
+/// `Cargo.toml`), and only its FIRST segment is matched, because that is the
+/// only place a Cargo test/bench/example target can live
+/// (<https://doc.rust-lang.org/cargo/guide/project-layout.html>). Matching every
+/// parent segment instead — as this rule did until #637 — also excluded a
+/// PUBLIC `src/tests/foo.rs` module, which is library code by every measure
+/// that matters here: `cargo build` builds it, `mod`-graph reachability keeps
+/// it, and a user encoding the crate encodes it. The `#[cfg(test)]`
+/// REACHABILITY half is what removes a `src/tests/` that really is test-only
+/// (that is how all 34 of `bitflags`' test files are now caught), and it can
+/// tell the two apart where a path rule cannot.
 ///
 /// Matched on WHOLE path segments, never as a substring: `latest.rs`,
 /// `contest.rs` and `attestation/verify.rs` all contain "test" and are library
 /// code, and excluding them would be exactly the silent denominator shrink this
 /// rule exists to prevent (`tests/self_test.rs` pins all three).
-pub fn test_only_path_rule(relative_path: &str) -> Option<String> {
-    let parts: Vec<&str> = relative_path.split('/').collect();
-    if parts[..parts.len() - 1]
-        .iter()
-        .any(|part| TEST_DIRS.contains(part))
-    {
-        return Some("under a tests/, benches/ or examples/ directory".to_string());
+pub fn test_only_path_rule(package_relative_path: &str) -> Option<String> {
+    let mut parts = package_relative_path.split('/');
+    let first = parts.next()?;
+    // `parts.next()` must also be present: the first segment has to be a
+    // DIRECTORY containing the file, not the file itself.
+    if parts.next().is_some() && TEST_DIRS.contains(&first) {
+        return Some("under a package-root tests/, benches/ or examples/ directory".to_string());
     }
     None
+}
+
+/// The package root of `dir`: the nearest ancestor — `dir` itself included —
+/// that holds a `Cargo.toml`.
+///
+/// `None` when there is none, and that is deliberately load-bearing: without a
+/// manifest there is no way to know which directory a `tests/` segment would be
+/// a Cargo target OF, so [`classify_rust_files`] applies no path rule at all
+/// and leaves those files in the denominator. Every exclusion this harness
+/// makes must be one it can positively show, so "cannot tell" always means
+/// KEEP.
+pub fn package_root(dir: &Path) -> Option<PathBuf> {
+    normalise(dir)
+        .ancestors()
+        .find(|ancestor| ancestor.join("Cargo.toml").is_file())
+        .map(Path::to_path_buf)
 }
 
 /// Every `.rs` file under `dir`, sorted. Includes test-only files — the split
@@ -524,28 +556,41 @@ pub fn rust_files_under(dir: &Path) -> Vec<PathBuf> {
 /// Rust's convention has TWO halves and BOTH are needed, because neither
 /// subsumes the other:
 ///
-///  1. a PATH rule — `tests/`, `benches/`, `examples/`, which Cargo compiles as
-///     their own crates against the library's public API and which `cargo
-///     build` does not build at all; and
+///  1. a PATH rule — the PACKAGE-ROOT `tests/`, `benches/`, `examples/`
+///     directories, which Cargo compiles as their own crates against the
+///     library's public API and which `cargo build` does not build at all; and
 ///  2. a REACHABILITY rule — a file the crate's `mod` graph reaches ONLY by
 ///     passing through a `#[cfg(test)]` module. `src/tests.rs` is not under a
 ///     `tests/` directory, and a crate may keep its unit tests in a module
 ///     named anything at all.
 ///
-/// This row is the reason the decision was made: 33 of the 110 scored Rust
-/// files were `bitflags`' `src/tests/*.rs`, declared by
+/// This row is the reason the decision was made: 34 of the 110 scored Rust
+/// files were `bitflags`' `src/tests.rs` and `src/tests/*.rs`, declared by
 /// `src/lib.rs`'s `#[cfg(test)] mod tests;`. `crate_graph.rs::walk_items`
 /// deliberately does not walk a `#[cfg(test)]` module (#621, matching `cargo
 /// build`), so those files were measured with NO crate context — the worst of
-/// both worlds, and a third of the denominator.
+/// both worlds, and a third of the denominator. All 34 are caught by the
+/// REACHABILITY half; the path half never sees them, because `src/tests/` is
+/// not a package-root Cargo target (#637).
 ///
 /// A file the `mod` graph does not reach AT ALL (an unreferenced leftover) is
 /// **not** excluded: it is still studied, exactly as before. The rule only ever
-/// removes a file it can positively show is test-only, so an unresolvable crate
-/// root or a `#[path]` this walk cannot follow can only ever leave the
-/// denominator too LARGE, never too small.
+/// removes a file it can positively show is test-only, so a package root this
+/// walk cannot locate, an unresolvable crate root, or a `#[path]` it cannot
+/// follow can only ever leave the denominator too LARGE, never too small.
 pub fn classify_rust_files(package: &str, dir: &Path) -> (Vec<PathBuf>, Vec<Exclusion>) {
     let cfg_test_only = cfg_test_only_files(dir);
+    // The path half is anchored at the package root, so the studied subtree's
+    // own position inside the package has to be known: `<checkout>/src` and
+    // `<checkout>` must agree that `<checkout>/tests` is the Cargo target and
+    // `<checkout>/src/tests` is not. `None` (no manifest anywhere above) turns
+    // the path half OFF rather than guessing an anchor.
+    let package_prefix = package_root(dir).and_then(|root| {
+        normalise(dir)
+            .strip_prefix(&root)
+            .ok()
+            .map(|inside| inside.to_string_lossy().replace('\\', "/"))
+    });
     let mut studied = Vec::new();
     let mut excluded = Vec::new();
     for path in rust_files_under(dir) {
@@ -554,7 +599,15 @@ pub fn classify_rust_files(package: &str, dir: &Path) -> (Vec<PathBuf>, Vec<Excl
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
-        let rule = test_only_path_rule(&rel).or_else(|| {
+        let path_rule = package_prefix.as_deref().and_then(|prefix| {
+            let package_rel = if prefix.is_empty() {
+                rel.clone()
+            } else {
+                format!("{prefix}/{rel}")
+            };
+            test_only_path_rule(&package_rel)
+        });
+        let rule = path_rule.or_else(|| {
             cfg_test_only
                 .contains(&normalise(&path))
                 .then(|| "reachable only through a #[cfg(test)] module".to_string())
@@ -589,7 +642,13 @@ fn normalise(path: &Path) -> PathBuf {
 /// that walk skips `#[cfg(test)]` modules outright, so it cannot distinguish
 /// "test-only" from "not reached at all", and those two must not be conflated.
 fn cfg_test_only_files(dir: &Path) -> BTreeSet<PathBuf> {
-    let Some(root) = ["lib.rs", "main.rs"]
+    // A pin's studied subtree is the crate's `src/` (`lib` defaults to "src"),
+    // but the package ROOT is studied directly too — by `--source-dir`, and by
+    // this crate's own self-test — and there the crate root is `src/lib.rs`.
+    // Looking in only one of the two places would silently switch the
+    // reachability half OFF for the other, leaving every `#[cfg(test)]`-only
+    // file in the denominator with nothing saying so.
+    let Some(root) = ["lib.rs", "main.rs", "src/lib.rs", "src/main.rs"]
         .iter()
         .map(|name| dir.join(name))
         .find(|path| path.is_file())

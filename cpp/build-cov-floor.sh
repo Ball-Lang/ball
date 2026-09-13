@@ -190,10 +190,39 @@ cd "$(dirname "$0")"
 #   but on the DART ratchet — "line coverage 99.85% is below the floor of
 #   99.90%" — not on C++. The C++ job itself passes; read its per-target lines
 #   out of the job log rather than judging by the run's overall conclusion.)
+#
+# RATCHETED 2026-09-13 (#63, this lane) — the follow-up the note above asks
+# for, now that main has the agreeing runs it was waiting on. SIX consecutive
+# coverage.yml runs on main, spanning six commits, printed a BIT-IDENTICAL
+# triple (read with `gh api repos/Ball-Lang/ball/actions/jobs/<id>/logs`; the
+# C++ coverage JOB succeeded in every one of them):
+#   run 34740025834  44d7177f   job 103678055268
+#   run 34741799437  a796c3ea   job 103682620624
+#   run 34742610281  af471b96   job 103684757379
+#   run 34743380653  1207d677   job 103686767466
+#   run 34746079045  97927362   job 103694159499   (see the note below)
+#   run 34749011302  92148281   job 103702007547
+#     cpp/compiler: 94.6%   cpp/encoder: 99.0%   cpp/shared: 94.3%
+#     (aggregate, coverage.yml's own inline step: 93.9%)
+# minus this project's ~2pt CI-variance buffer, rounded down to whole points:
+#   compiler  90 -> 92   (94.6 - 2 = 92.6)
+#   encoder   87 -> 97   (99.0 - 2 = 97.0)
+#   shared    79 -> 92   (94.3 - 2 = 92.3)
+# The old floors had drifted 4.6 / 12.1 / 15.3 points below the measurement —
+# i.e. #587's nine new tests, and #397's and #495's before them, could all have
+# been deleted and this gate would still have been green. That is what a floor
+# nobody raises decays into, and it is why the ratchet is part of the work
+# rather than a numbered follow-up.
+#   (Run 34746079045's WORKFLOW conclusion is `failure`, but its C++ coverage
+#   JOB passed with exactly these numbers; it died in the LAST step, a
+#   codecov/codecov-action OIDC "Failed to get ID Token" request timeout —
+#   third-party infrastructure, not coverage. Judge a coverage.yml run by the
+#   C++ JOB's conclusion and its printed per-target lines, never by the run's
+#   overall conclusion.)
 declare -A FLOORS=(
-  [compiler]=90
-  [encoder]=87
-  [shared]=79
+  [compiler]=92
+  [encoder]=97
+  [shared]=92
 )
 
 fail=0

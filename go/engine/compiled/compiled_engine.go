@@ -31418,12 +31418,20 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 							_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(_ballMapEntryBytes(ballrt.Value(nil)), __self))
 							var val ballrt.Value = ballrt.IndexGet(m, "value")
 							_ = val
-							_ = ballrt.IndexSet(ball_map, key, func() ballrt.Value {
+							var produced ballrt.Value = func() ballrt.Value {
 								if ballrt.Truthy(ballrt.IsType(val, "Function")) {
 									return ballrt.CallFunction(val, ballrt.Value(nil))
 								}
 								return val
-							}())
+							}()
+							_ = produced
+							_ = func() ballrt.Value {
+								if ballrt.Truthy(ballrt.IsType(produced, "Future")) {
+									return func() ballrt.Value { __v := produced; produced = __v; return __v }()
+								}
+								return ballrt.Value(nil)
+							}()
+							_ = ballrt.IndexSet(ball_map, key, produced)
 							return ballrt.Value(nil)
 						}()
 					}

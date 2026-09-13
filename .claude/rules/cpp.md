@@ -135,6 +135,13 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   field literally named `value` / `fields` / `kind` / `values` take the struct
   path — that four-name skip list exists for map-backed proto-shaped receivers,
   not for a concrete class that declares such a field.
+  **Both spellings of a field are the same slot (#488).** Inside its own class a
+  field is normally named BARE (`leaf`, not `this.leaf`) — `compile_reference`
+  emits the plain member name for it — so `receiver_class_of()` /
+  `receiver_is_erased()` answer for that Reference through
+  `declared_field_class_of_own_name()`, with the same getter/shadowed-field
+  refusals the FieldAccess branch uses and `declared_locals_` shadowing first. A
+  local/parameter of that name wins, exactly as in Dart.
 - **`BallDyn` accepts a compiler-emitted struct (#513).** `ball_is_user_struct`
   SFINAEs on the `static __ball_type_name()` every emitted struct carries — no
   standard-library or runtime type has it — so the constructor cannot steal

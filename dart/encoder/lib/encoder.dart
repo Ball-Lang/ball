@@ -4504,11 +4504,10 @@ class DartEncoder {
     return namedType.name.lexeme;
   }
 
-  static bool _startsUpperCase(String name) {
-    if (name.isEmpty) return false;
-    final c = name[0];
-    return c == c.toUpperCase() && c != c.toLowerCase();
-  }
+  static bool _startsUpperCase(String name) =>
+      name.isNotEmpty &&
+      name[0] == name[0].toUpperCase() &&
+      name[0] != name[0].toLowerCase();
 
   /// SYNTACTIC proof, step 1b: the declared type name of the nearest binding of
   /// [target]'s name — a local variable, a formal parameter, a field of an

@@ -237,5 +237,242 @@ Object? read() {
         );
       });
     }
+
+    // ── The seam's other proof routes ─────────────────────────────────
+    //
+    // Each case below exercises one shape of receiver the per-name matrix
+    // above does not reach. `isEmpty` stands in for the whole set here; the
+    // matrix is what proves the set is closed.
+
+    test('a MIXIN this unit declares supplies the member', () {
+      final json = encodeToJson('''
+mixin Sized {
+  int isEmpty = 0;
+}
+
+Object? read(Sized s) {
+  return s.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('a mixin reached through `on` supplies the member', () {
+      final json = encodeToJson('''
+mixin Base {
+  int isEmpty = 0;
+}
+
+mixin Derived on Base {}
+
+Object? read(Derived d) {
+  return d.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('an ENUM this unit declares supplies the member', () {
+      final json = encodeToJson('''
+enum Size {
+  small,
+  large;
+
+  bool get isEmpty => this == Size.small;
+}
+
+Object? read(Size s) {
+  return s.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('an INTERFACE this unit declares supplies the member', () {
+      final json = encodeToJson('''
+class Sized {
+  int isEmpty = 0;
+}
+
+class Holder implements Sized {
+  @override
+  int isEmpty = 1;
+}
+
+Object? read(Holder h) {
+  return h.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('a FIELD of the enclosing class is a provable receiver', () {
+      final json = encodeToJson('''
+class Holder {
+  int isEmpty = 0;
+}
+
+class Owner {
+  Holder held = Holder();
+
+  Object? read() {
+    return held.isEmpty;
+  }
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('a TOP-LEVEL variable is a provable receiver', () {
+      final json = encodeToJson('''
+class Holder {
+  int isEmpty = 0;
+}
+
+Holder held = Holder();
+
+Object? read() {
+  return held.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('a NAMED-constructor receiver resolves to its class', () {
+      // `new Holder.empty()` is the one spelling an UNRESOLVED AST reports as
+      // an `InstanceCreationExpression`, and it reports `Holder` as an import
+      // PREFIX — the same misparse `_encodeInstanceCreation` compensates for.
+      // Without `new`, `Holder.empty()` parses as a `MethodInvocation` that is
+      // indistinguishable from a call to a static method returning anything at
+      // all, so the seam declines it and the route stands (the next case).
+      final json = encodeToJson('''
+class Holder {
+  int isEmpty = 0;
+  Holder.empty();
+}
+
+// ignore: unnecessary_new
+Object? read() {
+  return new Holder.empty().isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('an unprefixed `Class.named()` call is NOT proof', () {
+      // Deliberately conservative: on an unresolved AST this is the same node
+      // shape as `Holder.emptyString()` returning a `String`, so the seam has
+      // no proof and the route must stand.
+      final json = encodeToJson('''
+class Holder {
+  int isEmpty = 0;
+  Holder.empty();
+}
+
+Object? read() {
+  return Holder.empty().isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
+
+    test('a class declared with a CYCLE terminates and declines', () {
+      // Malformed Dart, but it parses — and the `seen` guard is what keeps the
+      // supertype walk from recursing forever on it.
+      final json = encodeToJson('''
+class A extends B {}
+
+class B extends A {}
+
+Object? read(A a) {
+  return a.isEmpty;
+}
+''');
+      expect(
+        fieldAccessesTo(json, 'isEmpty'),
+        isEmpty,
+        reason: 'neither class declares `isEmpty`, so the route must stand',
+      );
+    });
+
+    test('a class that does NOT declare the member keeps the route', () {
+      final json = encodeToJson('''
+class Holder {
+  int size = 0;
+}
+
+Object? read(Holder h) {
+  return h.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
+
+    test('an IMPORT-PREFIXED type is another library, so the route stands', () {
+      final json = encodeToJson('''
+import 'other.dart' as other;
+
+Object? viaAnnotation(other.Holder h) {
+  return h.isEmpty;
+}
+
+// ignore: unnecessary_new
+Object? viaConstruction() {
+  return new other.Holder().isEmpty;
+}
+''');
+      expect(
+        fieldAccessesTo(json, 'isEmpty'),
+        isEmpty,
+        reason:
+            "this unit cannot see `other.Holder`'s members, so it has no proof "
+            'and must keep the encoding it has always had',
+      );
+    });
+
+    test('a NON-named type annotation gives no proof', () {
+      final json = encodeToJson('''
+Object? read() {
+  void Function() f = () {};
+  return f.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+    });
+
+    test('an UNINITIALIZED, unannotated local gives no proof', () {
+      final json = encodeToJson('''
+Object? read() {
+  var x;
+  return x.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+    });
+
+    test('an UNBOUND receiver name gives no proof', () {
+      final json = encodeToJson('''
+Object? read() {
+  return somethingNobodyDeclared.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+    });
+
+    test('a receiver that is neither an identifier nor a construction', () {
+      final json = encodeToJson('''
+Object? source() {
+  return '';
+}
+
+Object? read() {
+  return source().isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
   });
 }

@@ -4139,6 +4139,72 @@ TEST(length_on_a_class_that_declares_it_is_the_field_not_ball_length) {
     ASSERT_CONTAINS(out, "_ball_shadow_length");
 }
 
+// ================================================================
+// Tests — a numeric-predicate name a class DECLARES (issue #697)
+// ================================================================
+
+// `.isNaN`/`.isInfinite`/`.isFinite`/`.isNegative` had the unconditional
+// shortcut `.length` used to have before #664: a class declaring `bool isNaN`
+// compiled `b.isNaN` to `ball_isNaN(b)` — "is this OBJECT a NaN double", which
+// is always false — instead of reading the field, and nothing reported it. The
+// same PROVABLE-receiver guard now covers them. Cross-target fixture:
+// 474_user_member_named_like_builtin_accessor.
+TEST(numeric_predicate_on_a_class_that_declares_it_is_the_field) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "isNaN"}, {"type", "bool"}},
+                                  json{{"name", "isFinite"}, {"type", "bool"}},
+                                  json{{"name", "isInfinite"},
+                                       {"type", "bool"}},
+                                  json{{"name", "isNegative"},
+                                       {"type", "bool"}}});
+    auto td = cov_class_td("main:Flags",
+                           {{"isNaN", "TYPE_BOOL"},
+                            {"isFinite", "TYPE_BOOL"},
+                            {"isInfinite", "TYPE_BOOL"},
+                            {"isNegative", "TYPE_BOOL"}},
+                           std::move(meta));
+
+    std::vector<json> fns;
+    for (const std::string name :
+         {"isNaN", "isFinite", "isInfinite", "isNegative"}) {
+        json read_meta;
+        read_meta["kind"] = "method";
+        fns.push_back(cov_class_fn("main:Flags.read_" + name,
+                                   std::move(read_meta),
+                                   field_access(ref("self"), name), "bool"));
+    }
+
+    auto prog = cov_class_program({td}, fns);
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_isNaN((*this))");
+    ASSERT_NOT_CONTAINS(out, "ball_isFinite((*this))");
+    ASSERT_NOT_CONTAINS(out, "ball_isInfinite((*this))");
+    ASSERT_NOT_CONTAINS(out, "ball_isNegative((*this))");
+}
+
+// The other direction: a receiver whose class does NOT declare the name keeps
+// the shortcut it has always had — the guard is a refinement, not a removal.
+TEST(numeric_predicate_on_a_class_without_it_keeps_its_shortcut) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] =
+        json::array({json{{"name", "value"}, {"type", "double"}}});
+    auto td = cov_class_td("main:Box", {{"value", "TYPE_DOUBLE"}},
+                           std::move(meta));
+
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn("main:Box.probe", std::move(read_meta),
+                                field_access(ref("self"), "isNaN"), "bool");
+
+    auto prog = cov_class_program({td}, {read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_CONTAINS(out, "ball_isNaN((*this))");
+}
+
 // An ordinary (non-shadowing) field on a subclass must be emitted exactly as
 // before: a plain public data member, no backing rename, no accessor pair. This
 // pins the blast radius of the shadow pass to the classes that actually shadow.

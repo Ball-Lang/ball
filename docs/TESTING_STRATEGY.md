@@ -905,6 +905,43 @@ in a different, correct place: C++ renames in its compiler's throw lowering
 source-pattern check would either demand one shape of all of them or rubber-stamp
 whatever each does; the fixture measures the observable instead.
 
+#### A by-NAME ROUTE is only bounded when a test derives its cases from the route table (#697)
+
+The Dart encoder diverts ten getter names — `isEmpty`, `isNotEmpty`, `sign`,
+`isNaN`, `isFinite`, `isInfinite`, `runes`, `isEven`, `isOdd`, `reversed` —
+onto `std` / `std_collections` base calls, because without type resolution the
+name is all it has. Routing by name is a claim about the receiver, and nothing
+checked it: a class declaring `int isEmpty` encoded `b.isEmpty` as
+`std.string_is_empty(b)`, so the program contained **no `fieldAccess` for the
+user's member anywhere**. `dart run` prints `44`; every engine printed `false`.
+
+No existing gate could see it, and each for its own reason — which is why the
+instrument had to be a new KIND:
+
+* `check_encoder_completeness.dart` asks "is every emittable base function
+  executed by some fixture". `string_is_empty` was executed — from the *right*
+  receiver. A completeness gate cannot see a route firing on the *wrong* one.
+* Tier A is structural: the pipeline round-trips this source syntactically
+  clean, so the row reads clean.
+* A cross-engine differential is blind by construction: the defect is in the
+  ENCODER, so every engine is faithfully running the same wrong program and
+  they all agree.
+
+The gate is `dart/encoder/test/builtin_accessor_user_member_test.dart`, and its
+cases are **derived from `DartEncoder.builtinAccessorGetters`** — the encoder's
+own route table, not a list retyped into the test. Per name it asserts both
+directions: a user field, a user getter, an instance-creation receiver and an
+inherited-in-unit member all resolve to the member, and a `dart:core` receiver
+still routes (a fix that merely deleted the route would pass half of that).
+Adding a route without teaching it the receiver seam fails the gate with **no
+test edit**, which is the property a hand-listed test set does not have.
+`tests/conformance/474_user_member_named_like_builtin_accessor` is the
+cross-target half, pinning every engine row against `dart run`.
+
+The same rule generalises: whenever a component decides something by NAME —
+a route table, a method-arity window, a rendering table (#641) — the test that
+bounds it must read the table, not a copy of it.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:

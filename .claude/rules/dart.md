@@ -298,11 +298,45 @@ avoid constructs that need receiver-type info:
   - `collection/lib/src/wrappers.dart` — compiles now, but its own suite
     still fails on `x.isNotEmpty` being rewritten as `!x.isEmpty`, which a
     DELEGATING receiver can see (`collection`'s `wrapper_test.dart` records
-    the forwarded `Invocation` symbol): **#674**. Same root, other direction:
-    the `.isEmpty` rewrite consults no receiver type at all, so an instance
-    FIELD named `isEmpty` is answered by `std.string_is_empty` on every engine
-    — **#697**, the last member of #488's receiver-type family and the only one
-    outside its 16-file table.
+    the forwarded `Invocation` symbol): **#674**.
+
+- **A member the RECEIVER'S OWN TYPE declares beats the built-in accessor route
+  of the same name (#697 A).** The encoder diverts ten getter names onto `std` /
+  `std_collections` base calls BY NAME — `_directGetterRoutes` plus the four
+  composites, and `DartEncoder.builtinAccessorGetters` is the closed set of all
+  ten. Before #697 that route consulted nothing, so a class declaring
+  `int isEmpty` encoded `b.isEmpty` as `std.string_is_empty(b)` and the program
+  carried **no `fieldAccess` for the user's member at all**: every engine
+  faithfully ran the wrong program and agreed on the wrong answer (`false` where
+  `dart run` says `44`). It was the last member of #488's receiver-type family
+  and the only one outside its 16-file table.
+  `_userMemberShadowsBuiltinAccessor` is the seam, and it suppresses the route
+  only on PROOF, by either of two routes — RESOLVED (`lookUpGetter` on the
+  receiver's static type resolves the member outside the SDK) or SYNTACTIC (the
+  receiver's declared type name is a class/mixin/enum THIS unit declares that
+  declares the member, walking `extends`/`with`/`implements`/`on` within the
+  unit). No proof ⇒ the route stands exactly as before, which is what keeps it a
+  refinement: the SYNTACTIC half matters because `generate_conformance.dart` and
+  every self-host regeneration parse with `parseString`, where `staticType` is
+  null. Guards: `tests/conformance/474_user_member_named_like_builtin_accessor`
+  (cross-target, and it pins the `String`/`List`/`int`/`double` receivers whose
+  route must survive) and `dart/encoder/test/builtin_accessor_user_member_test.dart`,
+  which derives one case per name from `builtinAccessorGetters` — add a route
+  without the seam and that gate fails with no test edit.
+  **#697's half B is still open**: a MAP key named like a built-in accessor
+  (`{'length': 99}.length` must be `2`, not `99`) shadows the map's own accessor
+  on every engine. The reference engine can be fixed at its one lookup-order site
+  — an instance carries `__type__`/`__methods__`/`__super__` and a map literal
+  does not — but the SELF-HOSTED engines cannot inherit that fix: the accessor
+  implementation itself reads `objectMap.length` / `.keys` / `.values`, which
+  each target runtime resolves key-first on a `Map`, and flipping that order at
+  the runtime layer is **not** correct either, because the same runtime resolves
+  the self-host's proto VIEW (`listValue.values`, `Struct.fields`) and its
+  instance maps (`_Scope.values`) through the identical path — measured: the flip
+  turns the Go sweep from 358/358 to 100+ failures. Closing B needs an
+  unambiguous map-accessor primitive for the self-host (the `ball_proto` family
+  already has the shape — `getStructFieldKeys` — but no encoder route), i.e. a
+  representation decision across six runtimes.
 
 - **The `async` safety return must type-check under `strict-casts`.** Every
   `async`, non-generator, non-`void` function gets a trailing statement so

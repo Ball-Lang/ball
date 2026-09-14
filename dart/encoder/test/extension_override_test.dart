@@ -45,6 +45,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
@@ -114,6 +115,79 @@ extension Elsewhere on List<int> {
   int get headOrZero => isEmpty ? 0 : this[0];
 }
 ''';
+
+/// Type arguments written on the overridden MEMBER. They are not cosmetic:
+/// `conv<String>()` and `conv()` reify DIFFERENT types, so dropping them turns
+/// a loud refusal into a silently different answer — the failure mode the whole
+/// override path exists to prevent. Runnable, because only executing it can
+/// see a reified type.
+const _memberTypeArgsSource = r'''
+extension Convert on List<int> {
+  List<R> conv<R>() => <R>[];
+}
+
+void main() {
+  print(Convert([1, 2]).conv<String>().runtimeType);
+  print(Convert([1, 2]).conv<num>().runtimeType);
+}
+''';
+
+/// An override in a WRITE position selects the extension's SETTER. It encodes
+/// exactly like the getter read — a `self`-carrying call wrapped by
+/// `std.assign` — so the ACCESSOR SHAPE the compiler picks is the whole
+/// question. A setter-only member is absent from the getter set, so before the
+/// fix it came back as `Slot(xs).only() = 9`: not parseable Dart, which made
+/// `dart_style` throw out of `DartCompiler.compileModule` and the WHOLE module
+/// produce no output at all — a far larger blast radius than the one broken
+/// expression.
+///
+/// Runnable, because an accessor shape that merely PARSES can still write to
+/// the wrong place.
+const _writeTargetSource = r'''
+extension Slot on List<int> {
+  set only(int v) {
+    this[0] = v;
+  }
+
+  int get slot => this[1];
+
+  set slot(int v) {
+    this[1] = v;
+  }
+
+  int get peek => this[0];
+}
+
+void main() {
+  final xs = [1, 2];
+  Slot(xs).only = 9;
+  Slot(xs).slot += 1;
+  Slot(xs).slot++;
+  print(xs.join(','));
+  print(Slot(xs).peek);
+}
+''';
+
+/// Runs [source] with the SDK running this test and returns its normalised
+/// stdout. A non-zero exit is a failure, never a silent empty string.
+String _runDart(String source, Directory scratch, String name) {
+  final file = File('${scratch.path}/$name.dart');
+  file.writeAsStringSync(source);
+  final result = Process.runSync(
+    Platform.resolvedExecutable,
+    ['run', file.absolute.path],
+    stdoutEncoding: utf8,
+    stderrEncoding: utf8,
+  );
+  if (result.exitCode != 0) {
+    fail(
+      '`dart run` of $name failed (rc=${result.exitCode})\n'
+      'stderr:\n${result.stderr}\n'
+      '--- source ---\n$source',
+    );
+  }
+  return (result.stdout as String).replaceAll('\r\n', '\n').trim();
+}
 
 /// Creates a self-contained scratch package: `pubspec.yaml` + library files.
 Directory _scratchPackage(String name, Map<String, String> libFiles) {
@@ -432,6 +506,212 @@ void main() {
           reason:
               'erasing the override to the plain access is the measured-unsound '
               'repair (#670). Compiled output was:\n$compiled',
+        );
+      });
+    },
+  );
+
+  group(
+    "an override MEMBER's type arguments survive the round trip (#670)",
+    timeout: const Timeout(Duration(minutes: 3)),
+    () {
+      late Directory pkg;
+      late Directory scratch;
+      late String compiled;
+
+      setUpAll(() async {
+        pkg = _scratchPackage('extension_override_type_args', {
+          'subject.dart': _memberTypeArgsSource,
+        });
+        scratch = Directory.systemTemp.createTempSync(
+          'ball_ext_type_args_run_',
+        );
+        final encoder = PackageEncoder(pkg);
+        await encoder.prepareStaticTypes();
+        expect(
+          encoder.hasStaticTypes,
+          isTrue,
+          reason:
+              'the analyzer resolved no file in the scratch package, so this '
+              'suite would be vacuous. Warnings: ${encoder.warnings}',
+        );
+        final program = encoder.encode(entryFile: 'lib/subject.dart');
+        compiled = DartCompiler(program).compileModule('lib.subject');
+      });
+
+      tearDownAll(() {
+        if (pkg.existsSync()) pkg.deleteSync(recursive: true);
+        if (scratch.existsSync()) scratch.deleteSync(recursive: true);
+      });
+
+      test('the compiled Dart keeps the member type argument', () {
+        expect(
+          compiled,
+          contains('.conv<String>()'),
+          reason:
+              'dropping `<String>` reifies `List<dynamic>` instead. Compiled '
+              'output was:\n$compiled',
+        );
+        expect(
+          compiled,
+          isNot(contains('.conv()')),
+          reason:
+              'a bare `conv()` is the silently-different instantiation. '
+              'Compiled output was:\n$compiled',
+        );
+      });
+
+      test('the compiled-back program reifies the SAME types', () {
+        final original = _runDart(_memberTypeArgsSource, scratch, 'original');
+        final roundTripped = _runDart(compiled, scratch, 'round_tripped');
+        expect(
+          original,
+          equals('List<String>\nList<num>'),
+          reason:
+              'the probe must actually observe a reified type; if this changes '
+              'the suite is no longer measuring what it claims to.',
+        );
+        expect(
+          roundTripped,
+          equals(original),
+          reason:
+              'the round trip reified a different type than the source named.\n'
+              '--- original ---\n$original\n'
+              '--- round-tripped ---\n$roundTripped\n'
+              '--- compiled ---\n$compiled',
+        );
+      });
+    },
+  );
+
+  group(
+    'an override in a WRITE position round-trips (#670)',
+    timeout: const Timeout(Duration(minutes: 3)),
+    () {
+      late Directory pkg;
+      late Directory scratch;
+      late PackageEncoder encoder;
+      late String compiled;
+
+      setUpAll(() async {
+        pkg = _scratchPackage('extension_override_write', {
+          'subject.dart': _writeTargetSource,
+        });
+        scratch = Directory.systemTemp.createTempSync('ball_ext_write_run_');
+        encoder = PackageEncoder(pkg);
+        await encoder.prepareStaticTypes();
+        expect(encoder.hasStaticTypes, isTrue);
+        final program = encoder.encode(entryFile: 'lib/subject.dart');
+        // The regression this pins: this call used to THROW a
+        // `FormatterException` ('Illegal assignment to non-assignable
+        // expression'), so ONE mis-shaped expression produced no module output
+        // at all.
+        compiled = DartCompiler(program).compileModule('lib.subject');
+      });
+
+      tearDownAll(() {
+        if (pkg.existsSync()) pkg.deleteSync(recursive: true);
+        if (scratch.existsSync()) scratch.deleteSync(recursive: true);
+      });
+
+      test('the module still produces output', () {
+        expect(
+          compiled,
+          isNotEmpty,
+          reason:
+              'a single mis-shaped expression must not take the whole '
+              "module's output down with it.",
+        );
+        expect(compiled, contains('void main('));
+      });
+
+      test('no unassignable left-hand side is emitted', () {
+        expect(
+          compiled,
+          isNot(contains('.only() =')),
+          reason:
+              '`Slot(xs).only() = 9` is not parseable Dart — this is exactly '
+              'what threw. Compiled output was:\n$compiled',
+        );
+        expect(compiled, isNot(contains('.slot() +=')));
+        expect(compiled, isNot(contains('.slot()++')));
+      });
+
+      test('each write shape keeps the override and the accessor shape', () {
+        expect(compiled, contains('Slot(xs).only = 9'));
+        expect(compiled, contains('Slot(xs).slot += 1'));
+        expect(compiled, contains('Slot(xs).slot++'));
+      });
+
+      test('a READ through the same override is NOT over-refused', () {
+        expect(
+          compiled,
+          contains('Slot(xs).peek'),
+          reason: 'compiled output was:\n$compiled',
+        );
+        expect(
+          compiled,
+          isNot(contains('unsupported:')),
+          reason:
+              'a same-module override must never fall to the placeholder. '
+              'Compiled output was:\n$compiled',
+        );
+      });
+
+      test('the encoder reports nothing about these overrides', () {
+        expect(
+          encoder.warnings.where((w) => w.contains('Extension-override')),
+          isEmpty,
+          reason:
+              'every extension here is local and unprefixed, so none of them '
+              'is refused. Warnings were: ${encoder.warnings}',
+        );
+      });
+
+      test('the compiled-back program writes to the SAME places', () {
+        final original = _runDart(_writeTargetSource, scratch, 'original');
+        final roundTripped = _runDart(compiled, scratch, 'round_tripped');
+        expect(
+          original,
+          equals('9,4\n9'),
+          reason:
+              'the probe must actually observe each write; if this changes '
+              'the suite is no longer measuring what it claims to.',
+        );
+        expect(
+          roundTripped,
+          equals(original),
+          reason:
+              'the round trip wrote somewhere else.\n'
+              '--- original ---\n$original\n'
+              '--- round-tripped ---\n$roundTripped\n'
+              '--- compiled ---\n$compiled',
+        );
+      });
+
+      test('the compiled Dart passes the real `dart analyze`', () async {
+        final out = _scratchPackage('extension_override_write_analyze', {
+          'subject.dart': compiled,
+        });
+        addTearDown(() {
+          if (out.existsSync()) out.deleteSync(recursive: true);
+        });
+
+        final analyze = await Process.run('dart', [
+          'analyze',
+          '--format=machine',
+          out.path,
+        ]);
+        final diagnostics = (analyze.stdout as String)
+            .split('\n')
+            .where((l) => l.startsWith('ERROR|'))
+            .toList();
+        expect(
+          diagnostics,
+          isEmpty,
+          reason:
+              'the compiled-back write must be valid Dart. Compiled output '
+              'was:\n$compiled',
         );
       });
     },

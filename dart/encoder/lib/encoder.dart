@@ -3058,16 +3058,7 @@ class DartEncoder {
 
       // Well-known getter properties on a simple identifier receiver
       // (e.g. `x.sign`, `nan.isNaN`). Same routes as the PropertyAccess path.
-      const getterRoutes = <String, String>{
-        'sign': 'math_sign',
-        'isNaN': 'math_is_nan',
-        'isFinite': 'math_is_finite',
-        'isInfinite': 'math_is_infinite',
-        'isEmpty': 'string_is_empty',
-        'runes': 'string_runes',
-        // isNotEmpty is handled separately below (negation of isEmpty).
-      };
-      final getterFn = getterRoutes[member];
+      final getterFn = _directGetterRoutes[member];
       if (getterFn != null) {
         _usedBaseFunctions.add(getterFn);
         return _buildUnaryStdCall(
@@ -3158,16 +3149,7 @@ class DartEncoder {
 
       // Well-known getter properties → std base function calls. Without type
       // resolution, route by name (same risk as the method routes above).
-      const getterRoutes = <String, String>{
-        'sign': 'math_sign',
-        'isNaN': 'math_is_nan',
-        'isFinite': 'math_is_finite',
-        'isInfinite': 'math_is_infinite',
-        'isEmpty': 'string_is_empty',
-        'runes': 'string_runes',
-        // isNotEmpty is handled separately below (negation of isEmpty).
-      };
-      final getterFn = getterRoutes[field];
+      final getterFn = _directGetterRoutes[field];
       if (getterFn != null && target != null) {
         _usedBaseFunctions.add(getterFn);
         return _buildUnaryStdCall(getterFn, targetExpr);
@@ -4401,6 +4383,41 @@ class DartEncoder {
         t.element.name == name && t.element.library.isDartCore;
     return isMatch(type) || type.allSupertypes.any(isMatch);
   }
+
+  // ── Built-in accessor getters (issue #697) ─────────────────────────
+  //
+  // The encoder routes a small, fixed set of Dart getter names onto `std` /
+  // `std_collections` base calls BY NAME, because without type resolution the
+  // name is all it has.
+
+  /// Getter names routed straight onto one `std` base function.
+  ///
+  /// `isNotEmpty`, `isEven`, `isOdd` and `reversed` are routed too, but as
+  /// composites (negation, parity, `std_collections.list_reverse`), so they are
+  /// handled at their own call sites rather than through this table.
+  static const _directGetterRoutes = <String, String>{
+    'sign': 'math_sign',
+    'isNaN': 'math_is_nan',
+    'isFinite': 'math_is_finite',
+    'isInfinite': 'math_is_infinite',
+    'isEmpty': 'string_is_empty',
+    'runes': 'string_runes',
+  };
+
+  /// Every getter name the encoder routes away from a plain `fieldAccess`.
+  ///
+  /// The single source of truth for that routing — and the closed set
+  /// `dart/encoder/test/builtin_accessor_user_member_test.dart` derives one
+  /// case per entry from, so a route added here without a matching
+  /// user-member guard fails that gate (issue #697).
+  static final Set<String> builtinAccessorGetters = Set<String>.unmodifiable({
+    ..._directGetterRoutes.keys,
+    // The composite routes, each handled at its own call site.
+    'isNotEmpty', // not(string_is_empty(x))
+    'isEven', // equals(modulo(x, 2), 0)
+    'isOdd', // not_equals(modulo(x, 2), 0)
+    'reversed', // std_collections.list_reverse(x)
+  });
 
   // ── Text sink (issue #630) ──────────────────────────────────────────
   //

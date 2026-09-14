@@ -406,9 +406,12 @@ compile items so the sibling projects never double-compile each other's files.
   `EncoderException`s. The `ArgGet` arm needs no knowledge of the enclosing function's arity — a
   one-parameter callee is bound directly to the input and never emits this prologue. Guards:
   `encoder/test/RuntimeNodeHelperTests.cs` (the shapes + both boundaries) and the whole-corpus
-  `csharp-roundtrip` row, whose floor this raised — `FieldGet` was the first blocker for the
-  largest bucket of its failures (`101_simple_class`, `102_inheritance`, `103_abstract_class`,
-  `104_getter_setter`, `106_factory_constructor`, …) and `ArgGet` for `105_static_methods`.
+  `csharp-roundtrip` row, whose floor this raised **76 -> 86** — `FieldGet` was the first blocker
+  for the largest bucket of its failures (`101_simple_class`, `102_inheritance`,
+  `103_abstract_class`, `104_getter_setter`, `106_factory_constructor`, …) and `ArgGet` for
+  `105_static_methods`. The row's measured first blocker is now `BallRuntime.MessageTypeName`,
+  the compiler's instance-method dispatch preamble — read the live number and the live first
+  blocker off that row, never off this line.
 - **Round-trip proof, not encode-only.** A bucket flip is proven by compiling the ENCODED fixture
   back to C# and RUNNING it (`encoder/test/PredefinedTypeCallTests.cs` asserts exactly `43\n`).
   That is what caught the compiler's callback-field bug below — an encode-only assertion would

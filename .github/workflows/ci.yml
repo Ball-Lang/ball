@@ -1824,22 +1824,53 @@ jobs:
             --build-dir cpp/build \
             --coverage-file cpp/build/test/e2e_coverage.txt
 
-      # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
-      # leg (avoids tripling cost across the 3-OS matrix). The full-corpus
-      # cpp/test/full_e2e.sh sweep (Ball IR -> native C++ via ball_cpp_compile ->
-      # g++ -> run, diffed against golden output) otherwise runs ONLY on
-      # push-to-main + weekly, inside conformance-matrix.yml's cpp-compiled job —
-      # so a PR-introduced conformance regression on the compiled C++ leg could
-      # merge green and only turn red after landing on main (this is exactly how
-      # the C++ Compiled leg was red for days post-#302 before anyone noticed).
-      # ball_cpp_compile is already built by the "Build all targets" step above,
-      # so this adds only the marginal cost of compiling+running the changed
-      # fixtures with g++ (seconds to low minutes), NOT a second CMake build.
-      # `needs.changes` computed which conformance fixtures this PR added/changed
-      # vs the merge-base (or the `ALL` fail-open sentinel when it couldn't
-      # determine a diff base) — run full_e2e.sh against just those. See #347.
-      - name: "C++ compiled e2e — new/changed fixtures only (closes main-only-leg escape class)"
-        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' && needs.changes.outputs.changed_fixtures != '' }}
+      # Lean per-PR conformance gate for NEW/CHANGED fixtures, on the Linux leg
+      # (avoids tripling cost across the 3-OS matrix), ALWAYS floored by a small
+      # derived harness slice. The full-corpus cpp/test/full_e2e.sh sweep (Ball
+      # IR -> native C++ via ball_cpp_compile -> g++ -> run, diffed against
+      # golden output) otherwise runs ONLY on push-to-main + weekly, inside
+      # conformance-matrix.yml's cpp-compiled job — so a PR-introduced
+      # conformance regression on the compiled C++ leg could merge green and only
+      # turn red after landing on main (this is exactly how the C++ Compiled leg
+      # was red for days post-#302 before anyone noticed). ball_cpp_compile is
+      # already built by the "Build all targets" step above, so this adds only the
+      # marginal cost of compiling+running a handful of fixtures with g++ (seconds
+      # to low minutes), NOT a second CMake build. `needs.changes` computed which
+      # conformance fixtures this PR added/changed vs the merge-base (or the `ALL`
+      # fail-open sentinel when it couldn't determine a diff base). See #347.
+      #
+      # TWO roles, ONE invocation, deliberately:
+      #
+      #  * every fixture the PR touched is compiled + run before merge (#347);
+      #  * full_e2e.sh's own parallel worker path (worker dispatch, xargs -P,
+      #    per-fixture CWD isolation, corpus-ordered aggregation, the
+      #    dropped-fixture assertion) is exercised on EVERY PR (#521) — before
+      #    that slice existed the harness had no required-check coverage at all on
+      #    a PR touching no fixture, which is the common case.
+      #
+      # They share ONE call rather than sitting in two steps because full_e2e.sh
+      # carries a POSITIVE FLOOR: `passed == 0 && failed == 0` is a leg that
+      # proved nothing, and it exits 1 saying so. That floor fires on a change set
+      # whose every entry is a tracked `CPP_COMPILE_CARVEOUTS` entry — #651's
+      # `472_initializer_list_field_with_setter` was exactly that while the C++
+      # target gap #695 was open (it is closed now, by #680, and
+      # `CPP_COMPILE_CARVEOUTS` is empty again) — because the filter selects one
+      # fixture, the carve-out skips it, and nothing runs. The hole is structural
+      # and outlives any one carve-out, so the widened filter stays. Two steps
+      # cannot fix
+      # that: the floor is per-invocation. So the filter is WIDENED, which is what
+      # full_e2e.sh's own error message prescribes — the harness slice rides along
+      # in the same run, so the floor always measures real compiles, and a
+      # carved-out fixture stays loudly reported as a carve-out instead of forcing
+      # either a fake green or a red that names the wrong cause.
+      #
+      # The slice is DERIVED, not hard-coded: the first four fixtures with a
+      # golden, in corpus order. A rename or renumber can never leave a stale stem
+      # behind (which full_e2e.sh treats as a hard error, correctly), and four is
+      # enough that JOBS>1 genuinely overlaps workers. Overlap with the changed
+      # set is free — full_e2e.sh resolves `--fixtures` into a set.
+      - name: "C++ compiled e2e — new/changed fixtures + harness slice (closes main-only-leg escape class)"
+        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' }}
         # full_e2e.sh compiles one g++ TU per fixture. Same two knobs as
         # test_e2e above (issue #521): compile the fixtures concurrently, and
         # route them through this job's ccache so an unchanged fixture is a
@@ -1847,56 +1878,32 @@ jobs:
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
           BALL_E2E_LAUNCHER: ccache
-        run: |
-          if [ "${{ needs.changes.outputs.changed_fixtures }}" = "ALL" ]; then
-            echo "No usable diff base upstream — running the FULL full_e2e.sh sweep."
-            bash cpp/test/full_e2e.sh
-          else
-            echo "Running full_e2e.sh for changed fixtures: ${{ needs.changes.outputs.changed_fixtures }}"
-            bash cpp/test/full_e2e.sh --fixtures "${{ needs.changes.outputs.changed_fixtures }}"
-          fi
-
-      # ...and when a PR changes NO fixture, run the same harness over a small
-      # slice anyway (#521). Before this, full_e2e.sh's parallel worker path had
-      # NO required-check coverage at all: the step above is skipped on a PR that
-      # touches no fixture (the common case), leaving the dispatch-only
-      # conformance-matrix `C++ Compiled` leg — which runs on push-to-main and
-      # weekly — as the only thing that ever executed it. A regression in the
-      # harness itself (worker dispatch, xargs -P, per-fixture CWD isolation,
-      # the corpus-ordered aggregation, the dropped-fixture assertion) would
-      # therefore have merged green, which is the same escape class #347 closed
-      # for fixture regressions.
-      #
-      # The slice is DERIVED, not hard-coded: the first four fixtures with a
-      # golden, in corpus order. A rename or renumber can never leave a stale
-      # stem behind (which full_e2e.sh treats as a hard error, correctly), and
-      # four is enough that JOBS>1 genuinely overlaps workers. Cost is four
-      # ccache-backed g++ -O0 TUs, seconds — this is a harness smoke, not a
-      # conformance gate; the full corpus stays in the matrix leg.
-      - name: "C++ compiled e2e — harness smoke (full_e2e.sh parallel path, no fixtures changed)"
-        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' && needs.changes.outputs.changed_fixtures == '' }}
-        env:
-          BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
-          BALL_E2E_LAUNCHER: ccache
+          CHANGED_FIXTURES: ${{ needs.changes.outputs.changed_fixtures }}
         run: |
           set -euo pipefail
+          if [ "$CHANGED_FIXTURES" = "ALL" ]; then
+            echo "No usable diff base upstream — running the FULL full_e2e.sh sweep."
+            bash cpp/test/full_e2e.sh
+            exit 0
+          fi
           # Plain glob + loop rather than `ls | head`: with `pipefail`, an
           # early-exiting `head` can SIGPIPE the producer once the corpus
           # outgrows the pipe buffer, turning a healthy run red for no reason.
-          smoke=""
+          slice=""
           count=0
           for g in tests/conformance/*.expected_output.txt; do
             [ -e "$g" ] || break
-            smoke="$smoke $(basename "$g" .expected_output.txt)"
+            slice="$slice $(basename "$g" .expected_output.txt)"
             count=$((count + 1))
             if [ "$count" -ge 4 ]; then break; fi
           done
           if [ "$count" -lt 2 ]; then
-            echo "::error::resolved only $count smoke fixture(s) from tests/conformance — cannot exercise the parallel path."
+            echo "::error::resolved only $count harness-slice fixture(s) from tests/conformance — cannot exercise the parallel path."
             exit 1
           fi
-          echo "Harness smoke over $count fixture(s): $smoke"
-          bash cpp/test/full_e2e.sh --fixtures "$smoke"
+          echo "Changed fixtures: ${CHANGED_FIXTURES:-(none)}"
+          echo "Harness slice ($count fixture(s)):$slice"
+          bash cpp/test/full_e2e.sh --fixtures "$CHANGED_FIXTURES$slice"
 
   # ──────────────────────────────────────────────────
   # vcpkg overlay-port install smoke (issue #368)
@@ -2640,7 +2647,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the
+      # "Results: 357 passed, 0 failed, 357 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2835,7 +2842,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the 4
+      # "Results: 357 passed, 0 failed, 357 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -2990,7 +2997,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the 4
+      # "Results: 357 passed, 0 failed, 357 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

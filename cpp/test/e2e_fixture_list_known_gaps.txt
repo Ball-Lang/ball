@@ -121,3 +121,10 @@
 # initializers for body-carrying/named constructors), and the third fixture of
 # that lane, 455_ctor_field_writes_that_survive, always passed. All three are
 # listed in e2e_fixture_list.h.
+
+# Nothing from the #651/#695 lane is parked here any more either:
+# 472_initializer_list_field_with_setter (a `final` field declared beside its OWN
+# same-named setter) was freed when #680 landed the same-class half of #501's
+# backing-member lowering in cpp/compiler. It is listed in e2e_fixture_list.h,
+# alongside 470_setter_beside_final_field, #680's own fixture for the identical
+# declaration pair.

@@ -450,6 +450,20 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   engine, since `__ret` is not a Ball variable. `SetCreate` is a documented exclusion: both
   `std.set_create` and `std_collections.set_create` lower to it, and the Dart engine reads a set's
   members from an `elements` field neither input descriptor declares.
+- **The round-trip leg's per-fixture kill is bounded by `cmd.WaitDelay` (#691).**
+  `roundTripOne` runs the Dart CLI out of process with `cmd.Stdout` set to an
+  `io.Writer`, so `os/exec` pipes the child and copies in a goroutine — and
+  `cmd.Wait` does not return until that copy ends, which needs EVERY holder of the
+  pipe's write end closed, the killed process's own descendants included. Killing
+  the child is therefore NOT enough: one surviving grandchild makes the `<-done`
+  after `Kill` block forever, the sweep never prints its `Results:` line, and the
+  CI row dies on `timeout-minutes` instead of REPORTING a timeout — the defect
+  `docs/TESTING_STRATEGY.md` §2c item 6 names. It was latent until #691 made
+  enough fixtures re-encode for one to reach the engine and not terminate.
+  `go/engine/conformance/roundtrip_timeout_test.go` is the negative control: a
+  stand-in `dart` (a COPY of the test binary, so nothing the framework cleans up
+  is locked while it runs) that hands its stdout to a grandchild and blocks.
+  Measured: 5.6 s with the bound, 30.1 s without.
 - **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
   compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
   construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture

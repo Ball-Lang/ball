@@ -530,6 +530,20 @@ drop is red.
    test time that ignores its arguments and never exits — driven through the real
    production path, on every PR.
 
+   **Killing the process is not the same as ending the fixture (#691).** Every
+   one of these legs sets `cmd.Stdout` to an in-memory writer, so the runtime
+   pipes the child and copies in a goroutine — and the wait does not return until
+   that copy ends, which needs EVERY holder of the pipe's write end closed, the
+   killed process's own descendants included. Go's round-trip leg killed its
+   `dart` and then blocked forever on `cmd.Wait()`, so the sweep printed no
+   `Results:` line at all and the row would have died on the job's
+   `timeout-minutes` — reporting nothing, rather than reporting a timeout. The
+   bound is `cmd.WaitDelay` (`go/engine/conformance/roundtrip.go`), and
+   `roundtrip_timeout_test.go` is its negative control: a stand-in `dart` that
+   hands its stdout to a grandchild and blocks, measured at 5.6 s with the bound
+   and 30.1 s without. It stayed latent because only 31 fixtures ever reached the
+   engine; it surfaced the moment #691 raised that to 80.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier

@@ -339,6 +339,14 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   `passed >= GO_ROUNDTRIP_FLOOR` (`tools/ci/roundtrip_floor.sh`), never on the
   failure count. Needs `dart` on PATH (or `BALL_DART`); it skips loudly rather
   than reporting a fake zero when Dart is missing.
+- **The per-fixture kill is bounded by `cmd.WaitDelay` (#691).** `cmd.Stdout` is
+  an `io.Writer`, so `os/exec` pipes the child and `cmd.Wait` waits for the copy
+  goroutine — which needs every holder of the pipe's write end closed, the killed
+  process's DESCENDANTS included. Killing alone therefore does not end the
+  fixture: one surviving grandchild wedges the sweep, it never prints a
+  `Results:` line, and the row dies on `timeout-minutes` instead of reporting a
+  timeout. `roundtrip_timeout_test.go` is the negative control (5.6 s with the
+  bound, 30.1 s without).
 - CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
   **That workflow is a PR gate since #619** — it has a path-filtered
   `pull_request:` trigger sharing its `push` filter, and `go/**` is in that

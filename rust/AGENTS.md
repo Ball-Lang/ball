@@ -139,6 +139,10 @@ program dispatching through `ball_lang_shared::runtime::*` over `BallValue`, whi
 read green on every run. #642 closed the three shapes that blocked EVERY fixture (the
 unconditional oneof `LazyLock` statics, the entry IIFE, the `BallValue::*` constructors) and put a
 positive floor + ratchet on the row (`RUST_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh`).
+#693 (the `&mut` alias hang) took it to 99, and #692 — the runtime's COLLECTION constructors and
+the `__ball_register_types` class prologue, see "Conventions" below — to **109 of 358**
+(run 34803611448). The leaders now are `ball_arg_get` (59 fixtures), `BallFlow::Normal` (25) and
+`ball_message_type_name` (21, which is #718's dispatcher scrutinee).
 It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
 
 ```bash
@@ -151,8 +155,24 @@ its `push` filter, and `rust/**` is in that filter, so the row runs on any PR to
 directory with no `gh workflow run` dispatch. It gates harness health, the positive floor and the
 ratchet — plus, since #693, **no fixture may HANG**.
 
-### The per-fixture budget, and why it is self-tested (#693)
+### The launcher path, and the per-fixture budget — both self-tested (#692/#693)
 
+Two things about this harness are proven rather than assumed, and both were found by a
+measurement that looked plausible and was wrong.
+
+**The root handed to the Dart CLI must be a path the Dart CLI accepts (#692).** `repo_root()`
+used `Path::canonicalize`, which on Windows always returns a `\\?\` VERBATIM path — and
+`dart run \\?\…\ball.dart` prints `\\?\ prefix is not supported` on stderr and **exits 0**. So
+the sweep's `code != 0` arm never fired, every fixture came back as a golden MISMATCH
+(`expected(5): 1 | actual(0): <none>`), and the leg reported a confident `Results: 0 passed` that
+was entirely a launcher artifact. CI runs the row on `ubuntu-latest`, where `canonicalize` adds
+no prefix, so the row was never wrong — every local Windows run of it was, which is exactly the
+kind of defect a measurement-only row cannot afford.
+`the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` asserts the stripping AND that the
+launcher still resolves under the result: a prefix check alone would pass on a root pointing
+nowhere.
+
+**A fixture must not be able to hang (#693).**
 The leg shells out to the Dart CLI per fixture, so a re-encoded program that never terminates
 would wedge the row's 90-minute job rather than report anything. That is not hypothetical: the
 `&mut` alias bug below made **28 loop fixtures** re-encode "clean" and then hang, and the
@@ -427,10 +447,14 @@ instructions.
   with ``unsupported macro invocation `panic!` ``. Neither crate's own tests could see it:
   `rust/compiler`'s assert on emitted Rust, `rust/encoder`'s start from hand-written Rust. The
   gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`, which runs Tier A's three
-  library-mode stages. Stage 3 is an **encode** gate and says so: the compiler's output names
-  runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not user functions, so
-  **re-compiling stage 3's output is not a fixpoint** — measured, and neither Tier A nor that test
-  pretends otherwise. Since #646 reading those helpers is fail-loud: `runtime_helpers.rs` maps the
+  library-mode stages. Stage 3 is an **encode** gate for every program but one: the compiler's
+  output names runtime helpers (`ball_message_type_name`, …) that are not user functions, so
+  **re-compiling stage 3's output is not a fixpoint at large** — measured, and neither Tier A nor
+  that test pretends otherwise. The exception is #692's
+  `re_compiling_the_re_encoded_program_still_computes_the_same_answer`, which builds and RUNS both
+  compiles of a program made of the collection/class constructs that slice taught the encoder; it
+  became possible only once `__ball_register_types` stopped coming back as a user function (a
+  second compile emitted it twice, `error[E0428]`). Since #646 reading those helpers is fail-loud: `runtime_helpers.rs` maps the
   ones with a universal-`std` inverse and an UNMAPPED `ball_*` aborts the file instead of becoming
   a same-file call to a function nobody declared. That table is the universal-`std` subset only,
   so a compiled library naming any other helper stops at the first one; never read a green run of
@@ -514,6 +538,48 @@ instructions.
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a
   construct is unsupported by accident vs. by design.
+
+### The runtime's collection constructors and the compiler's class prologue (issue #692)
+
+`runtime_helpers.rs` maps the `ball_*` free functions the compiler emits for a base CALL.
+`runtime_ctors.rs` is its sibling for the two shapes that are not calls into that table at all —
+the biggest two buckets the `rust-roundtrip` row was first-blocked on (33 and 22 fixtures, plus
+the 49 blocked on `BallValue::List`).
+
+- **Collection constructors.** `BallValue::List(x)`/`BallValue::Map(x)` join the
+  `BallValue::String(…)` identity arm (a Ball value is dynamic — the wrapper means nothing);
+  `BallList::from(x)` is the same identity; `BallList::new()` is an empty list literal and
+  `BallMap::new()` is `std.map_create` with no entries, the two nodes `dart/encoder` emits for
+  `[]` and `{}`. Each arm defers to a file declaring its own type by that name.
+- **The message builder is matched as ONE BLOCK.** `compile_message_creation` emits
+  `{ let mut __ball_map = BallMap::new(); __ball_map.insert("x".to_string(), …);
+  BallValue::Message(BallMessage::new("main:Point", __ball_map)) }` — an imperative builder.
+  Taking it apart statement by statement would need an inverse for `BallMap::insert` and would
+  produce a *different* node (a block that mutates a map) from the `message_creation` it compiled
+  from, so `block.rs::encode_message_builder` matches the whole idiom and gives back the exact
+  node. The match is STRUCTURAL — a fresh `BallMap::new()` binding, every intermediate statement
+  an `insert` on it, a tail that consumes it — never keyed on the compiler's `__ball_map`
+  spelling, and anything that is not the whole idiom falls through to ordinary block encoding and
+  still fails loud on its unmapped `.insert()`.
+- **`pub fn __ball_register_types()` is the class prologue, and it is DROPPED.** Its
+  `ball_register_superclass(child, parent)` calls invert to the child `TypeDefinition`'s
+  `metadata.superclass` — where `dart/encoder` writes it and `type_emit::superclass_of` reads it
+  — and `fn main()`'s leading call to it is dropped in `block.rs`. Resolving the registration's
+  SHORT `Dog` against a declared type has to undo `sanitize_ident` (the compiled struct for Ball's
+  `main:Dog` is `main_Dog`), so `apply_superclass_registrations` accepts the short name itself or
+  that name behind a `_`-joined qualifier and fails loud on zero or multiple matches. Any
+  statement in that function that is not a two-string-literal registration is loud too, because
+  the whole function is dropped and anything else in it would be silently lost.
+- **Dropping it is what made the whole-program FIXPOINT reachable.** Before #692 a second compile
+  emitted `__ball_register_types` twice (`error[E0428]`), which is why
+  `compile_reencode_roundtrip.rs`'s own module doc comment ruled such a test out.
+  `re_compiling_the_re_encoded_program_still_computes_the_same_answer` now builds and RUNS both
+  compiles; it is the only assertion that can tell the `message_creation` the builder compiles
+  from apart from some other structurally valid node.
+- **Known, stated gap:** the compiled `pub struct main_Dog` re-encodes as the `TypeDefinition`
+  `main:main_Dog` while the instances the same program builds still carry
+  `BallMessage::new("main:Dog", …)`. That type-NAME infidelity predates #692; it is asserted, not
+  papered over, in `the_compiled_class_registry_re_encodes_as_superclass_metadata`.
 
 ### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
 

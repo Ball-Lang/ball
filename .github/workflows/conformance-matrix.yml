@@ -1353,7 +1353,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "100"
+      RUST_ROUNDTRIP_FLOOR: "109"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1394,9 +1394,12 @@ jobs:
             echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Rust compiler dispatches through"
             echo "\`ball_lang_shared::runtime::*\` over \`BallValue\`, and the syntactic"
-            echo "\`syn\` encoder reads idiomatic hand-written Rust. #692 carries the"
-            echo "measured first blocker (\`BallMap::new()\`) and the smallest next step;"
-            echo "the method-dispatcher \`panic!\` sub-case is #632, a different metric."
+            echo "\`syn\` encoder reads idiomatic hand-written Rust. #692's own two"
+            echo "buckets are CLOSED (the collection constructors and the"
+            echo "\`__ball_register_types\` class prologue); the measured leaders now are"
+            echo "\`ball_arg_get\` (59 fixtures), \`BallFlow::Normal\` (25) and"
+            echo "\`ball_message_type_name\` (21, tracked separately as #718)."
+            echo "The method-dispatcher \`panic!\` sub-case is #632, a different metric."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"

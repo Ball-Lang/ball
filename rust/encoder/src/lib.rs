@@ -205,6 +205,7 @@ mod macro_expand;
 mod methods;
 mod types;
 
+mod runtime_ctors;
 mod runtime_helpers;
 
 pub use crate_graph::{CrateGraph, CrateModule, CrateSymbols, encode_crate, encode_crate_library};
@@ -221,6 +222,7 @@ use ball_lang_shared::proto::ball::v1::statement::Stmt as BallStmt;
 use ball_lang_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FieldValuePair, FunctionCall, FunctionDefinition, LetBinding,
     ListLiteral, Literal, MessageCreation, Module, ModuleImport, Program, Reference, Statement,
+    TypeDefinition,
 };
 use ball_lang_shared::proto::google::protobuf::value::Kind;
 use ball_lang_shared::proto::google::protobuf::{ListValue, Struct, Value};
@@ -514,6 +516,16 @@ fn encode_file_module(
     // comment for why only a `self`-receiver method is supported here).
     for item in &file.items {
         match item {
+            // The compiler's synthesised class prologue is not a user function
+            // (issue #692): its registrations are harvested here and applied to
+            // the classes they name once pass 2 has built their
+            // `TypeDefinition`s. Deliberately NOT recorded in `fn_params`, so
+            // a call site cannot resolve to it as an ordinary same-file callee.
+            syn::Item::Fn(item_fn) if item_fn.sig.ident == runtime_ctors::REGISTER_TYPES_FN => {
+                encoder
+                    .superclass_registrations
+                    .extend(runtime_ctors::superclass_registrations(item_fn));
+            }
             syn::Item::Fn(item_fn) => {
                 let params = param_names_and_types(&item_fn.sig);
                 encoder.fn_params.insert(
@@ -590,6 +602,8 @@ fn encode_file_module(
     let mut has_main = false;
     for item in &file.items {
         match item {
+            // Dropped, never encoded — see the pass-1 arm above.
+            syn::Item::Fn(item_fn) if item_fn.sig.ident == runtime_ctors::REGISTER_TYPES_FN => {}
             syn::Item::Fn(item_fn) => {
                 if item_fn.sig.ident == "main" {
                     has_main = true;
@@ -659,6 +673,8 @@ fn encode_file_module(
         }
     }
 
+    apply_superclass_registrations(&encoder.superclass_registrations, &mut type_defs);
+
     let mut module_imports = vec![ModuleImport {
         name: "std".to_string(),
         ..Default::default()
@@ -700,6 +716,61 @@ fn encode_file_module(
         module,
         has_main,
         unresolved_modules: encoder.unresolved_modules,
+    }
+}
+
+/// Write each harvested `ball_register_superclass(child, parent)` onto the
+/// child class's own `TypeDefinition`, as the cosmetic `metadata.superclass`
+/// that is the prologue's only inverse (issue #692).
+///
+/// ## Resolving the child's SHORT name against a declared type
+///
+/// The prologue names a class by `type_emit::type_short_name(td.name)` — `Dog`
+/// for a Ball `main:Dog` — while `compile_struct_def` names the Rust struct it
+/// emits for the same class `sanitize_ident(td.name)` — `main_Dog`, every
+/// non-alphanumeric character replaced by `_`. So the struct this encoder reads
+/// back is either the short name itself (ordinary hand-written Rust:
+/// `struct Dog`) or that short name behind a `_`-joined module qualifier. Both
+/// are accepted; nothing else is.
+///
+/// Fails loud when a registration resolves to no type, or to more than one: the
+/// prologue is DROPPED from the encoded Program, so a registration that lands
+/// nowhere is a class relationship silently lost — the #55 class of defect. The
+/// common way to reach it is a child declared in a nested `pub mod`, which this
+/// encoder skips entirely in single-file mode.
+fn apply_superclass_registrations(
+    registrations: &[(String, String)],
+    type_defs: &mut [TypeDefinition],
+) {
+    for (child, parent) in registrations {
+        let mut matched: Option<&mut TypeDefinition> = None;
+        let mut matches = 0usize;
+        for type_def in type_defs.iter_mut() {
+            let declared = type_def
+                .name
+                .rsplit(':')
+                .next()
+                .unwrap_or(type_def.name.as_str());
+            if declared == child || declared.ends_with(&format!("_{child}")) {
+                matches += 1;
+                matched = Some(type_def);
+            }
+        }
+        assert!(
+            matches == 1,
+            "ball-lang-encoder: `{}`'s registration of `{child}` (superclass `{parent}`) resolves \
+             to {matches} declared types in this file, not exactly one — the prologue is dropped \
+             from the encoded Program, so the relationship would be silently lost. A class \
+             declared in a nested `pub mod` is the usual cause: single-file encoding skips those \
+             modules, so use `ball encode --crate <dir>` instead",
+            runtime_ctors::REGISTER_TYPES_FN
+        );
+        let type_def = matched.expect("exactly one match, asserted above");
+        let metadata = type_def.metadata.get_or_insert_with(Struct::default);
+        metadata.fields.insert(
+            runtime_ctors::SUPERCLASS_META_KEY.to_string(),
+            str_value(parent.clone()),
+        );
     }
 }
 
@@ -772,6 +843,15 @@ pub(crate) struct Encoder {
     /// identical, and misreading the first as the second would silently
     /// downgrade a working static call into an unresolved import.
     pub(crate) local_type_names: HashSet<String>,
+    /// `(child short name, parent short name)` for every
+    /// `ball_register_superclass` call in the compiler's synthesised
+    /// `__ball_register_types` prologue (issue #692), harvested in the same
+    /// pre-pass as [`Self::fn_params`]. Applied to each child's
+    /// `TypeDefinition` as `metadata.superclass` once pass 2 has built them —
+    /// that key is the prologue's only inverse, and it is where both
+    /// `dart/encoder/lib/encoder.dart` writes it and
+    /// `rust/compiler/src/type_emit.rs::superclass_of` reads it back.
+    pub(crate) superclass_registrations: Vec<(String, String)>,
     /// The short name of every **tuple** struct declared in this file
     /// (`struct Pair(i64, i64);`) — issue #491. Consulted by
     /// [`Self::encode_call`] to tell a tuple-struct *construction*
@@ -865,6 +945,7 @@ impl Encoder {
             method_params: HashMap::new(),
             static_method_params: HashMap::new(),
             local_type_names: HashSet::new(),
+            superclass_registrations: Vec::new(),
             tuple_struct_names: HashSet::new(),
             unit_struct_names: HashSet::new(),
             skipped_item_names: HashSet::new(),
@@ -1545,25 +1626,45 @@ impl Encoder {
             let path = &path_expr.path;
             if let Some(last) = path.segments.last() {
                 let last_name = last.ident.to_string();
-                // `BallValue::String(x)` / `Int` / `Double` / `Bool` / `Bytes`
-                // — the Ball Rust runtime's value constructors, which
-                // `rust/compiler` emits for every literal (issue #642). Each
-                // wraps one already-encodable operand, so the constructor is
-                // the identity in Ball, where every value is already dynamic.
-                // Checked before the tuple-struct and same-file-function
-                // branches for the same reason those are ordered that way: a
-                // file that declares its own `BallValue` enum wins, via
-                // `self.enum_names`.
+                // `BallValue::String(x)` / `Int` / `Double` / `Bool` /
+                // `Bytes` / `List` / `Map` — the Ball Rust runtime's value
+                // constructors, which `rust/compiler` emits for every literal
+                // and every collection (issues #642/#692). Each wraps one
+                // already-encodable operand, so the constructor is the identity
+                // in Ball, where every value is already dynamic. Checked before
+                // the tuple-struct and same-file-function branches for the same
+                // reason those are ordered that way: a file that declares its
+                // own `BallValue` enum wins, via `self.enum_names`.
                 if path.segments.len() == 2
                     && path.segments[0].ident == BALL_VALUE_TYPE
                     && !self.enum_names.contains(BALL_VALUE_TYPE)
                     && e.args.len() == 1
-                    && matches!(
-                        last_name.as_str(),
-                        "String" | "Int" | "Double" | "Bool" | "Bytes"
-                    )
+                    && runtime_ctors::is_identity_value_variant(&last_name)
                 {
                     return self.encode_expr(&e.args[0]);
+                }
+                // `BallList::new()` / `BallMap::new()` / `BallList::from(x)` —
+                // the Ball Rust runtime's COLLECTION constructors (issue #692).
+                // An empty one is the empty literal it compiled from, and
+                // `from` is the identity over an already-built sequence. A file
+                // that declares its own type by one of those names wins, the
+                // same way `self.enum_names` guards the `BallValue` arm above.
+                if path.segments.len() == 2 {
+                    let owner = path.segments[0].ident.to_string();
+                    if !self.local_type_names.contains(&owner) {
+                        match runtime_ctors::collection_ctor(&owner, &last_name, e.args.len()) {
+                            Some(runtime_ctors::CollectionCtor::EmptyList) => {
+                                return list_literal(vec![]);
+                            }
+                            Some(runtime_ctors::CollectionCtor::EmptyMap) => {
+                                return std_call("map_create", Some(args_message(vec![])));
+                            }
+                            Some(runtime_ctors::CollectionCtor::Passthrough) => {
+                                return self.encode_expr(&e.args[0]);
+                            }
+                            None => {}
+                        }
+                    }
                 }
                 // `String::from(x)` / `Box::new(x)` — identity passthroughs
                 // (a Ball value needs no separate "owned"/"boxed"
@@ -1637,6 +1738,19 @@ impl Encoder {
                 // declared parameter names when it takes 2+ of them.
                 if let Some(ident) = path.get_ident() {
                     let name = ident.to_string();
+                    // …except the compiler's class prologue, which is not a
+                    // user function at all (issue #692). `fn main()` calls it
+                    // as a bare statement and `block.rs` drops it there; a call
+                    // to it anywhere else would encode as a call to a function
+                    // this encoder deliberately does NOT emit — a Program that
+                    // only fails at run time.
+                    assert!(
+                        name != runtime_ctors::REGISTER_TYPES_FN,
+                        "ball-lang-encoder: `{}` is the compiler's class prologue, which this \
+                         encoder inverts into each class's `metadata.superclass` and drops; it \
+                         may only appear as a bare statement in `fn main()`",
+                        runtime_ctors::REGISTER_TYPES_FN
+                    );
                     return self.encode_user_call(&name, &e.args);
                 }
 

@@ -584,6 +584,12 @@ fn functions() -> Vec<FunctionDefinition> {
             "Is string empty: value.isEmpty",
         ),
         base_fn(
+            "string_is_not_empty",
+            "UnaryInput",
+            "",
+            "Is string non-empty: value.isNotEmpty (issue #674)",
+        ),
+        base_fn(
             "string_concat",
             "BinaryInput",
             "",

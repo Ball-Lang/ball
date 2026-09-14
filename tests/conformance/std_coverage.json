@@ -10,9 +10,9 @@
     "package:ball_base buildStdTimeModule()",
     "package:ball_base buildStdConcurrencyModule()"
   ],
-  "totalFunctions": 304,
+  "totalFunctions": 305,
   "functionsByModule": {
-    "std": 160,
+    "std": 161,
     "std_collections": 59,
     "std_concurrency": 9,
     "std_convert": 6,
@@ -22,9 +22,9 @@
     "std_time": 12
   },
   "summary": {
-    "encoderEmittable": 144,
-    "coveredByFixture": 157,
-    "engineImplementedDart": 266,
+    "encoderEmittable": 145,
+    "coveredByFixture": 158,
+    "engineImplementedDart": 267,
     "carvedOut": 0
   },
   "functions": [
@@ -1541,6 +1541,7 @@
         "434_type_of",
         "468_map_contains_value",
         "469_map_put_if_absent",
+        "474_is_not_empty_receivers",
         "78_map_operations",
         "93_multi_return",
         "95_fibonacci_memo"
@@ -2044,20 +2045,11 @@
       "inputType": "UnaryInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "123_queue_simulation",
         "125_group_by",
         "129_unique_elements",
-        "195_deep_nesting",
-        "199_malicious_input_patterns",
         "256_editions_resolver",
-        "262_getter_properties",
         "278_enc_bool_logic",
-        "34_boolean_logic",
-        "350_set_value",
-        "416_user_method_name_arity_collision",
-        "466_string_sink",
-        "97_stack_operations",
-        "98_string_tokenizer"
+        "34_boolean_logic"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2612,6 +2604,7 @@
         "471_null_aware_chain_scope",
         "472_initializer_list_field_with_setter",
         "473_caught_user_thrown_builtin_error",
+        "474_is_not_empty_receivers",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -2991,8 +2984,6 @@
       "coveredByFixtures": [
         "115_generic_class",
         "123_queue_simulation",
-        "195_deep_nesting",
-        "199_malicious_input_patterns",
         "213_string_edge_cases",
         "228_unicode_grapheme_edges",
         "237_map_pattern_switch",
@@ -3000,8 +2991,27 @@
         "249_string_control_char_edges",
         "262_getter_properties",
         "350_set_value",
+        "466_string_sink",
+        "474_is_not_empty_receivers",
+        "97_stack_operations"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "string_is_not_empty",
+      "inputType": "UnaryInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "123_queue_simulation",
+        "195_deep_nesting",
+        "199_malicious_input_patterns",
+        "262_getter_properties",
+        "350_set_value",
         "416_user_method_name_arity_collision",
         "466_string_sink",
+        "474_is_not_empty_receivers",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -3750,7 +3760,8 @@
         "386_list_concat_addall",
         "387_list_reverse_getter",
         "400_switch_continue_label",
-        "442_switch_goto_fallthrough_guard_or_pattern"
+        "442_switch_goto_fallthrough_guard_or_pattern",
+        "474_is_not_empty_receivers"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4425,7 +4436,8 @@
         "417_null_aware_collection_elements",
         "434_type_of",
         "459_set_add_remove_bool",
-        "462_set_mutation_in_place"
+        "462_set_mutation_in_place",
+        "474_is_not_empty_receivers"
       ],
       "engineImplementedDart": true,
       "carvedOut": false

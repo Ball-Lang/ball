@@ -284,25 +284,55 @@ avoid constructs that need receiver-type info:
     `432_shadowed_getter_setter_write`), wrong for a final one, which
     contributes no setter of its own: **#664**.
   - `collection/lib/src/iterable_extensions.dart` — **`Ext(receiver).member`
-    stays unencodable, and MUST NOT be erased to `receiver.member`.** An
-    extension override is written precisely when the plain access would
-    resolve to something else:
+    encodes by NAMING the extension member, and MUST NOT be erased to
+    `receiver.member`.** An extension override is written precisely when the
+    plain access would resolve to something else:
     `IterableComparableExtension.isSorted([compare])`'s body is
     `return IterableExtension(this).isSorted(compare);`, and erasing it makes
     the method call ITSELF. Tier B measured the erasure at `1706 → 1702
     passing, 4 failing` — a loud build error traded for a silently wrong
-    answer. The encoder now WARNS (it used to drop the node in silence) and
-    still emits the `/* unsupported: … */` placeholder. A real encoding needs
-    the IR to name WHICH extension supplies a member plus a compiler rule to
-    re-emit the override: **#670**.
-  - `collection/lib/src/wrappers.dart` — compiles now, but its own suite
-    still fails on `x.isNotEmpty` being rewritten as `!x.isEmpty`, which a
-    DELEGATING receiver can see (`collection`'s `wrapper_test.dart` records
-    the forwarded `Invocation` symbol): **#674**. Same root, other direction:
-    the `.isEmpty` rewrite consults no receiver type at all, so an instance
-    FIELD named `isEmpty` is answered by `std.string_is_empty` on every engine
-    — **#697**, the last member of #488's receiver-type family and the only one
-    outside its 16-file table.
+    answer. The encoder's slice of **#670** encodes the override as a
+    `FunctionCall` whose `function` is the extension member's own Ball name
+    (`<module>:<Ext>.<member>`) with the receiver in `self`, and the Dart
+    compiler re-emits `Ext(receiver).member(args)` from the `kind: 'extension'`
+    typeDef — no schema change, because the NAME carries the selection (the
+    design record is in `docs/METADATA_SPEC.md`, "Extension overrides ride the
+    function NAME"). Whether `()` is emitted comes from the member's own
+    `is_getter`, the same accessor-shape family as #501/#664. It is a
+    RESOLVED-AST-only path (`parseString` reads `Ext(x).m()` as a call on a
+    constructor invocation), so `encode(String)`,
+    `dart/self_host/engine.ball.json` and the conformance corpus never reach
+    it. An override this encoder cannot name soundly — an import prefix,
+    type arguments on the EXTENSION (`Ext<int>(x)`), or an extension another
+    module declares — stays a LOUD refusal (a warning naming the construct plus
+    the `/* unsupported: … */` placeholder), and the other compilers/engines
+    still strip everything before the last `:`; that remainder is the rest of
+    #670. Two neighbouring shapes are NOT refusals and each had its own silent
+    failure: type arguments on the MEMBER (`Ext(x).m<int>()`) ride
+    `FunctionCall.typeArgs` like any other instance call — dropping them
+    reified `List<dynamic>` — and a WRITE (`Ext(x).m = v`, `+= 1`, `++`)
+    encodes as the same `self`-carrying call, so the compiler reads
+    `is_setter` alongside `is_getter` (`_extensionAccessorFunctions`);
+    emitting the method shape for a setter-only member produced
+    `Ext(x).m() = v`, and the `FormatterException` that escaped
+    `DartCompiler.compileModule` took the WHOLE module's output with it.
+  - `collection/lib/src/wrappers.dart` — **`x.isNotEmpty` is its own member,
+    never `!x.isEmpty`** (**#674**, fixed). The rewrite changed WHICH member a
+    DELEGATING receiver is asked for — `collection`'s `wrapper_test.dart`
+    records the forwarded `Invocation` symbol, and Tier B measured 5 failures
+    of the form `Expected: Symbol("isEmpty") Actual: Symbol("isNotEmpty")`. The
+    receiver-type seam cannot fix this one: the delegate's static type IS a
+    `dart:core` `Iterable`. So `std.string_is_not_empty` is declared alongside
+    `string_is_empty` and implemented on every target (polymorphic over the same
+    receivers), and `getterRoutes` routes `isNotEmpty` straight to it. Guards:
+    `tests/conformance/474_is_not_empty_receivers` (cross-target) and
+    `dart/encoder/test/is_not_empty_member_identity_test.dart`, which RUNS a
+    recording receiver through `dart run` before and after the round trip —
+    member identity is behavioural, so only executing it can see a change.
+    Same root, other direction: the `.isEmpty` rewrite consults no receiver type
+    at all, so an instance FIELD named `isEmpty` is answered by
+    `std.string_is_empty` on every engine — **#697**, the last member of #488's
+    receiver-type family and the only one outside its 16-file table.
 
 - **The `async` safety return must type-check under `strict-casts`.** Every
   `async`, non-generator, non-`void` function gets a trailing statement so

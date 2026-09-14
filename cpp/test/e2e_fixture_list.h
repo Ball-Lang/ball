@@ -337,6 +337,7 @@ inline const std::vector<std::string>& program_names() {
         "471_null_aware_chain_scope",
         "472_initializer_list_field_with_setter",
         "473_caught_user_thrown_builtin_error",
+        "474_is_not_empty_receivers",
     };
     return names;
 }

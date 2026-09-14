@@ -220,6 +220,7 @@ ball::ir::Module build_std_module() {
     // String manipulation
     add_fn("string_length", "UnaryInput", "", "String length");
     add_fn("string_is_empty", "UnaryInput", "", "Is string empty");
+    add_fn("string_is_not_empty", "UnaryInput", "", "Is string non-empty");
     add_fn("string_concat", "BinaryInput", "", "String concat");
     add_fn("string_contains", "BinaryInput", "", "String contains");
     add_fn("string_starts_with", "BinaryInput", "", "Starts with");

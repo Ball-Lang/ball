@@ -507,6 +507,29 @@ Python **41**, Go **31** of 352. Those are the floors. None of the four is a par
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 
+5. **A fixture that HANGS is its own hard error, never one more `failed` (#693).**
+   A count cannot tell a golden mismatch from a program that does not terminate,
+   and the ratchet can only notice the latter once enough fixtures hang to push
+   `passed` under the floor — which is exactly how 28 loop fixtures hung for as
+   long as they did. `roundtrip_floor.sh` reds a row on any per-fixture timeout
+   line, anchored on the STATUS field so a fixture merely NAMED `196_timeout` is
+   not a hang, and overridable per row (C#'s harness prints `  <name>: TIMEOUT`
+   rather than the `FAILING [name] timeout …` the other three share). All four
+   rows measured **zero** timeouts before the gate was switched on (run
+   34791323674, main) — a gate goes live at a measured value, never at an
+   aspiration.
+6. **A harness that can hang forever is itself a defect, and its budget is
+   self-tested.** Every one of these legs shells out to the Dart CLI per fixture,
+   so each needs a per-fixture kill or one runaway wedges the whole job. Having
+   one is not the same as knowing it works: Rust's was a hard-coded `const`
+   inside an `#[ignore]`d test, reachable from nothing and therefore measured by
+   nothing. It reads `BALL_TIMEOUT_MS` now (the spelling Go's leg already used;
+   Python's is `BALL_TIMEOUT_S`), fails loud on a non-integer value, and
+   `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` proves
+   the kill against a **fabricated runaway** — a program built with `rustc` at
+   test time that ignores its arguments and never exits — driven through the real
+   production path, on every PR.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier
@@ -834,6 +857,53 @@ captures `dart run <source>`'s stdout, so any fixture generated from
 built-in error becomes reachable from a Ball program, measure its `toString()`
 against the SDK, add it to the checker's contract, and add its arm to every
 table — the checker fails until all of that is done.
+
+**The literal-throw half (#658).** Every check above is keyed on what a runtime
+RAISES, and that is not the only way one of these values reaches a `catch`. A
+program's own `throw StateError('boom')` is built by the COMPILER from a
+`messageCreation` the encoder produced, so no raise site exists for the closure,
+coverage or agreement checks to see — and the corpus had never put a USER-thrown
+exception in a value position either (`463`/`464` print hardcoded literals or
+`e.message`; `465`/`467` print a caught value, but only a runtime-raised one,
+whose payload already carries the canonical string). Two defects lived in that
+blind spot: the Dart REFERENCE engine — the implementation every self-hosted
+engine is compiled from — returned the raw `message` field rather than Dart's
+prefixed `toString()`, and `ArgumentError`, which Dart spells
+`Invalid argument(s): <message>` and which no runtime in the repo raises, was in
+no target's table at all.
+
+Two instruments close it, mirroring the pair above:
+
+* `tests/conformance/473_caught_user_thrown_builtin_error` — the cross-target
+  observable. It prints a caught `StateError`/`FormatException`/`ArgumentError`
+  through an untyped catch, a typed `on T catch`, and a non-matching typed clause
+  that falls through, and it reads `.message` alongside `'$e'`. Those two are
+  DIFFERENT strings — the raw constructor argument versus the prefixed form — so
+  a "fix" that rewrote the stored field would pass one half and break the other,
+  which is exactly why both are in one fixture.
+* `LITERAL_THROWABLE` in `tools/check_error_rendering_tables.py` — the structural
+  half. Every explicit rendering table must cover
+  `StateError`/`FormatException`/`RangeError`/`ArgumentError` whether or not that
+  target raises one, and TWO tables join the checker here for the first time. The
+  Dart reference engine is one (a runtime-raised error reaches its catch variable
+  verbatim; a user-thrown one does not, so `coverage_exempt` exempts it from the
+  raised half only). The other is `ts-engine` — `ts/engine/src/engine_setup.ts`'s
+  hand-written `__bts`, which SHADOWS the compiled engine's `to_string`, so the
+  TS self-hosted engine never reaches the arm the Dart source defines. It had no
+  Dart-error arm at all, and its generic map branch filters every `__`-prefixed
+  key, so the caught value printed as `{arg0: boom, message: boom}` — the type
+  tag not even visible. **A shadowing override is a second implementation of a
+  cross-target contract**: when one exists, the checker must know about it, or a
+  fix to the reference source plus a regen silently does not reach that target.
+
+The ctor-argument KEY is deliberately NOT checked structurally. Every encoder
+stores the argument positionally (`{arg0: 'boom'}` — a Dart built-in carries no
+`TypeDefinition`, so the `argN` → parameter-name remap has nothing to resolve
+against) while every table reads `message`, and each target already closes that
+in a different, correct place: C++ renames in its compiler's throw lowering
+(#640), Go/Rust/C#/the Dart engine alias it in `std.throw` itself (#615). A
+source-pattern check would either demand one shape of all of them or rubber-stamp
+whatever each does; the fixture measures the observable instead.
 
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
@@ -1346,6 +1416,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **A base function's returned VALUE carries a contract (§5b, #630)** — `std.sink_create`'s sink is a `__type__`-tagged, REFERENCE-semantic value: `std.type_of` answers `Sink` on every target (never the host builder's type), and an append performed inside a callee is visible to the caller. A conformance golden cannot assert the tag (the oracle is native Dart, which says `StringBuffer`), so the behaviour and the tag are gated separately | `tests/conformance/466_string_sink` (cross-target; the `appendWord(out, 'c')` line is the reference-semantics leg) + per-target tag tests: `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`, `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`, `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`, `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
 | **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/467_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
+| **A USER-thrown built-in Dart error reads the same on every target (§5b, #658)** — a caught `throw StateError('boom')` reads Dart's own `Bad state: boom` everywhere, INCLUDING the reference engine, while `.message` still reads the raw ctor argument; and every explicit rendering table covers every literal-throwable built-in (`ArgumentError` → `Invalid argument(s)`), raised or not | `tests/conformance/473_caught_user_thrown_builtin_error` (cross-target) + `tools/check_error_rendering_tables.py`'s `LITERAL_THROWABLE` check and its self-test + per-target tests: `dart/engine/test/user_thrown_builtin_error_test.dart`, `go/runtime/dart_error_rendering_test.go`, `go/compiler/user_thrown_builtin_error_test.go`, `csharp/compiler/test/UserThrownBuiltinErrorTests.cs`, `rust/shared/src/value.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
@@ -1355,6 +1426,8 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
+| **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
+| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
 | **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |

@@ -1182,8 +1182,9 @@ jobs:
 
           # C#'s harness prints `  <fixture>: ERROR: …` under `--- failures ---`
           # rather than the `FAILING [name] …` the other three share, so this row
-          # passes its own pattern for the verbatim first-failure echo.
-          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note" "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)"
+          # passes its own pattern for the verbatim first-failure echo — and its
+          # own TIMEOUT pattern for the no-fixture-may-hang gate (#693).
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note" "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)" "^ +[0-9A-Za-z_]+: TIMEOUT"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1352,7 +1353,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "99"
+      RUST_ROUNDTRIP_FLOOR: "100"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

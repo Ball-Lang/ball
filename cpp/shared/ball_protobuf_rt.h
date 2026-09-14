@@ -91,11 +91,87 @@ struct BallException : public std::runtime_error {
           fields(std::move(f)) {}
 };
 
-// Stream inserter so `print(e)` on a catch-bound BallException works
-// (it falls through to printing `.what()`, matching the old
-// string-binding behavior for plain-string throws).
+// One of the built-in Dart error/exception objects a Ball `throw` raises,
+// rendered the way Dart's own `toString()` does — or an empty string for
+// anything else (issues #616/#640).
+//
+// The table is EXPLICIT and closed, and matches `dartErrorToString`
+// (go/runtime/ops.go) and `DartErrorToString` (csharp/shared/src/BallValue.cs)
+// row for row — the same three rows, and the same module-prefix stripping.
+// Rendering any exception that happens to carry a `message` field would reach
+// straight into user data: a Ball class declaring a `message` field is not a
+// Dart error and must keep printing what it printed before. `StateError` is the
+// one whose rendering is not `<Type>: <message>`: Dart spells it
+// `Bad state: <message>` (verified against the SDK).
+//
+// The FOURTH sibling, `dart_error_to_string` (rust/shared/src/value.rs), carries
+// a `TypeError` row this table deliberately does NOT, and #641 settled why: a
+// `_TypeError`'s `toString()` IS its message, with no `TypeError: ` prefix at
+// all, so there is no prefix for a row here to hold. C++ needs none — it raises
+// `TypeError` through the 2-argument, no-`fields` ctor (`ball_cast_assert` in
+// `cpp/compiler/src/compiler.cpp`) carrying the canonical
+// `type '<runtime type>' is not a subtype of type '<target>' in type cast`
+// string as the payload, so the `message` lookup below misses and `what()`
+// returns that string verbatim. The three rows this table DOES hold are checked
+// against Dart's own spellings on every PR by
+// `tools/check_error_rendering_tables.py` (`Proto Checks`); a row whose prefix
+// drifts from Dart's, here or in any sibling, fails there.
+inline std::string _ball_dart_error_to_string(const std::string& type_name,
+                                              const std::string& message) {
+    // The throw lowering strips the module prefix, but a tag can still arrive
+    // module-qualified (`main:StateError`) — the sibling tables strip it too
+    // (go's `messageShortName`, C#'s `LastIndexOf(':')`).
+    std::string bare = type_name;
+    const auto colon = bare.rfind(':');
+    if (colon != std::string::npos) bare = bare.substr(colon + 1);
+    const char* prefix = nullptr;
+    if (bare == "StateError") prefix = "Bad state";
+    else if (bare == "FormatException") prefix = "FormatException";
+    else if (bare == "RangeError") prefix = "RangeError";
+    // Neither its own name nor empty: Dart spells an ArgumentError
+    // "Invalid argument(s): <message>". No runtime raises one — only a
+    // program's own `throw ArgumentError('nope')` builds one — so it was in NO
+    // target's table at all, and #641's closed-set checks (all keyed on what a
+    // runtime RAISES) could not see the gap (issue #658). Verified against the
+    // SDK; guard: tests/conformance/473_caught_user_thrown_builtin_error.
+    else if (bare == "ArgumentError") prefix = "Invalid argument(s)";
+    if (prefix == nullptr) return std::string();
+    return std::string(prefix) + ": " + message;
+}
+
+// Dart's `catch (e)` binds the caught exception itself, and `to_string(e)` on
+// it must read the canonical `StateError.toString()` string the thrower carried
+// (issue #616). Without this overload the generic `ball_to_string(T)` template
+// instantiated `std::to_string(BallException&)`, which does not compile at all —
+// so a program that printed its caught exception was a BUILD error on this
+// target, not a wrong answer.
+//
+// The two throw shapes carry that string in different places (issue #640):
+//   - a LITERAL throw (`throw StateError('boom')`) lowers to
+//     `BallException(type, type, {{"message", "boom"}})` — the ctor argument is
+//     in `fields` and `what()` is the bare TYPE NAME, so `what()` alone printed
+//     `StateError` where Dart prints `Bad state: boom`;
+//   - a RUNTIME-raised one (`_ball_make_exception`) already carries its
+//     canonical `toString()` string as the payload, and `fields` is empty — so
+//     it must NOT be prefixed a second time.
+// Keying on the `message` field rather than on the type name is what keeps
+// those apart.
+inline std::string ball_to_string(const BallException& e) {
+    const auto it = e.fields.find("message");
+    if (it != e.fields.end()) {
+        std::string rendered = _ball_dart_error_to_string(e.type_name, it->second);
+        if (!rendered.empty()) return rendered;
+    }
+    return e.what();
+}
+
+// Stream inserter so `print(e)` on a catch-bound BallException works. It routes
+// through ball_to_string above so a streamed exception and an interpolated one
+// are the same string — the compiler emits `print` as
+// `std::cout << ball_to_string(...)`, and a second spelling here would be a
+// second, silently drifting rendering.
 inline std::ostream& operator<<(std::ostream& os, const BallException& e) {
-    return os << e.what();
+    return os << ball_to_string(e);
 }
 
 // Dart-compatible string conversion. Handles bool and doubles so
@@ -784,6 +860,36 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
         super_obj = (ss != sm.end()) ? ss->second : std::any{};
     }
     return false;
+}
+
+// Extension point for BallOrderedMap `__type__` extraction (set by ball_dyn.h).
+inline std::string (*_ball_object_type_tag_ext)(const std::any&) = nullptr;
+
+// The SHORT `__type__` tag of a map-backed object (`main:Chain` -> `Chain`), or
+// an empty string when the value carries none. The same shape walk as
+// ball_object_type_matches, but yielding the NAME instead of a match: this is
+// the object arm of `std.type_of` (#489).
+inline std::string ball_object_type_tag(const std::any& value) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value()) return std::string();
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    if (!mptr) {
+        if (_ball_object_type_tag_ext) return _ball_object_type_tag_ext(u);
+        return std::string();
+    }
+    auto it = mptr->find("__type__");
+    if (it == mptr->end() || !it->second.has_value()) return std::string();
+    auto& tv = _BallDynUnwrapper::unwrap(it->second);
+    if (tv.type() != typeid(std::string)) return std::string();
+    std::string tag = std::any_cast<const std::string&>(tv);
+    auto colon = tag.rfind(':');
+    if (colon != std::string::npos) tag = tag.substr(colon + 1);
+    return tag;
 }
 
 // ── Concrete-struct type matching ──
@@ -2823,6 +2929,21 @@ using BallListRef = std::shared_ptr<BallList>;
 // dereferences transparently, and `ball_identical` compares pointers.
 using BallUserRef = std::shared_ptr<std::any>;
 
+// True for a CONCRETE user-class struct the Ball -> C++ compiler emitted.
+// `emit_struct` gives every one of them a `static constexpr const char*
+// __ball_type_name()` (and nothing else does — no standard-library type, no
+// runtime type here, and not the enum emitter), so this is an exact, closed
+// discriminator rather than a "some class type" catch-all. That precision is
+// what makes the BallDyn constructor below safe: it cannot steal overload
+// resolution from the BallMap / BallList / typed-`std::vector` constructors.
+// (`ball_type_of` / `ball_object_type_matches` already SFINAE on the same
+// member.) Issue #513.
+template <class T, class = void>
+struct ball_is_user_struct : std::false_type {};
+template <class T>
+struct ball_is_user_struct<T, std::void_t<decltype(T::__ball_type_name())>>
+    : std::true_type {};
+
 // Unique marker for Dart engine `_sentinel` (dispatch not found). Must not
 // compare equal to null/empty BallDyn() returned by void builtin methods.
 struct BallDispatchNotFound {};
@@ -2971,6 +3092,22 @@ public:
     // Reference-semantic concrete user-class struct instance (BallUserRef).
     // The shared_ptr<std::any> wraps the struct; copies of BallDyn share it.
     BallDyn(BallUserRef v) : _val(std::move(v)) {}
+    // #513: a concrete user-class STRUCT flowing into a BallDyn slot — a `T?`
+    // parameter/field, an `identical()` operand, a collection element. Without
+    // this the only route was `std::any`, which needs TWO user-defined
+    // conversions and so is not viable: g++ rejected `countNodes(root)` with
+    // "could not convert 'root' from 'Node' to 'BallDyn'". Boxed through
+    // BallUserRef, exactly like a factory-constructed instance, so
+    // `ball_obj_as<T>` recovers it and `ball_identical` compares pointers.
+    // Constrained to compiler-emitted structs (see ball_is_user_struct), so it
+    // never competes with the typed-container constructors above.
+    template <typename T,
+              std::enable_if_t<ball_is_user_struct<std::decay_t<T>>::value &&
+                                   !std::is_base_of_v<BallDyn, std::decay_t<T>>,
+                               int> = 0>
+    BallDyn(T&& v)
+        : _val(BallUserRef(std::make_shared<std::any>(
+              std::any(std::decay_t<T>(std::forward<T>(v)))))) {}
 
     // ── Reference-semantic list accessors ──
     // Return a pointer to the underlying vector whether stored by-value (legacy /
@@ -3675,6 +3812,18 @@ public:
                    std::any_cast<const BallUserRef&>(o._val).get();
         }
         if (_val.type() == typeid(BallDispatchNotFound)) return true;
+        // REACHABILITY (issue #63 audit): both arms below are dominated by the
+        // `_listPtr()` arm above, which already handles BOTH list
+        // representations — `_listPtr()` is non-null exactly when `_val` holds a
+        // BallListRef or a BallList, and it compares element-wise with the same
+        // aliasing short-circuit. Control can therefore never arrive here with a
+        // list on either side, in any build. Dead by domination, not
+        // self-host-only, so no test can reach it; excluded per site with this
+        // proof rather than by a file rule. Deleting it is the real fix and is
+        // behaviour-preserving for the same reason, but it edits the runtime
+        // spliced into every emitted program, so it belongs in its own change
+        // gated on the C++ self-host conformance sweep.
+        // LCOV_EXCL_START
         if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
             return std::any_cast<const BallListRef&>(_val) ==
                    std::any_cast<const BallListRef&>(o._val);
@@ -3689,6 +3838,7 @@ public:
             }
             return true;
         }
+        // LCOV_EXCL_STOP
         if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == std::any_cast<int64_t>(o._val);
         if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == std::any_cast<bool>(o._val);
@@ -4135,10 +4285,26 @@ struct _BallDynUnwrapRegistrar {
             if (v.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(v).get();
             return nullptr;
         };
+        // REACHABILITY (issue #63 audit). Both call sites of
+        // `_BallRefDeref::obj_map` in ball_emit_runtime.h — `_ball_any_is_object`
+        // and `_ball_object_base_map` — test `u.type() == typeid(BallObjectRef)`
+        // THEMSELVES and short-circuit before consulting this hook, and
+        // `BallObjectRef` is a single `using` in ball_emit_runtime.h shared by
+        // both headers (never redeclared here), so the guarded body below can
+        // never be entered in any build: compiled program, self-hosted engine or
+        // native engine alike. It is dominated dead code, not merely
+        // self-host-only, so no test can reach it and the two lines carry a
+        // per-site exclusion rather than a blanket file rule. Deleting the
+        // registration entirely is the real fix and is provably behaviour-
+        // preserving for the same reason — but it edits the runtime spliced into
+        // every emitted program, so it belongs in its own change gated on the
+        // C++ self-host conformance sweep, not in a coverage slice.
         _BallRefDeref::_obj_map_fn = [](const std::any& v) -> const std::map<std::string, std::any>* {
             if (v.type() == typeid(BallObjectRef)) {
+                // LCOV_EXCL_START — dominated by the callers' own BallObjectRef test (above).
                 const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(v);
                 if (ref) return &static_cast<const BallMap&>(*ref);
+                // LCOV_EXCL_STOP
             }
             return nullptr;
         };
@@ -5122,7 +5288,21 @@ inline BallDyn _ball_exception_to_dyn(const BallException& e) {
     // fields: the caught variable should BE that scalar so a filter like
     // `catch (e) { if (e == "recoverable") ... }` matches Dart semantics
     // (conformance 222). Structured throws keep the reified map shape.
-    if (e.has_payload && e.fields.empty()) {
+    //
+    // Only an UNTYPED throw collapses (issue #616). A TYPED one whose payload
+    // happens to be a scalar -- the engine own
+    // `throw BallException("StateError", "Bad state: No element")` -- lost its
+    // type here: the catch variable became a bare String, so the compiled
+    // engine `e is BallException` test was false, `e.typeName` was unreadable,
+    // and its `on StateError catch` dispatch could not match at all, letting
+    // the exception escape the program own try. The generic Exception tag is
+    // what `std.throw` of a non-message value emits (the compiler fallback
+    // arm of the throw lowering), so conformance 222 is unchanged. Do NOT
+    // spell that emitted call literally in this comment: this header is
+    // SPLICED verbatim into every compiled program, and test_compiler asserts
+    // some emissions are ABSENT from the whole output.
+    const bool untyped = e.type_name.empty() || e.type_name == "Exception";
+    if (untyped && e.has_payload && e.fields.empty()) {
         const std::any& pu = _BallDynUnwrapper::unwrap(e.value);
         if (pu.type() == typeid(std::string) || pu.type() == typeid(int64_t) ||
             pu.type() == typeid(double) || pu.type() == typeid(bool)) {
@@ -5132,8 +5312,19 @@ inline BallDyn _ball_exception_to_dyn(const BallException& e) {
     std::map<std::string, std::any> m;
     m["__type__"] = std::any(std::string("BallException"));
     m["typeName"] = std::any(e.type_name);
-    m["value"] = e.has_payload ? e.value : std::any(std::string(e.what()));
-    m["message"] = std::any(std::string(e.what()));
+    // Issue #640. A LITERAL throw (`throw StateError('boom')`) carries its ctor
+    // argument in `fields` and leaves `what()` as the bare TYPE NAME, so the
+    // reification must not echo `what()` into either key: `value` is what
+    // `print(e)` / `'$e'` reads, and it has to be Dart's `toString()` (that is
+    // what ball_to_string renders, #616's table); `message` is the ctor
+    // ARGUMENT, which is what `e.message` means on every other target and what
+    // the TYPED binding already reads (`e.fields.at("message")`, conformance
+    // 146/464). A runtime-raised exception has no fields, so both keys keep the
+    // payload/`what()` they always had.
+    const auto mit = e.fields.find("message");
+    m["value"] = e.has_payload ? e.value : std::any(ball_to_string(e));
+    m["message"] = std::any(mit != e.fields.end() ? mit->second
+                                                  : std::string(e.what()));
     BallDyn d;
     d._val = std::any(std::move(m));
     return d;
@@ -5202,6 +5393,20 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
             return ball_object_type_matches(omp->entries_[sit->second].second, type);
         }
         return false;
+    };
+    // `__type__` extraction for a BallOrderedMap-backed object — the ordered-map
+    // sibling of the BallMap walk in ball_object_type_tag (std.type_of, #489).
+    _ball_object_type_tag_ext = [](const std::any& u) -> std::string {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return std::string();
+        auto it = omp->index_.find("__type__");
+        if (it == omp->index_.end()) return std::string();
+        auto& tv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (tv.type() != typeid(std::string)) return std::string();
+        std::string tag = std::any_cast<const std::string&>(tv);
+        auto colon = tag.rfind(':');
+        if (colon != std::string::npos) tag = tag.substr(colon + 1);
+        return tag;
     };
     // Typed-map discrimination for BallOrderedMap: mirror the BallMap path of
     // ball_is_typed_map (empty->matches any; else inspect first value's concrete
@@ -5272,6 +5477,118 @@ inline bool ball_is_map_dyn(const BallDyn& v) {
 // `BallOrderedMap` directly and is immune to that dispatch.
 inline bool ball_is_ball_set(const BallDyn& v) {
     return v._setBackingList() != nullptr;
+}
+
+// `std.type_of` (#489) — the value's canonical runtime type NAME: the string
+// form of the very discrimination the native `is` dispatch performs, with
+// generic type arguments dropped and any module prefix stripped
+// (`main:Chain` -> `Chain`). Both Dart's `value.runtimeType.toString()` and
+// JavaScript's `typeof` encode to this function, so it must agree with the Dart
+// reference engine's `_typeNameOf`. Unlike `ball_runtime_type_name` (which
+// covers primitives only, and answers "Object" for everything else) this also
+// discriminates sets, functions and user classes.
+inline std::string ball_type_of(const BallDyn& v) {
+    const std::any& u = _BallDynUnwrapper::unwrap(v._val);
+    if (!u.has_value()) return "Null";
+    if (ball_is_bool(u)) return "bool";
+    if (ball_is_int(u)) return "int";
+    if (ball_is_double(u)) return "double";
+    if (ball_is_string(u)) return "String";
+    if (ball_is_list(u)) return "List";
+    // A portable ordered set is map-shaped, so it must be discriminated before
+    // the object/Map arms below.
+    if (ball_is_ball_set(v)) return "Set";
+    if (ball_is_function(u)) return "Function";
+    std::string tag = ball_object_type_tag(u);
+    if (!tag.empty()) return tag;
+    if (ball_is_map_dyn(v)) return "Map";
+    return ball_runtime_type_name(u);
+}
+
+// ── std text sink (#630) — `sink_create` / `sink_write` / `sink_to_string` ──
+//
+// A sink is a `__type__`-tagged BallOrderedMap carrying its accumulated text
+// under `__buffer__`, NOT a `std::ostringstream` (nor the ad-hoc
+// `BallStringBuffer` above). Two properties depend on that, and both fail
+// SILENTLY when a target gets them wrong:
+//
+//  * `ball_type_of` answers "Sink", because `ball_object_type_tag` already
+//    reads a map's `__type__` tag. A bare stream backing would report its own
+//    host type here and a different one on every other target, so a Ball
+//    program branching on `type_of` would take a different arm per target.
+//  * `BallDyn(BallOrderedMap&&)` wraps the map in a `shared_ptr`, so an append
+//    performed inside a callee is visible to the caller. A by-value
+//    `BallOrderedMap`/`std::ostringstream` copy would lose exactly that append
+//    and nothing else — the same failure `dart/engine/lib/engine_eval.dart`
+//    records for a plain map literal in the self-host.
+inline const std::string& _ball_sink_tag() {
+    static const std::string tag = "std:Sink";
+    return tag;
+}
+
+// The live backing map of a sink, or a loud throw. Taken BY VALUE on purpose:
+// a BallDyn copy shares the same `BallOrderedMapRef`, so mutating through it
+// mutates the caller's sink — and a by-value parameter is what lets a
+// `const BallDyn&` call site reach the non-const accessor.
+inline BallOrderedMap* _ball_sink_backing(BallDyn sink, const char* function) {
+    if (BallOrderedMap* omp = sink._orderedMapPtr()) {
+        auto it = omp->index_.find("__type__");
+        if (it != omp->index_.end()) {
+            const std::any& tv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+            if (tv.type() == typeid(std::string) &&
+                std::any_cast<const std::string&>(tv) == _ball_sink_tag()) {
+                return omp;
+            }
+        }
+    }
+    throw std::runtime_error(std::string("std.") + function +
+                             ": expected a sink (std.sink_create)");
+}
+
+inline BallDyn ball_sink_create(const BallDyn& initial) {
+    BallOrderedMap m;
+    m["__type__"] = std::any(_ball_sink_tag());
+    m["__buffer__"] =
+        std::any(initial.has_value() ? ball_to_string(initial) : std::string());
+    return BallDyn(std::move(m));
+}
+
+inline BallDyn ball_sink_write(const BallDyn& sink, const BallDyn& text) {
+    BallOrderedMap* omp = _ball_sink_backing(sink, "sink_write");
+    std::string existing;
+    auto it = omp->index_.find("__buffer__");
+    if (it != omp->index_.end()) {
+        const std::any& bv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (bv.type() == typeid(std::string))
+            existing = std::any_cast<const std::string&>(bv);
+    }
+    (*omp)["__buffer__"] = std::any(existing + ball_to_string(text));
+    return BallDyn();
+}
+
+inline BallDyn ball_sink_to_string(const BallDyn& sink) {
+    BallOrderedMap* omp = _ball_sink_backing(sink, "sink_to_string");
+    auto it = omp->index_.find("__buffer__");
+    if (it != omp->index_.end()) {
+        const std::any& bv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (bv.type() == typeid(std::string))
+            return BallDyn(std::any_cast<const std::string&>(bv));
+    }
+    return BallDyn(std::string());
+}
+
+// A compiled user class is emitted as a plain C++ struct rather than a
+// `__type__`-tagged map, so it cannot answer through the BallDyn overload
+// above; each such struct exposes a static `__ball_type_name()`. This template
+// is a better match than the BallDyn overload for any value carrying that
+// trait, mirroring `ball_object_type_matches`'s concrete-struct overload.
+template <typename T>
+auto ball_type_of(const T& value) -> decltype(T::__ball_type_name(), std::string()) {
+    (void)value;
+    std::string tag = T::__ball_type_name();
+    auto colon = tag.rfind(':');
+    if (colon != std::string::npos) tag = tag.substr(colon + 1);
+    return tag;
 }
 
 // Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).
@@ -5447,6 +5764,11 @@ inline bool hasLet(const BallDyn& o) { return _bd_has(o,"let"); }
 inline bool hasExpression(const BallDyn& o) { return _bd_has(o,"expression"); }
 inline bool hasObject(const BallDyn& o) { return _bd_has(o,"object"); }
 inline bool hasValue(const BallDyn& o) { return _bd_has(o,"value"); }
+inline bool hasHttp(const BallDyn& o) { return _bd_has(o,"http"); }
+inline bool hasFile(const BallDyn& o) { return _bd_has(o,"file"); }
+inline bool hasGit(const BallDyn& o) { return _bd_has(o,"git"); }
+inline bool hasRegistry(const BallDyn& o) { return _bd_has(o,"registry"); }
+inline bool hasInline(const BallDyn& o) { return _bd_has(o,"inline"); }
 inline bool hasNullValue(const BallDyn&) { return false; }
 inline bool hasStructValue(const BallDyn& o) { return _bd_has(o,"structValue"); }
 inline bool hasMatch(const BallDyn&) { return false; }
@@ -5643,8 +5965,16 @@ inline int64_t ball_to_int64(const BallDyn& v) {
 // throws a catchable TypeError on a mismatch (it does NOT refute / fall through
 // to the next case). Conjoined into a switch-case condition so the case still
 // matches structurally while the assertion runs as a side effect. (conformance 302)
-inline bool ball_cast_assert(bool ok, const std::string& t) {
-  if (!ok) throw BallException("TypeError"s, "type cast failed: not a "s + t);
+// The message is Dart's own, verbatim (issue #641): a _TypeError's toString() IS
+// its message — no type-name prefix, unlike the other three built-ins — and it
+// names the VALUE's runtime type before the target type, which is why the
+// subject is a parameter. (conformance 467_caught_type_error_to_string)
+inline bool ball_cast_assert(bool ok, const BallDyn& v, const std::string& t) {
+  if (!ok) {
+    throw BallException("TypeError"s,
+                        "type '"s + ball_type_of(v) + "' is not a subtype of type '"s + t +
+                            "' in type cast"s);
+  }
   return true;
 }
 
@@ -7768,19 +8098,19 @@ BallDyn toCamelCase(std::string snakeCase) {
         return BallDyn(snakeCase);
     }
     auto parts = BallDyn([](const BallDyn& sv,const BallDyn& dv) -> BallDyn {auto s=ball_to_string(sv);auto d=ball_to_string(dv);BallList r;if(d.empty()){for(char c:s)r.push_back(std::any(std::string(1,c)));return BallDyn(r);}size_t p=0,f;while((f=s.find(d,p))!=std::string::npos){r.push_back(std::any(s.substr(p,f-p)));p=f+d.size();}r.push_back(std::any(s.substr(p)));return BallDyn(r);}(rest,"_"s));
-    auto buffer = BallDyn(BallStringBuffer(prefix));
-    write(buffer, static_cast<BallDyn>(parts)[static_cast<int64_t>(0)]);
+    auto buffer = BallDyn(ball_sink_create(BallDyn(prefix)));
+    ball_sink_write(BallDyn(buffer), BallDyn(ball_to_string(static_cast<BallDyn>(parts)[static_cast<int64_t>(0)])));
     for (auto i = static_cast<int64_t>(1); (i < ball_length(parts)); (i++)) {
         auto part = BallDyn(static_cast<BallDyn>(parts)[i]);
         if (part.empty()) {
             continue;
         }
-        write(buffer, [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(static_cast<BallDyn>(part)[static_cast<int64_t>(0)]));
+        ball_sink_write(BallDyn(buffer), BallDyn(ball_to_string([](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(static_cast<BallDyn>(part)[static_cast<int64_t>(0)]))));
         if ((ball_length(part) > static_cast<int64_t>(1))) {
-            write(buffer, ball_string_substring(BallDyn(part), static_cast<int64_t>(1)));
+            ball_sink_write(BallDyn(buffer), BallDyn(ball_to_string(ball_string_substring(BallDyn(part), static_cast<int64_t>(1)))));
         }
     }
-    return ball_to_string(buffer);
+    return ball_sink_to_string(BallDyn(buffer));
     return BallDyn();
 }
 
@@ -7789,19 +8119,19 @@ BallDyn toSnakeCase(std::string camelCase) {
     if (camelCase.empty()) {
         return BallDyn(camelCase);
     }
-    auto buffer = BallDyn(BallStringBuffer{});
+    auto buffer = BallDyn(ball_sink_create(BallDyn(BallDyn())));
     for (auto i = static_cast<int64_t>(0); (i < ball_length(camelCase)); (i++)) {
         auto ch = BallDyn(static_cast<BallDyn>(camelCase)[i]);
         if (((ch == [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(ch)) && (ch != [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(ch)))) {
-            if ((!buffer.empty())) {
-                write(buffer, "_"s);
+            if ((!ball_sink_to_string(BallDyn(buffer)).empty())) {
+                ball_sink_write(BallDyn(buffer), BallDyn("_"s));
             }
-            write(buffer, [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(ch));
+            ball_sink_write(BallDyn(buffer), BallDyn(ball_to_string([](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(ch))));
         } else {
-            write(buffer, ch);
+            ball_sink_write(BallDyn(buffer), BallDyn(ball_to_string(ch)));
         }
     }
-    return ball_to_string(buffer);
+    return ball_sink_to_string(BallDyn(buffer));
     return BallDyn();
 }
 

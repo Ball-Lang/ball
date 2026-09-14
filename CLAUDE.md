@@ -50,6 +50,19 @@ cd dart/engine   && dart run bin/engine.dart   ../../examples/hello_world/hello_
 cd cpp && mkdir -p build && cd build && cmake .. && cmake --build .
 cmake --build cpp/build --target buf_lint     # also: buf_format, buf_breaking, buf_check
 
+# Regenerate the ONE committed generated C++ artifact, cpp/shared/ball_protobuf_rt.h
+# (Ball's own ball_protobuf runtime, compiled Ball -> C++ in --library mode). It
+# carries a SPLICED COPY of the compiler's runtime preamble, so a change to
+# cpp/compiler/src/compiler.cpp or cpp/shared/include/ball_emit_runtime.h — or to
+# dart/shared/ball_protobuf.json — leaves it stale. CI-ENFORCED since #708:
+# ci.yml's `cpp` job (Linux leg) runs this exact command and then
+# `git diff --exit-code -- cpp/shared/ball_protobuf_rt.h`. There is exactly ONE
+# such gate; do not add a second regeneration pass. A red run uploads the fixed
+# bytes as the `regenerated-cpp-protobuf-rt` workflow artifact, so a lane without
+# a C++ toolchain never has to build one (see cpp/shared/AGENTS.md -> Freshness).
+cpp/build/compiler/ball_cpp_compile dart/shared/ball_protobuf.json \
+  --library --ns ball_protobuf --out cpp/shared/ball_protobuf_rt.h
+
 # TypeScript — shared protobuf types
 cd ts/shared && npm install && npm test          # protobuf-es binding tests
 
@@ -314,7 +327,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `python/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `ts/cli/src/compiled_cli.ts` (`ts/compiler/tool/regen_compiled_cli.mjs`), `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (**committed**; `go/engine/cmd/regen`), `go/cli/compiled/compiled_cli.go` (**committed**; `go/cli/cmd/regen`), `python/engine/ball_engine/compiled_engine.py` (gitignored; `python -m ball_engine.regen`), `python/cli/ball_cli/compiled_cli.py` (gitignored; `python -m ball_cli.regen`), `python/engine/ball_engine/_selfhost/engine.ball.json.gz` (gitignored; `python/engine/tool/bundle_selfhost.py`), `python/cli/ball_cli/_clicore/cli_core.ball.json.gz` (gitignored; `python/cli/tool/bundle_cli_core.py`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/src/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go/Python engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `python/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `ts/cli/src/compiled_cli.ts` (`ts/compiler/tool/regen_compiled_cli.mjs`), `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (**committed**; `go/engine/cmd/regen`), `go/cli/compiled/compiled_cli.go` (**committed**; `go/cli/cmd/regen`), `python/engine/ball_engine/compiled_engine.py` (gitignored; `python -m ball_engine.regen`), `python/cli/ball_cli/compiled_cli.py` (gitignored; `python -m ball_cli.regen`), `python/engine/ball_engine/_selfhost/engine.ball.json.gz` (gitignored; `python/engine/tool/bundle_selfhost.py`), `python/cli/ball_cli/_clicore/cli_core.ball.json.gz` (gitignored; `python/cli/tool/bundle_cli_core.py`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/src/version.g.dart` (`gen_version.dart`), `cpp/shared/ball_protobuf_rt.h` (**committed**; `ball_cpp_compile --library`, see the C++ block above). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go/Python engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
 
 ## Architecture Big Picture
 

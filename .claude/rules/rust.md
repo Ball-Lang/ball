@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 357 passed, 0 failed, 357 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 358 passed, 0 failed, 358 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -160,6 +160,30 @@ cargo fmt --check && cargo clippy --workspace
   runtime RAISES has an entry in this runtime's table and that every entry's
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
+
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed TWO fixes. `ball_normalize_thrown` already aliased `arg0`
+  (#615), but `write_entries` rendered a `BallValue::Message` from its field
+  entries alone - a message carries its tag out of band in `type_name`, so the
+  table never saw it - and `dart_error_to_string` did no module-prefix
+  stripping, unlike every sibling. Both are closed in
+  `rust/shared/src/value.rs`, with
+  `a_user_thrown_builtin_error_renders_like_dart` beside them.
 
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compile_try`
   emits an `if`/`else if` chain over the recovered payload: an `on <Type> catch`
@@ -508,7 +532,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 357 passed, 0 failed, 357 total` (the 4
+  whole corpus with Dart-identical output: `Results: 358 passed, 0 failed, 358 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

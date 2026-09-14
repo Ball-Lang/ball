@@ -22,7 +22,7 @@ This script is that test. For every target it extracts
 * **RENDERED** — the names its rendering table covers, with the prefix each
   entry spells,
 
-and then asserts three things:
+and then asserts four things:
 
 1. **Closure** — ``RAISED ⊆ CANONICAL``. A runtime may not raise a Dart error
    name the cross-target contract has never heard of; adding one forces the
@@ -32,6 +32,22 @@ and then asserts three things:
 3. **Agreement** — every table entry's prefix equals the canonical one. A table
    may be a superset (C# renders ``RangeError`` without raising it), but it may
    never disagree.
+4. **Literal-throw coverage** (#658) — ``LITERAL_THROWABLE ⊆ RENDERED`` per
+   target. A runtime raise site is not the only way one of these values reaches
+   a ``catch``: a user program's own ``throw StateError('boom')`` produces the
+   same value from the COMPILER side, where nothing is "raised" for check 2 to
+   see. That blind spot is how ``ArgumentError`` — a name Dart spells
+   ``Invalid argument(s): …``, unlike all three of its siblings — sat in no
+   target's table at all while every check above stayed green.
+
+The OTHER half of #658 — that the ctor argument of such a throw reaches the
+table under the key it reads (``message``, not the encoder's positional
+``arg0``) — is deliberately NOT checked here. Each target already solves it in a
+different, correct place (C++ renames in its compiler's throw lowering, Go and
+the Dart engine alias it in ``std.throw`` itself), so a source-pattern check
+would either demand one shape of all of them or rubber-stamp whatever each does.
+Conformance fixture ``473_caught_user_thrown_builtin_error`` measures the
+observable instead, on every engine and every compiled target in the matrix.
 
 Each check carries a POSITIVE FLOOR (a minimum number of targets, raised names
 and table entries) so a regex that silently stops matching fails loud instead of
@@ -58,28 +74,47 @@ import sys
 #     StateError('No element').toString()   -> "Bad state: No element"
 #     FormatException('bad').toString()     -> "FormatException: bad"
 #     RangeError('oops').toString()         -> "RangeError: oops"
+#     ArgumentError('nope').toString()      -> "Invalid argument(s): nope"
 #     (42 as String)                        -> "type 'int' is not a subtype of
 #                                               type 'String' in type cast"
 #
 # `TypeError` is the odd one out and the reason #641 exists: `_TypeError`'s
 # `toString()` IS its message — there is no `TypeError: ` prefix — so a table
 # that renders it like its three siblings is wrong in a way no amount of
-# "add the missing entry" catches.
+# "add the missing entry" catches. `ArgumentError` is the second odd one and the
+# reason #658 exists: its prefix is neither its own name nor empty but the fixed
+# phrase `Invalid argument(s)`.
 CANONICAL: dict[str, str] = {
     "StateError": "Bad state",
     "FormatException": "FormatException",
     "RangeError": "RangeError",
+    "ArgumentError": "Invalid argument(s)",
     "TypeError": "",
 }
+
+# The built-in Dart errors a USER PROGRAM constructs and throws as a LITERAL —
+# `throw StateError('boom')` — and then prints from its own catch body. Every
+# explicit rendering table must cover all of them, whether or not that target's
+# runtime ever raises one itself, because the value reaching `to_string` there
+# comes from the COMPILER (a `messageCreation` the encoder produced), not from a
+# raise site the RAISED extractor can see.
+#
+# `TypeError` is deliberately NOT in this set: `throw TypeError()` is not an
+# idiom any encoder emits with a message argument, and the value every target
+# actually renders under that name is the runtime-raised failed cast, which
+# check 2 already covers.
+LITERAL_THROWABLE: tuple[str, ...] = (
+    "StateError", "FormatException", "RangeError", "ArgumentError",
+)
 
 # A target must raise at least this many distinct Dart error names, and a
 # target that owns an explicit table must list at least this many entries.
 # Floors, not equalities: they exist so a broken extractor is a FAILURE rather
 # than a silent "0 raised, 0 rendered, all good".
 MIN_RAISED_PER_TARGET = 1
-MIN_TABLE_ENTRIES = 3
-MIN_TARGETS = 7
-MIN_TABLE_TARGETS = 5
+MIN_TABLE_ENTRIES = len(LITERAL_THROWABLE)
+MIN_TARGETS = 8
+MIN_TABLE_TARGETS = 8
 
 
 def _read(root: pathlib.Path, rel: str) -> str:
@@ -118,6 +153,21 @@ def _body(text: str, start: str, end: str, what: str) -> str:
     return text[i + len(start) : j]
 
 
+def _body_opt(text: str, start: str, end: str) -> str:
+    """`_body`, but an ABSENT table yields the empty string instead of exiting.
+
+    Used where "this target owns no rendering table at all" is itself one of the
+    defects under test (#658: the Dart reference engine had none), so it has to
+    surface as the named failure below rather than as a parse abort. A table
+    that is present but stops PARSING still trips the `MIN_TABLE_ENTRIES` floor.
+    """
+    i = text.find(start)
+    if i < 0:
+        return ""
+    j = text.find(end, i + len(start))
+    return "" if j < 0 else text[i + len(start) : j]
+
+
 def _names(texts: list[str], pattern: str) -> set[str]:
     rx = re.compile(pattern, re.MULTILINE)
     found: set[str] = set()
@@ -139,9 +189,10 @@ class Target:
         self.table = table
         self.table_source = table_source
         # True only for a target whose THROWER carries the canonical string for
-        # the names its table omits (C++). Agreement still applies to the rows
-        # the table does hold — an exemption from coverage is not an exemption
-        # from being right.
+        # the names its table omits (C++, and the Dart reference engine, whose
+        # `BallException` value reaches the catch variable verbatim). Agreement
+        # still applies to the rows the table does hold — an exemption from
+        # coverage is not an exemption from being right.
         self.coverage_exempt = coverage_exempt
 
 
@@ -149,13 +200,23 @@ def collect(root: pathlib.Path) -> list[Target]:
     targets: list[Target] = []
 
     # ── Dart (the reference engine) ──────────────────────────────────────────
-    # No rendering table by design: `_evalLazyTry` binds `e.value` VERBATIM, so
-    # the thrower carries the canonical string. Only the closure check applies.
+    # A RUNTIME-raised error needs no table row: `_evalLazyTry` binds `e.value`
+    # VERBATIM, so the thrower carries the canonical string — hence
+    # `coverage_exempt`. A USER-thrown one does: `throw StateError('boom')`
+    # reaches the catch variable as an ordinary `{__type__: 'main:StateError',
+    # message: 'boom'}` instance map, and `_dartErrorPrefix` is what turns that
+    # back into Dart's own `toString()`. Before #658 that arm returned the
+    # MESSAGE — so the reference engine, the one every self-hosted engine is
+    # compiled from, printed `boom` where Dart prints `Bad state: boom`.
     dart_src = [_read(root, f) for f in _files(root, "dart/engine/lib/*.dart")]
+    dart_table_body = _body_opt(_read(root, "dart/engine/lib/engine_std.dart"),
+                                "String? _dartErrorPrefix(", "\n}\n")
     targets.append(Target(
         "dart",
         _dart_error_like(_names(dart_src, r"BallException\(\s*'([A-Za-z_]\w*)'")),
-        None, None,
+        dict(re.findall(r"bare == '(\w+)'\) return '([^']*)';", dart_table_body)),
+        "dart/engine/lib/engine_std.dart::_dartErrorPrefix",
+        coverage_exempt=True,
     ))
 
     # ── C++ ──────────────────────────────────────────────────────────────────
@@ -251,6 +312,29 @@ def collect(root: pathlib.Path) -> list[Target]:
         "ts/compiler/src/preamble.ts::__ball_err_prefix",
     ))
 
+    # ── TypeScript, the ENGINE half ──────────────────────────────────────────
+    # `ts/engine/src/engine_setup.ts` registers extra std functions that SHADOW
+    # the compiled engine's own, `to_string` among them — so the self-hosted
+    # engine never reaches `_ballToStringAsync`'s Dart-error arm and answers from
+    # this hand-written `__bts` instead. That made it a SECOND rendering table
+    # nobody was watching: it had no Dart-error arm at all, and a caught
+    # `throw StateError('boom')` printed `{arg0: boom, message: boom}` — the
+    # generic map form, which FILTERS every `__`-prefixed key, so even the type
+    # tag was invisible in the output (issue #658). It is a table target like any
+    # other now; `coverage_exempt` because the one name this file raises
+    # (`FormatException`, from `int.parse`) it raises as a JS `Error` carrying its
+    # own message.
+    ts_engine_src = [_read(root, "ts/engine/src/engine_setup.ts")]
+    ts_engine_table_body = _body_opt(
+        ts_engine_src[0], "const __ball_err_prefix: Record<string, string> = {", "};")
+    targets.append(Target(
+        "ts-engine",
+        _dart_error_like(_names(ts_engine_src, r"name:\s*'([A-Za-z_]\w*)'")),
+        dict(re.findall(r"(\w+): '([^']*)',", ts_engine_table_body)),
+        "ts/engine/src/engine_setup.ts::__bts",
+        coverage_exempt=True,
+    ))
+
     # ── Python ───────────────────────────────────────────────────────────────
     # Python's "table" is a class hierarchy rather than a name->prefix map, so
     # only closure + coverage apply here; the prefix each class spells is pinned
@@ -284,8 +368,14 @@ def main(argv: list[str]) -> int:
     failures: list[str] = []
     lines: list[str] = []
 
-    if len(CANONICAL) < len(("StateError", "FormatException", "RangeError", "TypeError")):
+    if len(CANONICAL) < 5:
         failures.append("CANONICAL lost an entry — the contract itself is the floor")
+
+    unlisted = sorted(set(LITERAL_THROWABLE) - set(CANONICAL))
+    if unlisted:
+        failures.append(
+            f"LITERAL_THROWABLE names {unlisted}, which CANONICAL does not spell a "
+            "prefix for")
 
     if len(targets) < MIN_TARGETS:
         failures.append(
@@ -331,6 +421,18 @@ def main(argv: list[str]) -> int:
                 "it, so a caught one prints this target's raw value form instead of "
                 "Dart's toString(). THIS is the 'table not closed' defect (#641).")
 
+        # ── 4. Literal-throw coverage (#658) ─────────────────────────────────
+        # Unconditional: `coverage_exempt` exempts a target from covering what
+        # its own RUNTIME raises (the thrower carries that string), and says
+        # nothing about a value a user program constructed itself.
+        unrendered = sorted(set(LITERAL_THROWABLE) - set(t.table))
+        if unrendered:
+            failures.append(
+                f"{t.name}: {t.table_source} has no entry for {unrendered}, which a "
+                "user program can `throw` as a literal built-in error and then "
+                "print. THIS is the 'table open on the literal-throw side' defect "
+                "(#658).")
+
         for name, prefix in sorted(t.table.items()):
             if prefix is None:  # python: prefix pinned by its own unit test
                 continue
@@ -354,6 +456,7 @@ def main(argv: list[str]) -> int:
         print("Dart-error rendering tables:")
         print("\n".join(lines))
         print(f"  contract: {CANONICAL}")
+        print(f"  literal-throwable: {list(LITERAL_THROWABLE)}")
         print(f"  {len(targets)} targets, {table_targets} explicit tables")
 
     if failures:

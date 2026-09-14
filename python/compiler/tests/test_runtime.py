@@ -298,3 +298,69 @@ def _state_error(message):
 )
 def test_dart_error_values_stringify_the_way_dart_does(build, expected):
     assert ballrt.to_str(build()) == expected
+
+
+# ── A USER-thrown built-in error (issue #658) ────────────────────────────────
+#
+# The three cases above are values a runtime SITE raises. A Ball program can
+# also construct one itself — `throw ArgumentError('nope')` — and that path was
+# broken in three ways at once on this target: only `StateError` had a ballrt
+# factory, so the other names compiled to an anonymous dict. It printed as
+# `{arg0: nope}`, `.message` read `null`, and (having no class at all) it
+# satisfied EVERY typed `on T catch` clause it met.
+#
+# `ArgumentError` is also the name that proves the rendering table LEARNED an
+# entry rather than already having one: Dart spells it `Invalid argument(s)`,
+# neither its own name nor empty, and it is raised by no runtime in the repo —
+# which is exactly why it was in no target's table at all.
+@pytest.mark.parametrize(
+    ("short", "factory", "expected"),
+    [
+        pytest.param("StateError", "make_state_error", "Bad state: boom", id="StateError"),
+        pytest.param(
+            "FormatException", "make_format_exception", "FormatException: bad",
+            id="FormatException",
+        ),
+        pytest.param("RangeError", "make_range_error", "RangeError: oops", id="RangeError"),
+        pytest.param(
+            "ArgumentError", "make_argument_error", "Invalid argument(s): nope",
+            id="ArgumentError",
+        ),
+    ],
+)
+def test_a_user_thrown_builtin_error_is_a_real_class_and_reads_like_dart(
+    short, factory, expected
+):
+    message = expected.split(": ", 1)[1]
+    value = getattr(ballrt, factory)(message)
+
+    # The real class, so a typed `on T catch` can discriminate it ...
+    assert type(value).__name__ == short
+    assert ballrt.is_type(value, short)
+    # ... and only it: an unrelated name must NOT match.
+    assert not ballrt.is_type(value, "UnrelatedError")
+    # `.message` stays the raw constructor argument, never the prefixed form.
+    assert ballrt.getfield(value, "message") == message
+    # `'$e'` reads Dart's own toString().
+    assert ballrt.to_str(value) == expected
+
+
+def test_the_python_compiler_builds_every_builtin_error_through_a_real_factory():
+    """The compiler's name -> factory map is the contract's Python half.
+
+    A name missing here silently degrades to an anonymous dict (the #658
+    defect), so the map is asserted against `ballrt` itself: every entry must
+    name a factory that exists and answers a class of that short name.
+    """
+    from ball_compiler.compiler import _BUILTIN_DART_ERROR_CTORS
+
+    assert set(_BUILTIN_DART_ERROR_CTORS) == {
+        "StateError",
+        "FormatException",
+        "RangeError",
+        "ArgumentError",
+    }
+    for short, call in _BUILTIN_DART_ERROR_CTORS.items():
+        module, _, name = call.partition(".")
+        assert module == "ballrt", call
+        assert type(getattr(ballrt, name)("x")).__name__ == short

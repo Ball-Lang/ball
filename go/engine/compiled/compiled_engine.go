@@ -2161,6 +2161,15 @@ func _stdPrint(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_stdPrint' for " + __t})
 }
 
+func _dartErrorPrefix(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___dartErrorPrefix(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_dartErrorPrefix' for " + __t})
+}
+
 func _ballToStringAsync(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -34802,6 +34811,103 @@ func BallEngine___stdPrint(input ballrt.Value) (__ret ballrt.Value) {
 	return
 }
 
+func BallEngine___dartErrorPrefix(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	bare := ballrt.ArgGet(input, "bare", "arg0")
+	_ = bare
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(bare, "StateError")) {
+				return ballrt.Return("Bad state")
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(bare, "FormatException")) {
+				return ballrt.Return("FormatException")
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(bare, "RangeError")) {
+				return ballrt.Return("RangeError")
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(bare, "ArgumentError")) {
+				return ballrt.Return("Invalid argument(s)")
+			}
+			return ballrt.Value(nil)
+		}()
+		return ballrt.Value(nil)
+	}()
+	return
+}
+
 func BallEngine___ballToStringAsync(input ballrt.Value) (__ret ballrt.Value) {
 	_ = input
 	__self := ballrt.FieldGet(input, "self")
@@ -35092,7 +35198,23 @@ func BallEngine___ballToStringAsync(input ballrt.Value) (__ret ballrt.Value) {
 											_ = msg
 											_ = func() ballrt.Value {
 												if ballrt.Truthy(ballrt.IsType(msg, "String")) {
-													return ballrt.Return(msg)
+													return func() ballrt.Value {
+														var prefix ballrt.Value = _dartErrorPrefix(ballrt.Arg0WithSelf(func() ballrt.Value {
+															if ballrt.Truthy(ballrt.ListContains(typeName, ":")) {
+																return ballrt.Substring(typeName, ballrt.Add(ballrt.StrLastIndexOf(typeName, ":"), int64(1)), ballrt.Value(nil))
+															}
+															return typeName
+														}(), __self))
+														_ = prefix
+														_ = func() ballrt.Value {
+															if ballrt.Truthy(ballrt.Neq(prefix, ballrt.Value(nil))) {
+																return ballrt.Return(ballrt.Concat(ballrt.Concat(ballrt.ToStr(prefix), ": "), ballrt.ToStr(msg)))
+															}
+															return ballrt.Value(nil)
+														}()
+														_ = ballrt.Return(msg)
+														return ballrt.Value(nil)
+													}()
 												}
 												return ballrt.Value(nil)
 											}()

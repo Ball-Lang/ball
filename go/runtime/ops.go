@@ -304,6 +304,14 @@ func dartErrorToString(m *Message) (string, bool) {
 		prefix = "FormatException"
 	case "RangeError":
 		prefix = "RangeError"
+	// Neither its own name nor empty: Dart spells an ArgumentError
+	// "Invalid argument(s): <message>". It is raised by no runtime in the repo —
+	// only a user program's own `throw ArgumentError('nope')` produces one — so
+	// it was in NO target's table while every closed-set check stayed green
+	// (issue #658). Verified against the SDK; guard: conformance
+	// 473_caught_user_thrown_builtin_error.
+	case "ArgumentError":
+		prefix = "Invalid argument(s)"
 	// The empty prefix below is not "unset" — it is Dart's answer. A _TypeError's
 	// toString() IS its message ("type 'int' is not a subtype of type 'String' in
 	// type cast"), with no type-name prefix at all, so this arm was MISSING

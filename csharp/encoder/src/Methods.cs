@@ -202,6 +202,16 @@ internal sealed partial class Encoder
             return EncodeExpr(argExprs[0]);
         }
 
+        if (name == RuntimeHelpers.FieldGet)
+        {
+            return EncodeFieldGetHelper(argExprs);
+        }
+
+        if (name == RuntimeHelpers.ArgGet)
+        {
+            return EncodeArgGetHelper(argExprs);
+        }
+
         if (!RuntimeHelpers.Table.TryGetValue(name, out var helper))
         {
             throw new EncoderException(
@@ -220,6 +230,68 @@ internal sealed partial class Encoder
             .Select((field, i) => (field, EncodeExpr(argExprs[i])))
             .ToArray();
         return Builders.StdCall(helper.Function, Builders.ArgsMessage(fields));
+    }
+
+    /// <summary>
+    /// <c>BallRuntime.FieldGet(target, "name")</c> → the <c>field_access</c> NODE it is the
+    /// emission of (issue #689). Not a <see cref="RuntimeHelpers.Table"/> row: the inverse is a
+    /// different <c>Expression</c> kind than a base <c>call</c>, and its second operand is a
+    /// NAME rather than an encodable expression.
+    /// </summary>
+    private Expression EncodeFieldGetHelper(List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != 2)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.FieldGet}(...) expects 2 argument(s), " +
+                $"got {argExprs.Count}");
+        }
+
+        var field = RuntimeHelpers.StringLiteralText(argExprs[1])
+            ?? throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.FieldGet}(...) needs a string-literal " +
+                $"field name, got `{argExprs[1]}` (a Ball field_access names a field, it does not " +
+                "compute one)");
+
+        return Builders.FieldAccessExpr(EncodeExpr(argExprs[0]), field);
+    }
+
+    /// <summary>
+    /// <c>BallRuntime.ArgGet(input, "name", "argN")</c> → the named-then-positional read it is the
+    /// emission of (issue #689):
+    /// <c>std.null_coalesce(field_access(input, name), field_access(input, argN))</c>.
+    ///
+    /// <para>That IS <c>BallMethods.ArgGet</c>'s own body — <c>Get(namedKey) ?? Get(positionalKey)
+    /// ?? Null</c> — written with the two nodes Ball has for it, and it needs no knowledge of the
+    /// enclosing function's arity: the compiler emits this prologue only for a 2+-parameter
+    /// callee, whose Ball input is always the message the two reads address. A one-parameter
+    /// callee is bound directly to the input and never reaches here.</para>
+    /// </summary>
+    private Expression EncodeArgGetHelper(List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != 3)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.ArgGet}(...) expects 3 argument(s), " +
+                $"got {argExprs.Count}");
+        }
+
+        var namedKey = RuntimeHelpers.StringLiteralText(argExprs[1]);
+        var positionalKey = RuntimeHelpers.StringLiteralText(argExprs[2]);
+        if (namedKey is null || positionalKey is null)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.ArgGet}(...) needs string-literal " +
+                $"key names, got `{argExprs[1]}` / `{argExprs[2]}` (a Ball field_access names a " +
+                "field, it does not compute one)");
+        }
+
+        var input = EncodeExpr(argExprs[0]);
+        return Builders.StdCall(
+            "null_coalesce",
+            Builders.ArgsMessage(
+                ("left", Builders.FieldAccessExpr(input, namedKey)),
+                ("right", Builders.FieldAccessExpr(input.Clone(), positionalKey))));
     }
 
     private Expression EncodeMemberInvocation(

@@ -392,6 +392,23 @@ compile items so the sibling projects never double-compile each other's files.
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero
   (`int`/`long`/… → `0`, `double`/`float` → `0.0`, `bool` → `false`); a reference type, a generic
   parameter, or a keyword Ball has no counterpart for (`char`, `decimal`) keeps the honest null.
+- **`BallRuntime.FieldGet`/`ArgGet` are NODE-shaped arms, not `RuntimeHelpers.Table` rows (#689).**
+  That table expresses exactly one shape — a helper name, the `std` base function it is the
+  emission of, and that function's input field for each positional argument — and neither of these
+  fits it, which is why both failed loud (issue #55 doctrine) until they were added as named arms
+  beside it. `FieldGet(obj, "name")` inverts to a **`field_access` node**, a different `Expression`
+  kind than any row can express; `ArgGet(input, "name", "argN")` — the compiler's parameter
+  prologue for a 2+-parameter callee (`CSharpCompiler.ParamPrologue`) — inverts to
+  `std.null_coalesce(field_access(input, name), field_access(input, argN))`, which is
+  `BallMethods.ArgGet`'s own `?? ?? Null` chain written in Ball. **Do not widen the table to carry
+  them**, and keep each arm's fail-loud boundary: a key that is not a string literal (a Ball
+  `field_access` NAMES a field, it cannot compute one) and the wrong arity are both
+  `EncoderException`s. The `ArgGet` arm needs no knowledge of the enclosing function's arity — a
+  one-parameter callee is bound directly to the input and never emits this prologue. Guards:
+  `encoder/test/RuntimeNodeHelperTests.cs` (the shapes + both boundaries) and the whole-corpus
+  `csharp-roundtrip` row, whose floor this raised — `FieldGet` was the first blocker for the
+  largest bucket of its failures (`101_simple_class`, `102_inheritance`, `103_abstract_class`,
+  `104_getter_setter`, `106_factory_constructor`, …) and `ArgGet` for `105_static_methods`.
 - **Round-trip proof, not encode-only.** A bucket flip is proven by compiling the ENCODED fixture
   back to C# and RUNNING it (`encoder/test/PredefinedTypeCallTests.cs` asserts exactly `43\n`).
   That is what caught the compiler's callback-field bug below — an encode-only assertion would
@@ -423,7 +440,9 @@ compile items so the sibling projects never double-compile each other's files.
   Roslyn encoder refused the compiler's own output outright: the unconditional `BallOneofs` class,
   every `BallRuntime.*` base-call helper, and the `BallValue` literal factories.
   `encoder/src/RuntimeHelpers.cs` is the inverse table that closes the dominant part of that, and
-  `encoder/test/CompilerOutputTests.cs` is the fast guard on the shape). Since #452 item 1 the
+  `encoder/test/CompilerOutputTests.cs` is the fast guard on the shape; #689 then added the two
+  NODE-shaped arms that table cannot hold, `FieldGet`/`ArgGet`, guarded by
+  `encoder/test/RuntimeNodeHelperTests.cs`). Since #452 item 1 the
   round-trip leg is ALSO run in CI, by the `csharp-roundtrip` row, and since #642 that row is
   **floored and ratcheted**: harness health (a parseable `Results:` line, integer counts,
   `total >= 1`) PLUS `passed >= 1` PLUS `passed >= CSHARP_ROUNDTRIP_FLOOR`, all enforced by

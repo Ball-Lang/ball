@@ -5,7 +5,10 @@
 //! `.unwrap_or()` desugar against the unified Option/Result "outcome" shape
 //! (see `lib.rs::option_result_message`); `println!`/`format!`/`vec!`/
 //! `panic!`/`unreachable!` desugar into `std.print`/string-concatenation/
-//! list-literal/`std.throw` trees.
+//! list-literal/`std.throw` trees; and `write!`/`writeln!` desugar into
+//! `std.sink_write` against the declared text sink, or into a re-assignment of a
+//! provably-local `String` (issue #630 — design record `docs/SINK_DESIGN.md`,
+//! tests `rust/encoder/tests/write_sinks.rs`).
 //!
 //! ## The compiler↔encoder round trip (issue #632)
 //!
@@ -350,7 +353,7 @@ impl Encoder {
     }
 
     // ════════════════════════════════════════════════════════════
-    // Macros — println! / format! / vec!
+    // Macros — println! / format! / vec! / panic! / unreachable! / write! / writeln!
     // ════════════════════════════════════════════════════════════
 
     pub(crate) fn encode_macro(&mut self, mac: &syn::Macro) -> Expression {
@@ -369,6 +372,15 @@ impl Encoder {
             }
             "format" => self.build_format_expr(mac),
             "vec" => self.encode_vec_macro(mac),
+            // `write!`/`writeln!` — issue #630. `core` defines them as
+            // `$dst.write_fmt($crate::format_args!(..))` and
+            // `$dst.write_fmt($crate::format_args_nl!(..))`, with the
+            // no-argument `writeln!($dst)` arm spelled literally as
+            // `write!($dst, "\n")`. The destination is a method RECEIVER, so
+            // the first argument IS the sink by construction — no type
+            // information is needed, and none is consulted.
+            "write" => self.encode_write_macro(mac, "write", false),
+            "writeln" => self.encode_write_macro(mac, "writeln", true),
             // `panic!` is Rust's spelling of Ball's `std.throw`, and the two are
             // the SAME mechanism on this target: `runtime.rs::ball_throw` is
             // literally `std::panic::panic_any`, and `ball_catch_payload` — the
@@ -429,8 +441,131 @@ impl Encoder {
             }
             other => panic!(
                 "ball-lang-encoder: unsupported macro invocation `{other}!` (only `println!`/\
-                 `format!`/`vec!`/`panic!`/`unreachable!` are supported — issue #42's scope)"
+                 `format!`/`vec!`/`panic!`/`unreachable!`/`write!`/`writeln!` are supported \
+                 — issue #42's scope)"
             ),
+        }
+    }
+
+    /// `write!(dst, ..)` / `writeln!(dst, ..)` — issue #630.
+    ///
+    /// The text argument is built by the very same lowering `format!` uses
+    /// (`writeln!` just appends a `"\n"` part, exactly as `core` does), and
+    /// the destination picks one of two arms by SYNTAX alone — see
+    /// [`Encoder::classify_write_destination`]. Both arms are wrapped in the
+    /// unified `Ok(..)` outcome message because `write!` evaluates to a
+    /// `fmt::Result`, which real call sites immediately consume with `?` or
+    /// `.unwrap()`; `?` on a non-outcome value would be a silent-degradation
+    /// seed.
+    fn encode_write_macro(
+        &mut self,
+        mac: &syn::Macro,
+        macro_name: &str,
+        newline: bool,
+    ) -> Expression {
+        let exprs = mac
+            .parse_body_with(
+                syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
+            )
+            .unwrap_or_else(|err| {
+                panic!("ball-lang-encoder: failed to parse `{macro_name}!` arguments: {err}")
+            });
+        let mut arguments = exprs.iter();
+        let Some(destination) = arguments.next() else {
+            panic!(
+                "ball-lang-encoder: `{macro_name}!` requires a destination as its first argument \
+                 (`core` expands it to `$dst.write_fmt(format_args!(...))`)"
+            );
+        };
+        let rest: Vec<&syn::Expr> = arguments.collect();
+        let text = self.build_format_args(&rest, newline);
+
+        let effect = match self.classify_write_destination(destination, macro_name) {
+            WriteDestination::LocalString(name) => std_call(
+                "assign",
+                Some(args_message(vec![
+                    ("target", reference(name.clone())),
+                    (
+                        "value",
+                        std_call(
+                            "concat",
+                            Some(args_message(vec![
+                                ("left", reference(name)),
+                                ("right", text),
+                            ])),
+                        ),
+                    ),
+                    ("op", string_literal("=")),
+                ])),
+            ),
+            WriteDestination::Sink => {
+                let sink = self.encode_expr(destination);
+                std_call(
+                    "sink_write",
+                    Some(args_message(vec![("sink", sink), ("text", text)])),
+                )
+            }
+        };
+        crate::option_result_message(false, effect)
+    }
+
+    /// Which of issue #630's two arms a `write!` destination takes — decided
+    /// by syntax, with no type information (the design record,
+    /// `docs/SINK_DESIGN.md` §5).
+    ///
+    /// A destination that is a bare name bound by a `let` in the body being
+    /// encoded is a **local**: if its initialiser proves it is a `String` it
+    /// is re-assigned in place (so the same variable's non-sink reads — the
+    /// `itertools::join` "join sites" shape — keep seeing a `String`), and if
+    /// it does not, this refuses LOUDLY. Everything else — a parameter, a
+    /// field, an unannotated closure parameter, a call result — is a sink.
+    ///
+    /// A bare name that is a `&mut` ALIAS binding (issue #642) resolves to the
+    /// variable it borrows before any of that, so `write!(slot, ..)` after
+    /// `let slot = &mut s;` classifies `s` — the same answer
+    /// `write!(&mut s, ..)` gets, and the same resolution every other read of
+    /// the alias goes through.
+    fn classify_write_destination(
+        &self,
+        destination: &syn::Expr,
+        macro_name: &str,
+    ) -> WriteDestination {
+        let syn::Expr::Path(path_expr) = crate::strip_borrows(destination) else {
+            return WriteDestination::Sink;
+        };
+        let Some(ident) = path_expr.path.get_ident() else {
+            return WriteDestination::Sink;
+        };
+        let mut name = ident.to_string();
+        // A `&mut` alias reads as the variable it BORROWS (issue #642), and a
+        // `write!` destination is a read like any other: `let slot = &mut s;
+        // write!(slot, ..)` writes into `s`, exactly as `write!(&mut s, ..)`
+        // does. Resolved FIRST, the way `lib.rs::encode_path_expr` resolves
+        // every other read, so both halves of one encode agree — the sink arm
+        // below encodes the destination through that same function, so an
+        // unresolved name here would classify the alias while the emitted tree
+        // named the borrowed variable. An alias is deliberately never recorded
+        // in `local_scopes` (it has no `let` of its own), so without this the
+        // lookup below misses and the absence reads as "not a local": a local
+        // `String` would take the sink arm and hand `std.sink_write` a plain
+        // string, which every engine and runtime rejects at RUN time
+        // (`rust/shared/src/runtime.rs::sink_backing`) — loud, but one stage
+        // too late for a question this encoder can answer.
+        if let Some(target) = self.ref_aliases.get(&name) {
+            name = target.clone();
+        }
+        match self.lookup_local(&name) {
+            Some(crate::LocalKind::LocalString) => WriteDestination::LocalString(name),
+            Some(crate::LocalKind::Other(initialiser)) => panic!(
+                "ball-lang-encoder: `{macro_name}!` writes into the local binding `{name}`, whose \
+                 initialiser `{initialiser}` is not a `String` constructor (`String::new()` / \
+                 `String::with_capacity(..)` / `String::from(..)` / `\"..\".to_string()` / \
+                 `format!(..)`). A `write!` destination is either a sink — a parameter or field, \
+                 encoded as `std.sink_write` — or a provably-local `String`, which is re-assigned \
+                 in place so its non-sink reads keep seeing a `String`. Guessing between the two \
+                 would silently change one of them (issue #630)"
+            ),
+            Some(crate::LocalKind::Parameter) | None => WriteDestination::Sink,
         }
     }
 
@@ -462,52 +597,64 @@ impl Encoder {
             .unwrap_or_else(|err| {
                 panic!("ball-lang-encoder: failed to parse format-macro arguments: {err}")
             });
-        if exprs.is_empty() {
-            return string_literal("");
-        }
-        let format_str = match &exprs[0] {
-            syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(s),
-                ..
-            }) => s.value(),
-            other => panic!(
-                "ball-lang-encoder: the first argument to a format macro must be a string literal \
-                 (issue #42's scope — no format-string variables): {}",
-                quote::quote!(#other)
-            ),
-        };
-        let args: Vec<&syn::Expr> = exprs.iter().skip(1).collect();
-        let segments = split_format_string(&format_str);
-        let placeholder_count = segments
-            .iter()
-            .filter(|s| matches!(s, FormatPart::Placeholder))
-            .count();
-        assert_eq!(
-            placeholder_count,
-            args.len(),
-            "ball-lang-encoder: format string {format_str:?} has {placeholder_count} `{{}}` \
-             placeholders but {} argument(s) were given",
-            args.len()
-        );
+        let arguments: Vec<&syn::Expr> = exprs.iter().collect();
+        self.build_format_args(&arguments, false)
+    }
 
+    /// The text a format macro builds, from its already-parsed arguments:
+    /// `arguments[0]` is the format string and the rest are its
+    /// interpolations. Extracted from [`Self::build_format_expr`] unchanged so
+    /// `write!`/`writeln!` (issue #630) build their text through the very same
+    /// lowering — `writeln!` differing only by `extra_newline`, which is
+    /// exactly how `core` itself defines it.
+    fn build_format_args(&mut self, arguments: &[&syn::Expr], extra_newline: bool) -> Expression {
         let mut parts: Vec<Expression> = Vec::new();
-        let mut arg_iter = args.into_iter();
-        for segment in segments {
-            match segment {
-                FormatPart::Literal(text) => {
-                    if !text.is_empty() {
-                        parts.push(string_literal(text));
+        if let Some((format_arg, args)) = arguments.split_first() {
+            let format_str = match format_arg {
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(s),
+                    ..
+                }) => s.value(),
+                other => panic!(
+                    "ball-lang-encoder: the first argument to a format macro must be a string \
+                     literal (issue #42's scope — no format-string variables): {}",
+                    quote::quote!(#other)
+                ),
+            };
+            let segments = split_format_string(&format_str);
+            let placeholder_count = segments
+                .iter()
+                .filter(|s| matches!(s, FormatPart::Placeholder))
+                .count();
+            assert_eq!(
+                placeholder_count,
+                args.len(),
+                "ball-lang-encoder: format string {format_str:?} has {placeholder_count} `{{}}` \
+                 placeholders but {} argument(s) were given",
+                args.len()
+            );
+
+            let mut arg_iter = args.iter();
+            for segment in segments {
+                match segment {
+                    FormatPart::Literal(text) => {
+                        if !text.is_empty() {
+                            parts.push(string_literal(text));
+                        }
+                    }
+                    FormatPart::Placeholder => {
+                        let arg = arg_iter.next().expect("count checked above");
+                        let value = self.encode_expr(arg);
+                        parts.push(std_call(
+                            "to_string",
+                            Some(args_message(vec![("value", value)])),
+                        ));
                     }
                 }
-                FormatPart::Placeholder => {
-                    let arg = arg_iter.next().expect("count checked above");
-                    let value = self.encode_expr(arg);
-                    parts.push(std_call(
-                        "to_string",
-                        Some(args_message(vec![("value", value)])),
-                    ));
-                }
             }
+        }
+        if extra_newline {
+            parts.push(string_literal("\n"));
         }
         if parts.is_empty() {
             return string_literal("");
@@ -546,6 +693,15 @@ fn concat_expr(left: Expression, right: Expression) -> Expression {
 enum FormatPart {
     Literal(String),
     Placeholder,
+}
+
+/// Which arm a `write!`/`writeln!` destination takes (issue #630) — see
+/// [`Encoder::classify_write_destination`].
+enum WriteDestination {
+    /// A provably-local `String`, re-assigned in place: the named binding.
+    LocalString(String),
+    /// Anything else — written through `std.sink_write`.
+    Sink,
 }
 
 /// Split a Rust format string into literal text segments and `{}`

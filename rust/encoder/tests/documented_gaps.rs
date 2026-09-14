@@ -317,19 +317,42 @@ fn top_level_proc_macro_invocation_is_a_documented_gap() {
 }
 
 /// 6 of 196 study files. `methods.rs::encode_macro` maps
-/// `println!`/`format!`/`vec!`/`panic!`/`unreachable!` and refuses everything
-/// else — `assert!` here, and `write!` (the measured largest remaining bucket).
+/// `println!`/`format!`/`vec!`/`panic!`/`unreachable!`/`write!`/`writeln!` and refuses
+/// everything else — `assert!` here.
 ///
-/// The last two arms were added for the compiler↔encoder round trip (#632): the
-/// compiler emits `panic!` and `unreachable!` into user programs, so refusing
-/// them broke Tier A's stage 3. That is the ONLY reason this list grows —
-/// widening it for its own sake is how a syntactic encoder starts guessing. The
-/// third macro that sweep found, `matches!`, is NOT mapped and has its own pin
-/// at the bottom of this file (#712).
+/// That list grows only under a stated reason, never for its own sake — widening it
+/// is how a syntactic encoder starts guessing. `panic!`/`unreachable!` were added for
+/// the compiler↔encoder round trip (#632): the compiler emits both into user
+/// programs, so refusing them broke Tier A's stage 3. `write!`/`writeln!` were added
+/// by #630, the measured largest remaining bucket, and carry their own closed-gap pin
+/// below. The third macro that #632's sweep found, `matches!`, is NOT mapped and has
+/// its own pin at the bottom of this file (#712).
 #[test]
 #[should_panic(expected = "unsupported macro invocation")]
 fn unmapped_macro_invocation_is_a_documented_gap() {
     encode("fn main() { assert!(1 + 1 == 2); }");
+}
+
+/// **CLOSED** by issue #630. `write!`/`writeln!` were the measured
+/// largest *next* macro bucket — 25 invocations across 14 files, and the FIRST
+/// blocker of 7. They route onto the declared text sink `std.sink_write` (or,
+/// for a provably-local `String`, onto a re-assignment of that local), with no
+/// type information consulted: `core` expands `write!($dst, ..)` to
+/// `$dst.write_fmt(..)`, so the first argument IS the destination. The deeper
+/// proofs — every destination shape, the `writeln!` newline rule, the
+/// local-`String` arm, the loud refusal, and a real `cargo build` of the
+/// compiled-back library — live in `rust/encoder/tests/write_sinks.rs`.
+#[test]
+fn write_macro_encodes() {
+    let program = ball_lang_encoder::encode_library(
+        "pub fn dash(f: &mut fmt::Formatter) -> fmt::Result { write!(f, \"-\") }",
+    );
+    let main = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("a `main` module");
+    assert_eq!(main.functions.len(), 1, "`dash` encodes");
 }
 
 // ── methods.rs: instance-method resolution ───────────────────────────────────

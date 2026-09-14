@@ -769,9 +769,18 @@ impl fmt::Display for BallValue {
                 }
                 write!(f, "]")
             }
-            BallValue::Map(map) => write_entries(f, map.snapshot().iter()),
+            BallValue::Map(map) => write_entries(f, None, map.snapshot().iter()),
             BallValue::Function(function) => write!(f, "{function}"),
-            BallValue::Message(message) => write_entries(f, message.snapshot().iter()),
+            // A MESSAGE carries its type tag out of band (`type_name`), not as
+            // a `__type__` entry, so it has to be handed to the Dart-error
+            // table explicitly. Without it a user's own
+            // `throw StateError('boom')` — which the compiler lowers to
+            // `BallMessage::new("main:StateError", …)` — was invisible to the
+            // table and printed as the raw map form `{arg0: boom, message: boom}`
+            // (issue #658).
+            BallValue::Message(message) => {
+                write_entries(f, Some(&message.type_name), message.snapshot().iter())
+            }
         }
     }
 }
@@ -784,10 +793,11 @@ impl fmt::Display for BallValue {
 /// detail and must never reach a user's output.
 fn write_entries<'a>(
     f: &mut fmt::Formatter<'_>,
+    type_name: Option<&str>,
     entries: impl Iterator<Item = (&'a String, &'a BallValue)>,
 ) -> fmt::Result {
     let entries: Vec<_> = entries.collect();
-    if let Some(rendered) = dart_error_to_string(&entries) {
+    if let Some(rendered) = dart_error_to_string(type_name, &entries) {
         return write!(f, "{rendered}");
     }
     if let [(key, BallValue::List(items))] = entries.as_slice() {
@@ -829,20 +839,43 @@ fn write_entries<'a>(
 /// `Bad state: <message>` (verified against the SDK, not assumed).
 ///
 /// [`ball_throw_typed`]: crate::runtime::ball_throw_typed
-fn dart_error_to_string(entries: &[(&String, &BallValue)]) -> Option<String> {
-    let mut type_name: Option<&str> = None;
+fn dart_error_to_string(
+    type_name: Option<&str>,
+    entries: &[(&String, &BallValue)],
+) -> Option<String> {
+    let mut tag: Option<&str> = type_name;
     let mut message: Option<&str> = None;
     for (key, value) in entries {
         match (key.as_str(), value) {
-            ("__type__", BallValue::String(v)) => type_name = Some(v),
+            // A MAP carries its tag as an entry; a MESSAGE carries it out of
+            // band and hands it in above. An out-of-band tag wins: a message
+            // that also happens to hold a `__type__` FIELD is a user value, not
+            // a second opinion about its own class.
+            ("__type__", BallValue::String(v)) if tag.is_none() => tag = Some(v),
             ("message", BallValue::String(v)) => message = Some(v),
             _ => {}
         }
     }
-    let prefix = match type_name? {
+    // A compiled throw tags the value with the program's module prefix
+    // (`main:StateError`); the sibling tables all strip it (Go's
+    // `messageShortName`, C#'s `LastIndexOf(':')`, C++'s `rfind(':')`) and this
+    // one did not, so a user-thrown built-in matched nothing here (issue #658).
+    let bare = match tag?.rfind(':') {
+        Some(index) => &tag?[index + 1..],
+        None => tag?,
+    };
+    let prefix = match bare {
         "StateError" => "Bad state",
         "FormatException" => "FormatException",
         "RangeError" => "RangeError",
+        // Neither its own name nor empty: Dart spells an `ArgumentError`
+        // `Invalid argument(s): <message>`. No runtime raises one — only a
+        // program's own `throw ArgumentError('nope')` builds one — so it was in
+        // NO target's table at all, and #641's closed-set checks (every one of
+        // them keyed on what a runtime RAISES) could not see the gap (issue
+        // #658). Verified against the SDK; guard:
+        // `tests/conformance/473_caught_user_thrown_builtin_error`.
+        "ArgumentError" => "Invalid argument(s)",
         // The empty prefix is not "unset" — it is Dart's answer. A `_TypeError`'s
         // `toString()` IS its message (`type 'int' is not a subtype of type
         // 'String' in type cast`), with no type-name prefix at all, so rendering
@@ -1191,5 +1224,63 @@ mod tests {
             type_args: vec![],
         };
         assert!(extract_fields(&call).is_empty());
+    }
+
+    /// A USER-thrown built-in Dart error renders as Dart's own `toString()`
+    /// (issue #658).
+    ///
+    /// Two things had to line up and neither did. A literal
+    /// `throw StateError('boom')` compiles to
+    /// `BallMessage::new("main:StateError", {arg0: "boom"})`, and a MESSAGE
+    /// carries its tag out of band — `write_entries` only ever saw the field
+    /// entries, so the table could not tell a Dart error from a user class and
+    /// printed the raw map form. And the tag it does carry is module-qualified,
+    /// which every sibling table strips and this one did not.
+    ///
+    /// `ball_normalize_thrown` supplies the `message` alias at throw time
+    /// (#615); this test builds the post-throw shape directly (both keys) so the
+    /// rendering half is pinned on its own.
+    #[test]
+    fn a_user_thrown_builtin_error_renders_like_dart() {
+        for (short, message, want) in [
+            ("StateError", "boom", "Bad state: boom"),
+            ("FormatException", "bad", "FormatException: bad"),
+            ("RangeError", "oops", "RangeError: oops"),
+            ("ArgumentError", "nope", "Invalid argument(s): nope"),
+        ] {
+            let fields = BallMap::new();
+            fields.insert("arg0", BallValue::String(message.to_string()));
+            fields.insert("message", BallValue::String(message.to_string()));
+            let value = BallValue::Message(BallMessage::new(format!("main:{short}"), fields));
+            assert_eq!(value.to_string(), want, "module-qualified {short}");
+
+            // The BARE spelling (what `ball_throw_typed` synthesizes as a map)
+            // must render identically.
+            let map = BallMap::new();
+            map.insert("__type__", BallValue::String(short.to_string()));
+            map.insert("message", BallValue::String(message.to_string()));
+            assert_eq!(BallValue::Map(map).to_string(), want, "bare {short}");
+        }
+    }
+
+    /// The table stays CLOSED: a user class whose name merely ends in `Error`
+    /// and which carries a `message` field is not a Dart error.
+    #[test]
+    fn a_user_error_suffixed_class_is_not_rendered_as_a_dart_error() {
+        let fields = BallMap::new();
+        fields.insert("message", BallValue::String("not a dart error".to_string()));
+        let value = BallValue::Message(BallMessage::new("main:ValidationError", fields));
+        assert_eq!(value.to_string(), "{message: not a dart error}");
+    }
+
+    /// A message that happens to hold a `__type__` FIELD is user data, not a
+    /// second opinion about its own class — the out-of-band tag wins.
+    #[test]
+    fn a_messages_own_type_name_beats_a_type_field_it_carries() {
+        let fields = BallMap::new();
+        fields.insert("__type__", BallValue::String("StateError".to_string()));
+        fields.insert("message", BallValue::String("boom".to_string()));
+        let value = BallValue::Message(BallMessage::new("main:ValidationError", fields));
+        assert_eq!(value.to_string(), "{__type__: StateError, message: boom}");
     }
 }

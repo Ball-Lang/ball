@@ -11,14 +11,20 @@ import (
 // what a USER-THROWN built-in Dart error reads as (issue #658) and RUNS it,
 // diffing the committed golden byte-for-byte.
 //
-// The defect this closes is the one a correct rendering table cannot save you
-// from. `ops.go`'s `dartErrorToString` reads the `message` field — but a literal
-// `throw StateError('boom')` arrives as a `messageCreation` whose ctor argument
-// the encoder keys `arg0` (a built-in Dart error carries no `TypeDefinition`, so
-// `constructorParamNames` has nothing to resolve against), and the compiler
-// emitted `ballrt.NewMessage("main:StateError", {arg0: "boom"})`. The table
-// MISSED, `ToStr` fell through to the type tag, and the program printed
-// `untyped state: main:StateError` where Dart prints `Bad state: boom`.
+// TWO mechanisms have to line up for this to read like Dart, and the corpus
+// exercised neither on the literal-throw path:
+//
+//   - The KEY. `ops.go`'s `dartErrorToString` reads the `message` field, while
+//     the encoder keys a built-in error's ctor argument `arg0` (it carries no
+//     `TypeDefinition`, so `constructorParamNames` has nothing to resolve
+//     against) and the compiler emits it verbatim. Go closes that in
+//     `ballrt.Throw` — `normalizeThrown` aliases `arg0` to `message` at throw
+//     time (issue #615) — NOT in the compiler, so the assertion below is that
+//     the compiled throw actually goes through that alias point.
+//   - The TABLE. Even with the right key, `ArgumentError` had no entry, so
+//     `ToStr` fell through to the type tag and the program printed
+//     `untyped argument: main:ArgumentError` where Dart prints
+//     `Invalid argument(s): nope`.
 //
 // Same reason `type_error_contract_test.go` and `state_error_contract_test.go`
 // exist: no CI leg compiles a conformance fixture to Go (go/engine/conformance
@@ -31,12 +37,12 @@ func TestUserThrownBuiltinErrorContract(t *testing.T) {
 	prog := load(t, fixture)
 	src := compileFmt(t, prog)
 
-	// The ctor argument has to land under `message` — the key the rendering
-	// table reads AND the key a `e.message` field access compiles to. Asserting
-	// the emitted source, not just the run, names the defect directly: a run
-	// diff alone would say "wrong string" without saying which half is wrong.
-	if strings.Contains(src, `__m.Set("arg0"`) {
-		t.Errorf("a built-in Dart error kept its arg0 key:\n---\n%s", src)
+	// A literal throw must reach `ballrt.Throw`, the single place the positional
+	// ctor argument becomes `.message`. Emitting a raw panic, or constructing the
+	// value without throwing it through that path, would leave the field keyed
+	// `arg0`: the rendering table would miss and `e.message` would read null.
+	if !strings.Contains(src, "ballrt.Throw(") {
+		t.Errorf("emitted Go missing ballrt.Throw(\n---\n%s", src)
 	}
 
 	// Read the golden as BYTES and normalize only CRLF: a text-mode read would

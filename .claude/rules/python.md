@@ -157,6 +157,30 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
 
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed the most: only `StateError` had a `ballrt` factory, so
+  `throw FormatException('bad')` compiled to an anonymous dict - it printed as
+  `{arg0: bad}`, `.message` read `null`, and having no class at all it
+  satisfied EVERY typed `on T catch` clause it met. `_BUILTIN_DART_ERROR_CTORS`
+  (`python/compiler/ball_compiler/compiler.py`) maps all four to the real
+  classes, and `ArgumentError.toString` now spells Dart's
+  `Invalid argument(s)`.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →

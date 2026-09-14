@@ -312,6 +312,25 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   self-test proving that check fires. Add a new built-in error here and to that
   contract in the same PR, or the checker fails.
 
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed only the `ArgumentError` row: #640's `arg0` -> `message`
+  rename in the throw lowering already had it ahead of every sibling.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

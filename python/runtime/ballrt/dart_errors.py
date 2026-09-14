@@ -44,8 +44,42 @@ class RangeError(Error):
 
 
 class ArgumentError(Error):
-    pass
+    # Dart does NOT spell this one `<Type>: <message>` — `ArgumentError('nope')`
+    # reads `Invalid argument(s): nope` (measured against the SDK 3.12.0, issue
+    # #658). The inherited `Error.toString` produced `ArgumentError: nope`, which
+    # no other target spells either; the cross-target contract lives in
+    # `tools/check_error_rendering_tables.py` and every target's table agrees
+    # with this string.
+    def toString(self):
+        return f"Invalid argument(s): {self.message}"
+
+    def __str__(self):
+        return self.toString()
 
 
 class IndexError(Error):  # noqa: A001 — Dart's IndexError, not Python's
     pass
+
+
+# ── Constructors for a USER-thrown built-in error ───────────────────────────
+#
+# A Ball program's own `throw FormatException('bad')` reaches the compiler as a
+# `messageCreation` for a type with no `TypeDefinition`. Before #658 only
+# `StateError` had a factory, so the other three compiled to an anonymous dict
+# `{arg0: 'bad'}` — which printed as `{arg0: bad}`, answered `null` for
+# `.message`, and, having no class at all, matched EVERY typed `on T catch`
+# clause it met (fixture 473's `on StateError` clause caught a FormatException).
+# Constructing the real class fixes all three at once, because `is_type` matches
+# by class name over the MRO.
+
+
+def make_format_exception(message=""):
+    return FormatException(message)
+
+
+def make_range_error(message=""):
+    return RangeError(message)
+
+
+def make_argument_error(message=""):
+    return ArgumentError(message)

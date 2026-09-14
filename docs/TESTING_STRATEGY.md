@@ -835,6 +835,46 @@ built-in error becomes reachable from a Ball program, measure its `toString()`
 against the SDK, add it to the checker's contract, and add its arm to every
 table — the checker fails until all of that is done.
 
+**The literal-throw half (#658).** Every check above is keyed on what a runtime
+RAISES, and that is not the only way one of these values reaches a `catch`. A
+program's own `throw StateError('boom')` is built by the COMPILER from a
+`messageCreation` the encoder produced, so no raise site exists for the closure,
+coverage or agreement checks to see — and the corpus had never put a USER-thrown
+exception in a value position either (`463`/`464` print hardcoded literals or
+`e.message`; `465`/`467` print a caught value, but only a runtime-raised one,
+whose payload already carries the canonical string). Two defects lived in that
+blind spot: the Dart REFERENCE engine — the implementation every self-hosted
+engine is compiled from — returned the raw `message` field rather than Dart's
+prefixed `toString()`, and `ArgumentError`, which Dart spells
+`Invalid argument(s): <message>` and which no runtime in the repo raises, was in
+no target's table at all.
+
+Two instruments close it, mirroring the pair above:
+
+* `tests/conformance/473_caught_user_thrown_builtin_error` — the cross-target
+  observable. It prints a caught `StateError`/`FormatException`/`ArgumentError`
+  through an untyped catch, a typed `on T catch`, and a non-matching typed clause
+  that falls through, and it reads `.message` alongside `'$e'`. Those two are
+  DIFFERENT strings — the raw constructor argument versus the prefixed form — so
+  a "fix" that rewrote the stored field would pass one half and break the other,
+  which is exactly why both are in one fixture.
+* `LITERAL_THROWABLE` in `tools/check_error_rendering_tables.py` — the structural
+  half. Every explicit rendering table must cover
+  `StateError`/`FormatException`/`RangeError`/`ArgumentError` whether or not that
+  target raises one, and the Dart reference engine is a table target here for the
+  first time (a runtime-raised error reaches its catch variable verbatim; a
+  user-thrown one does not, so `coverage_exempt` exempts it from the raised half
+  only).
+
+The ctor-argument KEY is deliberately NOT checked structurally. Every encoder
+stores the argument positionally (`{arg0: 'boom'}` — a Dart built-in carries no
+`TypeDefinition`, so the `argN` → parameter-name remap has nothing to resolve
+against) while every table reads `message`, and each target already closes that
+in a different, correct place: C++ renames in its compiler's throw lowering
+(#640), Go/Rust/C#/the Dart engine alias it in `std.throw` itself (#615). A
+source-pattern check would either demand one shape of all of them or rubber-stamp
+whatever each does; the fixture measures the observable instead.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -1272,6 +1312,7 @@ could not parse a summary at all).
 | **A base function's returned VALUE carries a contract (§5b, #630)** — `std.sink_create`'s sink is a `__type__`-tagged, REFERENCE-semantic value: `std.type_of` answers `Sink` on every target (never the host builder's type), and an append performed inside a callee is visible to the caller. A conformance golden cannot assert the tag (the oracle is native Dart, which says `StringBuffer`), so the behaviour and the tag are gated separately | `tests/conformance/466_string_sink` (cross-target; the `appendWord(out, 'c')` line is the reference-semantics leg) + per-target tag tests: `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`, `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`, `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`, `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
 | **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/467_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
+| **A USER-thrown built-in Dart error reads the same on every target (§5b, #658)** — a caught `throw StateError('boom')` reads Dart's own `Bad state: boom` everywhere, INCLUDING the reference engine, while `.message` still reads the raw ctor argument; and every explicit rendering table covers every literal-throwable built-in (`ArgumentError` → `Invalid argument(s)`), raised or not | `tests/conformance/473_caught_user_thrown_builtin_error` (cross-target) + `tools/check_error_rendering_tables.py`'s `LITERAL_THROWABLE` check and its self-test + per-target tests: `dart/engine/test/user_thrown_builtin_error_test.dart`, `go/runtime/dart_error_rendering_test.go`, `go/compiler/user_thrown_builtin_error_test.go`, `csharp/compiler/test/UserThrownBuiltinErrorTests.cs`, `rust/shared/src/value.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |

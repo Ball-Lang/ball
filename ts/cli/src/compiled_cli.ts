@@ -284,6 +284,13 @@ export function __ball_to_string(v: any): string {
       StateError: 'Bad state',
       FormatException: 'FormatException',
       RangeError: 'RangeError',
+      // Neither its own name nor empty: Dart spells an ArgumentError
+      // "Invalid argument(s): <message>". No runtime in the repo RAISES one --
+      // only a program's own throw ArgumentError('nope') builds one -- so it
+      // was in no target's table at all and printed as the raw map form
+      // {message: nope} (issue #658). Verified against the SDK; guard:
+      // tests/conformance/473_caught_user_thrown_builtin_error.
+      ArgumentError: 'Invalid argument(s)',
       TypeError: '',
     };
     if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'

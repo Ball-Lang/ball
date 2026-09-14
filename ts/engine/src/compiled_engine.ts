@@ -284,6 +284,13 @@ function __ball_to_string(v: any): string {
       StateError: 'Bad state',
       FormatException: 'FormatException',
       RangeError: 'RangeError',
+      // Neither its own name nor empty: Dart spells an ArgumentError
+      // "Invalid argument(s): <message>". No runtime in the repo RAISES one --
+      // only a program's own throw ArgumentError('nope') builds one -- so it
+      // was in no target's table at all and printed as the raw map form
+      // {message: nope} (issue #658). Verified against the SDK; guard:
+      // tests/conformance/473_caught_user_thrown_builtin_error.
+      ArgumentError: 'Invalid argument(s)',
       TypeError: '',
     };
     if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
@@ -8885,6 +8892,22 @@ export class BallEngine {
     this.stdout(await this._ballToStringAsync(input));
   }
 
+  _dartErrorPrefix(bare: any): any {
+    const input = bare;
+    if (__ball_eq(bare, 'StateError')) {
+      return 'Bad state';
+    }
+    if (__ball_eq(bare, 'FormatException')) {
+      return 'FormatException';
+    }
+    if (__ball_eq(bare, 'RangeError')) {
+      return 'RangeError';
+    }
+    if (__ball_eq(bare, 'ArgumentError')) {
+      return 'Invalid argument(s)';
+    }
+  }
+
   async _ballToStringAsync(v: any): Promise<any> {
     const input = v;
     if ((__ball_eq(v, null) || (v == null))) {
@@ -8966,6 +8989,10 @@ export class BallEngine {
         if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
           let msg = __ball_index(map, 'message');
           if ((typeof msg === 'string')) {
+            let prefix = this._dartErrorPrefix((typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName));
+            if (!__ball_eq(prefix, null)) {
+              return ((__ball_to_string(prefix) + ': ') + __ball_to_string(msg));
+            }
             return msg;
           }
           return (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);

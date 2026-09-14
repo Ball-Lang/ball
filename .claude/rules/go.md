@@ -279,6 +279,28 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
 
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed only the `ArgumentError` row: `normalizeThrown`
+  (`go/runtime/flow.go`, #615) already aliases `arg0` to `message` at throw
+  time. `go/runtime/dart_error_rendering_test.go` and
+  `go/compiler/user_thrown_builtin_error_test.go` (which compiles fixture 473
+  and RUNS it against the golden) are this target's halves.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
   emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
   `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`

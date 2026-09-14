@@ -1443,14 +1443,19 @@ Three legs, one runner, selected via `--leg=`:
 - **`roundtrip`**: every fixture compiles Ball → C# → re-encodes that C# source back to Ball via
   the Roslyn encoder (`CSharpEncoder.Encode`) → runs the RE-ENCODED program on the **Dart reference
   engine** (`dart run dart/cli/bin/ball.dart run <file>`, ground truth — proves the C# pipeline
-  round-trips, not merely that it agrees with itself) → diffs stdout. Verified fresh (2026-09-02,
-  and now re-measured by CI on every `conformance-matrix.yml` run via the `csharp-roundtrip` row —
-  read the live number there, not this line): **`Results: 0
-  passed, 320 failed, 320 total`** — an honest, expected zero: the Phase-4 compiler emits a single
-  flat class dispatching through `BallRuntime.*` static calls and `BallValue` types, which is not a
-  shape the Phase-5 syntactic encoder's heuristics were built to recognize (`BallRuntime.Truthy(x)`
-  parses as an unrecognized instance method call on an unknown receiver, `new BallList(...)` as an
-  unknown-type construction, etc. — see the "Encoder" section's "Documented gaps" above). The
+  round-trips, not merely that it agrees with itself) → diffs stdout. **Re-measured by CI on every
+  `conformance-matrix.yml` run via the `csharp-roundtrip` row — read the live number there, never a
+  number written down here.** It was a flat, honest zero at first: the Phase-4 compiler emits a
+  single flat class dispatching through `BallRuntime.*` static calls and `BallValue` types, which is
+  not a shape the Phase-5 syntactic encoder's heuristics were built to recognize
+  (`BallRuntime.Truthy(x)` parsed as an unrecognized instance method call on an unknown receiver,
+  `new BallList(...)` as an unknown-type construction, etc. — see the "Encoder" section's
+  "Documented gaps" above). #642 taught the encoder that dispatch shape
+  (`encoder/src/RuntimeHelpers.cs`) and #689 added the two NODE-shaped arms that inverse table
+  cannot hold — `BallRuntime.FieldGet` (→ a `field_access` node) and `BallRuntime.ArgGet` (→
+  `null_coalesce` over two **tolerant** `std_collections.map_get` reads, NOT two `field_access`
+  nodes; see the "Encoder" section), respectively the first blocker for the class-shaped fixtures
+  and for `105_static_methods`. The
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
   through the real `dart run` subprocess, so a future encoder improvement that closes this gap will

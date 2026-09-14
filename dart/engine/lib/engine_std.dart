@@ -1720,6 +1720,30 @@ extension BallEngineStd on BallEngine {
     return null;
   }
 
+  /// The prefix Dart's own `toString()` puts in front of a built-in error's
+  /// message, or `null` when [bare] is not one of them (issue #658).
+  ///
+  /// The cross-target rendering contract, in the reference implementation. Every
+  /// other target owns the same table (`dartErrorToString` /
+  /// `DartErrorToString` / `dart_error_to_string` / `__ball_err_prefix` /
+  /// `_ball_dart_error_to_string`), and `tools/check_error_rendering_tables.py`
+  /// asserts all of them agree with this one. Two of the four are the reason the
+  /// table cannot be derived: `StateError` reads `Bad state: …` and
+  /// `ArgumentError` reads `Invalid argument(s): …` — neither is the type name.
+  /// Measured against the Dart SDK (3.12.0), never assumed.
+  ///
+  /// It is deliberately CLOSED over Dart's own names rather than open over
+  /// "anything ending in Error". A user class called `ValidationError` that
+  /// carries a `message` field is not a Dart error, and widening the rule would
+  /// change the output of every program that declares its own exception class.
+  String? _dartErrorPrefix(String bare) {
+    if (bare == 'StateError') return 'Bad state';
+    if (bare == 'FormatException') return 'FormatException';
+    if (bare == 'RangeError') return 'RangeError';
+    if (bare == 'ArgumentError') return 'Invalid argument(s)';
+    return null;
+  }
+
   /// Convert a Ball value to its string representation, awaiting async method
   /// calls (e.g. user-defined toString methods dispatched via [_callFunction]).
   Future<String> _ballToStringAsync(Object? v) async {
@@ -1811,7 +1835,26 @@ extension BallEngineStd on BallEngine {
         // Exception-typed objects: return the message field directly.
         if (typeName.endsWith('Exception') || typeName.endsWith('Error')) {
           final msg = map['message'];
-          if (msg is String) return msg;
+          // ... EXCEPT a built-in Dart error the program constructed itself
+          // (`throw StateError('boom')`), whose `toString()` PREFIXES the
+          // message — `Bad state: boom`, not `boom` (issue #658). The message
+          // arm below is right for a user's own exception class, which has no
+          // `Instance of '…'` form to fall back to here, and was wrong for the
+          // four names Dart itself defines. This is the reference engine, so
+          // every self-hosted engine inherited the wrong string.
+          //
+          // `.message` is deliberately left ALONE: conformance `464` reads it
+          // and must keep seeing the raw constructor argument, so the prefix is
+          // applied at rendering time rather than stored.
+          if (msg is String) {
+            final prefix = _dartErrorPrefix(
+              typeName.contains(':')
+                  ? typeName.substring(typeName.lastIndexOf(':') + 1)
+                  : typeName,
+            );
+            if (prefix != null) return '$prefix: $msg';
+            return msg;
+          }
           return typeName.contains(':')
               ? typeName.substring(typeName.lastIndexOf(':') + 1)
               : typeName;

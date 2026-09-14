@@ -87,6 +87,28 @@ for the authoritative member set).
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
 
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  The reference engine's own fix is `engine_std.dart`'s `_dartErrorPrefix`,
+  consulted by `to_string`'s `Exception`/`Error` arm BEFORE the message arm -
+  and only for Dart's own four names, so a user class called `ValidationError`
+  keeps printing its message. `.message` is deliberately left unprefixed, and
+  `dart/engine/test/user_thrown_builtin_error_test.dart` pins both halves.
+
 - **`late` on an instance field is decided from the IR, not from the field
   declaration (#651).** A non-nullable field with no inline initializer needs
   `late` only when nothing PROVES it assigned by the end of construction — i.e.
@@ -294,7 +316,7 @@ avoid constructs that need receiver-type info:
     `dart:core` `Iterable`. So `std.string_is_not_empty` is declared alongside
     `string_is_empty` and implemented on every target (polymorphic over the same
     receivers), and `getterRoutes` routes `isNotEmpty` straight to it. Guards:
-    `tests/conformance/473_is_not_empty_receivers` (cross-target) and
+    `tests/conformance/474_is_not_empty_receivers` (cross-target) and
     `dart/encoder/test/is_not_empty_member_identity_test.dart`, which RUNS a
     recording receiver through `dart run` before and after the round trip —
     member identity is behavioural, so only executing it can see a change.

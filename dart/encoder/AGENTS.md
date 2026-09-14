@@ -112,7 +112,7 @@ Note that the receiver-TYPE seam cannot decide this one: in `wrappers.dart` the
 delegate's static type IS a `dart:core` `Iterable`. The member itself has to
 round-trip, so `string_is_not_empty` is declared in `std.dart` next to
 `string_is_empty`, polymorphic over the same receivers, and implemented by every
-compiler and runtime. Guards: `tests/conformance/473_is_not_empty_receivers`
+compiler and runtime. Guards: `tests/conformance/474_is_not_empty_receivers`
 (cross-target) and `test/is_not_empty_member_identity_test.dart`, which RUNS a
 recording receiver through `dart run` before and after the round trip.
 

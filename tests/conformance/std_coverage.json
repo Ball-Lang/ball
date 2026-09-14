@@ -597,6 +597,7 @@
         "464_typed_catch_clause_dispatch",
         "466_string_sink",
         "467_caught_type_error_to_string",
+        "473_caught_user_thrown_builtin_error",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -1540,7 +1541,7 @@
         "434_type_of",
         "468_map_contains_value",
         "469_map_put_if_absent",
-        "473_is_not_empty_receivers",
+        "474_is_not_empty_receivers",
         "78_map_operations",
         "93_multi_return",
         "95_fibonacci_memo"
@@ -2602,7 +2603,8 @@
         "470_setter_beside_final_field",
         "471_null_aware_chain_scope",
         "472_initializer_list_field_with_setter",
-        "473_is_not_empty_receivers",
+        "473_caught_user_thrown_builtin_error",
+        "474_is_not_empty_receivers",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -2990,7 +2992,7 @@
         "262_getter_properties",
         "350_set_value",
         "466_string_sink",
-        "473_is_not_empty_receivers",
+        "474_is_not_empty_receivers",
         "97_stack_operations"
       ],
       "engineImplementedDart": true,
@@ -3009,7 +3011,7 @@
         "350_set_value",
         "416_user_method_name_arity_collision",
         "466_string_sink",
-        "473_is_not_empty_receivers",
+        "474_is_not_empty_receivers",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -3393,6 +3395,7 @@
         "464_typed_catch_clause_dispatch",
         "470_setter_beside_final_field",
         "472_initializer_list_field_with_setter",
+        "473_caught_user_thrown_builtin_error",
         "53_try_catch_finally",
         "84_exception_chain",
         "91_nested_try_catch"
@@ -3596,6 +3599,7 @@
         "466_string_sink",
         "467_caught_type_error_to_string",
         "46_while_loop",
+        "473_caught_user_thrown_builtin_error",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -3707,6 +3711,7 @@
         "465_state_error_message",
         "467_caught_type_error_to_string",
         "470_setter_beside_final_field",
+        "473_caught_user_thrown_builtin_error",
         "53_try_catch_finally",
         "84_exception_chain",
         "91_nested_try_catch"
@@ -3756,7 +3761,7 @@
         "387_list_reverse_getter",
         "400_switch_continue_label",
         "442_switch_goto_fallthrough_guard_or_pattern",
-        "473_is_not_empty_receivers"
+        "474_is_not_empty_receivers"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4432,7 +4437,7 @@
         "434_type_of",
         "459_set_add_remove_bool",
         "462_set_mutation_in_place",
-        "473_is_not_empty_receivers"
+        "474_is_not_empty_receivers"
       ],
       "engineImplementedDart": true,
       "carvedOut": false

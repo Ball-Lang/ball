@@ -139,6 +139,110 @@ Module buildStdModule() {
       _type('SinkCreateInput', [_exprField('initial', 1)]),
       _type('SinkWriteInput', [_exprField('sink', 1), _exprField('text', 2)]),
       _type('SinkToStringInput', [_exprField('sink', 1)]),
+
+      // --- Language-construct input types (issue #702) ---
+      //
+      // Every type below describes a construct the engines have always
+      // dispatched and the encoders have always emitted, while no builder
+      // declared it — so `std.json` could not list it and no target had a
+      // machine-readable contract to implement. Field names are the ones the
+      // reference engine (`dart/engine/lib/engine_std.dart`) reads and the
+      // encoders write; alternative spellings each handler also accepts are
+      // named in the FUNCTION description rather than declared as extra
+      // fields, so the descriptor stays the canonical shape.
+
+      // `..` / `?..`. `sections` carries the cascade sections as a list
+      // literal; `null_aware` distinguishes `?..` from `..`.
+      _type('CascadeInput', [
+        _exprField('target', 1),
+        _exprField('sections', 2),
+        _boolField('null_aware', 3),
+      ]),
+      _type('NullAwareAccessInput', [
+        _exprField('target', 1),
+        _stringField('field', 2),
+      ]),
+      // `target?.method(args)`. The arguments are the input's REMAINING
+      // fields (`arg0`, `arg1`, … / named), exactly as an ordinary call
+      // carries them — the same open-argument shape `InvokeInput` uses.
+      _type('NullAwareCallInput', [
+        _exprField('target', 1),
+        _stringField('method', 2),
+      ]),
+      // `callee(args)` where `callee` is an expression. The arguments are the
+      // input's remaining fields; a lone argument is passed to the callee
+      // directly rather than wrapped.
+      _type('InvokeInput', [_exprField('callee', 1)]),
+      // A function VALUE, either named directly (`callback`) or as
+      // `target`.`method`.
+      _type('TearOffInput', [
+        _exprField('callback', 1),
+        _exprField('target', 2),
+        _stringField('method', 3),
+      ]),
+      _type('SymbolInput', [_stringField('value', 1)]),
+      _type('TypeLiteralInput', [_stringField('type', 1)]),
+      // `label: <statement>` — distinct from `LabelInput` (`std.label`), whose
+      // name field is `name`.
+      _type('LabeledInput', [_stringField('label', 1), _exprField('body', 2)]),
+      // `<T>[a, b]` — `elements` is one expression holding the list literal.
+      _type('TypedListInput', [
+        _stringField('type_args', 1),
+        _exprField('elements', 2),
+      ]),
+      // A map literal. Each plain `key: value` pair arrives as its own
+      // `entry` field (a `MapCreateEntry`); a spliceable comprehension
+      // element (`collection_if` / `collection_for`) arrives as `element`.
+      _type('MapCreateInput', [
+        _stringField('type_args', 1),
+        _exprListField('entry', 2),
+        _exprListField('element', 3),
+      ]),
+      _type('MapCreateEntry', [_exprField('key', 1), _exprField('value', 2)]),
+      // A record literal `(a, b, name: c)`. Its components ARE the input's
+      // own fields — positional ones named `$1`, `$2`, … (1-based, matching
+      // Dart's `record.$1`) and named ones by their own name — so the
+      // descriptor declares only the alternative single-message form.
+      _type('RecordInput', [_exprField('fields', 1)]),
+      // A `for` element inside a collection literal. Carries EITHER the
+      // for-each form (`variable` + `iterable`) or the C-style form
+      // (`init` + `condition` + `update`); `body` is common to both.
+      _type('CollectionForInput', [
+        _stringField('variable', 1),
+        _exprField('iterable', 2),
+        _exprField('init', 3),
+        _exprField('condition', 4),
+        _exprField('update', 5),
+        _exprField('body', 6),
+      ]),
+      // A switch EXPRESSION. `cases` is one expression holding a list of
+      // `SwitchExprCase`, which is not `SwitchCase`: a switch expression
+      // carries a structured `pattern_expr` and a `when` `guard`.
+      _type('SwitchExprInput', [
+        _exprField('subject', 1),
+        _exprField('cases', 2),
+      ]),
+      _type('SwitchExprCase', [
+        _stringField('pattern', 1),
+        _exprField('body', 2),
+        _exprField('pattern_expr', 3),
+        _exprField('guard', 4),
+        _boolField('is_default', 5),
+      ]),
+      _type('ListFilledInput', [
+        _exprField('length', 1),
+        _exprField('value', 2),
+      ]),
+      _type('ListGenerateInput', [
+        _exprField('length', 1),
+        _exprField('generator', 2),
+      ]),
+      // `'a${b}c'` — `parts` holds the alternating literal/expression pieces
+      // as a list; each is stringified and concatenated in order.
+      _type('StringInterpolationInput', [
+        _exprField('parts', 1),
+        _exprField('value', 2),
+      ]),
     ].map(
       (d) => TypeDefinition()
         ..name = d.name
@@ -227,6 +331,18 @@ Module buildStdModule() {
     _fn('to_double', 'UnaryInput', '', 'To double: value.toDouble()'),
     _fn('to_int', 'UnaryInput', '', 'To int: value.toInt()'),
     _fn(
+      'int_to_double',
+      'UnaryInput',
+      '',
+      'Int to double: value.toDouble() (statically an int)',
+    ),
+    _fn(
+      'double_to_int',
+      'UnaryInput',
+      '',
+      'Double to int, truncating toward zero: value.toInt()',
+    ),
+    _fn(
       'compare_to',
       'CompareToInput',
       '',
@@ -250,10 +366,59 @@ Module buildStdModule() {
       '',
       'Precision string: value.toStringAsPrecision(precision)',
     ),
+    _fn(
+      'ceil_to_double',
+      'UnaryInput',
+      '',
+      'Ceiling as a double: value.ceilToDouble()',
+    ),
+    _fn(
+      'floor_to_double',
+      'UnaryInput',
+      '',
+      'Floor as a double: value.floorToDouble()',
+    ),
+    _fn(
+      'round_to_double',
+      'UnaryInput',
+      '',
+      'Round as a double: value.roundToDouble()',
+    ),
+    _fn(
+      'truncate_to_double',
+      'UnaryInput',
+      '',
+      'Truncate as a double: value.truncateToDouble()',
+    ),
 
     // --- Null safety ---
     _fn('null_coalesce', 'BinaryInput', '', 'Null coalescing: left ?? right'),
     _fn('null_check', 'UnaryInput', '', 'Null assertion: value!'),
+    _fn(
+      'null_aware_access',
+      'NullAwareAccessInput',
+      '',
+      'Null-aware field access: target?.field — null when target is null',
+    ),
+    _fn(
+      'null_aware_call',
+      'NullAwareCallInput',
+      '',
+      'Null-aware method call: target?.method(args) — null when target is '
+          'null. The arguments are the input\'s remaining fields.',
+    ),
+
+    // --- Grouping ---
+    //
+    // Parentheses are SEMANTIC here, not cosmetic: the encoder emits `paren`
+    // only where dropping them would change precedence, e.g.
+    // `(x ??= []).add(y)` vs `x ??= [].add(y)`.
+    _fn(
+      'paren',
+      'UnaryInput',
+      '',
+      'Parenthesized expression: (value) — preserves operator precedence',
+    ),
 
     // --- Control flow ---
     _fn('if', 'IfInput', '', 'Conditional: if (cond) { then } else { else }'),
@@ -314,9 +479,22 @@ Module buildStdModule() {
       '',
       'Define a label point: label_name: { body }',
     ),
+    _fn(
+      'labeled',
+      'LabeledInput',
+      '',
+      'Labeled statement: label: <body> — the target of a labelled '
+          'break/continue',
+    ),
 
     // --- Generators & async ---
     _fn('yield', 'UnaryInput', '', 'Yield from generator: yield value'),
+    _fn(
+      'yield_each',
+      'UnaryInput',
+      '',
+      'Delegate to another generator: yield* value',
+    ),
     _fn('await', 'UnaryInput', '', 'Await a future: await value'),
 
     // --- Assignment ---
@@ -341,8 +519,143 @@ Module buildStdModule() {
           'with generic type arguments dropped and any module prefix stripped.',
     ),
 
+    _fn(
+      'type_literal',
+      'TypeLiteralInput',
+      '',
+      'A type used as a value: int, Box<int> — carries the type source text',
+    ),
+
     // --- Indexing ---
     _fn('index', 'IndexInput', '', 'Index access: target[index]'),
+
+    // --- Cascades (issue #702) ---
+    _fn(
+      'cascade',
+      'CascadeInput',
+      '',
+      'Cascade: target..a()..b — evaluates each section against target and '
+          'returns TARGET, not the last section',
+    ),
+    _fn(
+      'null_aware_cascade',
+      'CascadeInput',
+      '',
+      'Null-aware cascade: target?..a()..b — null when target is null',
+    ),
+
+    // --- Functions as values (issue #702) ---
+    _fn(
+      'invoke',
+      'InvokeInput',
+      '',
+      'Call a function VALUE: callee(args). The arguments are the input\'s '
+          'remaining fields; a single argument is passed through directly.',
+    ),
+    _fn(
+      'tear_off',
+      'TearOffInput',
+      '',
+      'Function tear-off: the function value named by callback, or by '
+          'target.method — never invoked',
+    ),
+
+    // --- Literals the target cannot spell as a plain Literal (issue #702) ---
+    _fn('symbol', 'SymbolInput', '', 'Symbol literal: #value'),
+    _fn(
+      'record',
+      'RecordInput',
+      '',
+      'Record literal: (a, b, name: c). Positional components are the '
+          'input\'s \$1, \$2, … fields (1-based, matching Dart\'s record.\$1) '
+          'and named components carry their own name.',
+    ),
+    _fn(
+      'typed_list',
+      'TypedListInput',
+      '',
+      'List literal with explicit type arguments: <T>[elements]',
+    ),
+    _fn(
+      'map_create',
+      'MapCreateInput',
+      '',
+      'Map literal: {k: v, …}. Each plain pair is one `entry` field; a '
+          'comprehension element is spliced through `element`.',
+    ),
+    _fn(
+      'list_filled',
+      'ListFilledInput',
+      '',
+      'Fixed-size list of one repeated value: List.filled(length, value). '
+          'Engines also accept `count` for `length`.',
+    ),
+    _fn(
+      'list_generate',
+      'ListGenerateInput',
+      '',
+      'List built by index: List.generate(length, generator). Engines also '
+          'accept `count` for `length` and `callback` for `generator`.',
+    ),
+    // Dart-flavoured aliases of the two above (same engine handler); a
+    // `List.filled(...)` / `List.generate(...)` written as a CONSTRUCTOR call
+    // routes here, while the encoder's collection-literal path emits the
+    // unprefixed names.
+    _fn(
+      'dart_list_filled',
+      'ListFilledInput',
+      '',
+      'List.filled(length, value) reached as a constructor call',
+    ),
+    _fn(
+      'dart_list_generate',
+      'ListGenerateInput',
+      '',
+      'List.generate(length, generator) reached as a constructor call',
+    ),
+
+    // --- Collection elements (issue #702) ---
+    //
+    // These four never stand alone: a list/set/map literal evaluator SPLICES
+    // them into its elements. Dispatching one as an ordinary call is a bug,
+    // and the reference engine throws rather than returning a placeholder
+    // (the silent-degradation lesson of issue #55).
+    _fn(
+      'spread',
+      'UnaryInput',
+      '',
+      'Spread element inside a collection literal: ...value',
+    ),
+    _fn(
+      'null_spread',
+      'UnaryInput',
+      '',
+      'Null-aware spread element: ...?value — contributes nothing when null',
+    ),
+    _fn(
+      'collection_if',
+      'IfInput',
+      '',
+      'Conditional element inside a collection literal: '
+          '[if (condition) then else else]',
+    ),
+    _fn(
+      'collection_for',
+      'CollectionForInput',
+      '',
+      'Comprehension element inside a collection literal: '
+          '[for (variable in iterable) body] / [for (init; condition; '
+          'update) body]',
+    ),
+
+    // --- Switch expression (issue #702) ---
+    _fn(
+      'switch_expr',
+      'SwitchExprInput',
+      '',
+      'Switch EXPRESSION: switch (subject) { pattern => body, … } — yields a '
+          'value, unlike the std.switch statement',
+    ),
 
     // --- Strings (pure manipulation, no I/O, universal) ---
     _fn('string_length', 'UnaryInput', '', 'String length: value.length'),
@@ -461,6 +774,13 @@ Module buildStdModule() {
       'StringPadInput',
       '',
       'Pad right: value.padRight(width, padding)',
+    ),
+    _fn(
+      'string_interpolation',
+      'StringInterpolationInput',
+      '',
+      'String interpolation: \'a\${b}c\' — stringify each element of `parts` '
+          'and concatenate in order',
     ),
 
     // --- Text sink (issue #630) ---

@@ -198,6 +198,28 @@ cargo fmt --check && cargo clippy --workspace
   input; 1 param → kept as a plain `reference(name)` driven by `metadata.params` (compiler's
   `param_alias_prologue` turns it into a real local binding); 2+ params → packed into one
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
+- **An immediately-invoked zero-argument closure inlines ONLY when its body cannot exit early
+  (#687).** `(|| … )()` is the shape `rust/compiler` wraps each of its three FUNCTION bodies in —
+  the entry `fn main()` (`compile_entry_main`, because `main` returns `()`), a method with
+  instance-field write-back, and a body-carrying constructor (both `type_emit.rs`) — and #646's
+  `as_zero_arg_closure` inlines it into the Ball `block` its body already is, which is what makes
+  those re-encodable. It is **not** the lowering of a value-position Ball `block`: `compile_block`
+  emits a native Rust block, since Rust blocks are already tail-expression-valued (C++ and Go do
+  need an IIFE there, and route `return` through runtime flow signals because of it). Inlining is
+  unsound the moment the body can exit early, because that is the one way the two constructs
+  differ — a Rust `return` inside the closure leaves the CLOSURE, a Ball `return` inside a `block`
+  leaves the enclosing FUNCTION — so the ordinary early-exit idiom
+  `let x = (|| { if …{ return a; } b })();` would encode to a well-formed Program with a different
+  answer. When the body *can* exit early the faithful Ball is `std.invoke` over a `lambda`, which
+  is what `dart/encoder`'s `FunctionExpressionInvocation` arm emits and what `compile_lambda`
+  turns back into a closure whose `return` leaves the closure again. The early-exit set is derived
+  from what this encoder emits a `std.return` for — `return` and `?` (`encode_try_operator`);
+  `break`/`continue` cannot cross a closure boundary in Rust at all — and the scan
+  (`closure_body_exits_early`) is a `syn::visit::Visit` that stops at every frame owning its own
+  `return`: a nested closure, a nested item, an `async` block, a `try` block. Run-proved, not
+  shape-asserted: `compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`
+  builds and runs the compiled output against what `rustc` prints for the source, because a
+  re-bound `return` produces a perfectly well-formed Ball tree.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
   variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
   encodes — see below; the guard keys on the missing BODY, not the missing receiver), a

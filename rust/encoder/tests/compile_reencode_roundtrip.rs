@@ -576,9 +576,36 @@ fn main() {
 }
 "#;
 
-/// `before` and nothing else — on the first compile and on the compile of the
-/// re-encoded program alike.
+/// `before` and nothing else: the `return` ends the entry body.
 const ENTRY_EARLY_RETURN_EXPECTED_STDOUT: &str = "before\n";
+
+/// `compile_entry_main`'s wrapper written out by hand — a zero-argument closure
+/// with an early `return` that IS a whole function body. This is the shape the
+/// entry-point IIFE takes, expressed as a construct this test owns, so its
+/// behaviour can be run-proved through the round trip without re-compiling the
+/// compiler's own output (see
+/// [`an_entry_body_return_survives_the_compile_reencode_round_trip`] for why
+/// that is off the table).
+const ENTRY_SHAPED_WRAPPER_SOURCE: &str = r#"
+fn entry_like(flag: i64) -> i64 {
+    (|| -> i64 {
+        println!("before");
+        if flag > 0 {
+            return 1;
+        }
+        println!("after");
+        2
+    })()
+}
+
+fn main() {
+    println!("{}", entry_like(1));
+}
+"#;
+
+/// The wrapper returns `1` to its caller and never reaches `after` — the exact
+/// service the entry-point IIFE performs for `fn main()`.
+const ENTRY_SHAPED_WRAPPER_EXPECTED_STDOUT: &str = "before\n1\n";
 
 /// **The #687 run-proof.** RED before the fix.
 ///
@@ -637,27 +664,55 @@ fn script_mode_compiler_output_re_encodes() {
     );
 }
 
-/// #687's second half: the entry IIFE is LOAD-BEARING, so the fix must not cost
-/// the behaviour it buys. A `return` in the entry body still ends the entry
-/// body — proven by running the compiled program AND the compile of its own
-/// re-encoding, and asserting the two agree rather than merely that each
-/// produces something.
+/// #687's second half: the entry IIFE is LOAD-BEARING (#300), so whatever shape
+/// the encoder gives it must not cost the behaviour it buys.
+///
+/// Three steps, and the third exists because the obvious fourth is off the
+/// table. Re-**compiling** the re-encoded program is not a fixpoint and this
+/// file's module doc says so: the compiler emits `fn __ball_register_types()`
+/// and the encoder reads that item back as an ordinary user function, so a
+/// second compile emits it twice (measured — `error[E0428]: the name
+/// `__ball_register_types` is defined multiple times`, plus an arity mismatch
+/// where the re-encoded call passes the `input` every Ball function takes).
+/// That is a property of the compiler's whole-program preamble, not of the
+/// wrapper, so the wrapper's behaviour is run-proved on a hand-written
+/// construct of the same shape instead.
 #[test]
 fn an_entry_body_return_survives_the_compile_reencode_round_trip() {
+    // 1. The real entry point, end to end: Rust -> Ball -> Rust -> run.
     let program = ball_lang_encoder::encode(ENTRY_EARLY_RETURN_SOURCE);
     let compiled = Compiler::new(&program).compile();
-    let first = compile_and_run("entry_return_first", &compiled);
     assert_eq!(
-        first, ENTRY_EARLY_RETURN_EXPECTED_STDOUT,
+        compile_and_run("entry_return", &compiled),
+        ENTRY_EARLY_RETURN_EXPECTED_STDOUT,
         "a `return` in the entry body must end the entry body"
     );
 
+    // 2. Re-encoding that output keeps the early exit AND everything around it
+    //    — a re-encode that dropped the wrapper's body would still yield a
+    //    structurally valid Program.
     let reencoded = ball_lang_encoder::encode(&compiled);
-    let recompiled = Compiler::new(&reencoded).compile();
-    let second = compile_and_run("entry_return_second", &recompiled);
+    let calls = std_calls(&reencoded);
+    assert!(
+        calls.iter().any(|name| name == "return"),
+        "the entry body's early exit must survive the re-encode. std calls found: {calls:?}"
+    );
     assert_eq!(
-        second, first,
-        "the re-encoded program must still stop at the `return` — whichever Ball shape the \
-         encoder chose for the wrapper"
+        calls.iter().filter(|name| *name == "print").count(),
+        2,
+        "both `println!`s must survive, the unreachable one included — dropping it would be a \
+         silent edit, not a round trip. std calls found: {calls:?}"
+    );
+
+    // 3. The wrapper's own semantics, run-proved on the construct rather than
+    //    on the compiler's output: an early `return` inside a zero-argument
+    //    closure that IS a function body yields to that function's caller.
+    let wrapper = ball_lang_encoder::encode(ENTRY_SHAPED_WRAPPER_SOURCE);
+    let wrapper_compiled = Compiler::new(&wrapper).compile();
+    assert_eq!(
+        compile_and_run("entry_shaped_wrapper", &wrapper_compiled),
+        ENTRY_SHAPED_WRAPPER_EXPECTED_STDOUT,
+        "the entry-point wrapper's shape must still stop at its `return` and hand the value to \
+         its caller after the round trip"
     );
 }

@@ -461,6 +461,48 @@ instructions.
   unmapped macros, etc.) — read those module doc comments before assuming a
   construct is unsupported by accident vs. by design.
 
+### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
+
+`(|| … )()` is the shape `rust/compiler` wraps each of its three **function** bodies in — the
+entry `fn main()` (`lib.rs::compile_entry_main`, because `main` returns `()` while every compiled
+expression is `BallValue`-typed), a method with instance-field write-back, and a body-carrying
+constructor (both `type_emit.rs`). #646's `encoder/src/lib.rs::as_zero_arg_closure` inlines it into
+the Ball `block` its body already is, and that is what makes those three re-encodable at all.
+
+It is **not** the lowering of a value-position Ball `block`. `compile_block` emits a native Rust
+block, because Rust blocks are already tail-expression-valued; C++ and Go do need an IIFE there,
+which is exactly why *their* compilers route `return`/`break`/`continue` through runtime flow
+signals and this one does not. Any note claiming the Rust compiler wraps a nested block in an IIFE
+is stale — check `compile_block` before repeating it.
+
+Inlining becomes unsound the moment the body can exit early, because that is the one way the two
+constructs differ:
+
+| | Rust `(|| { … return a; … })()` | Ball `block { … return a … }` |
+| --- | --- | --- |
+| where `return a` lands | the CLOSURE — the caller binds `a` and keeps running | the enclosing FUNCTION |
+
+So the ordinary early-exit idiom `let x = (|| { if …{ return a; } b })();` inlined to a Ball block
+that returned `a` from the enclosing function and skipped everything after it — a **well-formed**
+Program with a different answer, which is why it is proved by building and RUNNING the compiled
+output (`compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`)
+against what `rustc` prints for the same source, not by any assertion on the encoded shape.
+
+When the body *can* exit early the faithful Ball is **`std.invoke` over a `lambda`** — the shape
+`dart/encoder/lib/encoder.dart` emits for a `FunctionExpressionInvocation`, and the one
+`compile_lambda` turns back into `BallValue::Function(BallFunction::new(…, move |input| { … }))`,
+whose `return` leaves the closure again.
+
+The early-exit set is **derived from what this encoder emits a `std.return` for**, never guessed
+from syntax: `return` (`encode_return`) and `?` (`encode_try_operator`, which propagates by
+returning the whole outcome). `break`/`continue` cannot occur — rustc rejects a loop jump crossing
+a closure boundary. The scan (`closure_body_exits_early`) is a `syn::visit::Visit` rather than a
+hand-written recursion, so every other node kind is covered by construction, and it stops at each
+frame that owns its own `return`: a nested closure, a nested item, an `async` block, a `try` block.
+Over-firing would be its own regression — every compiled program that builds a callback contains a
+nested closure with a `return` — and `compiler_output.rs::a_return_inside_a_nested_closure_does_not_block_inlining`
+is the negative control on it.
+
 ### Real-code coverage study (issue #491)
 
 Issue #491 drove 196 files from 10 popular crates (anyhow, thiserror, semver, itertools, base64,

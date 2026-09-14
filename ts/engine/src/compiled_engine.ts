@@ -293,10 +293,20 @@ function __ball_to_string(v: any): string {
       ArgumentError: 'Invalid argument(s)',
       TypeError: '',
     };
-    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
-        && __ball_err_prefix[v['__type__']] !== undefined) {
-      const __p = __ball_err_prefix[v['__type__']];
-      return __p === '' ? v['message'] : __p + ': ' + v['message'];
+    // The tag arrives module-qualified from a USER throw ('main:StateError')
+    // and bare from a runtime-raised one; every sibling table strips the prefix
+    // (go's messageShortName, C#'s LastIndexOf(':'), C++'s rfind(':')) and this
+    // one did not, so a caught throw StateError('boom') missed the table and
+    // fell through to the Map-like branch below -- which hides every
+    // __-prefixed key, so it printed {arg0: boom, message: boom} with no hint
+    // that a type tag was even there (issue #658).
+    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string') {
+      const __t = v['__type__'];
+      const __bare = __t.indexOf(':') >= 0 ? __t.substring(__t.lastIndexOf(':') + 1) : __t;
+      if (__ball_err_prefix[__bare] !== undefined) {
+        const __p = __ball_err_prefix[__bare];
+        return __p === '' ? v['message'] : __p + ': ' + v['message'];
+      }
     }
     // A text sink (#630) or the legacy StringBuffer object it replaces:
     // stringify as the accumulated text, never as a map. The declared sink's

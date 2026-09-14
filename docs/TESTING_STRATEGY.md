@@ -861,10 +861,17 @@ Two instruments close it, mirroring the pair above:
 * `LITERAL_THROWABLE` in `tools/check_error_rendering_tables.py` — the structural
   half. Every explicit rendering table must cover
   `StateError`/`FormatException`/`RangeError`/`ArgumentError` whether or not that
-  target raises one, and the Dart reference engine is a table target here for the
-  first time (a runtime-raised error reaches its catch variable verbatim; a
-  user-thrown one does not, so `coverage_exempt` exempts it from the raised half
-  only).
+  target raises one, and TWO tables join the checker here for the first time. The
+  Dart reference engine is one (a runtime-raised error reaches its catch variable
+  verbatim; a user-thrown one does not, so `coverage_exempt` exempts it from the
+  raised half only). The other is `ts-engine` — `ts/engine/src/engine_setup.ts`'s
+  hand-written `__bts`, which SHADOWS the compiled engine's `to_string`, so the
+  TS self-hosted engine never reaches the arm the Dart source defines. It had no
+  Dart-error arm at all, and its generic map branch filters every `__`-prefixed
+  key, so the caught value printed as `{arg0: boom, message: boom}` — the type
+  tag not even visible. **A shadowing override is a second implementation of a
+  cross-target contract**: when one exists, the checker must know about it, or a
+  fix to the reference source plus a regen silently does not reach that target.
 
 The ctor-argument KEY is deliberately NOT checked structurally. Every encoder
 stores the argument positionally (`{arg0: 'boom'}` — a Dart built-in carries no

@@ -317,9 +317,24 @@ const json = toJson(ProgramSchema, program);
   untyped catch, typed `on T catch`, a non-matching typed clause that falls
   through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
   the prefixed form passes one half and breaks the other.
-  This target needed only the `ArgumentError` row in `__ball_err_prefix`.
+  The COMPILER half needed only the `ArgumentError` row in `__ball_err_prefix`
+  (plus module-prefix stripping on the lookup, which every sibling table already
+  did and this one did not). **The ENGINE half is a separate table, and it is the
+  one that was completely absent.** `ts/engine/src/engine_setup.ts` registers
+  extra std functions that SHADOW the compiled engine's own — `to_string` among
+  them — so the self-hosted engine never reaches `_ballToStringAsync`'s
+  Dart-error arm and answers from the hand-written `__bts` instead. `__bts` had
+  no Dart-error arm at all, and its generic map branch FILTERS every
+  `__`-prefixed key, so a caught `throw StateError('boom')` printed
+  `{arg0: boom, message: boom}` — not even the type tag was visible in the
+  output. A fix to the Dart engine source plus a regen does NOT reach it; the
+  arm had to be added to `__bts` too. `tools/check_error_rendering_tables.py`
+  now carries it as its own target, `ts-engine`, with two negative controls in
+  the self-test — because a shadowing override is exactly the kind of second
+  implementation that drifts unwatched.
   `ts/compiler/test/full_e2e.ts` compiles and RUNS the new fixture on every PR
-  (ci.yml passes it the fixtures the PR itself added).
+  (ci.yml passes it the fixtures the PR itself added), and `ts/engine`'s own
+  conformance sweep covers the engine half.
 
 ### Encoder
 

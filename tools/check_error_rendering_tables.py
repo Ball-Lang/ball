@@ -113,8 +113,8 @@ LITERAL_THROWABLE: tuple[str, ...] = (
 # than a silent "0 raised, 0 rendered, all good".
 MIN_RAISED_PER_TARGET = 1
 MIN_TABLE_ENTRIES = len(LITERAL_THROWABLE)
-MIN_TARGETS = 7
-MIN_TABLE_TARGETS = 7
+MIN_TARGETS = 8
+MIN_TABLE_TARGETS = 8
 
 
 def _read(root: pathlib.Path, rel: str) -> str:
@@ -310,6 +310,29 @@ def collect(root: pathlib.Path) -> list[Target]:
         ts_raised,
         dict(re.findall(r"(\w+): '([^']*)',", ts_table_body)),
         "ts/compiler/src/preamble.ts::__ball_err_prefix",
+    ))
+
+    # ── TypeScript, the ENGINE half ──────────────────────────────────────────
+    # `ts/engine/src/engine_setup.ts` registers extra std functions that SHADOW
+    # the compiled engine's own, `to_string` among them — so the self-hosted
+    # engine never reaches `_ballToStringAsync`'s Dart-error arm and answers from
+    # this hand-written `__bts` instead. That made it a SECOND rendering table
+    # nobody was watching: it had no Dart-error arm at all, and a caught
+    # `throw StateError('boom')` printed `{arg0: boom, message: boom}` — the
+    # generic map form, which FILTERS every `__`-prefixed key, so even the type
+    # tag was invisible in the output (issue #658). It is a table target like any
+    # other now; `coverage_exempt` because the one name this file raises
+    # (`FormatException`, from `int.parse`) it raises as a JS `Error` carrying its
+    # own message.
+    ts_engine_src = [_read(root, "ts/engine/src/engine_setup.ts")]
+    ts_engine_table_body = _body_opt(
+        ts_engine_src[0], "const __ball_err_prefix: Record<string, string> = {", "};")
+    targets.append(Target(
+        "ts-engine",
+        _dart_error_like(_names(ts_engine_src, r"name:\s*'([A-Za-z_]\w*)'")),
+        dict(re.findall(r"(\w+): '([^']*)',", ts_engine_table_body)),
+        "ts/engine/src/engine_setup.ts::__bts",
+        coverage_exempt=True,
     ))
 
     # ── Python ───────────────────────────────────────────────────────────────

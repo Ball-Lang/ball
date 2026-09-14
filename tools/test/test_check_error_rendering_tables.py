@@ -160,6 +160,22 @@ def main() -> int:
     # A COVERAGE-exempt target is exempt from covering what its own runtime
     # raises, never from the literal-throw side — the Dart reference engine is
     # both, and #658 is precisely the half its exemption used to hide.
+    # The self-hosted TS ENGINE answers `to_string` from its OWN hand-written
+    # `__bts`, which SHADOWS the compiled engine's — a second table that had no
+    # Dart-error arm at all until #658, and that no check could see because the
+    # checker only knew about the compiler's preamble.
+    case(
+        "the ts engine's shadowing table missing a row",
+        lambda root: _edit(root, "ts/engine/src/engine_setup.ts",
+                           "        StateError: 'Bad state',", ""),
+        1, "ts-engine: ts/engine/src/engine_setup.ts::__bts has no entry for "
+           "['StateError']")
+    case(
+        "the ts engine's shadowing table disagreeing with Dart",
+        lambda root: _edit(root, "ts/engine/src/engine_setup.ts",
+                           "        ArgumentError: 'Invalid argument(s)',",
+                           "        ArgumentError: 'ArgumentError',"),
+        1, "renders 'ArgumentError' with prefix 'ArgumentError'")
     case(
         "go table missing the literal-throwable ArgumentError row",
         lambda root: _edit(root, "go/runtime/ops.go",

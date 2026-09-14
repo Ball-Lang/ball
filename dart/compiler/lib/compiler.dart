@@ -132,12 +132,18 @@ class DartCompiler {
   // must be re-emitted as `Ext(receiver).member(args)` — issue #670.
   Set<String> _extensionTypeNames = <String>{};
 
-  // ── Extension members declared as GETTERS in the module being compiled ──
+  // ── Extension ACCESSORS declared in the module being compiled ──
   // `Ext(x).member` and `Ext(x).member()` encode identically (a call carrying
   // only `self`), so which one to emit is read from the member's own
   // DECLARATION — the same accessor-shape metadata `_buildMethod` already uses
   // to emit `get member => …` (see `docs/METADATA_SPEC.md`, "Accessor shape").
-  Set<String> _extensionGetterFunctions = <String>{};
+  //
+  // SETTERS are in this set too, and they are not an optional nicety: a write
+  // (`Ext(x).m = v`, `Ext(x).m += 1`, `Ext(x).m++`) encodes as the very same
+  // `self`-carrying call, and emitting the METHOD shape for it produces
+  // `Ext(x).m() = v` — not parseable Dart, so `dart_style` throws and the
+  // WHOLE module produces no output instead of one broken expression (#670).
+  Set<String> _extensionAccessorFunctions = <String>{};
 
   // ── Conditional import/export directives ───────────────────
   // Stored as raw strings because code_builder doesn't support them.
@@ -490,9 +496,11 @@ class DartCompiler {
       for (final td in mainModule.typeDefs)
         if (_kindOf(td) == 'extension') td.name,
     };
-    _extensionGetterFunctions = {
+    _extensionAccessorFunctions = {
       for (final func in mainModule.functions)
-        if (_readMeta(func)['is_getter'] == true) func.name,
+        if (_readMeta(func)['is_getter'] == true ||
+            _readMeta(func)['is_setter'] == true)
+          func.name,
     };
 
     final typeDefsByName = <String, TypeDefinition>{
@@ -3282,6 +3290,11 @@ class DartCompiler {
   ///
   /// Returns `null` for every other `self`-carrying call, which keeps its
   /// ordinary `receiver.member(args)` emission.
+  ///
+  /// Type arguments written on the MEMBER (`Ext(x).m<int>()`) come back too:
+  /// the encoder puts them in the call's structured `type_args`, exactly as it
+  /// does for every other instance call, and dropping them here would reify a
+  /// different type than the source named (issue #670).
   String? _tryCompileExtensionOverride(
     FunctionCall call,
     List<FieldValuePair> fields,
@@ -3296,13 +3309,33 @@ class DartCompiler {
     final remaining = fields
         .where((f) => f.name != 'self' && f.name != '__type_args__')
         .toList();
+    final typeArgs = _memberTypeArgsStr(call, fields);
     final receiver = '${_dartType(qualifier)}(${_e(selfField.value)})';
     if (remaining.isEmpty) {
-      return _extensionGetterFunctions.contains(call.function)
+      // An accessor takes no `()` — and no type arguments either, so an
+      // explicit `<…>` proves the member is a generic METHOD however it was
+      // declared.
+      return typeArgs.isEmpty &&
+              _extensionAccessorFunctions.contains(call.function)
           ? '$receiver.$member'
-          : '$receiver.$member()';
+          : '$receiver.$member$typeArgs()';
     }
-    return '$receiver.$member(${_compileArgs(remaining)})';
+    return '$receiver.$member$typeArgs(${_compileArgs(remaining)})';
+  }
+
+  /// The `<…>` source for a call's explicit type arguments: the structured
+  /// `type_args` field when present, else the legacy `__type_args__` argument
+  /// carried in the input message. Empty when the call has neither.
+  String _memberTypeArgsStr(FunctionCall call, List<FieldValuePair> fields) {
+    final structured = _callTypeArgsStr(call);
+    if (structured.isNotEmpty) return structured;
+    return fields
+            .where((f) => f.name == '__type_args__')
+            .firstOrNull
+            ?.value
+            .literal
+            .stringValue ??
+        '';
   }
 
   String _compileCall(FunctionCall call) {
@@ -3321,15 +3354,7 @@ class DartCompiler {
         // `IterableComparableExtension.isSorted` calls itself).
         final overrideStr = _tryCompileExtensionOverride(call, fields);
         if (overrideStr != null) return overrideStr;
-        final typeArgs = _callTypeArgsStr(call).isNotEmpty
-            ? _callTypeArgsStr(call)
-            : (fields
-                      .where((f) => f.name == '__type_args__')
-                      .firstOrNull
-                      ?.value
-                      .literal
-                      .stringValue ??
-                  '');
+        final typeArgs = _memberTypeArgsStr(call, fields);
         final remaining = fields
             .where((f) => f.name != 'self' && f.name != '__type_args__')
             .toList();

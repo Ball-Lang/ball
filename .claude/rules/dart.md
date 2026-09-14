@@ -303,10 +303,19 @@ avoid constructs that need receiver-type info:
     constructor invocation), so `encode(String)`,
     `dart/self_host/engine.ball.json` and the conformance corpus never reach
     it. An override this encoder cannot name soundly — an import prefix,
-    explicit type arguments, or an extension another module declares — stays a
-    LOUD refusal (a warning naming the construct plus the `/* unsupported: … */`
-    placeholder), and the other compilers/engines still strip everything before
-    the last `:`; that remainder is the rest of #670.
+    type arguments on the EXTENSION (`Ext<int>(x)`), or an extension another
+    module declares — stays a LOUD refusal (a warning naming the construct plus
+    the `/* unsupported: … */` placeholder), and the other compilers/engines
+    still strip everything before the last `:`; that remainder is the rest of
+    #670. Two neighbouring shapes are NOT refusals and each had its own silent
+    failure: type arguments on the MEMBER (`Ext(x).m<int>()`) ride
+    `FunctionCall.typeArgs` like any other instance call — dropping them
+    reified `List<dynamic>` — and a WRITE (`Ext(x).m = v`, `+= 1`, `++`)
+    encodes as the same `self`-carrying call, so the compiler reads
+    `is_setter` alongside `is_getter` (`_extensionAccessorFunctions`);
+    emitting the method shape for a setter-only member produced
+    `Ext(x).m() = v`, and the `FormatterException` that escaped
+    `DartCompiler.compileModule` took the WHOLE module's output with it.
   - `collection/lib/src/wrappers.dart` — **`x.isNotEmpty` is its own member,
     never `!x.isEmpty`** (**#674**, fixed). The rewrite changed WHICH member a
     DELEGATING receiver is asked for — `collection`'s `wrapper_test.dart`

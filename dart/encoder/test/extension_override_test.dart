@@ -124,11 +124,14 @@ extension Elsewhere on List<int> {
 const _memberTypeArgsSource = r'''
 extension Convert on List<int> {
   List<R> conv<R>() => <R>[];
+
+  List<R> pair<R>(R a, R b) => <R>[a, b];
 }
 
 void main() {
   print(Convert([1, 2]).conv<String>().runtimeType);
   print(Convert([1, 2]).conv<num>().runtimeType);
+  print(Convert([1, 2]).pair<Object>('a', 1).runtimeType);
 }
 ''';
 
@@ -561,12 +564,23 @@ void main() {
         );
       });
 
+      test('an override with BOTH type arguments and arguments keeps both', () {
+        // The zero-argument and argument-bearing emissions are separate
+        // branches of `_tryCompileExtensionOverride`; only covering the first
+        // would leave the second free to drop them again.
+        expect(
+          compiled,
+          contains(".pair<Object>('a', 1)"),
+          reason: 'compiled output was:\n$compiled',
+        );
+      });
+
       test('the compiled-back program reifies the SAME types', () {
         final original = _runDart(_memberTypeArgsSource, scratch, 'original');
         final roundTripped = _runDart(compiled, scratch, 'round_tripped');
         expect(
           original,
-          equals('List<String>\nList<num>'),
+          equals('List<String>\nList<num>\nList<Object>'),
           reason:
               'the probe must actually observe a reified type; if this changes '
               'the suite is no longer measuring what it claims to.',

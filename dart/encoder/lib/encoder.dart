@@ -1376,9 +1376,18 @@ class DartEncoder {
   ///  * an import PREFIX (`p.Ext(x)`) or an extension this module does not
   ///    declare: its Ball function lives in another module whose name this
   ///    per-file encoder cannot derive;
-  ///  * explicit type arguments (`Ext<int>(x).m()`): they belong to the
-  ///    EXTENSION, and the call's `__type_args__` channel renders on the
-  ///    MEMBER (`m<int>()`), which is a different call.
+  ///  * explicit type arguments ON THE EXTENSION (`Ext<int>(x).m()`): the
+  ///    call's structured `type_args` channel renders on the MEMBER
+  ///    (`m<int>()`), a different instantiation, so the extension's own
+  ///    arguments have nowhere sound to go.
+  ///
+  /// Type arguments on the MEMBER (`Ext(x).m<int>()`) are a different thing,
+  /// and they are carried FAITHFULLY: [memberTypeArgs] is the invocation's own
+  /// `<…>` source and lands in `FunctionCall.typeArgs`, exactly as every other
+  /// instance call's does, so `dart/compiler` re-emits `Ext(x).m<int>()`.
+  /// Dropping them would reify a DIFFERENT type (`conv<String>()` coming back
+  /// as `conv()` yields a `List<dynamic>`) — the same silent substitution this
+  /// whole path exists to prevent.
   ///
   /// Refusing is the whole point: erasing an override to the plain member
   /// access is measurably unsound (#670 measured 4 real test failures on
@@ -1401,8 +1410,9 @@ class DartEncoder {
   Expression? _tryEncodeExtensionOverride(
     ast.ExtensionOverride override,
     String member,
-    List<FieldValuePair> args,
-  ) {
+    List<FieldValuePair> args, {
+    String? memberTypeArgs,
+  }) {
     // analyzer 13: `ArgumentList.arguments` holds `Argument` nodes, whose value
     // is `.argumentExpression` (see `_encodeArgList`). An override takes
     // exactly one positional argument — the receiver — and anything else is
@@ -1423,12 +1433,17 @@ class DartEncoder {
         ..value = _encodeExpr(arguments.single.argumentExpression),
       ...args,
     ];
-    return Expression()
-      ..call = (FunctionCall()
-        ..module = _moduleName
-        ..function = '$_moduleName:$extName.$member'
-        ..input = (Expression()
-          ..messageCreation = (MessageCreation()..fields.addAll(fields))));
+    final call = FunctionCall()
+      ..module = _moduleName
+      ..function = '$_moduleName:$extName.$member'
+      ..input = (Expression()
+        ..messageCreation = (MessageCreation()..fields.addAll(fields)));
+    // Type arguments written on the MEMBER ride the same structured channel as
+    // every other instance call's (see the generic route in
+    // [_encodeMethodInvocation]), so the compiler re-emits `Ext(x).m<int>(…)`
+    // instead of a differently reified `Ext(x).m(…)`.
+    call.typeArgs.addAll(_parseTypeArgs(memberTypeArgs));
+    return Expression()..call = call;
   }
 
   /// The warning an unencodable extension override produces, emitted from the
@@ -3227,6 +3242,13 @@ class DartEncoder {
       // the method-invocation path: the selection IS the meaning, so no
       // name-based getter route may see it.
       if (target is ast.ExtensionOverride) {
+        // A WRITE position (`Ext(x).m = v`, `Ext(x).m += 1`, `Ext(x).m++`)
+        // selects the extension's SETTER and encodes exactly like the getter
+        // read — a call carrying only `self`, wrapped by `std.assign`. Which
+        // ACCESSOR SHAPE comes back out is the compiler's decision, read from
+        // the member's own `is_getter`/`is_setter` declaration; a setter that
+        // came back as `Ext(x).m()` would sit on the left of an `=` and fail
+        // to parse (issue #670).
         final routed = _tryEncodeExtensionOverride(
           target,
           field,
@@ -3832,11 +3854,21 @@ class DartEncoder {
     final realTarget = expr.realTarget;
     final args = _encodeArgList(expr.argumentList);
 
+    // Preserve explicit type arguments on method calls. Read BEFORE the
+    // extension-override branch below: an override's member takes them too
+    // (`Ext(x).m<int>()`), and returning without them reified a DIFFERENT type.
+    final typeArgSrc = expr.typeArguments?.toSource();
+
     // Extension override (`Ext(receiver).member(args)`) — issue #670. Handled
     // before every other route: the selection is the whole meaning of the
     // node, so no name-based route may see it.
     if (target is ast.ExtensionOverride) {
-      final routed = _tryEncodeExtensionOverride(target, methodName, args);
+      final routed = _tryEncodeExtensionOverride(
+        target,
+        methodName,
+        args,
+        memberTypeArgs: typeArgSrc,
+      );
       if (routed != null) return routed;
       _warnUnencodableExtensionOverride(expr);
       return _unsupportedPlaceholder(expr);
@@ -3844,8 +3876,6 @@ class DartEncoder {
     // `_linkShortCircuits`, not the raw lexeme: a `?.` whose guard has already
     // been hoisted to cover the whole chain is a PLAIN link now (issue #488).
     final isNullAware = _linkShortCircuits(expr);
-    // Preserve explicit type arguments on method calls.
-    final typeArgSrc = expr.typeArguments?.toSource();
 
     // Cascade section method call: `..doSomething()` has null target.
     if (target == null && _inCascadeSection) {

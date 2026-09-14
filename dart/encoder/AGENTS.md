@@ -24,7 +24,7 @@ Dart → Ball encoder. Parses Dart source with the `analyzer` package and emits 
   - What the gate decides, once resolution is available: a `'list'`-flavored `collectionRoutes` entry is DECLINED when the receiver resolves to a `dart:core` `Set` (slice 1), `Map` or `String` (slice 2) — `_receiverIsSet` / `_receiverIsMap` / `_receiverIsString`, all three one call into `_receiverIsCoreType`. Declining hands the call to the generic method-call encoding, which re-emits the source's own call verbatim; it never re-routes to a different std function.
   - A null-aware receiver (`x?.foo`, `x?.m(…)`) that resolves to something Dart's flow analysis cannot PROMOTE — a field, a top-level variable, a getter — is bound to a temporary local first (`_nullAwareNeedsTemp`). The `std.if(equals(t, null), null, t.foo)` guard names the receiver twice, and Dart rejects the else-branch access outright when `t` is a non-promotable field. The temp-local path already existed for non-`Reference` targets; slice 2 only widened when it is taken.
   - A constructor call whose type arguments the SOURCE elided but the analyzer INFERRED (`StreamController(sync: true)` in a `StreamSink<S>`-returning method) records them through `_inferredTypeArgsSource` (#573). It reuses the explicit-syntax path's own `_setTypeArgsMetadata` / `_setTypeArgsField` pair — no new metadata key, no proto change — and declines twice over: an all-`dynamic` inference adds nothing, and anything that is not plain writable type syntax (function types, record types, `InvalidType`) disqualifies the whole annotation rather than emitting half of one.
-  - An `ast.ExtensionOverride` (`Ext(receiver).member`) is REPORTED, not encoded, and must NOT be erased to `receiver.member`: the override is written precisely when the plain access resolves to a DIFFERENT member (#670, measured — erasing `collection`'s `IterableExtension(this).isSorted(compare)` makes it call itself, 4 real test failures). The encoder warns and falls through to the `/* unsupported: … */` placeholder.
+  - An `ast.ExtensionOverride` (`Ext(receiver).member`) encodes as the NAMED extension member (`<module>:<Ext>.<member>` with the receiver in `self`) when this module declares the extension unprefixed, and is otherwise REPORTED and left to the `/* unsupported: … */` placeholder. It must NEVER be erased to `receiver.member`: the override is written precisely when the plain access resolves to a DIFFERENT member (#670, measured — erasing `collection`'s `IterableExtension(this).isSorted(compare)` makes it call itself, 4 real test failures). See "Extension overrides" below for the member-type-argument and write-position rules.
   - **`PackageEncoder` now propagates the per-file encoder's own `warnings`.** It used to report only its OWN resolution warnings, so every encoder-level diagnostic from a package encode was dropped on the floor — which is why the construct above could go unnoticed.
   - **Tier B is wired to this seam** (`tools/coverage-study/rq1_tierb.dart`'s `preparePackageCompileBack`). Until #488 slice 2 it called bare `DartEncoder().encode()`, so every receiver-type branch was structurally invisible to the only instrument that measures them. If you add a receiver-type refinement here, Tier B is where it shows up.
 - **Null-aware CHAIN scope is NOT gated on resolution** (#488, `_encodeNullAwareChain`). `?.` is syntax, so the fix applies to `encode(String)` as well — and it is the one #488 slice that CAN move `dart/self_host/engine.ball.json` and the committed TS/Go artifacts (it did not: the engine's own source has no multi-link `?.` chain today — regenerate rather than assume). A `?.` short-circuits every link to its RIGHT, so the encoder hoists the deepest short-circuiting link's guard over the whole remainder of the chain and re-encodes it once with `_hoistedNullAware` (that link is plain now) + `_chainSubstitutions` (its receiver is already bound). One guard per pass, deepest first; the per-link `_buildNullAwareAccess`/`_buildNullAwareCall` still handle a one-link chain unchanged. See `.claude/rules/dart.md` and `test/null_aware_chain_scope_test.dart`.
@@ -125,13 +125,28 @@ and survives metadata stripping — no schema change (the design record is in
 `docs/METADATA_SPEC.md`, "Extension overrides ride the function NAME").
 
 REFUSED, loudly, for every override this encoder cannot name soundly: an import
-prefix (`p.Ext(x)`), explicit type arguments (`Ext<int>(x)` — they belong to the
-extension, and the call's `__type_args__` channel renders on the MEMBER), or an
-extension another module declares. A refusal warns naming the construct and
-leaves the `/* unsupported: … */` placeholder, which breaks the front end.
-Never erase an override to `receiver.member`: #670 MEASURED that repair as 4
-real test failures on `collection` — a loud build error traded for a silently
-wrong answer.
+prefix (`p.Ext(x)`), explicit type arguments ON THE EXTENSION (`Ext<int>(x)` —
+the call's structured `type_args` renders on the MEMBER, a different
+instantiation), or an extension another module declares. A refusal warns naming
+the construct and leaves the `/* unsupported: … */` placeholder, which breaks
+the front end. Never erase an override to `receiver.member`: #670 MEASURED that
+repair as 4 real test failures on `collection` — a loud build error traded for a
+silently wrong answer.
+
+Type arguments on the MEMBER (`Ext(x).m<int>()`) are a different thing and DO
+round-trip: the invocation's own `<…>` lands in `FunctionCall.typeArgs`, the
+same structured channel every other instance call uses, and the compiler
+re-emits it. Dropping them was its own silent substitution — `conv<String>()`
+came back as `conv()` and reified `List<dynamic>`.
+
+A WRITE (`Ext(x).m = v`, `Ext(x).m += 1`, `Ext(x).m++`) encodes exactly like the
+getter read — a `self`-carrying call wrapped by `std.assign` — so the ACCESSOR
+SHAPE is the compiler's call, read from the member's own `is_getter`/`is_setter`
+(`_extensionAccessorFunctions`). A setter-only member emitted as the METHOD
+shape produced `Ext(x).m() = v`, which `dart_style` cannot parse: the exception
+escaped `DartCompiler.compileModule` and the WHOLE module produced no output.
+`test/extension_override_test.dart` pins both, by RUNNING the compiled-back
+program.
 
 Resolved-AST-only: `parseString` reads `Ext(x).m()` as a call on a constructor
 invocation, so `encode(String)` / `encodeModule` never reach this path and

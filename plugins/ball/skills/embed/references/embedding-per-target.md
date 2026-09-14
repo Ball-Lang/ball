@@ -2,6 +2,8 @@
 
 Verified against the Ball repo (`Ball-Lang/ball`). Every snippet below is grounded in real APIs — the constructor surfaces, defaults, and gaps are from source, not invented. Statuses drift; re-verify against the packages' current versions and the repo CI before shipping.
 
+**Which languages appear below, and whether any section may claim its engine cannot run a Ball program, are CI-gated** (issue #709): `tools/ci/check_engine_row_docs.sh` derives the engine set from the parity table `.github/workflows/conformance-matrix.yml`'s `summary` job prints, and fails unless this file carries a `## <Language> — …` section, with prose, for each of them — the same source of truth behind the `## Per-target honest status` table in `../SKILL.md` and the `## Engines` table in `tests/editions/portability_matrix.md`. The per-target detail below is hand-written and stays your responsibility to re-verify; its language coverage and its execution verdicts are the machine's.
+
 Two layers apply to every target:
 - **Audit** (static, pre-execution) — see `audit-and-policy.md`.
 - **Engine sandbox + limits + module allowlist** (run-time) — below.

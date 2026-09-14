@@ -505,9 +505,13 @@ jobs:
       # prose, which keeps naming an engine long after its row is gone — to
       # carry a row per derived engine, to name each of them, and to claim of
       # none of them that it cannot execute a program; the portability doc may
-      # additionally freeze no fixture or engine tally.
+      # additionally freeze no fixture or engine tally. The embed skill's
+      # per-target REFERENCE doc (embedding-per-target.md) repeats the same
+      # per-language verdict one level deeper, as prose rather than a table, and
+      # is gated the same way since #709: a `## <Language>` section, carrying
+      # prose, per derived engine, none of them claiming it cannot execute.
       # `--self-test` first: a guard that stopped deriving must not pass.
-      - name: "Engine-row doc drift guard (#610, #613)"
+      - name: "Engine-row doc drift guard (#610, #613, #709)"
         run: |
           bash tools/ci/check_engine_row_docs.sh --self-test
           bash tools/ci/check_engine_row_docs.sh

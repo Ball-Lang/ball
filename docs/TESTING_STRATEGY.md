@@ -875,6 +875,16 @@ Two instruments close it, and they are different in kind:
   regex that stops matching fails instead of passing vacuously. Its own
   self-test (`tools/test/test_check_error_rendering_tables.py`) runs first.
 
+  Its C++ raise-site glob covers `cpp/shared/*.h` as well as
+  `cpp/shared/include/*.h` since #708. The loose header there is the COMMITTED,
+  generated `ball_protobuf_rt.h` — real linked code that raises
+  `FormatException`/`ArgumentError`/`TypeError` through the very `BallException`
+  ctor this extractor reads — and it sat outside every check above, so a Dart
+  error name added to `dart/ball_protobuf/lib/**` and cross-compiled into it
+  would have reached a `catch` with no rendering entry anywhere. The self-test's
+  `a raised name in the generated ball_protobuf runtime is in scope` case is the
+  negative control: with the glob narrowed back it exits 0 instead of 1.
+
 The canonical string comes from **real Dart**, and that is a property of how the
 corpus is built rather than a preference: `dart/encoder/bin/generate_conformance.dart`
 captures `dart run <source>`'s stdout, so any fixture generated from
@@ -1438,6 +1448,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
+| **EVERY committed generated artifact is regenerated and diffed, including the C++ one (#708)** — `cpp/shared/ball_protobuf_rt.h` is Ball's own `ball_protobuf` runtime compiled Ball → C++ in `--library` mode, it is linked into `ball_shared` via `ball_rt_decode.cpp`, and it carries a SPLICED COPY of the compiler's runtime preamble — so a preamble change leaves it stale. It was the one committed generated artifact no job regenerated, and it drifted for four months (frozen at #398 with the two-argument `ball_cast_assert` #659 replaced and none of #630's `sink` handling) | `ci.yml`'s `cpp` job (Linux leg): `Regenerate the committed ball_protobuf C++ runtime` (with a line-count floor measured at 9575, so a stubbed emit cannot pass the diff) + `Assert the committed ball_protobuf C++ runtime is up to date`. Its INPUT paths are gated too: `detect-changed-stacks`' `ball_protobuf_src` signal ORs `dart/ball_protobuf/lib/**` and `dart/shared/ball_protobuf.{json,bin}` into `cpp`, with truth-table rows both ways | every PR (`C++ (ubuntu-latest)`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | **A base function's NO-MATCH branch is observed (§5b, #597)** — `std_collections.list_find` throws a catchable `StateError` when nothing matches, on every engine and every direct compiler; no target may answer `null`/`undefined`/an empty value, and none may refuse to compile it | `tests/conformance/463_list_find_no_match` (cross-target) + per-runtime tests: `dart/compiler/test/base_calls_test.dart`, `ts/engine/test/index_wrapper.test.ts`, `ts/compiler/test/std_call_dispatch.test.ts`, `cpp/test/test_compiler.cpp`, `csharp/compiler/test/ListFindContractTests.cs`, `rust/shared/src/runtime.rs`, `go/runtime/list_find_contract_test.go` + `go/compiler/list_find_contract_test.go`, `python/compiler/tests/test_conformance.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A base function's returned VALUE carries a contract (§5b, #630)** — `std.sink_create`'s sink is a `__type__`-tagged, REFERENCE-semantic value: `std.type_of` answers `Sink` on every target (never the host builder's type), and an append performed inside a callee is visible to the caller. A conformance golden cannot assert the tag (the oracle is native Dart, which says `StringBuffer`), so the behaviour and the tag are gated separately | `tests/conformance/466_string_sink` (cross-target; the `appendWord(out, 'c')` line is the reference-semantics leg) + per-target tag tests: `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`, `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`, `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`, `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |

@@ -406,8 +406,14 @@ instructions.
   gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`, which runs Tier A's three
   library-mode stages. Stage 3 is an **encode** gate and says so: the compiler's output names
   runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not user functions, so
-  re-encoding it yields calls resolving to nothing and **re-compiling that is not a fixpoint** —
-  measured, and neither Tier A nor that test pretends otherwise. The behavioural half sits beside
+  **re-compiling stage 3's output is not a fixpoint** — measured, and neither Tier A nor that test
+  pretends otherwise. Since #646 reading those helpers is fail-loud: `runtime_helpers.rs` maps the
+  ones with a universal-`std` inverse and an UNMAPPED `ball_*` aborts the file instead of becoming
+  a same-file call to a function nobody declared. That table is the universal-`std` subset only,
+  so a compiled library naming any other helper stops at the first one; never read a green run of
+  that gate as "stage 3 is green for libraries at large". Sweep the difference, never quote it:
+  `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the quoted names in
+  `runtime_helpers.rs`. The behavioural half sits beside
   it: three cases compile the compiler's own output, link it against a hand-written `main`, and
   RUN it, asserting the thrown message as bytes. Extend that test when you add a compiler emission
   shape; never add a second, weaker round trip.
@@ -430,11 +436,30 @@ instructions.
   refusing every real-world one — which is what Tier A measures. The fix is compiler-side (a plain
   `ball_is_null(&__sp)` helper plus the existing `BallList`/`BallValue::List` vocabulary), in the
   same plain-call style the neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` already
-  use, which re-encodes soft instead of aborting the file. Pinned by
+  use — but note that style no longer re-encodes *soft*: since #646 an unmapped `ball_*` is a hard
+  refusal, so a compiler-side fix owes `runtime_helpers.rs` the matching inverse, or its own pin
+  where no inverse exists. Pinned by
   `compiled_spliced_list_literal_is_a_documented_gap` (driven through the real compiler, asserting
   both constructs are still emitted) and `the_matches_macro_is_a_documented_gap` (the second
-  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is the
-  invariant's other open instance — also pinned in `documented_gaps.rs`, tracked as **#687**.
+  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is
+  **CLOSED** — by #646's `lib.rs::as_zero_arg_closure`, which INLINES the closure body rather than
+  emitting the `std.invoke`-over-`lambda` shape **#687** proposed; sound in both directions, since a
+  Ball `return` returns from the enclosing FUNCTION and the entry body IS the function body. Its pin
+  is flipped to `compiled_entry_point_iife_encodes`, which asserts the entry body's `std.print`
+  SURVIVES (a dropped body would not panic either); whether the IIFE is equally faithful for a
+  NESTED block in value position is a compiler question still on #687.
+  The invariant's **second** open instance is the compiled method dispatcher's scrutinee, **#718**: `compile_method_dispatchers`
+  opens every instance-method dispatcher with `match ball_message_type_name(&__self).as_str()`,
+  and that helper has no universal-`std` inverse — it returns the receiver's module-QUALIFIED tag
+  (`main:Point`) while `std.type_of` (#489) returns the SHORT base name, so mapping one to the
+  other would re-encode a dispatcher whose arms can never match its own scrutinee, and
+  `dart/shared/std.json` declares no qualified-name function to map it to instead. It is a
+  semantic merge conflict between #646 (the fail-loud table) and #685 (the first test that
+  re-encodes a dispatcher), each green on its own branch; it reddened the required `Rust` context
+  on `main`. Pinned by `compiled_method_dispatcher_scrutinee_is_a_documented_gap`; the
+  dispatcher's behavioural half is untouched and still run-proved by
+  `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
+  fail-loud direction.
   `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
   `ThrowExpression` arm emits: on this target the two are literally one mechanism
   (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a

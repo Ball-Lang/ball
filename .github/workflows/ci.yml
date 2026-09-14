@@ -386,7 +386,7 @@ jobs:
       # file, so a new fixture can no longer skip the C++ e2e leg unnoticed.
       # `--self-test` first, so a guard that found nothing to compare cannot
       # report success.
-      - name: C++ e2e fixture-list drift guard (#63 / #511)
+      - name: "C++ e2e fixture-list drift guard (#63 / #511)"
         run: |
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
@@ -507,7 +507,7 @@ jobs:
       # none of them that it cannot execute a program; the portability doc may
       # additionally freeze no fixture or engine tally.
       # `--self-test` first: a guard that stopped deriving must not pass.
-      - name: Engine-row doc drift guard (#610, #613)
+      - name: "Engine-row doc drift guard (#610, #613)"
         run: |
           bash tools/ci/check_engine_row_docs.sh --self-test
           bash tools/ci/check_engine_row_docs.sh
@@ -535,6 +535,28 @@ jobs:
         run: |
           bash tools/ci/check_pr_job_fanout.sh --self-test
           bash tools/ci/check_pr_job_fanout.sh
+
+      # Unquoted-hash name-scalar guard (#704, a #666/#671 follow-up). YAML
+      # starts a comment at an unquoted `<space>#`, so a plain `name:` scalar
+      # like `- name: C++ e2e fixture-list drift guard (#63 / #511)` silently
+      # truncates in the Actions UI at the FIRST unquoted `<space>#`. #671
+      # quoted two such names; its own review found three more; this guard's
+      # first run found a FOURTH that predated #671 entirely (#652's "Engine-row
+      # doc drift guard (#610, #613)" step) — proof that a one-time human sweep
+      # does not stay true. A `job:`-level truncation would be worse than
+      # cosmetic (it could move a required status context), so every finding is
+      # tagged `workflow`/`job`/`step` by structural position; today's four are
+      # all `step`, and tools/ci/check_pr_job_fanout.sh (above) independently
+      # re-derives the full 19-context set from the parsed job `name:` values on
+      # every PR regardless. Deliberately PyYAML-free — a second, independent
+      # way of reading these files. `--self-test` first: the fabricated
+      # offender, the quoted-sibling negative control, the job/workflow-level
+      # tagging cases, the block-scalar false-positive guard, and the
+      # empty-directory positive floor must all still be able to fail.
+      - name: Name-scalar hash guard (#704)
+        run: |
+          bash tools/ci/check_name_scalar_hash_guard.sh --self-test
+          bash tools/ci/check_name_scalar_hash_guard.sh
 
       # docs/TESTING_STRATEGY.md spells out WHICH status checks the `Protect
       # main` ruleset requires — the list a lane reads to decide "the checks are
@@ -1646,7 +1668,7 @@ jobs:
       # CI — the same "silent until a human dispatches it manually" class that
       # already bit the macOS release leg (#404). This runs on all three OS legs.
       # `ball version` is real (not a self-host stub) in a plain cmake build.
-      - name: Install smoke (exercises install(TARGETS ball) — issue #368)
+      - name: "Install smoke (exercises install(TARGETS ball) — issue #368)"
         if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
@@ -2792,7 +2814,7 @@ jobs:
       #
       # After the six tags are pushed, the follow-up is to point the same script
       # at the real proxy (drop the synthesized one) — the assertions stay.
-      - name: Go module external-consumer smoke (issue #361)
+      - name: "Go module external-consumer smoke (issue #361)"
         shell: bash
         run: |
           set -euo pipefail

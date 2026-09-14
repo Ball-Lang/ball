@@ -92,7 +92,20 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   non-cache reason. It is echoed to the log only, and `ccache -s` failing is
   now a hard error rather than a warning the run limped past. The counter
   classification is pinned to the runners' ccache versions — 4.9.1 on ubuntu,
-  4.14 on macOS — and an unclassified counter id fails the gate loud.
+  4.14 on macOS, in the script's `CCACHE_TABLE_VERSIONS` — and an unclassified
+  counter id fails the gate loud.
+
+  Since #700 the gate also runs `ccache --version`, prints the version it
+  classified the counters against on EVERY run, and names it in the
+  `UNCLASSIFIED CCACHE COUNTER ID(s)` / `MISSING CCACHE COUNTER ID(s)` failures
+  along with the one-line remedy — because `hendrikmuhs/ccache-action` installs
+  whatever the OS package manager has and exposes no version pin, so a runner
+  image that moves ccache and grows a counter would otherwise red all three legs
+  with a message that reads like a cache regression. A `--version` the gate
+  cannot read is a hard failure like `-s` and `--print-stats`. A version off
+  that list whose counters all still classify is NOT a failure: the assertion is
+  the counter set, and a gate that reddened on an image bump alone would be a
+  spurious red.
 - **The gate step must precede the `full_e2e.sh` smoke steps**, and
   `cpp/test/test_cache_gate_step_order.sh` (ci.yml's always-on `proto` job)
   asserts that from ci.yml with a negative control on a relocated copy (#660).

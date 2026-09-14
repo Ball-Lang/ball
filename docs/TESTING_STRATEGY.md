@@ -547,6 +547,16 @@ drop is red.
    test time that ignores its arguments and never exits — driven through the real
    production path, on every PR.
 
+Python's floor is **63** since PR #733 (run 34800144249, the PR's own row), which
+mapped every `ballrt.*` helper with an exact universal-`std` inverse — the
+`math_*` family the issue named, the unary string family, field access, index
+assignment and the type tests. The lesson that generalises: the row's failure
+text was the ONLY witness to that inventory, so the fix ships with a closed-set
+drift guard derived from the two sources of truth (`dart/shared/std.json` ×
+`python/runtime`'s public helpers), not a list kept beside the table — a measured
+floor locks in a gain, but only a derived closed set stops the gap reopening one
+helper at a time.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier

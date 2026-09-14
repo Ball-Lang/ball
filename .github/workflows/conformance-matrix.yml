@@ -1237,7 +1237,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
       # engine. NEVER lower this to turn a red build green; raise it in the SAME
       # PR as the fix that earned it (the job prints the exact new value).
-      PYTHON_ROUNDTRIP_FLOOR: "41"
+      PYTHON_ROUNDTRIP_FLOOR: "63"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1274,9 +1274,13 @@ jobs:
           {
             echo "**Gap, tracked in #690.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Python compiler dispatches through \`ballrt.*\` helpers, and"
-            echo "the syntactic \`ast\` encoder reads idiomatic hand-written Python. #690"
-            echo "carries the measured first blockers (\`try\`, top-level classes, the"
-            echo "unmapped \`ballrt.math_*\` helpers) and the smallest next step."
+            echo "the syntactic \`ast\` encoder reads idiomatic hand-written Python. The"
+            echo "helper family with an exact universal-\`std\` inverse is mapped now"
+            echo "(\`ball_encoder/ballrt_calls.py\`, closed against drift by"
+            echo "\`python/encoder/tests/test_ballrt_inverse.py\`); #690 carries what is"
+            echo "left, in descending order of the fixtures each heads: the compiler's"
+            echo "\`try:\`/\`except\` for a body that genuinely returns, top-level classes,"
+            echo "and the \`ret\`/\`arg\` return and parameter plumbing."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"

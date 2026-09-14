@@ -23,10 +23,6 @@
           "isBase": true
         },
         {
-          "name": "string_is_empty",
-          "isBase": true
-        },
-        {
           "name": "print",
           "isBase": true
         },
@@ -35,7 +31,31 @@
           "isBase": true
         },
         {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
           "name": "not",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
+          "isBase": true
+        },
+        {
+          "name": "list_reverse",
+          "isBase": true
+        },
+        {
+          "name": "modulo",
+          "isBase": true
+        },
+        {
+          "name": "equals",
+          "isBase": true
+        },
+        {
+          "name": "not_equals",
           "isBase": true
         },
         {
@@ -52,30 +72,6 @@
         },
         {
           "name": "math_is_infinite",
-          "isBase": true
-        },
-        {
-          "name": "string_runes",
-          "isBase": true
-        },
-        {
-          "name": "modulo",
-          "isBase": true
-        },
-        {
-          "name": "equals",
-          "isBase": true
-        },
-        {
-          "name": "not_equals",
-          "isBase": true
-        },
-        {
-          "name": "list_reverse",
-          "isBase": true
-        },
-        {
-          "name": "list_to_list",
           "isBase": true
         }
       ],
@@ -320,143 +316,132 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_is_empty",
-                                  "input": {
+                                "fieldAccess": {
+                                  "object": {
                                     "messageCreation": {
-                                      "typeName": "",
+                                      "typeName": "main:BuiltinNames",
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "arg0",
                                           "value": {
-                                            "messageCreation": {
-                                              "typeName": "main:BuiltinNames",
-                                              "fields": [
-                                                {
-                                                  "name": "arg0",
-                                                  "value": {
-                                                    "literal": {
-                                                      "intValue": "44"
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg1",
-                                                  "value": {
-                                                    "literal": {
-                                                      "stringValue": "user"
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg2",
-                                                  "value": {
-                                                    "literal": {
-                                                      "doubleValue": 1.5
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg3",
-                                                  "value": {
-                                                    "literal": {
-                                                      "boolValue": true
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg4",
-                                                  "value": {
-                                                    "literal": {
-                                                      "boolValue": false
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg5",
-                                                  "value": {
-                                                    "literal": {
-                                                      "boolValue": true
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg6",
-                                                  "value": {
-                                                    "literal": {
-                                                      "stringValue": "abc"
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg7",
-                                                  "value": {
-                                                    "literal": {
-                                                      "boolValue": true
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg8",
-                                                  "value": {
-                                                    "literal": {
-                                                      "boolValue": false
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "arg9",
-                                                  "value": {
-                                                    "call": {
-                                                      "module": "std",
-                                                      "function": "typed_list",
-                                                      "input": {
-                                                        "messageCreation": {
-                                                          "typeName": "",
-                                                          "fields": [
-                                                            {
-                                                              "name": "type_args",
-                                                              "value": {
+                                            "literal": {
+                                              "intValue": "44"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "user"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg2",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 1.5
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg3",
+                                          "value": {
+                                            "literal": {
+                                              "boolValue": true
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg4",
+                                          "value": {
+                                            "literal": {
+                                              "boolValue": false
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg5",
+                                          "value": {
+                                            "literal": {
+                                              "boolValue": true
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg6",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "abc"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg7",
+                                          "value": {
+                                            "literal": {
+                                              "boolValue": true
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg8",
+                                          "value": {
+                                            "literal": {
+                                              "boolValue": false
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg9",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "typed_list",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "type_args",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "<int>"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "elements",
+                                                      "value": {
+                                                        "literal": {
+                                                          "listValue": {
+                                                            "elements": [
+                                                              {
                                                                 "literal": {
-                                                                  "stringValue": "<int>"
+                                                                  "intValue": "1"
+                                                                }
+                                                              },
+                                                              {
+                                                                "literal": {
+                                                                  "intValue": "2"
                                                                 }
                                                               }
-                                                            },
-                                                            {
-                                                              "name": "elements",
-                                                              "value": {
-                                                                "literal": {
-                                                                  "listValue": {
-                                                                    "elements": [
-                                                                      {
-                                                                        "literal": {
-                                                                          "intValue": "1"
-                                                                        }
-                                                                      },
-                                                                      {
-                                                                        "literal": {
-                                                                          "intValue": "2"
-                                                                        }
-                                                                      }
-                                                                    ]
-                                                                  }
-                                                                }
-                                                              }
-                                                            }
-                                                          ]
+                                                            ]
+                                                          }
                                                         }
                                                       }
                                                     }
-                                                  }
+                                                  ]
                                                 }
-                                              ]
+                                              }
                                             }
                                           }
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "field": "isEmpty"
                                 }
                               }
                             }
@@ -632,24 +617,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_is_empty",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isEmpty"
                                 }
                               }
                             }
@@ -671,40 +645,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "not",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "string_is_empty",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "b"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isNotEmpty"
                                 }
                               }
                             }
@@ -726,24 +673,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "math_sign",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "sign"
                                 }
                               }
                             }
@@ -765,24 +701,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "math_is_nan",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isNaN"
                                 }
                               }
                             }
@@ -804,24 +729,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "math_is_finite",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isFinite"
                                 }
                               }
                             }
@@ -843,24 +757,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "math_is_infinite",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isInfinite"
                                 }
                               }
                             }
@@ -882,24 +785,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_runes",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "runes"
                                 }
                               }
                             }
@@ -921,56 +813,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "equals",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "left",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "modulo",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "left",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "b"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "right",
-                                                      "value": {
-                                                        "literal": {
-                                                          "intValue": "2"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "right",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "0"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isEven"
                                 }
                               }
                             }
@@ -992,56 +841,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "not_equals",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "left",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "modulo",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "left",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "b"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "right",
-                                                      "value": {
-                                                        "literal": {
-                                                          "intValue": "2"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "right",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "0"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "isOdd"
                                 }
                               }
                             }
@@ -1063,23 +869,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_reverse",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "b"
                                     }
-                                  }
+                                  },
+                                  "field": "reversed"
                                 }
                               }
                             }
@@ -1124,24 +920,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_is_empty",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "c"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
                                     }
-                                  }
+                                  },
+                                  "field": "isEmpty"
                                 }
                               }
                             }
@@ -1163,40 +948,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "not",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "string_is_empty",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "c"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
                                     }
-                                  }
+                                  },
+                                  "field": "isNotEmpty"
                                 }
                               }
                             }

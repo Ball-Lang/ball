@@ -97,14 +97,12 @@ String _fieldTypeFor(String name) => switch (name) {
 /// so the route must still fire.
 ({String declaration, String receiver}) _coreReceiverFor(String name) =>
     switch (name) {
-      'sign' || 'isEven' || 'isOdd' => (
-        declaration: 'int n = 4;',
-        receiver: 'n',
-      ),
-      'isNaN' || 'isFinite' || 'isInfinite' => (
-        declaration: 'double d = 2.5;',
-        receiver: 'd',
-      ),
+      'sign' ||
+      'isEven' ||
+      'isOdd' => (declaration: 'int n = 4;', receiver: 'n'),
+      'isNaN' ||
+      'isFinite' ||
+      'isInfinite' => (declaration: 'double d = 2.5;', receiver: 'd'),
       'reversed' => (declaration: 'List<int> xs = <int>[1];', receiver: 'xs'),
       _ => (declaration: "String s = 'hi';", receiver: 's'),
     };
@@ -113,7 +111,10 @@ void main() {
   group('a built-in accessor name a user class declares (#697)', () {
     test('the closed set is non-empty and is what the encoder routes', () {
       // A positive floor: an empty set would make every case below vacuous.
-      expect(DartEncoder.builtinAccessorGetters.length, greaterThanOrEqualTo(6));
+      expect(
+        DartEncoder.builtinAccessorGetters.length,
+        greaterThanOrEqualTo(6),
+      );
       // Every name in the set really IS routed — proven by the control leg of
       // each per-name case below, which asserts a core receiver still calls a
       // base function rather than emitting a `fieldAccess`.
@@ -166,8 +167,10 @@ Object? read(Holder h) {
         );
       });
 
-      test('`$name` on an INSTANCE-CREATION receiver resolves to the member', () {
-        final json = encodeToJson('''
+      test(
+        '`$name` on an INSTANCE-CREATION receiver resolves to the member',
+        () {
+          final json = encodeToJson('''
 class Holder {
   $fieldType $name;
   Holder(this.$name);
@@ -177,14 +180,15 @@ Object? read() {
   return Holder(null as dynamic).$name;
 }
 ''');
-        expect(
-          fieldAccessesTo(json, name),
-          isNotEmpty,
-          reason:
-              'the receiver names its own class, so no other proof is needed. '
-              'Calls were: ${calledFunctions(json)}',
-        );
-      });
+          expect(
+            fieldAccessesTo(json, name),
+            isNotEmpty,
+            reason:
+                'the receiver names its own class, so no other proof is needed. '
+                'Calls were: ${calledFunctions(json)}',
+          );
+        },
+      );
 
       test('`$name` INHERITED from a base class in the unit resolves too', () {
         final json = encodeToJson('''

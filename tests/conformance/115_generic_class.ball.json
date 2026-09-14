@@ -760,24 +760,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_is_empty",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "s"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "s"
                                     }
-                                  }
+                                  },
+                                  "field": "isEmpty"
                                 }
                               }
                             }

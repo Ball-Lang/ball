@@ -56,18 +56,10 @@ class Computed {
 void main() {
   // Direct instance-creation receiver.
   print(
-    BuiltinNames(
-      44,
-      'user',
-      1.5,
-      true,
-      false,
-      true,
-      'abc',
-      true,
-      false,
-      <int>[1, 2],
-    ).isEmpty,
+    BuiltinNames(44, 'user', 1.5, true, false, true, 'abc', true, false, <int>[
+      1,
+      2,
+    ]).isEmpty,
   );
 
   // Locally declared receiver with an explicit type annotation.

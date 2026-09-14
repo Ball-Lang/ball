@@ -597,6 +597,7 @@
         "464_typed_catch_clause_dispatch",
         "466_string_sink",
         "467_caught_type_error_to_string",
+        "473_user_member_named_like_builtin_accessor",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -786,6 +787,7 @@
         "443_nullable_field_chain_member_read",
         "451_thrown_builtin_exception_tearoff",
         "471_null_aware_chain_scope",
+        "473_user_member_named_like_builtin_accessor",
         "48_break_continue",
         "58_mutual_recursion",
         "59_deep_recursion",
@@ -1686,7 +1688,8 @@
       "encoderEmittable": true,
       "coveredByFixtures": [
         "215_infinity_arithmetic",
-        "317_primitive_number_getters"
+        "317_primitive_number_getters",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -1699,7 +1702,8 @@
       "coveredByFixtures": [
         "215_infinity_arithmetic",
         "263_numeric_properties",
-        "317_primitive_number_getters"
+        "317_primitive_number_getters",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -1713,7 +1717,8 @@
         "214_nan_propagation",
         "215_infinity_arithmetic",
         "263_numeric_properties",
-        "317_primitive_number_getters"
+        "317_primitive_number_getters",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -1816,7 +1821,8 @@
       "encoderEmittable": true,
       "coveredByFixtures": [
         "262_getter_properties",
-        "317_primitive_number_getters"
+        "317_primitive_number_getters",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -1894,6 +1900,7 @@
         "32_arithmetic_negative",
         "384_list_filter_where",
         "396_switch_case_fallthrough",
+        "473_user_member_named_like_builtin_accessor",
         "60_collatz",
         "63_is_prime",
         "66_digit_sum",
@@ -1966,6 +1973,7 @@
         "455_ctor_field_writes_that_survive",
         "470_setter_beside_final_field",
         "471_null_aware_chain_scope",
+        "473_user_member_named_like_builtin_accessor",
         "49_nested_loops",
         "57_recursion_factorial",
         "60_collatz",
@@ -2028,6 +2036,7 @@
         "381_unsigned_right_shift",
         "382_list_all_every",
         "451_thrown_builtin_exception_tearoff",
+        "473_user_member_named_like_builtin_accessor",
         "54_abs_value",
         "66_digit_sum",
         "69_early_return",
@@ -2055,6 +2064,7 @@
         "350_set_value",
         "416_user_method_name_arity_collision",
         "466_string_sink",
+        "473_user_member_named_like_builtin_accessor",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2079,6 +2089,7 @@
         "417_null_aware_collection_elements",
         "435_recursive_ctor_construction",
         "436_recursive_ctor_named",
+        "473_user_member_named_like_builtin_accessor",
         "60_collatz",
         "72_gcd"
       ],
@@ -2610,6 +2621,7 @@
         "470_setter_beside_final_field",
         "471_null_aware_chain_scope",
         "472_initializer_list_field_with_setter",
+        "473_user_member_named_like_builtin_accessor",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -3000,6 +3012,7 @@
         "350_set_value",
         "416_user_method_name_arity_collision",
         "466_string_sink",
+        "473_user_member_named_like_builtin_accessor",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -3586,6 +3599,7 @@
         "466_string_sink",
         "467_caught_type_error_to_string",
         "46_while_loop",
+        "473_user_member_named_like_builtin_accessor",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -3745,7 +3759,8 @@
         "386_list_concat_addall",
         "387_list_reverse_getter",
         "400_switch_continue_label",
-        "442_switch_goto_fallthrough_guard_or_pattern"
+        "442_switch_goto_fallthrough_guard_or_pattern",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4130,7 +4145,8 @@
       "inputType": "ListInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "387_list_reverse_getter"
+        "387_list_reverse_getter",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4215,7 +4231,8 @@
         "387_list_reverse_getter",
         "395_map_keys_values_fail_loud",
         "397_map_values",
-        "416_user_method_name_arity_collision"
+        "416_user_method_name_arity_collision",
+        "473_user_member_named_like_builtin_accessor"
       ],
       "engineImplementedDart": true,
       "carvedOut": false

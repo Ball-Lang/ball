@@ -350,6 +350,14 @@ avoid constructs that need receiver-type info:
   `check_encoder_completeness.dart` checks the opposite direction, and
   `gen_std_coverage.dart` derives its canonical list from the same builders.
   That blind spot hid thirteen routed-but-undeclared functions until #505.
+  **The REVERSE direction is gated too, by
+  `dart/shared/test/std_reverse_closed_set_test.dart` (#702):** every base
+  function the engine's `StdModuleHandler` DISPATCHES, every key of
+  `buildCapabilityTable()`, and every `isBase` function an executed conformance
+  fixture declares must be declared by a builder. `collectionRoutes` is only one
+  consumer, so the #505 gate could not see the 30 language constructs
+  (`map_create`, `typed_list`, `switch_expr`, `invoke`, `paren`, `cascade`, …)
+  every encoder emitted through a different code path. Read the two as a PAIR.
   **A `_fn(...)` added here must be ported to the two hand-maintained mirrors in
   the same PR** — `csharp/shared/src/StdModuleBuilders.cs` and
   `rust/shared/src/std_*_module.rs`. Both are gated name-for-name against this

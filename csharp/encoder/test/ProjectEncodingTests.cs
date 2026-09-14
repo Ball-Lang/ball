@@ -350,6 +350,18 @@ public class ProjectEncodingTests
     /// before any of W12-C's source changes. It must never be relaxed: it is the structural
     /// guard that keeps the resolution-free path — the one every other consumer of this encoder
     /// uses — out of the seam's blast radius.
+    ///
+    /// <para><b>When a refresh is legitimate, and what must be proven first.</b> The encoder
+    /// attaches the WHOLE <c>std</c> module — every function AND every
+    /// <see cref="Ball.V1.TypeDefinition"/> <c>StdModuleBuilders.BuildStdModule()</c> declares —
+    /// so a change to the canonical std inventory moves this golden without touching the seam
+    /// this test guards. That is the ONLY sanctioned reason to rewrite it, and it is not a
+    /// licence to overwrite on any red: regenerate, then diff the OLD and NEW parses and confirm
+    /// the delta is confined to the declarations that actually changed. Issue #702 refreshed it
+    /// exactly once that way — 18 added <c>std</c> typeDefs (<c>CascadeInput</c>,
+    /// <c>MapCreateInput</c>, <c>SwitchExprInput</c>, …), everything else byte-identical,
+    /// nothing removed and no ordering change. Any other delta means the seam leaked and the
+    /// golden is doing its job.</para>
     /// </summary>
     [Fact]
     public void EncodeSingleFile_IsByteIdenticalToACommittedGolden()

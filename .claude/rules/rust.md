@@ -210,10 +210,11 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 9 on 2026-09-14 (three of them are #632 siblings: the script-mode entry-point IIFE,
-  tracked as #687, and the spliced collection-literal lowering's two refusals — `Vec::new()` and
-  `matches!` — tracked as #712 and pinned separately because a `#[should_panic]` observes only the
-  first panic), and everything else in that file is a flipped, positive assertion.
+  prose** — 9 on 2026-09-14 (THREE of them are #632 siblings: the spliced collection-literal
+  lowering's two refusals — `Vec::new()` and `matches!` — tracked as #712 and pinned separately
+  because a `#[should_panic]` observes only the first panic, and the compiled method dispatcher's
+  `ball_message_type_name` scrutinee, tracked as #718), and everything else in that file is a
+  flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -416,9 +417,15 @@ and its own encoder refuses caps that column no matter how good either half is o
   Rust.
 - The gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`. Stage 3 is an **encode** gate and
   says so: the compiler's output names runtime helpers (`ball_field_get`,
-  `ball_message_type_name`, …) that are not user functions, so re-encoding it yields calls that
-  resolve to nothing and **re-compiling that is not a fixpoint** — measured, and neither Tier A
-  nor this test pretends otherwise. The behavioural half sits beside it, on the constructs
+  `ball_message_type_name`, …) that are not user functions, so **re-compiling stage 3's output is
+  not a fixpoint** — measured, and neither Tier A nor this test pretends otherwise. Since #646
+  reading them is fail-loud: `encoder/src/runtime_helpers.rs` maps the helpers with a
+  universal-`std` inverse and an UNMAPPED `ball_*` aborts the file rather than becoming a
+  same-file call to a function nobody declared. That table is the universal-`std` subset only, so
+  a compiled library naming any other helper stops at the first one — never read a green run of
+  that file as "stage 3 is green for libraries at large". Sweep the difference, never quote it:
+  `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the quoted names in
+  `runtime_helpers.rs`. The behavioural half sits beside it, on the constructs
   themselves: three cases compile the compiler's own output, link it against a hand-written
   `main`, and RUN it, asserting the thrown message as bytes. A shape assertion alone would pass
   on a throw carrying the wrong message. Extend THAT test when you add a compiler emission shape;
@@ -457,14 +464,16 @@ and its own encoder refuses caps that column no matter how good either half is o
   funnel, and a lane that wants those numbers up works on stage 1's named reasons
   (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
   the invariant; the third-party funnel is a separate, slower instrument.
+- The script-mode entry-point IIFE is **CLOSED**, by #646's `lib.rs::as_zero_arg_closure`, and
+  its pin is flipped to `compiled_entry_point_iife_encodes`. #687 proposed `std.invoke` over a
+  `lambda` (what `dart/encoder` emits for a `FunctionExpressionInvocation`) on the worry that a
+  plain Ball `block` moves where a `return` lands; #646 INLINED the closure body instead, which is
+  sound in both directions — a Ball `return` returns from the enclosing FUNCTION, the IIFE exists
+  only because Rust's `main` returns `()`, and the entry body IS the function body. Whether the
+  IIFE is equally faithful for a NESTED block in value position is a COMPILER question, still on
+  **#687**.
 - The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
-  - the script-mode entry-point IIFE (`compile()` wraps the entry body in
-    `(|| -> BallValue { … })()`, which the encoder refuses),
-    `compiled_entry_point_iife_is_a_documented_gap`, tracked as **#687**. Do not "fix" it by
-    encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return` in the entry
-    body return from the entry body rather than from `main`, and a Ball block's `return` leaves
-    the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
-  - the **spliced collection-literal lowering**, tracked as **#712**, which is the broader of the
+  - the **spliced collection-literal lowering**, tracked as **#712**, the broader of the
     two: `compile_list_literal` goes imperative the moment any element splices, and emits
     `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type
     — measured as the FIRST refusal) and `if !matches!(__sp, BallValue::Null)` behind it. So every
@@ -477,8 +486,22 @@ and its own encoder refuses caps that column no matter how good either half is o
     which is what Tier A measures. The fix belongs on the COMPILER side — a plain
     `ball_is_null(&__sp)` helper and the existing `BallList`/`BallValue::List` vocabulary in place
     of the bare `Vec`, the same plain-call vocabulary the neighbouring
-    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use, which re-encodes soft instead of
-    aborting the file.
+    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use — but note that vocabulary no
+    longer re-encodes *soft*: since #646 an unmapped `ball_*` is a hard refusal, so a
+    compiler-side fix owes `runtime_helpers.rs` the matching inverse, or its own pin where no
+    inverse exists.
+  - the compiled **method dispatcher's scrutinee**, tracked as **#718**, and the one that turned
+    `main` red: `compile_method_dispatchers` opens every instance-method dispatcher with
+    `match ball_message_type_name(&__self).as_str()`, and that helper has no universal-`std`
+    inverse. It returns the receiver's module-QUALIFIED tag (`main:Point`); `std.type_of` (#489)
+    returns the SHORT base name, prefix stripped — so mapping one to the other would re-encode a
+    dispatcher whose arms can never match its own scrutinee, and `dart/shared/std.json` declares
+    no qualified-name function to map it to instead. It is a semantic merge conflict between #646
+    (the fail-loud table) and #685 (the first test that re-encodes a dispatcher), each green
+    alone. Pinned by `compiled_method_dispatcher_scrutinee_is_a_documented_gap`; the dispatcher's
+    behavioural half is untouched and still run-proved by
+    `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
+    fail-loud direction.
 
 ### Engine
 

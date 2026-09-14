@@ -32,10 +32,21 @@
 //! Stage 3's output is deliberately **not** compiled and run here, and neither
 //! Tier A nor this test should pretend otherwise: the compiler's output names
 //! runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not
-//! user functions, so re-encoding it yields a Ball program whose calls resolve
-//! to nothing, and re-compiling that is not a fixpoint anyone has claimed. What
-//! stage 3 measures — the only thing it measures — is whether the encoder can
-//! read the compiler's output at all.
+//! user functions, so **re-compiling stage 3's output is not a fixpoint anyone
+//! has claimed**. What stage 3 measures — the only thing it measures — is
+//! whether the encoder can read the compiler's output at all.
+//!
+//! Since #646 that reading is fail-loud: `encoder/src/runtime_helpers.rs` maps
+//! the helpers that have a universal-`std` inverse, and an UNMAPPED `ball_*`
+//! aborts the file instead of becoming a same-file call to a function nobody
+//! declared. That table covers the universal-`std` subset only, so a compiled
+//! library naming any other helper stops at the first one — the dispatcher's
+//! `ball_message_type_name` scrutinee is the instance that reached CI, pinned
+//! as
+//! `documented_gaps.rs::compiled_method_dispatcher_scrutinee_is_a_documented_gap`
+//! and tracked as issue **#718**. Do not read a green run of this file as
+//! "stage 3 is green for libraries at large"; the `documented_gaps.rs` pins
+//! are the honest inventory.
 //!
 //! So the behavioural half is proven on the constructs themselves, each through
 //! a real `cargo build` + run of compiler output driven by a hand-written
@@ -357,10 +368,22 @@ fn collect_std_calls(expr: &Expression, out: &mut Vec<String>) {
     }
 }
 
-/// Stage 1 → 2 → 3, the exact Tier A pipeline. RED before issue #632's fix:
-/// stage 3 aborted on the dispatcher's `panic!` fallback arm.
+/// Stage 1 → 2, and the one property of the dispatcher stage 3 still turns on:
+/// its fallback arm is a `panic!` — the construct #632 taught
+/// `methods.rs::encode_macro` to read back as `std.throw`.
+///
+/// The FULL stage 1 → 2 → 3 round trip over a dispatcher is **open**, tracked
+/// as issue #718 and pinned fail-loud by
+/// `documented_gaps.rs::compiled_method_dispatcher_scrutinee_is_a_documented_gap`:
+/// the dispatcher's scrutinee is `ball_message_type_name(&__self)`, a runtime
+/// helper with no universal-`std` inverse, and since #646 an unmapped `ball_*`
+/// is a hard refusal rather than a same-file call that would only die at run
+/// time. That refusal fires one construct AHEAD of the `panic!`, which is why
+/// this test asserts the arm from the compiled source and re-encodes the macro
+/// on its own: the property #632 owns must not quietly ride on a round trip
+/// that no longer reaches it.
 #[test]
-fn compiled_method_dispatcher_re_encodes() {
+fn compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro() {
     let program = ball_lang_encoder::encode_library(CLASS_WITH_METHOD_SOURCE);
     let compiled = Compiler::new(&program).compile_library();
     assert!(
@@ -368,23 +391,27 @@ fn compiled_method_dispatcher_re_encodes() {
         "the compiler must emit a free dispatcher for `sum` — otherwise this test is not \
          exercising the construct it claims to:\n{compiled}"
     );
-
-    let reencoded = ball_lang_encoder::encode_library(&compiled);
-
-    let calls = std_calls(&reencoded);
     assert!(
-        calls.iter().any(|name| name == "throw"),
-        "the dispatcher's fallback arm must survive stage 3 as a `std.throw` — never be dropped \
-         silently. std calls found: {calls:?}"
+        compiled.contains("panic!(\"no method 'sum' for {}\", other)"),
+        "the dispatcher's fallback arm must still be the `panic!` #632 mapped to `std.throw`, \
+         carrying the target-neutral message:\n{compiled}"
     );
 
-    // …carrying the SAME message, not merely some throw. That string is the
-    // value a Ball `catch` binds, so losing it would be a behaviour change no
-    // presence-of-a-throw assertion could see.
-    let rendered = format!("{reencoded:?}");
+    // The mapping itself, observed rather than assumed — on the very macro that
+    // arm is, a formatted `panic!`, encoded on its own so the dispatcher's
+    // unrelated #718 refusal cannot mask it.
+    let arm = ball_lang_encoder::encode_library(
+        "fn fallback(t: i64) -> i64 { panic!(\"no method 'sum' for {}\", t); }",
+    );
+    let calls = std_calls(&arm);
+    assert!(
+        calls.iter().any(|name| name == "throw"),
+        "the fallback arm's macro must encode as a `std.throw`. std calls found: {calls:?}"
+    );
+    let rendered = format!("{arm:?}");
     assert!(
         rendered.contains("no method 'sum' for "),
-        "the re-encoded `std.throw` must carry the dispatcher's own message"
+        "…carrying the dispatcher's own message, which is the value a Ball `catch` binds"
     );
 }
 

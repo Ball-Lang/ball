@@ -373,7 +373,32 @@ void main() {
 /// canonical function name, so stray matches that aren't real base-function
 /// names are simply never looked up.
 Set<String> _harvestEmittable(String src) {
-  final candidates = <String>{
+  // Names the broad single-quoted scan below matches even though the encoder
+  // never emits them as a std CALL — each mapped to the reason, so the
+  // subtraction is auditable rather than a bare deny-list. The strict gate
+  // `check_encoder_completeness.dart` agrees on every one of them: it scans
+  // only emit sites, so it never treats them as emittable either. Both
+  // invariants are ENFORCED below, so an entry cannot rot into a lie.
+  const phantomEmittable = <String, String>{
+    'length':
+        'mentioned only in the `unaryFunctions` input-type selection set; '
+        '`.length` encodes to a FieldAccess, not a `std.length` call',
+    'cascade':
+        "mentioned only as the metadata value `'kind': … 'cascade'`; the "
+        'encoder EXPANDS a Dart cascade into a Block (let __cascade_self__ = '
+        'target; sections; result), it never emits a `std.cascade` call',
+    'null_aware_access':
+        "mentioned only as the metadata value `'kind': … 'null_aware_access'`; "
+        '`x?.f` is lowered to `std.if(equals(x, null), null, x.f)`',
+    'null_aware_call':
+        "mentioned only as the metadata value `'kind': … 'null_aware_call'`; "
+        '`x?.m()` is lowered to the same guarded `std.if` shape',
+  };
+
+  // Seed + the shape-specific EMIT-SITE scans. Kept separate from the broad
+  // scan below so the phantom subtraction can be checked against it: a name
+  // reached here really is emitted, and must never be subtracted.
+  final emitSites = <String>{
     // Emitted via a variable (e.g. spread/null_spread) — no literal at the
     // emit call site for the regexes below to find. Keep in sync with
     // check_encoder_completeness.dart's `_variableEmittedBaseFns`.
@@ -389,35 +414,51 @@ Set<String> _harvestEmittable(String src) {
     'base64_decode',
   };
 
-  void addAllMatches(RegExp re, {int group = 1}) {
+  void addAllMatches(Set<String> into, RegExp re, {int group = 1}) {
     for (final m in re.allMatches(src)) {
       final v = m.group(group);
-      if (v != null) candidates.add(v);
+      if (v != null) into.add(v);
     }
   }
 
   addAllMatches(
+    emitSites,
     RegExp(r"_used\w*Functions\.add\(\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"),
   );
-  addAllMatches(RegExp(r"_buildStdCall\(\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"));
-  addAllMatches(RegExp(r"\.\.function\s*=\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"));
   addAllMatches(
+    emitSites,
+    RegExp(r"_buildStdCall\(\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"),
+  );
+  addAllMatches(
+    emitSites,
+    RegExp(r"\.\.function\s*=\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"),
+  );
+  addAllMatches(
+    emitSites,
     RegExp(r"'[a-zA-Z_][a-zA-Z0-9_]*'\s*:\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"),
   );
-  addAllMatches(RegExp(r"\(\s*'std\w*'\s*,\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"));
+  addAllMatches(
+    emitSites,
+    RegExp(r"\(\s*'std\w*'\s*,\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"),
+  );
   // `switch (op) { '+' => 'add', ... }` operator-lexeme route tables
   // (e.g. `_dartOpToBallFunction`) — the case pattern is a symbol literal
   // (not `[a-zA-Z_]`), so the generic map-literal regex above can't see it.
-  addAllMatches(RegExp(r"'[^']*'\s*=>\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"));
+  addAllMatches(
+    emitSites,
+    RegExp(r"'[^']*'\s*=>\s*'([a-zA-Z_][a-zA-Z0-9_]*)'"),
+  );
 
   for (final m in RegExp(
     r'_used\w*Functions\.addAll\(\[([^\]]*)\]\)',
   ).allMatches(src)) {
     final body = m.group(1)!;
     for (final n in RegExp(r"'([a-zA-Z_][a-zA-Z0-9_]*)'").allMatches(body)) {
-      candidates.add(n.group(1)!);
+      emitSites.add(n.group(1)!);
     }
   }
+
+  final candidates = <String>{...emitSites};
 
   // Safety net: some emit sites assign the ball-function name to a local
   // (e.g. `op == '++' ? 'post_increment' : 'post_decrement'` in
@@ -426,19 +467,32 @@ Set<String> _harvestEmittable(String src) {
   // single-quoted-identifier scan of the whole file closes that gap. This
   // is deliberately broad — over-matching is harmless (candidates are only
   // ever consulted by exact canonical function name), but it does mean a
-  // function name mentioned only in a comment would be misreported as
-  // emittable; spot-check the gap report rather than trusting it blindly.
-  addAllMatches(RegExp(r"'([a-zA-Z_][a-zA-Z0-9_]*)'"));
+  // function name mentioned only in a comment or in a metadata VALUE would
+  // be misreported as emittable; [phantomEmittable] names the ones that
+  // really are declared base functions, so the gap report stays honest.
+  addAllMatches(candidates, RegExp(r"'([a-zA-Z_][a-zA-Z0-9_]*)'"));
 
-  // The broad single-quoted scan above also matches base-function names the
-  // encoder mentions but never emits as a std CALL. `length` is such a case:
-  // its only occurrence in encoder.dart is the `unaryFunctions` input-type
-  // selection set — there is no `_buildStdCall('length')` / `..function =
-  // 'length'` emit site, because `.length` encodes to a FieldAccess, not a
-  // `std.length` call. The strict gate `check_encoder_completeness.dart`
-  // agrees (it scans only emit sites, so it never treats `length` as
-  // emittable). Subtract it so the coverage report shows no phantom gap.
-  candidates.remove('length');
+  for (final entry in phantomEmittable.entries) {
+    final name = entry.key;
+    if (emitSites.contains(name)) {
+      throw StateError(
+        'gen_std_coverage: "$name" is listed as a phantom emittable '
+        '(${entry.value}) but the encoder now reaches it from a real EMIT '
+        'SITE. Remove it from `phantomEmittable` and cover it with a '
+        'conformance fixture (or a documented carve-out) instead — leaving '
+        'it subtracted would hide a genuine completeness gap.',
+      );
+    }
+    if (!candidates.contains(name)) {
+      throw StateError(
+        'gen_std_coverage: "$name" is listed as a phantom emittable '
+        '(${entry.value}) but no longer appears in encoder.dart at all. The '
+        'entry is stale — delete it, so the subtraction list cannot grow '
+        'names that silence nothing.',
+      );
+    }
+    candidates.remove(name);
+  }
 
   return candidates;
 }

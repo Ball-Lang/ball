@@ -441,6 +441,21 @@ cargo fmt --check && cargo clippy --workspace
   `a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias`,
   `a_later_let_of_the_same_name_shadows_the_alias` and
   `a_parameter_shadows_an_alias_of_the_same_name`.
+  **And a WRITE through a borrow that is NOT that one shape now fails loud (#693).** Leaving
+  `let s = &mut p.x;` to encode as a value is correct for a READ (a read of a borrow and a read of
+  a copy give the same answer) and silently wrong for a write — the same lost write as the alias
+  bug, one place over. `block.rs::encode_local` classifies the initializer as
+  `AliasTarget::Variable` (modelled, no binding emitted) or `AliasTarget::Opaque` (binding still
+  emitted, carrying the borrowed place rendered back to Rust), and
+  `lib.rs::refuse_write_through_an_unmodellable_borrow` — called from `encode_assign`, the single
+  choke point for `=` and every compound operator — panics when a write's ROOT (through
+  parens/deref/field/index, `write_root_name`) resolves to an `Opaque` alias, naming the alias, the
+  place and #692. A `&mut` of a variable that is itself `Opaque` inherits the opaqueness rather
+  than becoming a modelled alias of the copy. A SHARED `&p.x` is never `Opaque`: Rust cannot write
+  through a `&T`, so there is nothing to lose. Guards:
+  `rust/encoder/tests/mut_borrow_writes.rs` — four refused write shapes and four controls (a
+  read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing).
+  A `&mut` handed to a CALLEE (`f(&mut x)`) is a different mechanism and stays with #692.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -673,7 +688,12 @@ and its own encoder refuses caps that column no matter how good either half is o
   #642**: harness health PLUS `passed >= 1` PLUS `passed >= RUST_ROUNDTRIP_FLOOR`, enforced by
   `tools/ci/roundtrip_floor.sh`. Still NOT a parity gate — but a flat zero is red, and the floor
   only rises. **Raise it in the SAME PR as the fix that earned it**; the job prints the exact new
-  value. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
+  value. **A fixture that HANGS is its own hard error since #693**, never one more increment of
+  `failed`: the per-fixture budget is `BALL_TIMEOUT_MS` (default 60 000, fail-loud on a
+  non-integer) and `roundtrip_floor.sh` reds the row on any `FAILING [name] timeout` line (C#'s
+  row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
+  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, the only
+  non-`#[ignore]`d test in that target, so it runs in `cargo test --workspace` on every PR. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
   `BallMap::new()`/`BallList::new()` and the class-registry helpers), never as an "expected
   baseline"; the method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A,
   not this leg.

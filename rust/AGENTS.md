@@ -427,10 +427,14 @@ instructions.
   with ``unsupported macro invocation `panic!` ``. Neither crate's own tests could see it:
   `rust/compiler`'s assert on emitted Rust, `rust/encoder`'s start from hand-written Rust. The
   gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`, which runs Tier A's three
-  library-mode stages. Stage 3 is an **encode** gate and says so: the compiler's output names
-  runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not user functions, so
-  **re-compiling stage 3's output is not a fixpoint** — measured, and neither Tier A nor that test
-  pretends otherwise. Since #646 reading those helpers is fail-loud: `runtime_helpers.rs` maps the
+  library-mode stages. Stage 3 is an **encode** gate for every program but one: the compiler's
+  output names runtime helpers (`ball_message_type_name`, …) that are not user functions, so
+  **re-compiling stage 3's output is not a fixpoint at large** — measured, and neither Tier A nor
+  that test pretends otherwise. The exception is #692's
+  `re_compiling_the_re_encoded_program_still_computes_the_same_answer`, which builds and RUNS both
+  compiles of a program made of the collection/class constructs that slice taught the encoder; it
+  became possible only once `__ball_register_types` stopped coming back as a user function (a
+  second compile emitted it twice, `error[E0428]`). Since #646 reading those helpers is fail-loud: `runtime_helpers.rs` maps the
   ones with a universal-`std` inverse and an UNMAPPED `ball_*` aborts the file instead of becoming
   a same-file call to a function nobody declared. That table is the universal-`std` subset only,
   so a compiled library naming any other helper stops at the first one; never read a green run of

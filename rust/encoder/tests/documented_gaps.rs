@@ -26,11 +26,12 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. **Eight** are flipped today: receiver-less associated functions
+//! unverified. **Nine** are flipped today: receiver-less associated functions
 //! and cross-file call targets (PR #526), non-`Fn` items inside an `impl`
 //! block, tuple + unit structs, module-scope `const`/`static`/`type` aliases,
-//! non-`Fn` items inside a `trait` block, and — newest — the cross-file
-//! METHOD call, closed by the crate-aware `encode_crate`. The deeper proofs
+//! non-`Fn` items inside a `trait` block, the cross-file METHOD call (closed by
+//! the crate-aware `encode_crate`) and — newest — the script-mode entry-point
+//! IIFE, closed by #646's `as_zero_arg_closure`. The deeper proofs
 //! live in `rust/encoder/tests/static_methods.rs`,
 //! `rust/encoder/tests/cross_module_calls.rs`,
 //! `rust/encoder/tests/mixed_impl_items.rs`,
@@ -373,36 +374,50 @@ fn cross_file_method_call_encodes() {
 
 // ── lib.rs: re-encoding the COMPILER's own output ────────────────────────────
 
-/// The compiler↔encoder round-trip invariant (#632) in its second shape, still
-/// OPEN as issue #687.
+/// **CLOSED**, and flipped here per this file's own rule — by #646's
+/// `lib.rs::as_zero_arg_closure`, not by the shape issue #687 proposed.
 ///
 /// `Compiler::compile()` (script mode) wraps the entry function's body in an
 /// immediately-invoked closure — `let _ballvalue_result: BallValue = (|| ->
-/// BallValue { … })();` — and `lib.rs`'s call-target match refuses it, so
-/// `encode(compile(p))` fails for EVERY program, hello-world included.
+/// BallValue { … })();` — and `lib.rs`'s call-target match used to refuse it,
+/// so `encode(compile(p))` failed for EVERY program, hello-world included.
 ///
-/// It is not fixed here because the IIFE is load-bearing: it is what makes a
-/// `return` inside the entry body return from the entry body rather than from
-/// `main`, which returns `()`. Encoding it as a plain Ball `block` would
-/// silently change that (a `return` inside a Ball block returns from the
-/// enclosing FUNCTION); the faithful shape is a `lambda` invoked through
-/// `std.invoke`, which is what `dart/encoder` emits for a
-/// `FunctionExpressionInvocation` — a decision #687 owes, together with a
-/// run-proof that the `return` still behaves.
+/// #687 proposed encoding it as a `lambda` invoked through `std.invoke` (what
+/// `dart/encoder` emits for a `FunctionExpressionInvocation`), on the worry that
+/// a plain Ball `block` would change where a `return` lands. #646 INLINED the
+/// closure body instead, and that is sound in both directions: a Ball `return`
+/// returns from the enclosing FUNCTION, the compiler's IIFE exists only because
+/// Rust's `main` returns `()`, and the entry body IS the function body — so
+/// inlining restores exactly the Ball the compiler started from. Whether the
+/// IIFE is equally faithful for a NESTED block in value position is a COMPILER
+/// question (a Rust `return` leaves only the closure there), tracked on #687 —
+/// the encoder's half is what this test now asserts.
 ///
-/// The LIBRARY-mode round trip — the pipeline Tier A stage 3 actually measures
-/// — is green and gated by
-/// `rust/encoder/tests/compile_reencode_roundtrip.rs`. Flip this pin to a
-/// positive assertion in the PR that closes #687.
+/// It is asserted POSITIVELY, not merely as "does not panic": a re-encode that
+/// dropped the inlined body would not panic either. This test was RED against
+/// `main` (`#[should_panic]`, "did not panic as expected") from the moment #646
+/// and #685 were both in — each green on its own branch, the same semantic merge
+/// conflict as `compiled_method_dispatcher_scrutinee_is_a_documented_gap` below.
 #[test]
-#[should_panic(expected = "unsupported call target")]
-fn compiled_entry_point_iife_is_a_documented_gap() {
+fn compiled_entry_point_iife_encodes() {
     let program = ball_lang_encoder::encode(r#"fn main() { println!("{}", 1); }"#);
     let compiled = ball_lang_compiler::Compiler::new(&program).compile();
-    encode(&compiled);
+    assert!(
+        compiled.contains("|| -> BallValue {"),
+        "this test is only meaningful while script mode still wraps the entry body in an IIFE \
+         — if that changed, re-measure #687 and update it:\n{compiled}"
+    );
+
+    let reencoded = ball_lang_encoder::encode(&compiled);
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("\"print\""),
+        "the entry body's `std.print` must survive the inlining — a re-encode that dropped the \
+         body would pass a panic-free assertion just as cleanly: {rendered}"
+    );
 }
 
-/// The same invariant's remaining OPEN shape, tracked as issue #712 — and the
+/// The same invariant's other OPEN shape, tracked as issue #712 — and the
 /// one the #632 sweep found by enumerating what the compiler EMITS rather than
 /// assuming the dispatcher's `panic!` was the only instance.
 ///
@@ -483,8 +498,8 @@ impl Point {
 }
 "#;
 
-/// The round-trip invariant's THIRD open instance, tracked as **#718** — and
-/// the one that turned `main` red: a semantic merge conflict between #646,
+/// The round-trip invariant's SECOND open instance, tracked as **#718** — and
+/// one of the two that turned `main` red: a semantic merge conflict between #646,
 /// which built `runtime_helpers.rs` and made an UNMAPPED `ball_*` a hard
 /// refusal, and #685, which added the first test that re-encodes a compiled
 /// method dispatcher. Each was green on its own branch; together they are not.

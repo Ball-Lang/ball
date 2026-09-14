@@ -441,9 +441,14 @@ instructions.
   where no inverse exists. Pinned by
   `compiled_spliced_list_literal_is_a_documented_gap` (driven through the real compiler, asserting
   both constructs are still emitted) and `the_matches_macro_is_a_documented_gap` (the second
-  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is the
-  invariant's second open instance — also pinned in `documented_gaps.rs`, tracked as **#687**.
-  The **third** is the compiled method dispatcher's scrutinee, **#718**: `compile_method_dispatchers`
+  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is
+  **CLOSED** — by #646's `lib.rs::as_zero_arg_closure`, which INLINES the closure body rather than
+  emitting the `std.invoke`-over-`lambda` shape **#687** proposed; sound in both directions, since a
+  Ball `return` returns from the enclosing FUNCTION and the entry body IS the function body. Its pin
+  is flipped to `compiled_entry_point_iife_encodes`, which asserts the entry body's `std.print`
+  SURVIVES (a dropped body would not panic either); whether the IIFE is equally faithful for a
+  NESTED block in value position is a compiler question still on #687.
+  The invariant's **second** open instance is the compiled method dispatcher's scrutinee, **#718**: `compile_method_dispatchers`
   opens every instance-method dispatcher with `match ball_message_type_name(&__self).as_str()`,
   and that helper has no universal-`std` inverse — it returns the receiver's module-QUALIFIED tag
   (`main:Point`) while `std.type_of` (#489) returns the SHORT base name, so mapping one to the

@@ -210,11 +210,11 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 10 on 2026-09-14 (FOUR of them are #632 siblings: the script-mode entry-point IIFE,
-  tracked as #687; the spliced collection-literal lowering's two refusals — `Vec::new()` and
-  `matches!` — tracked as #712 and pinned separately because a `#[should_panic]` observes only the
-  first panic; and the compiled method dispatcher's `ball_message_type_name` scrutinee, tracked as
-  #718), and everything else in that file is a flipped, positive assertion.
+  prose** — 9 on 2026-09-14 (THREE of them are #632 siblings: the spliced collection-literal
+  lowering's two refusals — `Vec::new()` and `matches!` — tracked as #712 and pinned separately
+  because a `#[should_panic]` observes only the first panic, and the compiled method dispatcher's
+  `ball_message_type_name` scrutinee, tracked as #718), and everything else in that file is a
+  flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -464,15 +464,17 @@ and its own encoder refuses caps that column no matter how good either half is o
   funnel, and a lane that wants those numbers up works on stage 1's named reasons
   (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
   the invariant; the third-party funnel is a separate, slower instrument.
-- The invariant has **three** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
-  - the script-mode entry-point IIFE (`compile()` wraps the entry body in
-    `(|| -> BallValue { … })()`, which the encoder refuses),
-    `compiled_entry_point_iife_is_a_documented_gap`, tracked as **#687**. Do not "fix" it by
-    encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return` in the entry
-    body return from the entry body rather than from `main`, and a Ball block's `return` leaves
-    the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
-  - the **spliced collection-literal lowering**, tracked as **#712**, the broadest of the
-    three: `compile_list_literal` goes imperative the moment any element splices, and emits
+- The script-mode entry-point IIFE is **CLOSED**, by #646's `lib.rs::as_zero_arg_closure`, and
+  its pin is flipped to `compiled_entry_point_iife_encodes`. #687 proposed `std.invoke` over a
+  `lambda` (what `dart/encoder` emits for a `FunctionExpressionInvocation`) on the worry that a
+  plain Ball `block` moves where a `return` lands; #646 INLINED the closure body instead, which is
+  sound in both directions — a Ball `return` returns from the enclosing FUNCTION, the IIFE exists
+  only because Rust's `main` returns `()`, and the entry body IS the function body. Whether the
+  IIFE is equally faithful for a NESTED block in value position is a COMPILER question, still on
+  **#687**.
+- The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
+  - the **spliced collection-literal lowering**, tracked as **#712**, the broader of the
+    two: `compile_list_literal` goes imperative the moment any element splices, and emits
     `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type
     — measured as the FIRST refusal) and `if !matches!(__sp, BallValue::Null)` behind it. So every
     library whose output holds a spread, collection-`if` or collection-`for` fails stage 3, not

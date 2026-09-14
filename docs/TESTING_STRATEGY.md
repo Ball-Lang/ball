@@ -180,7 +180,9 @@ too, without a colour-forced CI leg.
 > *Resolved:* #501 fixed the C++ emitter (a shadowing field now becomes a private
 > renamed backing member plus a public `virtual` accessor pair over a virtualised
 > ancestor getter, so the vtable — not a compile-time type guess — resolves it)
-> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` is still empty.
+> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` was empty at that point,
+> and it is empty again today (see the #695 note below for the one entry that
+> lived there in between).
 
 > **One fixture per defect, not one per defect *family*.** 406 exercises only the
 > READ side of a shadowed accessor, through a receiver whose static and runtime
@@ -280,7 +282,56 @@ too, without a colour-forced CI leg.
 > `437_recursive_ctor_tree` were de-carved with #513, and
 > `438_ctor_initializer_list_with_body` with #514. All four are listed in
 > `cpp/test/e2e_fixture_list.h` and run on the compiled leg, and
-> `CPP_COMPILE_CARVEOUTS` is EMPTY again.
+> `CPP_COMPILE_CARVEOUTS` was EMPTY again at that point (see the #695 note
+> below for the one entry that lived there in between).
+>
+> **A carve-out is the honest disposition when the gap is the TARGET, not the
+> fixture — and it is a RATCHET, so it comes back out the moment the target
+> catches up.** #651's fixture — `472_initializer_list_field_with_setter`, a
+> class declaring a `final` field and its OWN setter of the same name — is the
+> counter-case to 406 above. 406 was WITHDRAWN because a different fixture could
+> pin the same Dart-side point; 472 cannot be reshaped, because that exact
+> declaration pair IS #651's mechanism (a spurious `late final` hands the field
+> an implicit setter that collides with the declared one). It runs correctly on
+> every engine — Dart, TS, Rust, C#, Go, Python and the C++ self-host engine —
+> and it failed only the Ball → C++ **compiled** leg, because C++ has ONE member
+> namespace and the emitted data member and setter collided. That was a C++ target
+> gap, filed as [#695](https://github.com/Ball-Lang/ball/issues/695) and parked in
+> `CPP_COMPILE_CARVEOUTS` plus `cpp/test/e2e_fixture_list_known_gaps.txt` — loud,
+> tracked, one entry, and never `continue-on-error`.
+>
+> **Both entries are gone again**: `main` landed
+> [#680](https://github.com/Ball-Lang/ball/pull/680) while this branch was open,
+> and its C++ half is exactly the lowering #695 asked for —
+> `class_setter_backed_fields_` in `cpp/compiler`, which gives a field declared
+> beside its own same-named setter the #501 backing-member treatment and
+> synthesizes only the GETTER half, leaving the write side to the declared setter.
+> 472 is now listed in `cpp/test/e2e_fixture_list.h` next to
+> `470_setter_beside_final_field` (#680's own fixture for the identical
+> declaration pair), and `CPP_COMPILE_CARVEOUTS` is empty. **Re-check a carve-out
+> against `main` on every merge**: a carve-out that outlives its gap is a silent
+> coverage hole, and nothing in CI can tell the two apart — the leg is green
+> either way.
+>
+> C++ is no longer among the failing targets, but it was only the loudest, never
+> the only one:
+> [#706](https://github.com/Ball-Lang/ball/issues/706) carries the same fixture on
+> the Rust, Go, Python and C# COMPILER legs, where Rust and Go build and run it
+> and then read the field back as `null`. Those legs are RATCHETED, so they are
+> green with it failing and will stay green when it is fixed — which is exactly
+> why the per-fixture line, not the leg's colour, is the thing to read.
+>
+> Adding it also surfaced a hole in the per-PR leg itself. `full_e2e.sh` carries
+> a positive floor — `passed == 0 && failed == 0` is a leg that proved nothing,
+> so it exits 1 — and that floor is PER-INVOCATION. ci.yml used to hand it only
+> the PR's changed fixtures, so a PR whose every changed fixture is carved out
+> selected one fixture, skipped it, ran nothing, and went red naming the wrong
+> cause: the gate as written forbade ever ADDING a carved-out fixture, which
+> contradicts the paragraph above. The fix is the one the floor's own error
+> message prescribes — WIDEN THE FILTER: the changed fixtures and the derived
+> four-fixture harness slice now share a single `full_e2e.sh` call, so the floor
+> always measures real compiles while the carve-out stays loudly reported. Never
+> answer that red by deleting the floor, the carve-out, or the fixture.
 >
 > **Name the leg that actually covers it — measure, do not assume.** An earlier
 > draft of the paragraph above also claimed those four fixtures "pass on the
@@ -1226,7 +1277,7 @@ could not parse a summary at all).
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
-| The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
+| The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — ONE `full_e2e.sh` call over the PR's changed fixtures **plus** a derived four-fixture slice. One call, not two steps: the harness's positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is per-invocation, so a PR whose every changed fixture is a tracked `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the wrong cause (#651/#695) | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |

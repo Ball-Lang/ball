@@ -1101,11 +1101,7 @@ class DartCompiler {
       // must know whether any constructor in this class is const (#305).
       final hasConstConstructor = methods.any((m) {
         final mMeta = _readMeta(m);
-        var mKind = mMeta['kind'] as String? ?? 'method';
-        if (mKind == 'method' && _memberName(m.name) == 'new') {
-          mKind = 'constructor';
-        }
-        return mKind == 'constructor' && mMeta['is_const'] == true;
+        return _isConstructorMeta(m, mMeta) && mMeta['is_const'] == true;
       });
 
       _addClassFields(
@@ -1113,6 +1109,7 @@ class DartCompiler {
         descriptor,
         meta,
         hasConstConstructor: hasConstConstructor,
+        definitelyAssigned: _definitelyAssignedFields(methods),
       );
 
       final staticFields = methods
@@ -1236,11 +1233,87 @@ class DartCompiler {
     });
   }
 
+  /// Whether [m] declares a constructor.
+  ///
+  /// Constructors are usually tagged `kind: constructor`, but a member named
+  /// `<Class>.new` is one even when its metadata still says `method`.
+  bool _isConstructorMeta(FunctionDefinition m, Map<String, Object?> mMeta) {
+    final kind = mMeta['kind'] as String? ?? 'method';
+    if (kind == 'constructor') return true;
+    return kind == 'method' && _memberName(m.name) == 'new';
+  }
+
+  /// The instance fields that EVERY generative constructor in [methods]
+  /// definitely assigns before its body runs — so they never need `late`
+  /// (#651).
+  ///
+  /// Two IR shapes prove an assignment, both already recorded by the encoder:
+  ///
+  ///  * `metadata['initializers']` entry `{kind: field, name, value}` — the
+  ///    constructor's own initializer list (`Foo(int end) : length = end`);
+  ///  * `metadata['params']` entry with `is_this: true` that is ALWAYS
+  ///    supplied — a required positional, a `required` named, or an optional
+  ///    one carrying a `default`. An optional initializing formal with no
+  ///    default proves nothing: the caller may omit it.
+  ///
+  /// Constructors that delegate rather than initialize are skipped, because
+  /// the constructor they delegate to is the one that must prove the
+  /// assignment: factories, `Foo.zero() = Foo(0)` (`redirects_to`) and
+  /// `Foo.zero() : this(0)` (an initializer of `kind: redirect`).
+  ///
+  /// The result is the INTERSECTION across the remaining constructors, so a
+  /// class that assigns the field in one constructor's body keeps its `late`.
+  /// A class with no generative constructor at all proves nothing.
+  Set<String> _definitelyAssignedFields(List<FunctionDefinition> methods) {
+    Set<String>? assigned;
+
+    for (final m in methods) {
+      final mMeta = _readMeta(m);
+      if (!_isConstructorMeta(m, mMeta)) continue;
+      if (mMeta['is_factory'] == true) continue;
+      if (mMeta['redirects_to'] != null) continue;
+
+      final inits = mMeta['initializers'] as List?;
+      if (inits != null &&
+          inits.any((i) => i is Map && i['kind'] == 'redirect')) {
+        continue;
+      }
+
+      final here = <String>{};
+      if (inits != null) {
+        for (final init in inits) {
+          if (init is! Map || init['kind'] != 'field') continue;
+          final name = init['name'];
+          if (name is String) here.add(name);
+        }
+      }
+      final params = mMeta['params'] as List?;
+      if (params != null) {
+        for (final param in params) {
+          if (param is! Map || param['is_this'] != true) continue;
+          final name = param['name'];
+          if (name is! String) continue;
+          final isOptional =
+              param['is_optional'] == true ||
+              param['is_optional_named'] == true;
+          if (isOptional && param['default'] == null) continue;
+          here.add(name);
+        }
+      }
+
+      assigned = assigned == null ? here : assigned.intersection(here);
+      if (assigned.isEmpty) return const {};
+    }
+
+    return assigned ?? const {};
+  }
+
   void _addClassFields(
     cb.ClassBuilder b,
     google.DescriptorProto type,
     Map<String, Object?> meta, {
     bool hasConstConstructor = false,
+    Set<String> definitelyAssigned = const {},
   }) {
     _addInstanceFields(
       (f) => b.fields.add(f),
@@ -1248,6 +1321,7 @@ class DartCompiler {
       type,
       meta,
       hasConstConstructor: hasConstConstructor,
+      definitelyAssigned: definitelyAssigned,
     );
   }
 
@@ -1259,6 +1333,7 @@ class DartCompiler {
     google.DescriptorProto type,
     Map<String, Object?> meta, {
     bool hasConstConstructor = false,
+    Set<String> definitelyAssigned = const {},
   }) {
     final fieldsMeta = meta['fields'] as List?;
 
@@ -1332,11 +1407,18 @@ class DartCompiler {
             if (hasExplicitType && fieldType != null) {
               fb.type = cb.refer(fieldType);
             }
-            // Non-nullable fields without an initializer need `late` in
-            // null-safe Dart (they're set in the constructor body) — EXCEPT
-            // when the class has a const constructor, which forbids `late
-            // final` fields (they're initialized via initializing formals /
-            // the initializer list instead) (#305).
+            // A non-nullable field with no inline initializer needs `late`
+            // in null-safe Dart only when nothing PROVES it is assigned by
+            // the time construction finishes — i.e. when it is written in a
+            // constructor BODY (#305). Two shapes prove it without a body,
+            // and [definitelyAssigned] carries both straight out of the IR
+            // the encoder already records: an assignment in EVERY generative
+            // constructor's own initializer list, and an always-supplied
+            // initializing formal. Emitting `late` for those is not merely
+            // redundant — a `late final` field is assignable after
+            // construction, so it also contributes an implicit SETTER, which
+            // collides with a user-declared setter of the same name (#651).
+            // A const constructor forbids `late final` outright (#305).
             fb.late =
                 !hasConstConstructor &&
                 (isLate ||
@@ -1344,7 +1426,9 @@ class DartCompiler {
                         hasExplicitType &&
                         fieldType != null &&
                         !fieldType.endsWith('?') &&
-                        modifier != 'const'));
+                        modifier != 'const' &&
+                        !definitelyAssigned.contains(field.name) &&
+                        !definitelyAssigned.contains(fieldName)));
             if (initializer != null) fb.assignment = cb.Code(initializer);
             switch (modifier) {
               case 'final':
@@ -1467,6 +1551,7 @@ class DartCompiler {
           (m) => b.methods.add(m),
           td.descriptor,
           meta,
+          definitelyAssigned: _definitelyAssignedFields(methods),
         );
       }
 

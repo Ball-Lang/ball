@@ -21,6 +21,7 @@ Ball → Dart code generator. Translates a Ball `Program` (protobuf expression t
 - Control flow (`if`/`for`/`while`) MUST compile lazily — extract expression trees, never eval branches eagerly (see Core Invariants in `../../CLAUDE.md`).
 - Types are emitted from `typeDefs[]` only; the legacy `types[]`/`_meta_*` path is gone.
 - A value-position `Block` compiles to `(() { … })()`, EXCEPT the encoder's cascade lowering, which `_tryCompileCascadeBlock` recognizes back into native `..` / `?..` syntax (#573). Keep that recognizer keyed on `LetBinding.metadata['kind'] == 'cascade'`, never on the Block's shape alone: an IIFE is a function boundary, and Dart drops a local's type promotion across one, so a Block that merely LOOKS cascade-shaped must keep the generic lowering.
+- `late` on an instance field is a DECISION READ OUT OF THE IR, never inferred from the field declaration alone (#651). `_definitelyAssignedFields(methods)` intersects, across every generative constructor, the fields proved assigned by that constructor's own initializer list (`metadata['initializers']` `{kind: field}`) or by an always-supplied initializing formal (`metadata['params']` `is_this` that is required, or optional WITH a `default`); `_addInstanceFields` skips `fb.late` for those. Emitting a stray `late final` is not cosmetic — it hands the field an implicit setter that collides with a user-declared one (`DUPLICATE_DEFINITION`).
 - Compiler-specific patterns and gotchas: `.claude/rules/dart.md`.
 - Tests in `test/`; cross-language matrix tests tagged `slow` (`-x slow` to skip).
 

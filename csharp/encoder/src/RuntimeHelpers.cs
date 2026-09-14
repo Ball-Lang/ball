@@ -102,6 +102,7 @@ internal static class RuntimeHelpers
             ["ToInt"] = ("to_int", Unary),
             ["NullCheck"] = ("null_check", Unary),
             ["StringIsEmpty"] = ("string_is_empty", Unary),
+            ["StringIsNotEmpty"] = ("string_is_not_empty", Unary),
             ["StringContains"] = ("string_contains", Binary),
             ["StringStartsWith"] = ("string_starts_with", Binary),
             ["StringEndsWith"] = ("string_ends_with", Binary),

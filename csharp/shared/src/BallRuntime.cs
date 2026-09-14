@@ -514,6 +514,20 @@ public static partial class BallRuntime
         _ => throw new BallRuntimeException($"isEmpty expects a string/collection, got {TypeName(value)}"),
     };
 
+    /// <summary><c>value.isNotEmpty</c>.</summary>
+    // Its OWN op, never the negation of StringIsEmpty: the encoder must ask a
+    // receiver for the member the source named, because a DELEGATING receiver
+    // can see which member it is asked for (issue #674). Polymorphic over the
+    // same receivers as StringIsEmpty.
+    public static BallValue StringIsNotEmpty(BallValue value) => value switch
+    {
+        BallString s => BallValue.Bool(s.Value.Length != 0),
+        BallList l => BallValue.Bool(!l.IsEmpty),
+        BallMap m => BallValue.Bool(!m.IsEmpty),
+        BallBytes b => BallValue.Bool(b.Value.Length != 0),
+        _ => throw new BallRuntimeException($"isNotEmpty expects a string/collection, got {TypeName(value)}"),
+    };
+
     /// <summary><c>left.contains(right)</c>.</summary>
     public static BallValue StringContains(BallValue left, BallValue right) =>
         BallValue.Bool(AsStr(left).Contains(AsStr(right), StringComparison.Ordinal));

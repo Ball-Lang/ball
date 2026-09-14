@@ -43,7 +43,7 @@
           "isBase": true
         },
         {
-          "name": "not",
+          "name": "string_is_not_empty",
           "isBase": true
         }
       ],
@@ -667,7 +667,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "not",
+                                  "function": "string_is_not_empty",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -677,32 +677,16 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "string_is_empty",
+                                              "function": "sink_to_string",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
                                                   "fields": [
                                                     {
-                                                      "name": "value",
+                                                      "name": "sink",
                                                       "value": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "sink_to_string",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "sink",
-                                                                  "value": {
-                                                                    "reference": {
-                                                                      "name": "blank"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              ]
-                                                            }
-                                                          }
+                                                        "reference": {
+                                                          "name": "blank"
                                                         }
                                                       }
                                                     }

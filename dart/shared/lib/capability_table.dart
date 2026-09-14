@@ -326,6 +326,7 @@ Map<String, String> buildCapabilityTable() {
     // ── std: string operations (pure) ──
     'std.string_length': 'pure',
     'std.string_is_empty': 'pure',
+    'std.string_is_not_empty': 'pure',
     'std.string_concat': 'pure',
     'std.string_contains': 'pure',
     'std.string_starts_with': 'pure',

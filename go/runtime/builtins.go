@@ -143,8 +143,9 @@ func Substring(s, start, end Value) Value {
 
 // StrIsEmpty implements std.string_is_empty. Polymorphic: the syntactic encoder
 // cannot tell a String.isEmpty from a List/Map/Set.isEmpty, so it routes every
-// `.isEmpty`/`.isNotEmpty` here — this must answer emptiness for collections too
-// (matching the reference engines' polymorphic std handler).
+// `.isEmpty` here — this must answer emptiness for collections too (matching
+// the reference engines' polymorphic std handler). `.isNotEmpty` has its own
+// function, StrIsNotEmpty (issue #674).
 func StrIsEmpty(v Value) Value {
 	switch x := unwrap(v).(type) {
 	case string:
@@ -161,6 +162,28 @@ func StrIsEmpty(v Value) Value {
 		return true
 	}
 	return len(ToStr(v)) == 0
+}
+
+// StrIsNotEmpty implements std.string_is_not_empty. Its OWN op, never the
+// negation of StrIsEmpty: the encoder must ask a receiver for the member the
+// source named, because a DELEGATING receiver can see which member it is asked
+// for (issue #674). Polymorphic over the same receivers as StrIsEmpty.
+func StrIsNotEmpty(v Value) Value {
+	switch x := unwrap(v).(type) {
+	case string:
+		return len(x) != 0
+	case *List:
+		return x.Len() != 0
+	case *Map:
+		return x.Len() != 0
+	case *Set:
+		return len(x.Items) != 0
+	case []byte:
+		return len(x) != 0
+	case nil:
+		return false
+	}
+	return len(ToStr(v)) != 0
 }
 
 // StrCodeUnitAt implements std.string_code_unit_at (UTF-16 code unit).

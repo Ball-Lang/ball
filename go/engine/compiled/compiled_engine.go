@@ -3863,7 +3863,7 @@ func BallEngine___validateExpressionDepth(input ballrt.Value) (__ret ballrt.Valu
 		}())
 		_ = stack
 		_ = func() ballrt.Value {
-			for ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(stack))) {
+			for ballrt.Truthy(ballrt.StrIsNotEmpty(stack)) {
 				if ballrt.RunLoopBody("", func() {
 					_ = func() ballrt.Value {
 						var current ballrt.Value = ballrt.ListPop(stack)
@@ -4494,7 +4494,7 @@ func BallEngine___buildLookupTables(input ballrt.Value) (__ret ballrt.Value) {
 													var params ballrt.Value = _extractParams(ballrt.Arg0WithSelf(ballrt.FieldGet(ball_func, "metadata"), __self))
 													_ = params
 													_ = func() ballrt.Value {
-														if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(params))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(ball_func, "name")))))) {
+														if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(params)) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(ball_func, "name"))))) {
 															return ballrt.IndexSet(_paramCache, key, params)
 														}
 														return ballrt.Value(nil)
@@ -5158,7 +5158,7 @@ func BallEngine___lookupTypeMethodWithInheritance(input ballrt.Value) (__ret bal
 		var current ballrt.Value = typeName
 		_ = current
 		_ = func() ballrt.Value {
-			for ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(current))) {
+			for ballrt.Truthy(ballrt.StrIsNotEmpty(current)) {
 				if ballrt.RunLoopBody("", func() {
 					_ = func() ballrt.Value {
 						var direct ballrt.Value = ballrt.IndexGet(_typeMethodDispatch, _typeMethodKey(func() ballrt.Value {
@@ -6192,7 +6192,7 @@ func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 				}()
 				_ = scope
 				_ = func() ballrt.Value {
-					if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(ball_func, "inputType")))) && ballrt.Truthy(ballrt.Neq(ball_input, ballrt.Value(nil))))) {
+					if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(ball_func, "inputType"))) && ballrt.Truthy(ballrt.Neq(ball_input, ballrt.Value(nil))))) {
 						return bind(func() ballrt.Value {
 							__m := ballrt.NewMap()
 							__m.Set("self", scope)
@@ -6204,7 +6204,7 @@ func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 					return ballrt.Value(nil)
 				}()
 				var params ballrt.Value = func() ballrt.Value {
-					if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(ball_func, "name")))) {
+					if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(ball_func, "name"))) {
 						return func() ballrt.Value {
 							__l := ballrt.IndexGet(_paramCache, ballrt.Concat(ballrt.Concat(ballrt.ToStr(moduleName), "."), ballrt.ToStr(ballrt.FieldGet(ball_func, "name"))))
 							if __l != nil {
@@ -6233,7 +6233,7 @@ func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 				var boundParams ballrt.Value = ballrt.NewList()
 				_ = boundParams
 				_ = func() ballrt.Value {
-					if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(params))) {
+					if ballrt.Truthy(ballrt.StrIsNotEmpty(params)) {
 						return func() ballrt.Value {
 							if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(params, "length"), int64(1))) && ballrt.Truthy(ballrt.Not((ballrt.Truthy(ballrt.Neq(inputMap, ballrt.Value(nil))) && ballrt.Truthy(ballrt.MapContainsKey(inputMap, "self"))))))) {
 								return func() ballrt.Value {
@@ -6926,7 +6926,7 @@ func BallEngine___callObjectConstructor(input ballrt.Value) (__ret ballrt.Value)
 		var superObject ballrt.Value = ballrt.Value(nil)
 		_ = superObject
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(superclass, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(superclass))))) {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(superclass, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(superclass)))) {
 				return func() ballrt.Value {
 					_ = func() ballrt.Value {
 						__v := _invokeSuperConstructor(ballrt.WithSelf(func() ballrt.Value {
@@ -7502,7 +7502,7 @@ func BallEngine___buildConstructorInstance(input ballrt.Value) (__ret ballrt.Val
 				if ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(params, "length"), int64(1))) {
 					return func() ballrt.Value {
 						_ = ballrt.IndexSet(resolvedParams, ballrt.IndexGet(params, int64(0)), ball_input)
-						var isThis ballrt.Value = (ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(paramsMeta))) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(ballrt.IndexGet(paramsMeta, int64(0)), "is_this"), true)))
+						var isThis ballrt.Value = (ballrt.Truthy(ballrt.StrIsNotEmpty(paramsMeta)) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(ballrt.IndexGet(paramsMeta, int64(0)), "is_this"), true)))
 						_ = isThis
 						_ = func() ballrt.Value {
 							if ballrt.Truthy(isThis) {
@@ -7542,7 +7542,7 @@ func BallEngine___buildConstructorInstance(input ballrt.Value) (__ret ballrt.Val
 					}(), __self))
 					_ = superclass
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(superclass, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(superclass))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(superclass, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(superclass)))) {
 							return func() ballrt.Value {
 								var superInstance ballrt.Value = _invokeSuperConstructor(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
@@ -7592,7 +7592,7 @@ func BallEngine___buildConstructorInstance(input ballrt.Value) (__ret ballrt.Val
 					var methods ballrt.Value = _resolveTypeMethodsWithInheritance(ballrt.Arg0WithSelf(typeName, __self))
 					_ = methods
 					_ = func() ballrt.Value {
-						if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(methods))) {
+						if ballrt.Truthy(ballrt.StrIsNotEmpty(methods)) {
 							return ballrt.IndexSet(instance, "__methods__", methods)
 						}
 						return ballrt.Value(nil)
@@ -8143,7 +8143,7 @@ func BallEngine___parseSuperArgs(input ballrt.Value) (__ret ballrt.Value) {
 			s := input
 			_ = s
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.Not(ballrt.StrIsEmpty(s))
+			__ret = ballrt.StrIsNotEmpty(s)
 			return
 		})))
 	}()
@@ -8413,7 +8413,7 @@ func BallEngine___extractParams(input ballrt.Value) (__ret ballrt.Value) {
 			n := input
 			_ = n
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.Not(ballrt.StrIsEmpty(n))
+			__ret = ballrt.StrIsNotEmpty(n)
 			return
 		})))
 	}()
@@ -8917,7 +8917,7 @@ func BallEngine___indexModule(input ballrt.Value) (__ret ballrt.Value) {
 									var params ballrt.Value = _extractParams(ballrt.Arg0WithSelf(ballrt.FieldGet(ball_func, "metadata"), __self))
 									_ = params
 									_ = func() ballrt.Value {
-										if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(params))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(ball_func, "name")))))) {
+										if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(params)) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(ball_func, "name"))))) {
 											return ballrt.IndexSet(_paramCache, key, params)
 										}
 										return ballrt.Value(nil)
@@ -9161,7 +9161,7 @@ func _typeRefValueToString(input ballrt.Value) (__ret ballrt.Value) {
 		var buf ballrt.Value = ballrt.SinkCreate(name)
 		_ = buf
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(args, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(args))))) {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(args, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(args)))) {
 				return ballrt.SinkWrite(buf, ballrt.Concat(ballrt.Concat("<", ballrt.ToStr(ballrt.ListJoin(ballrt.ListMap(args, ballrt.Fn("_typeRefValueToString", _typeRefValueToString)), ", "))), ">"))
 			}
 			return ballrt.Value(nil)
@@ -12734,13 +12734,13 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj31, "isNotEmpty") {
-							_ = ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(items)))
+							_ = ballrt.Return(ballrt.StrIsNotEmpty(items))
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj31, "first") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(items))) {
+									if ballrt.Truthy(ballrt.StrIsNotEmpty(items)) {
 										return ballrt.Return(ballrt.FieldGet(items, "first"))
 									}
 									return ballrt.Value(nil)
@@ -12758,7 +12758,7 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 						if ballrt.Eq(__subj31, "last") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(items))) {
+									if ballrt.Truthy(ballrt.StrIsNotEmpty(items)) {
 										return ballrt.Return(ballrt.FieldGet(items, "last"))
 									}
 									return ballrt.Value(nil)
@@ -13078,7 +13078,7 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 								})))
 								_ = vals
 								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(vals))) && ballrt.Truthy(ballrt.ListAll(vals, ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+									if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(vals)) && ballrt.Truthy(ballrt.ListAll(vals, ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 										_ = input
 										v := input
 										_ = v
@@ -13117,7 +13117,7 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj33, "isNotEmpty") {
-							_ = ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(objectMap)))
+							_ = ballrt.Return(ballrt.StrIsNotEmpty(objectMap))
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj33, "entries") {
@@ -13217,25 +13217,25 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 				_ = func() ballrt.Value {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.IsType(object, "String")) {
-							return ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(object)))
+							return ballrt.Return(ballrt.StrIsNotEmpty(object))
 						}
 						return ballrt.Value(nil)
 					}()
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) {
-							return ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(rawList)))
+							return ballrt.Return(ballrt.StrIsNotEmpty(rawList))
 						}
 						return ballrt.Value(nil)
 					}()
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.IsType(object, "Map")) {
-							return ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(object)))
+							return ballrt.Return(ballrt.StrIsNotEmpty(object))
 						}
 						return ballrt.Value(nil)
 					}()
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.IsType(object, "Set")) {
-							return ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(object)))
+							return ballrt.Return(ballrt.StrIsNotEmpty(object))
 						}
 						return ballrt.Value(nil)
 					}()
@@ -13266,7 +13266,7 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 						return ballrt.Value(nil)
 					}()
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(object, "Set")) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(object))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(object, "Set")) && ballrt.Truthy(ballrt.StrIsNotEmpty(object)))) {
 							return ballrt.Return(ballrt.FieldGet(object, "first"))
 						}
 						return ballrt.Value(nil)
@@ -13298,7 +13298,7 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 						return ballrt.Value(nil)
 					}()
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(object, "Set")) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(object))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(object, "Set")) && ballrt.Truthy(ballrt.StrIsNotEmpty(object)))) {
 							return ballrt.Return(ballrt.FieldGet(object, "last"))
 						}
 						return ballrt.Value(nil)
@@ -13409,7 +13409,7 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 								})))
 								_ = vals
 								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(vals))) && ballrt.Truthy(ballrt.ListAll(vals, ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+									if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(vals)) && ballrt.Truthy(ballrt.ListAll(vals, ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 										_ = input
 										v := input
 										_ = v
@@ -14853,7 +14853,7 @@ func BallEngine___evalMessageCreation(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(msg, "typeName")))) {
+			if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(msg, "typeName"))) {
 				return func() ballrt.Value {
 					var typeDef ballrt.Value = _findTypeDef(ballrt.Arg0WithSelf(ballrt.FieldGet(msg, "typeName"), __self))
 					_ = typeDef
@@ -15038,7 +15038,7 @@ func BallEngine___evalMessageCreation(input ballrt.Value) (__ret ballrt.Value) {
 								var superObject ballrt.Value = ballrt.Value(nil)
 								_ = superObject
 								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(superclass, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(superclass))))) {
+									if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(superclass, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(superclass)))) {
 										return func() ballrt.Value {
 											_ = func() ballrt.Value {
 												__v := func() ballrt.Value {
@@ -16129,7 +16129,7 @@ func BallEngine___parseInitializer(input ballrt.Value) (__ret ballrt.Value) {
 								s := input
 								_ = s
 								defer ballrt.CatchReturn(&__ret)
-								__ret = ballrt.Not(ballrt.StrIsEmpty(s))
+								__ret = ballrt.StrIsNotEmpty(s)
 								return
 							})), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 								_ = input
@@ -16490,7 +16490,7 @@ func BallEngine___buildSuperObject(input ballrt.Value) (__ret ballrt.Value) {
 					var grandparentObject ballrt.Value = ballrt.Value(nil)
 					_ = grandparentObject
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(grandparent, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(grandparent))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(grandparent, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(grandparent)))) {
 							return func() ballrt.Value {
 								__v := _buildSuperObject(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
@@ -16846,7 +16846,7 @@ func BallEngine___resolveTypeMethodsWithInheritance(input ballrt.Value) (__ret b
 		var typeDef ballrt.Value = _findTypeDef(ballrt.Arg0WithSelf(typeName, __self))
 		_ = typeDef
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeDef, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(typeDef, "superclass"), ballrt.Value(nil))))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(typeDef, "superclass"))))))) {
+			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeDef, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(typeDef, "superclass"), ballrt.Value(nil))))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(typeDef, "superclass")))))) {
 				return func() ballrt.Value {
 					var qualSuper ballrt.Value = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.ListContains(ballrt.NullCheck(ballrt.FieldGet(typeDef, "superclass")), ":")) {
@@ -17335,7 +17335,7 @@ func BallEngine___evalLambda(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}()
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(paramNames))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(paramNames)) {
 								return func() ballrt.Value {
 									_ = func() ballrt.Value {
 										var i ballrt.Value = int64(0)
@@ -17909,7 +17909,7 @@ func BallEngine___evalLazyFor(input ballrt.Value) (__ret ballrt.Value) {
 													return ballrt.Value(nil)
 												}()
 												_ = func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 														return ballrt.Return(result)
 													}
 													return ballrt.Value(nil)
@@ -18825,7 +18825,7 @@ func BallEngine___evalLazyForIn(input ballrt.Value) (__ret ballrt.Value) {
 										return ballrt.Value(nil)
 									}()
 									_ = func() ballrt.Value {
-										if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+										if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 											return ballrt.Return(result)
 										}
 										return ballrt.Value(nil)
@@ -18981,7 +18981,7 @@ func BallEngine___evalLazyWhile(input ballrt.Value) (__ret ballrt.Value) {
 													return ballrt.Value(nil)
 												}()
 												_ = func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 														return ballrt.Return(result)
 													}
 													return ballrt.Value(nil)
@@ -19118,7 +19118,7 @@ func BallEngine___evalLazyDoWhile(input ballrt.Value) (__ret ballrt.Value) {
 													return ballrt.Value(nil)
 												}()
 												_ = func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 														return ballrt.Return(result)
 													}
 													return ballrt.Value(nil)
@@ -19330,7 +19330,7 @@ func BallEngine___evalLazySwitch(input ballrt.Value) (__ret ballrt.Value) {
 						}(), __self))
 						_ = label
 						_ = func() ballrt.Value {
-							if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(label))))) {
+							if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(label)))) {
 								return ballrt.IndexSet(labelToIndex, label, i)
 							}
 							return ballrt.Value(nil)
@@ -20659,7 +20659,7 @@ func BallEngine___evalLazyTry(input ballrt.Value) (__ret ballrt.Value) {
 												}(), __self))
 												_ = catchType
 												_ = func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(catchType, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(catchType))))) {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(catchType, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(catchType)))) {
 														return func() ballrt.Value {
 															var matches ballrt.Value = ballrt.Value(nil)
 															_ = matches
@@ -20768,7 +20768,7 @@ func BallEngine___evalLazyTry(input ballrt.Value) (__ret ballrt.Value) {
 																return __m
 															}())
 															_ = func() ballrt.Value {
-																if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(stackVariable, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(stackVariable))))) {
+																if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(stackVariable, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(stackVariable)))) {
 																	return bind(func() ballrt.Value {
 																		__m := ballrt.NewMap()
 																		__m.Set("self", catchScope)
@@ -21713,7 +21713,7 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 					var name ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "reference"), "name")
 					_ = name
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(op))))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
+						if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
 							return func() ballrt.Value {
 								var current ballrt.Value = lookup(func() ballrt.Value {
 									__m := ballrt.NewMap()
@@ -21827,7 +21827,7 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 								var fieldName ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "field_2")
 								_ = fieldName
 								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(op))))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
+									if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
 										return func() ballrt.Value {
 											var current ballrt.Value = ballrt.IndexGet(ball_map, fieldName)
 											_ = current
@@ -21931,7 +21931,7 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 									return ballrt.Value(nil)
 								}()
 								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(op))))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
+									if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
 										return func() ballrt.Value {
 											var computed ballrt.Value = ballrt.Value(nil)
 											_ = computed
@@ -23313,7 +23313,7 @@ func BallEngine___evalLabeled(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(label))))) {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(label)))) {
 				return func() ballrt.Value {
 					var loopCall ballrt.Value = _extractLoopFromBody(ballrt.Arg0WithSelf(body, __self))
 					_ = loopCall
@@ -23918,7 +23918,7 @@ func BallEngine___evalLabeledFor(input ballrt.Value) (__ret ballrt.Value) {
 														}()
 													}
 													return func() ballrt.Value {
-														if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+														if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 															return ballrt.Return(result)
 														}
 														return func() ballrt.Value {
@@ -24155,7 +24155,7 @@ func BallEngine___evalLabeledForIn(input ballrt.Value) (__ret ballrt.Value) {
 										return ballrt.Value(nil)
 									}()
 									_ = func() ballrt.Value {
-										if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+										if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 											return ballrt.Return(result)
 										}
 										return ballrt.Value(nil)
@@ -24339,7 +24339,7 @@ func BallEngine___evalLabeledWhile(input ballrt.Value) (__ret ballrt.Value) {
 													return ballrt.Value(nil)
 												}()
 												_ = func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 														return ballrt.Return(result)
 													}
 													return ballrt.Value(nil)
@@ -24528,7 +24528,7 @@ func BallEngine___evalLabeledDoWhile(input ballrt.Value) (__ret ballrt.Value) {
 													return ballrt.Value(nil)
 												}()
 												_ = func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label"))))))) {
+													if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(result, "label"), ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(result, "label")))))) {
 														return ballrt.Return(result)
 													}
 													return ballrt.Value(nil)
@@ -25772,7 +25772,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj65, "isNotEmpty") {
-							_ = ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(items)))
+							_ = ballrt.Return(ballrt.StrIsNotEmpty(items))
 							return ballrt.Value(nil)
 						}
 						_ = ballrt.Return(_dispatchBuiltinInstanceMethod(ballrt.WithSelf(func() ballrt.Value {
@@ -25824,7 +25824,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj68, "isNotEmpty") {
-							_ = ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(self)))
+							_ = ballrt.Return(ballrt.StrIsNotEmpty(self))
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj68, "add") {
@@ -26928,7 +26928,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj76, "isNotEmpty") {
-							_ = ballrt.Return(ballrt.Not(ballrt.StrIsEmpty(self)))
+							_ = ballrt.Return(ballrt.StrIsNotEmpty(self))
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj76, "forEach") {
@@ -32290,6 +32290,68 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
+		__map87.Set(ballrt.ToStr("string_is_not_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+			_ = input
+			i := input
+			_ = i
+			defer ballrt.CatchReturn(&__ret)
+			__ret = _stdConvert(ballrt.WithSelf(func() ballrt.Value {
+				__m := ballrt.NewMap()
+				__m.Set("arg0", i)
+				__m.Set("arg1", ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+					_ = input
+					v := input
+					_ = v
+					defer ballrt.CatchReturn(&__ret)
+					__ret = func() ballrt.Value {
+						_ = func() ballrt.Value {
+							if ballrt.Truthy(ballrt.IsType(v, "String")) {
+								return ballrt.Return(ballrt.StrIsNotEmpty(v))
+							}
+							return ballrt.Value(nil)
+						}()
+						_ = func() ballrt.Value {
+							if ballrt.Truthy(ballrt.IsType(v, "BallString")) {
+								return ballrt.Return(ballrt.StrIsNotEmpty(ballrt.FieldGet(v, "value")))
+							}
+							return ballrt.Value(nil)
+						}()
+						var l ballrt.Value = _stdAsList(ballrt.Arg0WithSelf(v, __self))
+						_ = l
+						_ = func() ballrt.Value {
+							if ballrt.Truthy(ballrt.Neq(l, ballrt.Value(nil))) {
+								return ballrt.Return(ballrt.StrIsNotEmpty(l))
+							}
+							return ballrt.Value(nil)
+						}()
+						var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(v, __self))
+						_ = m
+						_ = func() ballrt.Value {
+							if ballrt.Truthy(ballrt.Neq(m, ballrt.Value(nil))) {
+								return ballrt.Return(ballrt.StrIsNotEmpty(m))
+							}
+							return ballrt.Value(nil)
+						}()
+						_ = func() ballrt.Value {
+							if ballrt.Truthy(ballrt.IsType(v, "Set")) {
+								return ballrt.Return(ballrt.StrIsNotEmpty(v))
+							}
+							return ballrt.Value(nil)
+						}()
+						_ = func() ballrt.Value {
+							if ballrt.Truthy(ballrt.IsType(v, "Iterable")) {
+								return ballrt.Return(ballrt.StrIsNotEmpty(v))
+							}
+							return ballrt.Value(nil)
+						}()
+						return ballrt.StrIsNotEmpty(ballrt.AsType(v, "String"))
+					}()
+					return
+				}))
+				return __m
+			}(), __self))
+			return
+		}))
 		__map87.Set(ballrt.ToStr("string_concat"), ballrt.Fn("_stdConcat", func(__arg ballrt.Value) ballrt.Value { return _stdConcat(ballrt.Arg0WithSelf(__arg, __self)) }))
 		__map87.Set(ballrt.ToStr("string_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
@@ -34494,7 +34556,7 @@ func BallEngine___resolveMethod(input ballrt.Value) (__ret ballrt.Value) {
 		var typeDef ballrt.Value = _findTypeDef(ballrt.Arg0WithSelf(typeName, __self))
 		_ = typeDef
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeDef, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(typeDef, "superclass"), ballrt.Value(nil))))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.NullCheck(ballrt.FieldGet(typeDef, "superclass"))))))) {
+			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeDef, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Neq(ballrt.FieldGet(typeDef, "superclass"), ballrt.Value(nil))))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.NullCheck(ballrt.FieldGet(typeDef, "superclass")))))) {
 				return func() ballrt.Value {
 					var superclass ballrt.Value = ballrt.NullCheck(ballrt.FieldGet(typeDef, "superclass"))
 					_ = superclass
@@ -36917,7 +36979,7 @@ func BallEngine___typeNameOf(input ballrt.Value) (__ret ballrt.Value) {
 					var tag ballrt.Value = ballrt.IndexGet(objMap, "__type__")
 					_ = tag
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(tag, "String")) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(tag))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(tag, "String")) && ballrt.Truthy(ballrt.StrIsNotEmpty(tag)))) {
 							return func() ballrt.Value {
 								var colonIdx ballrt.Value = ballrt.ListIndexOf(tag, ":")
 								_ = colonIdx

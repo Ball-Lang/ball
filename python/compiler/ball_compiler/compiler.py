@@ -1724,6 +1724,7 @@ class Compiler:
             "string_to_upper": "string_to_upper", "string_to_lower": "string_to_lower",
             "string_trim": "string_trim", "string_trim_start": "string_trim_start",
             "string_trim_end": "string_trim_end", "string_is_empty": "string_is_empty",
+            "string_is_not_empty": "string_is_not_empty",
             "string_to_int": "string_to_int", "string_to_double": "string_to_double",
             # `String.fromCharCode(n)` / `fromCharCodes(list)`. The runtime
             # helpers have always existed (the self-hosted engine reaches them

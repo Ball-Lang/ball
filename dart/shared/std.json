@@ -479,6 +479,13 @@
       "isBase": true
     },
     {
+      "name": "string_is_not_empty",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Is string non-empty: value.isNotEmpty. Its own function, not the negation of string_is_empty: a delegating receiver sees WHICH member it is asked for (issue #674).",
+      "isBase": true
+    },
+    {
       "name": "string_concat",
       "inputType": "BinaryInput",
       "outputType": "",

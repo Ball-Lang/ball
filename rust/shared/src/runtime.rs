@@ -1165,12 +1165,12 @@ pub fn ball_as(value: BallValue, type_name: &str) -> BallValue {
 // Strings (pure manipulation)
 // ════════════════════════════════════════════════════════════
 
-/// `.isEmpty` (and, negated, `.isNotEmpty`) — **polymorphic**. The encoder
-/// emits `string_is_empty` for every `.isEmpty`/`.isNotEmpty` (it is syntactic
-/// and cannot tell a `String` receiver from a `List`/`Set`/`Map`), so this must
-/// accept any collection rather than only a string — matching the Dart
-/// reference engine's own polymorphic `string_is_empty`
-/// (`dart/engine/lib/engine_std.dart`).
+/// `.isEmpty` — **polymorphic**. The encoder emits `string_is_empty` for every
+/// `.isEmpty` (it is syntactic and cannot tell a `String` receiver from a
+/// `List`/`Set`/`Map`), so this must accept any collection rather than only a
+/// string — matching the Dart reference engine's own polymorphic
+/// `string_is_empty` (`dart/engine/lib/engine_std.dart`). `.isNotEmpty` has its
+/// own function, [`ball_string_is_not_empty`] (issue #674).
 pub fn ball_string_is_empty(value: BallValue) -> BallValue {
     BallValue::Bool(match &value {
         BallValue::String(s) => s.is_empty(),
@@ -1179,6 +1179,21 @@ pub fn ball_string_is_empty(value: BallValue) -> BallValue {
         BallValue::Bytes(b) => b.is_empty(),
         BallValue::Null => true,
         other => panic!("ball-lang-compiler runtime: isEmpty on {other:?}"),
+    })
+}
+
+/// `.isNotEmpty` — its OWN op, never the negation of [`ball_string_is_empty`].
+/// The encoder must ask a receiver for the member the source named, because a
+/// DELEGATING receiver can see which member it is asked for (issue #674).
+/// Polymorphic over the same receivers as [`ball_string_is_empty`].
+pub fn ball_string_is_not_empty(value: BallValue) -> BallValue {
+    BallValue::Bool(match &value {
+        BallValue::String(s) => !s.is_empty(),
+        BallValue::List(l) => !l.is_empty(),
+        BallValue::Map(m) => !m.is_empty(),
+        BallValue::Bytes(b) => !b.is_empty(),
+        BallValue::Null => false,
+        other => panic!("ball-lang-compiler runtime: isNotEmpty on {other:?}"),
     })
 }
 

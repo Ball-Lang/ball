@@ -31,11 +31,7 @@
           "isBase": true
         },
         {
-          "name": "string_is_empty",
-          "isBase": true
-        },
-        {
-          "name": "not",
+          "name": "string_is_not_empty",
           "isBase": true
         },
         {
@@ -329,7 +325,7 @@
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
-                                                          "function": "not",
+                                                          "function": "string_is_not_empty",
                                                           "input": {
                                                             "messageCreation": {
                                                               "typeName": "",
@@ -337,24 +333,8 @@
                                                                 {
                                                                   "name": "value",
                                                                   "value": {
-                                                                    "call": {
-                                                                      "module": "std",
-                                                                      "function": "string_is_empty",
-                                                                      "input": {
-                                                                        "messageCreation": {
-                                                                          "typeName": "",
-                                                                          "fields": [
-                                                                            {
-                                                                              "name": "value",
-                                                                              "value": {
-                                                                                "reference": {
-                                                                                  "name": "current"
-                                                                                }
-                                                                              }
-                                                                            }
-                                                                          ]
-                                                                        }
-                                                                      }
+                                                                    "reference": {
+                                                                      "name": "current"
                                                                     }
                                                                   }
                                                                 }
@@ -553,7 +533,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "not",
+                                  "function": "string_is_not_empty",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -561,24 +541,8 @@
                                         {
                                           "name": "value",
                                           "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "string_is_empty",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "current"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
+                                            "reference": {
+                                              "name": "current"
                                             }
                                           }
                                         }

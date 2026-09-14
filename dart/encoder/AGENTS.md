@@ -97,6 +97,47 @@ Two related consequences:
   turned it into a generic call carrying `self: reference("String")`, which no
   engine can resolve.
 
+### `.isNotEmpty` → `std.string_is_not_empty` (#674)
+
+`.isEmpty` and `.isNotEmpty` are SEPARATE base functions. The encoder used to
+emit `std.not(std.string_is_empty(x))` for the second, which is
+value-equivalent for a `dart:core` receiver and WRONG for a delegating one: the
+rewrite changes which member the receiver is asked for, and a wrapper, a mock, a
+proxy or a `noSuchMethod` forwarder sees the difference. `collection`'s
+`lib/src/wrappers.dart` is built on exactly that shape, and its own
+`wrapper_test.dart` asserts the forwarded `Invocation`'s symbol — Tier B measured
+5 failures.
+
+Note that the receiver-TYPE seam cannot decide this one: in `wrappers.dart` the
+delegate's static type IS a `dart:core` `Iterable`. The member itself has to
+round-trip, so `string_is_not_empty` is declared in `std.dart` next to
+`string_is_empty`, polymorphic over the same receivers, and implemented by every
+compiler and runtime. Guards: `tests/conformance/473_is_not_empty_receivers`
+(cross-target) and `test/is_not_empty_member_identity_test.dart`, which RUNS a
+recording receiver through `dart run` before and after the round trip.
+
+### Extension overrides — `Ext(receiver).member` (#670)
+
+Encoded as a `FunctionCall` whose `function` is the extension member's own Ball
+name, `<module>:<Ext>.<member>`, with the receiver in the input message's `self`
+field. The NAME carries which extension was selected, so it is semantic content
+and survives metadata stripping — no schema change (the design record is in
+`docs/METADATA_SPEC.md`, "Extension overrides ride the function NAME").
+
+REFUSED, loudly, for every override this encoder cannot name soundly: an import
+prefix (`p.Ext(x)`), explicit type arguments (`Ext<int>(x)` — they belong to the
+extension, and the call's `__type_args__` channel renders on the MEMBER), or an
+extension another module declares. A refusal warns naming the construct and
+leaves the `/* unsupported: … */` placeholder, which breaks the front end.
+Never erase an override to `receiver.member`: #670 MEASURED that repair as 4
+real test failures on `collection` — a loud build error traded for a silently
+wrong answer.
+
+Resolved-AST-only: `parseString` reads `Ext(x).m()` as a call on a constructor
+invocation, so `encode(String)` / `encodeModule` never reach this path and
+`dart/self_host/engine.ball.json` plus the conformance corpus are untouched by
+it. `PackageEncoder.prepareStaticTypes()` is the opt-in.
+
 ## Dependencies
 - Internal: `ball_base` (`ball_engine` is dev-only).
 - External: `analyzer` (Dart parser), `yaml`, `pub_semver`, `http`, `archive`.

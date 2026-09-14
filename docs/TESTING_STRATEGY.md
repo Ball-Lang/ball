@@ -150,6 +150,23 @@ too, without a colour-forced CI leg.
 > different claims, and a ratcheted gate can be green over a real regression it
 > was already tolerating.
 
+> **A change of WHICH member a receiver is asked for is behavioural, and only
+> an executing leg can see it.** The corpus compares stdout, so for a
+> `dart:core` receiver `x.isNotEmpty` and `!x.isEmpty` are indistinguishable —
+> same value, every fixture green. For a DELEGATING receiver they are not: a
+> wrapper, a mock, a proxy or a `noSuchMethod` forwarder sees the member name.
+> That is issue #674, and nothing in the repository could have caught it: no
+> fixture forwards a member through a recording receiver, Tier A is structural,
+> and Tier B was masked by an unrelated build error on the one real-world file
+> that exercises the shape (`collection/lib/src/wrappers.dart`). The gate added
+> with the fix is `dart/encoder/test/is_not_empty_member_identity_test.dart`: a
+> scratch package whose receiver RECORDS the members it is asked for, encoded
+> through `PackageEncoder.prepareStaticTypes()` → `DartCompiler.compileModule()`
+> and RUN through `dart run` both as written and as compiled back. When a
+> rewrite is value-preserving but identity-changing, "assert the emitted call
+> name" is the bug-locking test 2b warns about — execute a receiver that can
+> tell the difference instead.
+
 > **An assertion that cannot fail documents an intent; it does not enforce it.**
 > Before adding an assertion, name the concrete change that would make it red. A
 > loop that appends one result per entry of a static table and then asserts

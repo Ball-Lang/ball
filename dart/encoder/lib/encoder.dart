@@ -598,6 +598,23 @@ class DartEncoder {
       }
     }
 
+    // Extension-override support (#670) needs to know, BEFORE any body is
+    // encoded, which extensions this module declares — a body may name an
+    // extension declared further down the file.
+    _localExtensionNames.clear();
+    void collectExtensions(Iterable<ast.CompilationUnitMember> decls) {
+      for (final decl in decls) {
+        if (decl is ast.ExtensionDeclaration && decl.name != null) {
+          _localExtensionNames.add(decl.name!.lexeme);
+        }
+      }
+    }
+
+    collectExtensions(unit.declarations);
+    for (final partUnit in partUnits) {
+      collectExtensions(partUnit.declarations);
+    }
+
     encodeDecls(unit.declarations);
     for (final partUnit in partUnits) {
       encodeDecls(partUnit.declarations);
@@ -1336,6 +1353,94 @@ class DartEncoder {
   /// in the same file produce distinct Ball-level names (and therefore
   /// distinct typeDefs + method-to-extension routing).
   int _unnamedExtensionCounter = 0;
+
+  /// Names of the extensions THIS module declares, collected before any body
+  /// is encoded so a forward reference resolves (issue #670).
+  final Set<String> _localExtensionNames = <String>{};
+
+  /// Encodes `Ext(receiver).member(args)` / `Ext(receiver).getter` as a call
+  /// that NAMES the extension member, or returns `null` to refuse.
+  ///
+  /// The Ball function an extension member is declared under is
+  /// `<module>:<Ext>.<member>` (see [_encodeExtensionDeclaration] →
+  /// `_encodeMethodDeclaration`), and a `FunctionCall` already carries its
+  /// receiver in the input message's `self` field — the same shape every
+  /// instance call uses. So the SELECTION rides in the function NAME, which is
+  /// semantic content and survives metadata stripping (invariant 2; see
+  /// `docs/METADATA_SPEC.md`). No schema change is needed.
+  ///
+  /// Returns `null` — a LOUD refusal, warned about and left to the
+  /// `/* unsupported: … */` placeholder — for every override this encoder
+  /// cannot name soundly:
+  ///
+  ///  * an import PREFIX (`p.Ext(x)`) or an extension this module does not
+  ///    declare: its Ball function lives in another module whose name this
+  ///    per-file encoder cannot derive;
+  ///  * explicit type arguments (`Ext<int>(x).m()`): they belong to the
+  ///    EXTENSION, and the call's `__type_args__` channel renders on the
+  ///    MEMBER (`m<int>()`), which is a different call.
+  ///
+  /// Refusing is the whole point: erasing an override to the plain member
+  /// access is measurably unsound (#670 measured 4 real test failures on
+  /// `collection`), so anything short of the faithful encoding must break the
+  /// front end rather than resolve to a different member.
+  ///
+  /// Only a RESOLVED AST ever contains an `ast.ExtensionOverride` — the parser
+  /// cannot know an identifier names an extension, so `parseString` reads
+  /// `Ext(x).m()` as a call on a constructor invocation. `encode(String)` /
+  /// `encodeModule` therefore never reach here, and neither does
+  /// `generate_conformance.dart` or any self-host regeneration:
+  /// `dart/self_host/engine.ball.json` and the conformance corpus are
+  /// unaffected by this path. `PackageEncoder.prepareStaticTypes()` is the
+  /// opt-in that supplies the resolved units.
+  ///
+  /// Matching the extension by its written NAME is sound because Dart's own
+  /// scoping already is: an unprefixed extension name that resolved at all
+  /// names exactly one extension in scope, and the prefixed form is refused
+  /// above.
+  Expression? _tryEncodeExtensionOverride(
+    ast.ExtensionOverride override,
+    String member,
+    List<FieldValuePair> args,
+  ) {
+    final extName = override.name.lexeme;
+    if (override.importPrefix != null ||
+        override.typeArguments != null ||
+        !_localExtensionNames.contains(extName)) {
+      return null;
+    }
+    // analyzer 13: `ArgumentList.arguments` holds `Argument` nodes, whose
+    // value is `.argumentExpression` (see `_encodeArgList`). An override always
+    // takes exactly one positional argument — the receiver.
+    final arguments = override.argumentList.arguments;
+    if (arguments.length != 1) return null;
+
+    final fields = <FieldValuePair>[
+      FieldValuePair()
+        ..name = 'self'
+        ..value = _encodeExpr(arguments.single.argumentExpression),
+      ...args,
+    ];
+    return Expression()
+      ..call = (FunctionCall()
+        ..module = _moduleName
+        ..function = '$_moduleName:$extName.$member'
+        ..input = (Expression()
+          ..messageCreation = (MessageCreation()..fields.addAll(fields))));
+  }
+
+  /// The warning an unencodable extension override produces, emitted from the
+  /// single place that decides to refuse one.
+  void _warnUnencodableExtensionOverride(ast.Expression node) {
+    _warn(
+      'Extension-override syntax is not encodable here: it names which '
+      'extension supplies the member, and this encoder can only name an '
+      'extension THIS module declares without an import prefix or explicit '
+      'type arguments (issue #670). Encoding it as the plain member access '
+      'would silently resolve to a DIFFERENT member.',
+      source: node.toSource(),
+    );
+  }
 
   void _encodeExtensionDeclaration(
     ast.ExtensionDeclaration decl,
@@ -3064,8 +3169,8 @@ class DartEncoder {
         'isFinite': 'math_is_finite',
         'isInfinite': 'math_is_infinite',
         'isEmpty': 'string_is_empty',
+        'isNotEmpty': 'string_is_not_empty',
         'runes': 'string_runes',
-        // isNotEmpty is handled separately below (negation of isEmpty).
       };
       final getterFn = getterRoutes[member];
       if (getterFn != null) {
@@ -3073,17 +3178,6 @@ class DartEncoder {
         return _buildUnaryStdCall(
           getterFn,
           Expression()..reference = (Reference()..name = prefixName),
-        );
-      }
-      // isNotEmpty → not(string_is_empty(target))
-      if (member == 'isNotEmpty') {
-        _usedBaseFunctions.addAll(['string_is_empty', 'not']);
-        return _buildUnaryStdCall(
-          'not',
-          _buildUnaryStdCall(
-            'string_is_empty',
-            Expression()..reference = (Reference()..name = prefixName),
-          ),
         );
       }
       // isEven / isOdd → parity check (no std getter; compose modulo+equals).
@@ -3127,6 +3221,20 @@ class DartEncoder {
       final target = expr.target;
       final field = expr.propertyName.name;
 
+      // Extension override (`Ext(receiver).getter`) — issue #670. Same rule as
+      // the method-invocation path: the selection IS the meaning, so no
+      // name-based getter route may see it.
+      if (target is ast.ExtensionOverride) {
+        final routed = _tryEncodeExtensionOverride(
+          target,
+          field,
+          const <FieldValuePair>[],
+        );
+        if (routed != null) return routed;
+        _warnUnencodableExtensionOverride(expr);
+        return _unsupportedPlaceholder(expr);
+      }
+
       // Null target inside a cascade section: `..field` or `..field?.sub`
       final targetExpr = target == null
           ? _cascadeSelfExpr
@@ -3164,21 +3272,13 @@ class DartEncoder {
         'isFinite': 'math_is_finite',
         'isInfinite': 'math_is_infinite',
         'isEmpty': 'string_is_empty',
+        'isNotEmpty': 'string_is_not_empty',
         'runes': 'string_runes',
-        // isNotEmpty is handled separately below (negation of isEmpty).
       };
       final getterFn = getterRoutes[field];
       if (getterFn != null && target != null) {
         _usedBaseFunctions.add(getterFn);
         return _buildUnaryStdCall(getterFn, targetExpr);
-      }
-      // isNotEmpty → not(string_is_empty(target))
-      if (field == 'isNotEmpty' && target != null) {
-        _usedBaseFunctions.addAll(['string_is_empty', 'not']);
-        return _buildUnaryStdCall(
-          'not',
-          _buildUnaryStdCall('string_is_empty', targetExpr),
-        );
       }
       // isEven / isOdd → parity check (no std getter; compose modulo+equals).
       if ((field == 'isEven' || field == 'isOdd') && target != null) {
@@ -3464,13 +3564,7 @@ class DartEncoder {
     // identifier names an extension), so `encode(String)` never reaches here
     // and `dart/self_host/engine.ball.json` is untouched.
     if (expr is ast.ExtensionOverride) {
-      _warn(
-        'Extension-override syntax is not encodable: it names which extension '
-        'supplies the member, and the Ball IR has no way to carry that '
-        '(issue #670). Encoding it as the plain member access would silently '
-        'resolve to a DIFFERENT member.',
-        source: expr.toSource(),
-      );
+      _warnUnencodableExtensionOverride(expr);
     }
 
     // ---- FunctionReference / ConstructorReference (constructor tear-offs) ----
@@ -3482,11 +3576,16 @@ class DartEncoder {
     }
 
     // ---- Fallback: store source code for round-tripping ----
-    return Expression()
-      ..literal = (Literal()
-        ..stringValue =
-            '/* unsupported: ${expr.runtimeType}: ${expr.toSource()} */');
+    return _unsupportedPlaceholder(expr);
   }
+
+  /// The last-resort encoding for a node this encoder refuses: a string
+  /// literal naming the construct, which breaks the front end loudly instead
+  /// of compiling to something plausible.
+  static Expression _unsupportedPlaceholder(ast.AstNode node) => Expression()
+    ..literal = (Literal()
+      ..stringValue =
+          '/* unsupported: ${node.runtimeType}: ${node.toSource()} */');
 
   /// dart:core type names that encode as `std.type_literal` when they appear
   /// bare in expression position, mapped to their canonical `Type.toString()`
@@ -3730,6 +3829,16 @@ class DartEncoder {
     final target = expr.target;
     final realTarget = expr.realTarget;
     final args = _encodeArgList(expr.argumentList);
+
+    // Extension override (`Ext(receiver).member(args)`) — issue #670. Handled
+    // before every other route: the selection is the whole meaning of the
+    // node, so no name-based route may see it.
+    if (target is ast.ExtensionOverride) {
+      final routed = _tryEncodeExtensionOverride(target, methodName, args);
+      if (routed != null) return routed;
+      _warnUnencodableExtensionOverride(expr);
+      return _unsupportedPlaceholder(expr);
+    }
     // `_linkShortCircuits`, not the raw lexeme: a `?.` whose guard has already
     // been hoisted to cover the whole chain is a PLAIN link now (issue #488).
     final isNullAware = _linkShortCircuits(expr);
@@ -4610,10 +4719,10 @@ class DartEncoder {
         _usedBaseFunctions.add('string_is_empty');
         return _buildUnaryStdCall('string_is_empty', _buildSinkToString(sink));
       case 'isNotEmpty':
-        _usedBaseFunctions.addAll(['string_is_empty', 'not']);
+        _usedBaseFunctions.add('string_is_not_empty');
         return _buildUnaryStdCall(
-          'not',
-          _buildUnaryStdCall('string_is_empty', _buildSinkToString(sink)),
+          'string_is_not_empty',
+          _buildSinkToString(sink),
         );
       default:
         return null;

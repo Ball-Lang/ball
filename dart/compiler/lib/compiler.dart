@@ -125,6 +125,20 @@ class DartCompiler {
   // alias (e.g. 'dev') for the module currently being compiled.
   Map<String, String> _dartModuleAliases = {};
 
+  // ── Extension typeDefs of the module currently being compiled ──
+  // Ball names (e.g. 'lib.src.foo:IterableExtension') of every `TypeDefinition`
+  // whose metadata says `kind: 'extension'`. A `self`-carrying call whose
+  // function name is `<one of these>.<member>` is an extension OVERRIDE and
+  // must be re-emitted as `Ext(receiver).member(args)` — issue #670.
+  Set<String> _extensionTypeNames = <String>{};
+
+  // ── Extension members declared as GETTERS in the module being compiled ──
+  // `Ext(x).member` and `Ext(x).member()` encode identically (a call carrying
+  // only `self`), so which one to emit is read from the member's own
+  // DECLARATION — the same accessor-shape metadata `_buildMethod` already uses
+  // to emit `get member => …` (see `docs/METADATA_SPEC.md`, "Accessor shape").
+  Set<String> _extensionGetterFunctions = <String>{};
+
   // ── Conditional import/export directives ───────────────────
   // Stored as raw strings because code_builder doesn't support them.
   // Post-processed into the output to replace the plain import.
@@ -472,6 +486,14 @@ class DartCompiler {
   cb.Library _buildLibrary(Module mainModule, FunctionDefinition? entryFunc) {
     // Build dart module → import alias mapping for this module.
     _dartModuleAliases = _buildDartModuleAliases(mainModule);
+    _extensionTypeNames = {
+      for (final td in mainModule.typeDefs)
+        if (_kindOf(td) == 'extension') td.name,
+    };
+    _extensionGetterFunctions = {
+      for (final func in mainModule.functions)
+        if (_readMeta(func)['is_getter'] == true) func.name,
+    };
 
     final typeDefsByName = <String, TypeDefinition>{
       for (final td in mainModule.typeDefs) td.name: td,
@@ -3255,6 +3277,35 @@ class DartCompiler {
     }
   }
 
+  /// Re-emits `Ext(receiver).member(args)` for a `self`-carrying call whose
+  /// function name resolves to a member of an extension THIS module declares.
+  ///
+  /// Returns `null` for every other `self`-carrying call, which keeps its
+  /// ordinary `receiver.member(args)` emission.
+  String? _tryCompileExtensionOverride(
+    FunctionCall call,
+    List<FieldValuePair> fields,
+  ) {
+    final dotIdx = call.function.lastIndexOf('.');
+    if (dotIdx <= 0) return null;
+    final qualifier = call.function.substring(0, dotIdx);
+    if (!_extensionTypeNames.contains(qualifier)) return null;
+    final member = call.function.substring(dotIdx + 1);
+    if (member.isEmpty) return null;
+
+    final selfField = fields.firstWhere((f) => f.name == 'self');
+    final remaining = fields
+        .where((f) => f.name != 'self' && f.name != '__type_args__')
+        .toList();
+    final receiver = '${_dartType(qualifier)}(${_e(selfField.value)})';
+    if (remaining.isEmpty) {
+      return _extensionGetterFunctions.contains(call.function)
+          ? '$receiver.$member'
+          : '$receiver.$member()';
+    }
+    return '$receiver.$member(${_compileArgs(remaining)})';
+  }
+
   String _compileCall(FunctionCall call) {
     if (_isBaseModule(call.module)) return _compileBaseCall(call);
 
@@ -3263,6 +3314,14 @@ class DartCompiler {
       final fields = call.input.messageCreation.fields;
       final selfField = fields.where((f) => f.name == 'self').firstOrNull;
       if (selfField != null) {
+        // Extension override (issue #670). A call whose function name is
+        // `<module>:<Ext>.<member>`, where `<module>:<Ext>` is a `kind:
+        // 'extension'` typeDef of THIS module, selected that extension
+        // explicitly; `self.member(args)` would resolve by ordinary lookup and
+        // can name a DIFFERENT member (measured: `collection`'s
+        // `IterableComparableExtension.isSorted` calls itself).
+        final overrideStr = _tryCompileExtensionOverride(call, fields);
+        if (overrideStr != null) return overrideStr;
         final typeArgs = _callTypeArgsStr(call).isNotEmpty
             ? _callTypeArgsStr(call)
             : (fields
@@ -3481,6 +3540,9 @@ class DartCompiler {
       // ── Strings ─────────────────────────────────────────────
       'string_length' => _propertyAccess(f, 'length'),
       'string_is_empty' => _propertyAccess(f, 'isEmpty'),
+      // Its own member, never `!(…isEmpty)`: a delegating receiver sees WHICH
+      // member it is asked for (issue #674).
+      'string_is_not_empty' => _propertyAccess(f, 'isNotEmpty'),
       'string_concat' => _binOp(f, '+'),
       'string_contains' => _methodCall2(f, 'contains'),
       'string_starts_with' => _methodCall2(f, 'startsWith'),

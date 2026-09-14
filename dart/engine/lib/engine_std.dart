@@ -1340,6 +1340,26 @@ extension BallEngineStd on BallEngine {
         return (v as String).isEmpty;
         // coverage:ignore-end
       }),
+      // `isNotEmpty` is its OWN op, not `not(string_is_empty(...))`: the
+      // encoder must ask a receiver for the member the source named, because a
+      // delegating receiver can see the difference (issue #674). Polymorphic
+      // over the same receivers `string_is_empty` accepts.
+      'string_is_not_empty': (i) => _stdConvert(i, (v) {
+        if (v is String) return v.isNotEmpty;
+        if (v is BallString) return v.value.isNotEmpty;
+        final l = _stdAsList(v);
+        if (l != null) return l.isNotEmpty;
+        final m = _stdAsMap(v);
+        if (m != null) return m.isNotEmpty;
+        if (v is Set) return v.isNotEmpty;
+        if (v is Iterable) return v.isNotEmpty;
+        // Same reasoning as `string_is_empty`'s final arm: real Dart's
+        // `.isNotEmpty` is only defined on String/Map/Iterable receivers, all
+        // handled above, so this cast can never actually execute.
+        // coverage:ignore-start
+        return (v as String).isNotEmpty;
+        // coverage:ignore-end
+      }),
       'string_concat': _stdConcat,
       'string_contains': (i) =>
           _stdBinaryAny(i, (a, b) => (a as String).contains(b as String)),

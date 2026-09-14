@@ -258,6 +258,20 @@ for row in CSHARP PYTHON GO RUST; do
   fi
 done
 
+# A row that overrides the FAIL pattern must override the TIMEOUT pattern too
+# (#693). C#'s harness prints `  <name>: TIMEOUT`, which the default
+# `FAILING [name] timeout` pattern can never match — leaving that row's
+# no-fixture-may-hang gate switched off while the job stayed green, the exact
+# shape of silently-dead gate this whole script exists to avoid.
+ran=$((ran + 1))
+if grep -qF 'roundtrip_floor.sh" "C#"' "$matrix" &&
+  grep -qF '"^ +[0-9A-Za-z_]+: TIMEOUT"' "$matrix"; then
+  echo "ok   [wiring:the C# row passes its own TIMEOUT pattern]"
+else
+  echo "FAIL [wiring]: the C# round-trip row overrides the fail pattern but not the timeout pattern — its hang gate would never match its own output"
+  failures=$((failures + 1))
+fi
+
 # Each row must NAME the gap it still has, with an issue number, in the note it
 # appends to the step summary. "No floor is enforced: 0/N is the expected
 # baseline" — what the C# row used to write — is exactly the wording that let a

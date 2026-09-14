@@ -1127,6 +1127,7 @@
         "393_untyped_empty_braces_map",
         "399_bytes_literal",
         "469_map_put_if_absent",
+        "472_initializer_list_field_with_setter",
         "78_map_operations",
         "80_bubble_sort",
         "81_binary_search",
@@ -2372,6 +2373,7 @@
         "46_while_loop",
         "470_setter_beside_final_field",
         "471_null_aware_chain_scope",
+        "472_initializer_list_field_with_setter",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -3062,6 +3064,7 @@
         "451_thrown_builtin_exception_tearoff",
         "464_typed_catch_clause_dispatch",
         "470_setter_beside_final_field",
+        "472_initializer_list_field_with_setter",
         "53_try_catch_finally",
         "84_exception_chain",
         "91_nested_try_catch"

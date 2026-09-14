@@ -1171,10 +1171,23 @@ Two things changed, and one rule stayed:
   thrown out the very run it was defending).
 
 `tools/ci/check_coverage_upload_isolation.sh` — ci.yml's always-on `Proto Checks`
-job, 20-case self-test with two positive controls — parses coverage.yml and
+job, 21-case self-test with two positive controls — parses coverage.yml and
 holds all of that in place: measurement and transport in different jobs, the
 flag set matching the artifact set, nothing masking a floor verdict, the bounded
 retry present, and no `continue-on-error`/`|| true` in the upload path.
+
+Its floor-step count is set **at** the measured number, 5 across 4 measurement
+jobs (the `cpp` job carries two floors; `typescript` carries none), not below it
+(#700). Every rule in that guard is scoped to the steps its name regex found, so
+a floor step renamed out of that set silently leaves all of them — and with a
+floor of 4 against 5 real steps, renaming exactly one was absorbed. The
+one-rename mutation is a self-test case now.
+
+**A measurement job's conclusion is a lower bound on its floor, not the floor.**
+The floor step cannot be *hidden* by anything after it, which is what the guard
+enforces; but a later `!cancelled()`-gated artifact upload carrying
+`if-no-files-found: error` can still red the job on a transport flake with no
+coverage regression. Read the named floor STEP and the number it printed.
 
 **The Dart ratchet is a PR gate (#605).** `ci.yml`'s always-on `Dart Coverage
 Ratchet` job runs `dart run tools/coverage_dart.dart --floor 99.9` on every pull
@@ -1247,7 +1260,12 @@ encoder 97 / shared 92 against six consecutive agreeing main runs (#63; the run
 ids and the derivation live in that script's header, which is where the numbers
 belong). That script's parser is pinned by
 `cpp/test/test_build_cov_floor_parsing.sh` (it used to pass silently when it
-could not parse a summary at all).
+could not parse a summary at all). Every percentage that suite feeds is DERIVED
+from the committed `FLOORS` table — including its future-ratchet simulation,
+whose scratch floors are `committed + 2` since #700, so the control keeps
+simulating a ratchet the table has not reached yet rather than the numbers it is
+already running at. The script itself is PCRE-free (`sed -E`, never
+`grep -P`), so that suite runs on native Windows Git Bash as well as on CI.
 
 > A failing/ungated package suite (e.g. `ball_protobuf`, issue #75) is measured
 > but surfaced as a loud WARNING and under-counted — `coverage_dart.dart`
@@ -1300,7 +1318,7 @@ could not parse a summary at all).
 | **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
 | Line coverage ratchet (Rust/C#) + the Dart push-to-main measurement | `coverage.yml`'s `dart`/`rust`/`csharp` jobs | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++), aggregate **and** per-target | `coverage.yml`'s `cpp` job — the `C++ line coverage floor` and `C++ per-target coverage floors (compiler/encoder/shared — gated)` steps, the latter taking `cpp/build-cov-floor.sh`'s exit code | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
-| **The Codecov upload cannot red a green measurement** (#638) | `tools/ci/check_coverage_upload_isolation.sh` — measurement and transport in different jobs, the uploaded flag set equal to the measured artifact set, nothing masking a floor verdict, a bounded-retry OIDC token fetch, `fail_ci_if_error: true`, and neither a `continue-on-error` key nor a short-circuiting `true` guarding the upload path. 20-case self-test with two positive controls | every PR (the always-on `proto` job, no toolchain) |
+| **The Codecov upload cannot red a green measurement** (#638) | `tools/ci/check_coverage_upload_isolation.sh` — measurement and transport in different jobs, the uploaded flag set equal to the measured artifact set, nothing masking a floor verdict, a bounded-retry OIDC token fetch, `fail_ci_if_error: true`, and neither a `continue-on-error` key nor a short-circuiting `true` guarding the upload path. Floor-step count set AT the measured 5 across 4 measurement jobs, with the one-rename mutation as a case (#700). 21-case self-test with two positive controls | every PR (the always-on `proto` job, no toolchain) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |
 | **The artifact an outside consumer gets, not the checkout** — Python wheel (#496) | `python/tool/wheel_smoke.py` (`python -m build python/`, install into a venv OUTSIDE the repo with no `PYTHONPATH`, run `--version`/`check`/`compile`/`encode`/`run`, `run` diffed against a golden as BYTES) | every PR (`Python`) |
 | Compile-on-first-use engine bootstrap (what a pip-installed wheel actually runs) | `python/engine/tests/test_bootstrap.py` (cache hit/miss/invalidation, failure modes, and a conformance fixture through the cache-compiled engine vs. its golden) | every PR (`Python`, with `BALL_REQUIRE_SELFHOST_SOURCE=1` so it cannot silently skip) |

@@ -386,7 +386,7 @@ jobs:
       # file, so a new fixture can no longer skip the C++ e2e leg unnoticed.
       # `--self-test` first, so a guard that found nothing to compare cannot
       # report success.
-      - name: C++ e2e fixture-list drift guard (#63 / #511)
+      - name: "C++ e2e fixture-list drift guard (#63 / #511)"
         run: |
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
@@ -507,7 +507,7 @@ jobs:
       # none of them that it cannot execute a program; the portability doc may
       # additionally freeze no fixture or engine tally.
       # `--self-test` first: a guard that stopped deriving must not pass.
-      - name: Engine-row doc drift guard (#610, #613)
+      - name: "Engine-row doc drift guard (#610, #613)"
         run: |
           bash tools/ci/check_engine_row_docs.sh --self-test
           bash tools/ci/check_engine_row_docs.sh
@@ -1668,7 +1668,7 @@ jobs:
       # CI — the same "silent until a human dispatches it manually" class that
       # already bit the macOS release leg (#404). This runs on all three OS legs.
       # `ball version` is real (not a self-host stub) in a plain cmake build.
-      - name: Install smoke (exercises install(TARGETS ball) — issue #368)
+      - name: "Install smoke (exercises install(TARGETS ball) — issue #368)"
         if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
@@ -2814,7 +2814,7 @@ jobs:
       #
       # After the six tags are pushed, the follow-up is to point the same script
       # at the real proxy (drop the synthesized one) — the assertions stay.
-      - name: Go module external-consumer smoke (issue #361)
+      - name: "Go module external-consumer smoke (issue #361)"
         shell: bash
         run: |
           set -euo pipefail

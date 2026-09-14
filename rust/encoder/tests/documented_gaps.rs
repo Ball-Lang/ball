@@ -388,10 +388,18 @@ fn cross_file_method_call_encodes() {
 /// closure body instead, and that is sound in both directions: a Ball `return`
 /// returns from the enclosing FUNCTION, the compiler's IIFE exists only because
 /// Rust's `main` returns `()`, and the entry body IS the function body — so
-/// inlining restores exactly the Ball the compiler started from. Whether the
-/// IIFE is equally faithful for a NESTED block in value position is a COMPILER
-/// question (a Rust `return` leaves only the closure there), tracked on #687 —
-/// the encoder's half is what this test now asserts.
+/// inlining restores exactly the Ball the compiler started from.
+///
+/// The remaining half of #687 — is the IIFE equally faithful for a NESTED block
+/// in value position? — is CLOSED too, and its answer moved the fix to this
+/// side rather than the compiler's: `compile_block` emits a native Rust block,
+/// so the compiler never wraps a value-position block, but inlining EVERY
+/// immediately-invoked closure re-bound a `return` in the hand-written Rust
+/// this encoder reads (`compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`
+/// is the run-proof). Inlining is conditional now — `closure_body_exits_early`
+/// — and #687's `std.invoke`-over-`lambda` shape is what an early-exiting body
+/// gets. This fixture's body cannot exit early, so it still inlines and this
+/// test is unchanged by that.
 ///
 /// It is asserted POSITIVELY, not merely as "does not panic": a re-encode that
 /// dropped the inlined body would not panic either. This test was RED against

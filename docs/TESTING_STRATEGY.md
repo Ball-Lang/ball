@@ -503,7 +503,10 @@ The rule this repo now follows on any measurement leg:
 Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
 its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
 loop fixtures re-encode clean and then hang (#693): Rust **99**, C# **76**,
-Python **41**, Go **31** of 352. Those are the floors. None of the four is a parity gate — most of
+Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** of
+358 on PR #738's matrix (run 34802773565), when `go/encoder` gained the
+`std_collections` inverses and the four shapes `go/compiler` emits for every
+program (#691). Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 
@@ -529,6 +532,20 @@ drop is red.
    the kill against a **fabricated runaway** — a program built with `rustc` at
    test time that ignores its arguments and never exits — driven through the real
    production path, on every PR.
+
+   **Killing the process is not the same as ending the fixture (#691).** Every
+   one of these legs sets `cmd.Stdout` to an in-memory writer, so the runtime
+   pipes the child and copies in a goroutine — and the wait does not return until
+   that copy ends, which needs EVERY holder of the pipe's write end closed, the
+   killed process's own descendants included. Go's round-trip leg killed its
+   `dart` and then blocked forever on `cmd.Wait()`, so the sweep printed no
+   `Results:` line at all and the row would have died on the job's
+   `timeout-minutes` — reporting nothing, rather than reporting a timeout. The
+   bound is `cmd.WaitDelay` (`go/engine/conformance/roundtrip.go`), and
+   `roundtrip_timeout_test.go` is its negative control: a stand-in `dart` that
+   hands its stdout to a grandchild and blocks, measured at 5.6 s with the bound
+   and 30.1 s without. It stayed latent because only 31 fixtures ever reached the
+   engine; it surfaced the moment #691 raised that to 80.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not

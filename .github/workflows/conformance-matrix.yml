@@ -1297,7 +1297,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      GO_ROUNDTRIP_FLOOR: "31"
+      GO_ROUNDTRIP_FLOOR: "79"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1331,8 +1331,12 @@ jobs:
             echo "**Gap, tracked in #691.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Go compiler dispatches through \`ballrt.*\` helpers over"
             echo "\`ballrt.Value\`, and the syntactic \`go/ast\` encoder reads idiomatic"
-            echo "hand-written Go. #691 carries the measured first blocker (no"
-            echo "\`std_collections\` helper has an inverse yet) and the smallest next step."
+            echo "hand-written Go. \`go/encoder/ballrt.go\` now inverts the"
+            echo "\`std_collections\` family and four emitted shapes (\`FieldGet\`,"
+            echo "\`NewList\`, the loop-body guard, the named-result function body);"
+            echo "the measured next blockers are the map-literal IIFE"
+            echo "(\`ballrt.NewMap\` + \`__mapN.Set\`), \`ballrt.ArgGet\`/\`NewMessage\`"
+            echo "for multi-parameter calls and classes, and \`ballrt.Iterate\`."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"

@@ -1,7 +1,10 @@
 package encoder
 
 import (
+	"fmt"
 	"go/ast"
+	"go/token"
+	"strconv"
 
 	ballv1 "github.com/ball-lang/ball/go/shared/gen/ball/v1"
 )
@@ -17,35 +20,49 @@ import (
 // flat 0 and its CI row went green on it.
 //
 // Every entry below is the exact INVERSE of one line in
-// `go/compiler/base_call.go`: the helper's name, the base function it is the
-// emission of, and that base function's input field for each positional
+// `go/compiler/base_call.go`: the helper's name, the base MODULE and function it
+// is the emission of, and that base function's input field for each positional
 // argument (a base call's input is always a message keyed by field name —
-// `{left, right}`, `{value}`, …). Keep the two in step. A helper the compiler
-// emits but this table does not name is NOT silently mis-encoded: it fails loud
-// (issue #55 doctrine), which is why the table is deliberately restricted to
-// helpers whose shape is unambiguous:
+// `{left, right}`, `{value}`, …). Keep the two in step — the drift guard in
+// `ballrt_table_test.go` parses that switch and fails when they part. A helper
+// the compiler emits but this table does not name is NOT silently mis-encoded:
+// it fails loud (issue #55 doctrine), which is why the table is deliberately
+// restricted to helpers whose shape is unambiguous:
 //
 //   - fixed arity, every argument a real expression. Helpers the compiler calls
 //     with a `ballrt.Value(nil)` placeholder for an omitted optional argument
 //     (`Substring`, `ToStringAsExponential`, `Assert`, `Return`) are left out
 //     rather than guessed at;
-//   - a `std` base function that `dart/shared/std.json` actually declares —
-//     the canonical base-function inventory. `print_error`/`invoke` are not in
-//     it, so they are not here either;
+//   - a base function the module's own builder actually declares —
+//     `dart/shared/std.json` for `std`, `dart/shared/lib/std_collections.dart`
+//     for `std_collections`. `print_error`/`invoke` are not in std.json, so they
+//     are not here either;
 //   - no type-name string operands (`IsType`/`AsType` take a quoted Go string,
-//     not an encodable expression).
+//     not an encodable expression);
+//   - ONE module. A helper the compiler emits from two switches at once (today
+//     only `SetCreate`, which both `std.set_create` and
+//     `std_collections.set_create` lower to) has no single inverse, so it is
+//     excluded rather than guessed at.
 //
 // Statement-shaped lowerings (`if`/`for`/`while`/`switch`/`try`) are not here at
 // all: the compiler emits them as Go control flow or IIFEs, and the encoder
 // already reads them back from that Go syntax.
 
-// ballrtHelper is the Ball base function a `ballrt.<Name>` call stands for: the
-// base module, the function name, and the input-message field each positional
+// ballrtHelper is the Ball base call a `ballrt.<Name>` call stands for: the base
+// MODULE, the function name, and the input-message field each positional
 // argument fills, in order.
 type ballrtHelper struct {
+	mod    string
 	fn     string
 	fields []string
 }
+
+// The two base modules the `ballrt.*` helpers invert into. There is deliberately
+// no `go_std` (see this package's doc comment).
+const (
+	moduleStd         = "std"
+	moduleCollections = "std_collections"
+)
 
 // ballrtPackage is the import alias `go/compiler` gives the Ball Go runtime in
 // every program it emits
@@ -70,15 +87,81 @@ const ballrtValueConversion = "Value"
 // operand unchanged.
 const ballrtTruthy = "Truthy"
 
+// ballrtFieldGet reads a named member off a value. `go/compiler` emits it for a
+// Ball `field_access` node, so `ballrt.FieldGet(obj, "length")` encodes back to
+// exactly that — NOT to a base call. The member name must be a string literal;
+// a computed one is `ballrt.IndexGet` (`std.index`) instead, which the table
+// above already covers.
+const ballrtFieldGet = "FieldGet"
+
+// ballrtNewList builds a runtime list from its arguments — the compiler's
+// emission for a Ball list LITERAL (`compileListLiteral`: `ballrt.NewList()` for
+// the empty one, `ballrt.NewList(a, b, c)` otherwise). Its inverse is a Ball
+// `Literal.list_value`, not a base call, so it is variadic by construction.
+const ballrtNewList = "NewList"
+
+// ballrtLoopBody wraps one iteration of a compiled loop so a `break`/`continue`
+// flow signal can be recovered. It is meaningful only in the exact statement the
+// compiler emits for it (`if ballrt.RunLoopBody("", func() { … }) { break }`),
+// which [unwrapLoopBody] reads back structurally; anywhere else it is refused.
+const ballrtLoopBody = "RunLoopBody"
+
+// ballrtCatchReturn is the deferred guard that turns a Ball `std.return` signal
+// into the compiled function's named result. Like [ballrtEntryWrapper] it is
+// plumbing with no Ball counterpart — a Ball function body simply IS its value —
+// so it is recognized only inside the compiled-function shape
+// ([unwrapCompiledFunc]) and refused anywhere else.
+const ballrtCatchReturn = "CatchReturn"
+
+// ballrtReturnVar is the named result `go/compiler` gives every compiled
+// function (`func f(input ballrt.Value) (__ret ballrt.Value)`).
+const ballrtReturnVar = "__ret"
+
 var (
 	unary  = []string{"value"}
 	binary = []string{"left", "right"}
+
+	// std_collections receivers — the `list()`/`set()`/`mp()` closures at the
+	// top of the compiler's compileCollectionsCall.
+	listOnly = []string{"list"}
+	setOnly  = []string{"set"}
+	mapOnly  = []string{"map"}
 )
 
-// ballrtHelpers maps a `ballrt.<Name>` helper to the `std` base call it encodes
-// back to, ordered the way `go/compiler/base_call.go` orders its switch so the
-// two read side by side.
-var ballrtHelpers = map[string]ballrtHelper{
+// ballrtHelpers is the single lookup the encoder consults: every module's table
+// merged, with the module stamped on each entry. Built once at init so a helper
+// that appears in two module tables is a loud programming error rather than a
+// silent module coin-flip (see [mergeHelperTables]).
+var ballrtHelpers = mergeHelperTables()
+
+// mergeHelperTables merges the per-module inverse tables into one lookup keyed
+// by helper name, stamping each entry with its module. A name in two tables has
+// no single inverse, so it panics at package init rather than letting whichever
+// table merged last decide the module of an encoded call.
+func mergeHelperTables() map[string]ballrtHelper {
+	merged := make(map[string]ballrtHelper, len(stdHelpers)+len(collectionsHelpers))
+	for mod, table := range map[string]map[string]ballrtHelper{
+		moduleStd:         stdHelpers,
+		moduleCollections: collectionsHelpers,
+	} {
+		for name, h := range table {
+			if prev, dup := merged[name]; dup {
+				panic(fmt.Sprintf(
+					"encoder: ballrt.%s is mapped by both the %s and %s inverse tables; "+
+						"a helper the compiler emits from two switches has no single inverse "+
+						"and must be excluded instead", name, prev.mod, mod))
+			}
+			h.mod = mod
+			merged[name] = h
+		}
+	}
+	return merged
+}
+
+// stdHelpers maps a `ballrt.<Name>` helper to the universal `std` base call it
+// encodes back to, ordered the way `go/compiler/base_call.go` orders its switch
+// so the two read side by side.
+var stdHelpers = map[string]ballrtHelper{
 	// ── I/O ─────────────────────────────────────────────────────────────────
 	"Print": {fn: "print", fields: []string{"message"}},
 
@@ -165,8 +248,86 @@ var ballrtHelpers = map[string]ballrtHelper{
 	"TypeOf":   {fn: "type_of", fields: unary},
 }
 
-// encodeBallrtCall encodes a `ballrt.<name>(args…)` call — one universal `std`
-// base call each, per the table above.
+// collectionsHelpers is the inverse of `compileCollectionsCall` — the second
+// half of `go/compiler/base_call.go`'s dispatch, and the one whose absence kept
+// most of the corpus out of the round-trip leg (issue #691): every fixture that
+// touches a list, a map or a set stops at its first collection helper.
+//
+// Same three rules as [stdHelpers], plus the module one. The field name for each
+// positional argument is the compiler's FIRST alias for that position — the name
+// `c.arg(f, "value", "callback")` looks for before any fallback — so a program
+// re-encoded through this table compiles back to the same Go on the next pass,
+// and so the reference engines read the field they prefer
+// (`dart/engine/lib/engine_std.dart` accepts the aliases as fallbacks).
+//
+// Deliberately absent: `SetCreate`. `std.set_create` and
+// `std_collections.set_create` BOTH lower to it, so its module is ambiguous, and
+// the Dart reference engine reads a set's members from an `elements` field that
+// neither module's input descriptor declares — an inverse guessing `{list: …}`
+// would hand every engine an empty set instead of failing. `mergeHelperTables`
+// and the drift guard both treat that as a documented exclusion, not an
+// oversight.
+var collectionsHelpers = map[string]ballrtHelper{
+	// ── Lists ───────────────────────────────────────────────────────────────
+	"ListGet":      {fn: "list_get", fields: []string{"list", "index"}},
+	"ListLength":   {fn: "list_length", fields: listOnly},
+	"ListIsEmpty":  {fn: "list_is_empty", fields: listOnly},
+	"ListFirst":    {fn: "list_first", fields: listOnly},
+	"ListLast":     {fn: "list_last", fields: listOnly},
+	"ListContains": {fn: "list_contains", fields: []string{"list", "value"}},
+	"ListIndexOf":  {fn: "list_index_of", fields: []string{"list", "value"}},
+	"ListReverse":  {fn: "list_reverse", fields: listOnly},
+	"ListConcat":   {fn: "list_concat", fields: []string{"list", "value"}},
+	"ListSlice":    {fn: "list_slice", fields: []string{"list", "start", "end"}},
+	"ListTake":     {fn: "list_take", fields: []string{"list", "index"}},
+	"ListDrop":     {fn: "list_drop", fields: []string{"list", "index"}},
+	"ListPush":     {fn: "list_push", fields: []string{"list", "value"}},
+	"ListPop":      {fn: "list_pop", fields: listOnly},
+	"ListInsert":   {fn: "list_insert", fields: []string{"list", "index", "value"}},
+	"ListRemoveAt": {fn: "list_remove_at", fields: []string{"list", "index"}},
+	"ListSet":      {fn: "list_set", fields: []string{"list", "index", "value"}},
+	"ListClear":    {fn: "list_clear", fields: listOnly},
+	"ListMap":      {fn: "list_map", fields: []string{"list", "value"}},
+	"ListFilter":   {fn: "list_filter", fields: []string{"list", "value"}},
+	"ListForEach":  {fn: "list_foreach", fields: []string{"list", "value"}},
+	"ListAll":      {fn: "list_all", fields: []string{"list", "value"}},
+	"ListAny":      {fn: "list_any", fields: []string{"list", "value"}},
+	"ListFind":     {fn: "list_find", fields: []string{"list", "value"}},
+	"ListSort":     {fn: "list_sort", fields: []string{"list", "value"}},
+	"ListJoin":     {fn: "list_join", fields: []string{"list", "separator"}},
+	"ListToList":   {fn: "list_to_list", fields: listOnly},
+
+	// ── Maps ────────────────────────────────────────────────────────────────
+	"MapGet":           {fn: "map_get", fields: []string{"map", "key"}},
+	"MapSet":           {fn: "map_set", fields: []string{"map", "key", "value"}},
+	"MapDelete":        {fn: "map_delete", fields: []string{"map", "key"}},
+	"MapContainsKey":   {fn: "map_contains_key", fields: []string{"map", "key"}},
+	"MapContainsValue": {fn: "map_contains_value", fields: []string{"map", "value"}},
+	"MapKeys":          {fn: "map_keys", fields: mapOnly},
+	"MapValues":        {fn: "map_values", fields: mapOnly},
+	"MapLength":        {fn: "map_length", fields: mapOnly},
+	"MapIsEmpty":       {fn: "map_is_empty", fields: mapOnly},
+	"MapMerge":         {fn: "map_merge", fields: []string{"map", "value"}},
+	"MapPutIfAbsent":   {fn: "map_put_if_absent", fields: []string{"map", "key", "value"}},
+
+	// ── String ↔ collection bridge ──────────────────────────────────────────
+	"StringJoin": {fn: "string_join", fields: []string{"list", "separator"}},
+
+	// ── Sets ────────────────────────────────────────────────────────────────
+	"SetAdd":          {fn: "set_add", fields: []string{"set", "value"}},
+	"SetRemove":       {fn: "set_remove", fields: []string{"set", "value"}},
+	"SetContains":     {fn: "set_contains", fields: []string{"set", "value"}},
+	"SetLength":       {fn: "set_length", fields: setOnly},
+	"SetIsEmpty":      {fn: "set_is_empty", fields: setOnly},
+	"SetToList":       {fn: "set_to_list", fields: setOnly},
+	"SetUnion":        {fn: "set_union", fields: binary},
+	"SetIntersection": {fn: "set_intersection", fields: binary},
+	"SetDifference":   {fn: "set_difference", fields: binary},
+}
+
+// encodeBallrtCall encodes a `ballrt.<name>(args…)` call — one base call each,
+// in the module the tables above record (`std`, or `std_collections` for the
+// list/map/set family).
 func (e *Encoder) encodeBallrtCall(name string, args []ast.Expr) *ballv1.Expression {
 	switch name {
 	case ballrtValueConversion:
@@ -184,13 +345,36 @@ func (e *Encoder) encodeBallrtCall(name string, args []ast.Expr) *ballv1.Express
 			return nullLit()
 		}
 		return e.encodeExpr(args[0])
+	case ballrtFieldGet:
+		if len(args) != 2 {
+			e.fail("ballrt.%s expects 2 argument(s), got %d", ballrtFieldGet, len(args))
+			return nullLit()
+		}
+		name, ok := stringLiteral(args[1])
+		if !ok {
+			e.fail("ballrt.%s needs a string-literal member name to encode as a Ball field access", ballrtFieldGet)
+			return nullLit()
+		}
+		return fieldAccess(e.encodeExpr(args[0]), name)
+	case ballrtNewList:
+		elems := make([]*ballv1.Expression, len(args))
+		for i, a := range args {
+			elems[i] = e.encodeExpr(a)
+		}
+		return listLit(elems)
 	case ballrtEntryWrapper:
 		e.fail("ballrt.%s is the compiled entry-point wrapper and is encodable only as the whole body of `func main()`", ballrtEntryWrapper)
+		return nullLit()
+	case ballrtLoopBody:
+		e.fail("ballrt.%s is the compiled loop-body guard and is encodable only as `if ballrt.%s(\"\", func() { … }) { break }` inside a loop", ballrtLoopBody, ballrtLoopBody)
+		return nullLit()
+	case ballrtCatchReturn:
+		e.fail("ballrt.%s is the compiled return-signal guard and is encodable only as the `defer` of a compiled function body", ballrtCatchReturn)
 		return nullLit()
 	}
 	h, ok := ballrtHelpers[name]
 	if !ok {
-		e.fail("unsupported runtime helper ballrt.%s (go/encoder/ballrt.go lists the helpers that have a universal std inverse)", name)
+		e.fail("unsupported runtime helper ballrt.%s (go/encoder/ballrt.go lists the helpers that have a universal std/std_collections inverse)", name)
 		return nullLit()
 	}
 	if len(args) != len(h.fields) {
@@ -201,7 +385,7 @@ func (e *Encoder) encodeBallrtCall(name string, args []ast.Expr) *ballv1.Express
 	for i, a := range args {
 		fields[i] = kv{h.fields[i], e.encodeExpr(a)}
 	}
-	return stdCall(h.fn, argsMessage(fields...))
+	return call(h.mod, h.fn, argsMessage(fields...))
 }
 
 // unwrapEntryWrapper returns the body of the
@@ -236,6 +420,124 @@ func unwrapEntryWrapper(body *ast.BlockStmt) *ast.BlockStmt {
 		return nil
 	}
 	return lit.Body
+}
+
+// unwrapLoopBody returns the body of the
+// `if ballrt.RunLoopBody("", func() { … }) { break }` statement that IS a
+// compiled loop's whole body, or nil for any other `if`.
+//
+// `RunLoopBody` runs one iteration and recovers a `break`/`continue` flow signal
+// (go/runtime/flow.go), answering true when the loop must stop — precisely what
+// a Ball loop body does on its own, so unwrapping it preserves semantics instead
+// of special-casing a round trip. Only the compiler's exact emission is
+// accepted: an EMPTY label (the only one the loop lowerings emit — a non-empty
+// one comes from the goto-switch lowering, whose shape is different and whose
+// label Ball's `std.for`/`std.while` cannot carry), a 0-parameter literal, and a
+// body that is exactly `break`.
+func unwrapLoopBody(s *ast.IfStmt) *ast.BlockStmt {
+	if s.Init != nil || s.Else != nil || s.Body == nil || len(s.Body.List) != 1 {
+		return nil
+	}
+	br, ok := s.Body.List[0].(*ast.BranchStmt)
+	if !ok || br.Tok != token.BREAK || br.Label != nil {
+		return nil
+	}
+	callExpr, ok := s.Cond.(*ast.CallExpr)
+	if !ok || len(callExpr.Args) != 2 || !isBallrtCall(callExpr.Fun, ballrtLoopBody) {
+		return nil
+	}
+	if label, ok := stringLiteral(callExpr.Args[0]); !ok || label != "" {
+		return nil
+	}
+	lit, ok := callExpr.Args[1].(*ast.FuncLit)
+	if !ok || len(paramNames(lit.Type)) != 0 || lit.Type.Results != nil {
+		return nil
+	}
+	return lit.Body
+}
+
+// unwrapCompiledFunc reads back the shape `go/compiler` emits for every
+// non-entry Ball function:
+//
+//	func f(input ballrt.Value) (__ret ballrt.Value) {
+//		_ = input
+//		<parameter aliases…>
+//		defer ballrt.CatchReturn(&__ret)
+//		__ret = <body>
+//		return
+//	}
+//
+// and answers with the statements to keep and the expression that is the
+// function's VALUE. The two pieces it drops are pure Go plumbing: the deferred
+// `CatchReturn` guard exists because Go has no expression-valued function body,
+// and the `__ret = <body>; return` tail is that body being handed to it. A Ball
+// function body simply IS `<body>`.
+//
+// Encoding the shape literally instead is not merely verbose, it is WRONG:
+// `__ret` is not a Ball variable, so the trailing bare `return` would encode as
+// `std.return` with no value and the function would answer null on every engine.
+// Refusing the `defer` (what happened before this) was the honest half of that;
+// this is the other half.
+func unwrapCompiledFunc(fd *ast.FuncDecl) (stmts []ast.Stmt, result ast.Expr, ok bool) {
+	if fd.Body == nil || !hasNamedResult(fd.Type, ballrtReturnVar) || len(fd.Body.List) < 3 {
+		return nil, nil, false
+	}
+	list := fd.Body.List
+	if ret, isReturn := list[len(list)-1].(*ast.ReturnStmt); !isReturn || len(ret.Results) != 0 {
+		return nil, nil, false
+	}
+	assign, isAssign := list[len(list)-2].(*ast.AssignStmt)
+	if !isAssign || assign.Tok != token.ASSIGN || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return nil, nil, false
+	}
+	if lhs, isIdent := assign.Lhs[0].(*ast.Ident); !isIdent || lhs.Name != ballrtReturnVar {
+		return nil, nil, false
+	}
+	head := list[:len(list)-2]
+	guards := 0
+	kept := make([]ast.Stmt, 0, len(head))
+	for _, s := range head {
+		if d, isDefer := s.(*ast.DeferStmt); isDefer && isBallrtCall(d.Call.Fun, ballrtCatchReturn) {
+			guards++
+			continue
+		}
+		kept = append(kept, s)
+	}
+	if guards != 1 {
+		return nil, nil, false
+	}
+	return kept, assign.Rhs[0], true
+}
+
+// hasNamedResult reports whether ft declares exactly one result, named name.
+func hasNamedResult(ft *ast.FuncType, name string) bool {
+	if ft.Results == nil || len(ft.Results.List) != 1 || len(ft.Results.List[0].Names) != 1 {
+		return false
+	}
+	return ft.Results.List[0].Names[0].Name == name
+}
+
+// isBallrtCall reports whether fn names `ballrt.<name>`.
+func isBallrtCall(fn ast.Expr, name string) bool {
+	sel, ok := fn.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != name {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == ballrtPackage
+}
+
+// stringLiteral returns the value of a Go string-literal expression.
+func stringLiteral(expr ast.Expr) (string, bool) {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return s, true
 }
 
 // inlineIIFE encodes `func() ballrt.Value { … }()` — the compiler's lowering of

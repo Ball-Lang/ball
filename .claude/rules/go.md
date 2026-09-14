@@ -210,16 +210,6 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `Map.fromEntries` (`ballrt.MapFromEntries`) landed with it — 121's next blocker once it compiled.
   `go/compiler/list_foreach_test.go` compiles all three fixtures AND runs them against the goldens.
 
-- **`std_collections.list_foreach` compiles to `ballrt.ListForEach`, and the receiver may be a MAP
-  (#642).** It had no case at all in `base_call.go`, so 116_map_iteration, 119_nested_maps and
-  121_map_from_entries were refused outright — the same shape of gap #597 closed for `list_find`.
-  The Dart → Ball encoder is syntactic, so `map.forEach((k, v) => ...)` and
-  `list.forEach((e) => ...)` both arrive as `list_foreach` with no receiver type to tell them apart;
-  `ballrt.ListForEach`'s map arm passes each entry as one `{key, value, arg0, arg1}` message,
-  mirroring the Dart reference engine's own `list_foreach` (`engine_std.dart`) field for field.
-  `Map.fromEntries` (`ballrt.MapFromEntries`) landed with it — 121's next blocker once it compiled.
-  `go/compiler/list_foreach_test.go` compiles all three fixtures AND runs them against the goldens.
-
 - **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
   `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
   `dart/shared/lib/std_collections.dart` says ("Find first:
@@ -340,8 +330,11 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   compiler's `std.assign` is a plain store.
 - **Fail-loud:** an unsupported construct records an error and `Encode` returns non-nil, never a
   placeholder. Documented deferred gaps (extend the encoder here): top-level type/const/var,
-  structs-as-TypeDefinitions, map/set literals + `std_collections` ops, multi-value return/assign,
-  `switch`/`defer`/`go`/channels, `fmt.Printf`/`Sprintf` and multi-arg `fmt.Println`.
+  structs-as-TypeDefinitions, map/set literals, multi-value return/assign,
+  `switch`/`go`/channels, `fmt.Printf`/`Sprintf` and multi-arg `fmt.Println`. The
+  `std_collections` ops are no longer among them (#691) — see the inverse-table bullet under
+  Testing; nor is `defer`, in the one shape the compiler emits it
+  (`defer ballrt.CatchReturn(&__ret)`), though a hand-written `defer` is still refused.
 - The round-trip test (`go/encoder/roundtrip_test.go`) is the proof: Go → Ball → (compile with
   `go/compiler` + `go run`) ≡ running the original Go natively.
 
@@ -438,17 +431,39 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `tools/ci/roundtrip_floor.sh`. It is still NOT a parity gate — most of the corpus does not
   round-trip yet — but a flat zero is red, and the floor only rises. **Raise the floor in the SAME
   PR as the fix that earned it**; the job prints the exact new value. The remaining gap is named in
-  the row's own step summary with the issue tracking it (#691: no `std_collections` helper has an
-  inverse in `go/encoder/ballrt.go` yet), never as an "expected baseline".
-- **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
-  compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
-  construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture
-  failed. The predecessor kept just the text before the first `\n`, dropping every bullet with no
-  ellipsis, which is why #642's investigation had to reproduce the Go leg locally to learn what its
-  six constructs were. `errorDetail` joins with `" / "` (Python's separator) and truncates at the
-  same visible 200-character budget C#/Rust use. `go/engine/conformance/support_test.go` pins it. The remaining gap is named in
-  the row's own step summary with the issue tracking it (#691: no `std_collections` helper has an
-  inverse in `go/encoder/ballrt.go` yet), never as an "expected baseline".
+  the row's own step summary with the issue tracking it (#691), never as an "expected baseline".
+- **The inverse tables carry the base MODULE, and four emitted SHAPES have inverses of their own
+  (#691 — the row went 31 -> 79 of 358, measured on PR #738's matrix, run 34802773565).** `ballrt.go` used to map every helper to a `std` call, so no `std_collections` helper
+  could be inverted at all and the leg stopped at the first list/map/set op in most of the corpus.
+  It is now two module-scoped tables (`stdHelpers`, `collectionsHelpers`) merged at init, and
+  `mergeHelperTables` PANICS on a name claimed by both rather than letting map order pick a module.
+  Each collections field is the compiler's FIRST alias for that argument (`c.arg(f, "value",
+  "callback")` -> `value`), so a re-encode compiles back to the same call.
+  `go/encoder/ballrt_table_test.go` is the drift guard and it derives the closed set from the source
+  of truth — it PARSES `go/compiler/base_call.go`'s `compileCollectionsCall` and compares every
+  emission — with negative controls that prove it catches each way the two files can part. The four
+  shapes: `ballrt.FieldGet(x, "n")` is a Ball `field_access` (a computed name is `std.index` and
+  stays refused); `ballrt.NewList(a, b)` is a Ball list LITERAL; `if ballrt.RunLoopBody("",
+  func(){…}) { break }` is a loop BODY, not an `if`; and every non-entry compiled function carries
+  `(__ret ballrt.Value)` + `defer ballrt.CatchReturn(&__ret)` + `__ret = <body>; return`, whose Ball
+  original is just `<body>` — encoding THAT literally would make the function answer null on every
+  engine, since `__ret` is not a Ball variable. `SetCreate` is a documented exclusion: both
+  `std.set_create` and `std_collections.set_create` lower to it, and the Dart engine reads a set's
+  members from an `elements` field neither input descriptor declares.
+- **The round-trip leg's per-fixture kill is bounded by `cmd.WaitDelay` (#691).**
+  `roundTripOne` runs the Dart CLI out of process with `cmd.Stdout` set to an
+  `io.Writer`, so `os/exec` pipes the child and copies in a goroutine — and
+  `cmd.Wait` does not return until that copy ends, which needs EVERY holder of the
+  pipe's write end closed, the killed process's own descendants included. Killing
+  the child is therefore NOT enough: one surviving grandchild makes the `<-done`
+  after `Kill` block forever, the sweep never prints its `Results:` line, and the
+  CI row dies on `timeout-minutes` instead of REPORTING a timeout — the defect
+  `docs/TESTING_STRATEGY.md` §2c item 6 names. It was latent until #691 made
+  enough fixtures re-encode for one to reach the engine and not terminate.
+  `go/engine/conformance/roundtrip_timeout_test.go` is the negative control: a
+  stand-in `dart` (a COPY of the test binary, so nothing the framework cleans up
+  is locked while it runs) that hands its stdout to a grandchild and blocks.
+  Measured: 5.6 s with the bound, 30.1 s without.
 - **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
   compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
   construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture

@@ -136,6 +136,10 @@ cargo test -p ball-lang-engine --features self_host --test self_host_conformance
 
 # C# — .NET 10 SDK is native on Windows, no WSL needed. Solution is csharp/Ball.slnx;
 # Central Package Management pins versions in csharp/Directory.Packages.props.
+# `dotnet test` ALSO needs the Dart SDK + a resolved workspace (`dart pub get` at
+# the repo root): csharp/encoder/test/ReferenceEngineExecutionTests.cs runs
+# re-encoded programs on the Dart REFERENCE ENGINE and fails — never skips —
+# when `dart` is unresolvable (#730). ci.yml's csharp job sets Dart up first.
 cd csharp && dotnet build Ball.slnx && dotnet test Ball.slnx
 dotnet format Ball.slnx --verify-no-changes   # run `dotnet format` (no flag) to fix
 

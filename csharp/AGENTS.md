@@ -1453,7 +1453,8 @@ Three legs, one runner, selected via `--leg=`:
   "Documented gaps" above). #642 taught the encoder that dispatch shape
   (`encoder/src/RuntimeHelpers.cs`) and #689 added the two NODE-shaped arms that inverse table
   cannot hold — `BallRuntime.FieldGet` (→ a `field_access` node) and `BallRuntime.ArgGet` (→
-  `null_coalesce` over two of them), respectively the first blocker for the class-shaped fixtures
+  `null_coalesce` over two **tolerant** `std_collections.map_get` reads, NOT two `field_access`
+  nodes; see the "Encoder" section), respectively the first blocker for the class-shaped fixtures
   and for `105_static_methods`. The
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden

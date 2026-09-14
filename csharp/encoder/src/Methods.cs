@@ -259,13 +259,28 @@ internal sealed partial class Encoder
     /// <summary>
     /// <c>BallRuntime.ArgGet(input, "name", "argN")</c> → the named-then-positional read it is the
     /// emission of (issue #689):
-    /// <c>std.null_coalesce(field_access(input, name), field_access(input, argN))</c>.
+    /// <c>std.null_coalesce(map_get(input, "name"), map_get(input, "argN"))</c>.
     ///
     /// <para>That IS <c>BallMethods.ArgGet</c>'s own body — <c>Get(namedKey) ?? Get(positionalKey)
-    /// ?? Null</c> — written with the two nodes Ball has for it, and it needs no knowledge of the
+    /// ?? Null</c> — written in Ball, and it needs no knowledge of the
     /// enclosing function's arity: the compiler emits this prologue only for a 2+-parameter
     /// callee, whose Ball input is always the message the two reads address. A one-parameter
     /// callee is bound directly to the input and never reaches here.</para>
+    ///
+    /// <para><b>Both operands are a TOLERANT keyed read (<c>std_collections.map_get</c>), never a
+    /// <c>field_access</c> node.</b> Exactly one of the two keys is present in every input the
+    /// compiler packs — a call site that knows the callee's parameter names packs
+    /// <c>{name: …}</c>, a first-class <c>invoke</c> of a function value packs
+    /// <c>{arg0, arg1, …}</c> (<c>CSharpCompiler.ParamPrologue</c>) — and
+    /// <c>std.null_coalesce</c> is EAGER on the reference engine (it is not one of
+    /// <c>_evalCall</c>'s lazily-evaluated base functions), so both operands are evaluated
+    /// whichever key won. A <c>field_access</c> on the absent key is a hard
+    /// <c>BallRuntimeError: Field "argN" not found</c> there
+    /// (<c>dart/engine/lib/engine_eval.dart</c>), which would make this arm throw on every real
+    /// input rather than answer; <c>map_get</c> is a plain <c>map[key]</c> that answers
+    /// <c>null</c>, which is what <c>BallMethods.ArgGet</c>'s <c>??</c> chain needs and what its
+    /// <c>_ => Null</c> arm does for a non-map input. <c>map_get</c> is also universally
+    /// implemented, unlike <c>std.null_aware_access</c> (Dart + TS only).</para>
     /// </summary>
     private Expression EncodeArgGetHelper(List<ExpressionSyntax> argExprs)
     {
@@ -282,17 +297,29 @@ internal sealed partial class Encoder
         {
             throw new EncoderException(
                 $"ball-encoder: BallRuntime.{RuntimeHelpers.ArgGet}(...) needs string-literal " +
-                $"key names, got `{argExprs[1]}` / `{argExprs[2]}` (a Ball field_access names a " +
-                "field, it does not compute one)");
+                $"key names, got `{argExprs[1]}` / `{argExprs[2]}` (this prologue names the two " +
+                "keys it reads, it does not compute them)");
         }
 
         var input = EncodeExpr(argExprs[0]);
+        MarkCollectionsUsed();
         return Builders.StdCall(
             "null_coalesce",
             Builders.ArgsMessage(
-                ("left", Builders.FieldAccessExpr(input, namedKey)),
-                ("right", Builders.FieldAccessExpr(input.Clone(), positionalKey))));
+                ("left", TolerantKeyRead(input, namedKey)),
+                ("right", TolerantKeyRead(input.Clone(), positionalKey))));
     }
+
+    /// <summary>
+    /// <c>std_collections.map_get(map: target, key: "name")</c> — the tolerant keyed read
+    /// <see cref="EncodeArgGetHelper"/>'s two operands need (a missing key is <c>null</c>, not a
+    /// reference-engine <c>BallRuntimeError</c>). Callers must have called
+    /// <c>MarkCollectionsUsed()</c>.
+    /// </summary>
+    private static Expression TolerantKeyRead(Expression target, string key) =>
+        Builders.CollectionsCall(
+            "map_get",
+            Builders.ArgsMessage(("map", target), ("key", Builders.StringLiteral(key))));
 
     private Expression EncodeMemberInvocation(
         InvocationExpressionSyntax invocation,

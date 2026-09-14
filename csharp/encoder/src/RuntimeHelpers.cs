@@ -80,8 +80,11 @@ internal static class RuntimeHelpers
     /// call site that had no names to pack (a first-class <c>invoke</c> of a function value).
     /// Node-shaped like <see cref="FieldGet"/>, and a two-key read rather than one, so it is not
     /// a <see cref="Table"/> row either: the inverse is
-    /// <c>std.null_coalesce(field_access(input, name), field_access(input, argN))</c>, which is
-    /// <c>BallMethods.ArgGet</c>'s <c>?? ?? Null</c> chain written in Ball.
+    /// <c>std.null_coalesce(map_get(input, name), map_get(input, argN))</c>, which is
+    /// <c>BallMethods.ArgGet</c>'s <c>?? ?? Null</c> chain written in Ball. Both operands are a
+    /// TOLERANT keyed read rather than a <c>field_access</c> node, because exactly one of the two
+    /// keys is present in any real input and <c>std.null_coalesce</c> is eager — see
+    /// <c>Methods.EncodeArgGetHelper</c> for the full statement of why.
     /// </summary>
     internal const string ArgGet = "ArgGet";
 

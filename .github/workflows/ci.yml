@@ -2597,6 +2597,23 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('csharp/Directory.Packages.props', 'csharp/**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # ── Dart, BEFORE `dotnet test` ──
+      # Two things in this job need it, and the earlier of the two is the test
+      # suite: csharp/encoder/test/ReferenceEngineExecutionTests.cs encodes
+      # compiler-shaped C# and RUNS the re-encoded program on the Dart REFERENCE
+      # ENGINE (issue #689). That is the only instrument that can see a
+      # re-encoded tree which the C# runtime evaluates happily and the reference
+      # engine rejects — the `field_access`-on-an-absent-key class of defect. It
+      # FAILS rather than skips when `dart` is unresolvable, so this setup is
+      # load-bearing, not an optimisation: do not move it back below `Test`.
+      # The second consumer is the engine.ball.pb regeneration further down.
+      - name: Setup Dart (reference engine + engine.ball.pb regeneration)
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
+
       - name: Build
         run: dotnet build csharp/Ball.slnx
 
@@ -2639,20 +2656,16 @@ jobs:
       # -p:SelfHost=true and assert Dart parity — the exact regen chain and
       # division of responsibility documented in csharp/AGENTS.md's
       # "Self-hosted engine" and "Conformance harness" -> "Regen seam for CI"
-      # sections, mirroring the rust job's identical regen-then-run shape.
-      - name: Setup Dart (for engine.ball.pb regeneration)
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
-        with:
-          sdk: stable
-
+      # sections, mirroring the rust job's identical regen-then-run shape. Dart
+      # itself is set up (and its workspace bootstrapped) near the top of this
+      # job, because the `Test` step needs it too — see the comment there.
+      #
       # compile_engine_cpp.dart writes dart/self_host/engine.ball.pb BEFORE it
       # tries (and, with no C++ compiler built in this job, fails) to emit C++
       # — the trailing failure is expected and harmless here; only the .pb
       # matters (see csharp/AGENTS.md's "Build & Test"). gen_engine_json.dart
       # alone only writes the JSON, which exceeds System.Text.Json's default
       # depth limit for this program, so the .pb must be materialized instead.
-      - name: Bootstrap Dart workspace
-        uses: ./.github/actions/dart-pub-get
       - name: Regenerate engine.ball.pb
         run: |
           cd dart

@@ -1099,6 +1099,61 @@ and this repository is public — so the workflow's own `GITHUB_TOKEN` reads it.
 **To change the required checks, change the ruleset first, then this list**; the
 guard will fail the PR until they agree.
 
+### Unquoted-hash name-scalar truncation (issue #704)
+
+YAML starts a comment at a `#` preceded by whitespace, even inside a plain
+(unquoted) scalar — so a step written as
+`- name: C++ e2e fixture-list drift guard (#63 / #511)` parses as
+`name: "C++ e2e fixture-list drift guard (#63 /"`. The visible name silently
+truncates at the first unquoted `<space>#`, in both the Actions UI and anything
+that reads the parsed YAML. #671 (closing #666) quoted two step names that
+truncated this way; its own review found three more; and this guard's first run
+against `main` found a **fourth** — `ci.yml`'s "Engine-row doc drift guard
+(#610, #613)" step, added by #652 before #671 even opened, so #671's reviewer
+never had a chance to see it. A one-time human sweep of "every workflow name"
+does not stay true; nothing re-checked it after the fix landed, which is why a
+guard exists now instead of another one-off quoting pass.
+
+**What is checked and where.** `tools/ci/check_name_scalar_hash_guard.sh` scans
+every plain-scalar `name:` mapping — the workflow's own top-level `name:`, a
+job's `name:`, and a step's `- name:` — in `.github/workflows/*.yml` and
+`.github/actions/*/action.yml`. A value is flagged when it is not already
+quoted and either starts with `#` (an accidentally empty name) or contains an
+unquoted `<space>#`/`<tab>#` anywhere after that. It is deliberately
+**PyYAML-free** — a plain line/regex scanner, tracking block scalars (`key: |`
+/ `key: >`) by indentation so a `run: |` step body that happens to contain the
+literal text `name: ... #` is never mistaken for a real mapping key — unlike
+`tools/ci/check_pr_job_fanout.sh` above, which needs a real YAML parse for
+matrix expansion and anchors/aliases. The two guards read the same files
+through two independent toolchains, so neither's blind spot is the whole
+repo's.
+
+**Job names are the dangerous case, step names are cosmetic.** A step's display
+name truncating is a UI-only cosmetic bug; a **job's** `name:` truncating this
+way would silently change one of ruleset 17056238's 19 required status
+contexts, which blocks every future PR forever rather than just looking odd in
+a log. Every finding is tagged `workflow` / `job` / `step` by structural
+position (a dash-prefixed `- name:` is always a step; an un-dashed `name:` at
+column 0 is the workflow's own name; anything else un-dashed is a job's).
+Today's four offenders are all `step` — quoting them cannot move a required
+context, and `tools/ci/check_pr_job_fanout.sh` (run on every PR, right before
+this guard in `Proto Checks`) independently re-derives and asserts the full
+19-context set from the parsed job `name:` values regardless, so a future
+`job`-tagged finding would still be caught even if this guard were somehow
+bypassed.
+
+`--self-test` drives nine cases first: a quoted sibling containing the same
+hash-space content is left alone; the fabricated unquoted offender is rejected;
+quoting it in place (the only fix this guard asks for) goes green; an unquoted
+job-level and an unquoted workflow-level offender are each rejected and tagged
+correctly; an immediate `name: #comment` (value is entirely a comment) is
+rejected; name-shaped text inside a `run: |` body is NOT flagged (the
+block-scalar tracking actually works, not just "no false positives in these
+particular fixtures"); an empty directory pair is a hard error, never a silent
+pass; and an offender inside an `action.yml` is caught by the same scan. Runs
+from the always-on `Proto Checks` job, no toolchain beyond `python3` (stdlib
+only — no PyYAML import).
+
 ## Adding a language construct (the required workflow)
 
 1. Encode it (`dart/encoder/lib/encoder.dart`). If a new collection element or

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Drift guard for two engine-row docs (issues #610, #613).
+# Drift guard for three engine-row docs (issues #610, #613, #709).
 #
-# WHY THIS EXISTS: two prose surfaces claim to enumerate "every engine that
+# WHY THIS EXISTS: three prose surfaces claim to enumerate "every engine that
 # actually runs a Ball program end-to-end", and both had drifted independently
 # of the thing that would have caught it — `.github/workflows/conformance-matrix.yml`,
 # which is the ONLY place the current engine-row set is defined:
@@ -14,6 +14,14 @@
 #   * `plugins/ball/skills/embed/SKILL.md`'s per-target table (#613) called C#
 #     "No" (stale — the epic finished) and had no Go/Python rows at all, even
 #     though both ship a self-hosted engine and a `ball` CLI.
+#   * `plugins/ball/skills/embed/references/embedding-per-target.md` (#709) —
+#     the copy-ready backing for that table — makes the same class of claim one
+#     level deeper, as a `## <Language> — …` section per target. It is where the
+#     retired "C# — not embeddable yet" verdict ("even then does not reach
+#     golden output … There is no working `.Run()` today") lived until #652
+#     hand-corrected it, and until #709 nothing stopped it drifting again: this
+#     file carries no markdown table, so rules 1-4 could not reach it even if it
+#     had been passed in.
 #
 # A hard-coded number is a lie waiting to happen (the corpus only ever grows);
 # a hand-kept "every engine" list is a lie waiting to happen the moment a new
@@ -60,18 +68,36 @@
 #      execution claims, so "Trusted only", "no public constructor" and "no
 #      NuGet package yet" (all currently true, and all about embeddability
 #      rather than execution) keep passing.
+#   5. Applies the SAME two questions to `embedding-per-target.md`, whose
+#      per-language unit is a `## <Language> — …` SECTION rather than a table
+#      row (#709): every derived language must have a section, that section must
+#      carry prose, and it may not claim its engine cannot execute a Ball
+#      program. The section's language token is the FIRST WORD of its heading —
+#      the same convention rule 2 applies to a parity row's display name — so
+#      `## C# — trusted only, and only in a -p:SelfHost=true build` is the C#
+#      section while `## Transport: .ball.bin vs .ball.json` is not a language
+#      at all. The prose (not the file) is the unit for the same reason rule 3
+#      scopes to table rows: every engine's name survives in this file's
+#      snippets and caveats long after its section is gone.
+#
+# The per-language PROSE is gated rather than generated because only two things
+# in that file are derivable — which languages it must cover, and whether a
+# section contradicts the parity table. The rest is hand-written, per-target,
+# copy-ready embedding code (constructor shapes, file:line citations, verified
+# gaps) that no generator has the inputs to write.
 #
 # POSITIVE FLOOR: deriving zero engines, finding the `summary` job absent,
-# finding its parity table absent, finding a doc's engine section absent, and
-# finding that section carrying no table at all are ALL hard errors — never
-# silent agreement.
+# finding its parity table absent, finding a doc's engine section absent,
+# finding that section carrying no table at all, finding the per-target doc with
+# no `## ` sections at all, and finding a per-language section with an empty
+# body are ALL hard errors — never silent agreement.
 #
 # Usage:
 #   bash tools/ci/check_engine_row_docs.sh                       # gate the repo
 #   bash tools/ci/check_engine_row_docs.sh --self-test            # drive the cases
-#   bash tools/ci/check_engine_row_docs.sh --workflow F --portability F --embed F
+#   bash tools/ci/check_engine_row_docs.sh --workflow F --portability F --embed F --per-target F
 #
-# Exits 0 when both docs pass; 1 otherwise. Needs bash + python3 (no PyYAML
+# Exits 0 when all three docs pass; 1 otherwise. Needs bash + python3 (no PyYAML
 # required — the workflow is small enough to parse with a tiny hand-rolled
 # `jobs:`/`needs:`/`print_row` scanner, so this has no third-party dependency
 # at all).
@@ -83,6 +109,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/conformance-matrix.yml"
 PORTABILITY="$ROOT/tests/editions/portability_matrix.md"
 EMBED="$ROOT/plugins/ball/skills/embed/SKILL.md"
+PER_TARGET="$ROOT/plugins/ball/skills/embed/references/embedding-per-target.md"
 SELF_TEST=0
 
 while [ $# -gt 0 ]; do
@@ -111,6 +138,14 @@ while [ $# -gt 0 ]; do
     EMBED="${1#--embed=}"
     shift
     ;;
+  --per-target)
+    PER_TARGET="$2"
+    shift 2
+    ;;
+  --per-target=*)
+    PER_TARGET="${1#--per-target=}"
+    shift
+    ;;
   --self-test)
     SELF_TEST=1
     shift
@@ -130,12 +165,12 @@ done
 
 # ── the check itself ────────────────────────────────────────────────────────
 check_files() {
-  local workflow="$1" portability="$2" embed="$3"
-  python3 - "$workflow" "$portability" "$embed" <<'PY'
+  local workflow="$1" portability="$2" embed="$3" per_target="$4"
+  python3 - "$workflow" "$portability" "$embed" "$per_target" <<'PY'
 import re
 import sys
 
-workflow_path, portability_path, embed_path = sys.argv[1:4]
+workflow_path, portability_path, embed_path, per_target_path = sys.argv[1:5]
 
 failures = []
 passed = 0
@@ -163,6 +198,7 @@ def read(path, label):
 workflow_text = read(workflow_path, "workflow")
 portability_text = read(portability_path, "portability doc")
 embed_text = read(embed_path, "embed skill doc")
+per_target_text = read(per_target_path, "embed per-target reference doc")
 
 # ── Step 1: derive the current engine-row set from conformance-matrix.yml ──
 # Deliberately NOT a full YAML parse (no PyYAML dependency), and deliberately
@@ -375,7 +411,22 @@ CANNOT_EXECUTE_RES = (
     re.compile(r"(?:does|do)\s+not\s+(?:yet\s+)?run\s+(?:a\s+|any\s+)?(?:Ball\s+)?programs?", re.IGNORECASE),
     re.compile(r"can(?:not|'t|’t)\s+(?:yet\s+)?run\s+(?:a\s+|any\s+)?(?:Ball\s+)?programs?", re.IGNORECASE),
     re.compile(r"no\s+working\s+engine", re.IGNORECASE),
+    # The pre-#652 wording of this file's C# section. "Reaches golden output"
+    # is precisely what a parity row asserts on every run, so its negation is
+    # an execution claim however it is phrased (verified: zero hits across all
+    # three docs today).
+    re.compile(r"(?:does|do)\s+not\s+(?:yet\s+)?reach\s+golden\s+output", re.IGNORECASE),
+    re.compile(r"never\s+reach(?:es)?\s+golden\s+output", re.IGNORECASE),
 )
+
+
+def cannot_execute_hit(text):
+    """The first "this engine cannot run a program" claim in `text`, or None."""
+    for rx in CANNOT_EXECUTE_RES:
+        m = rx.search(text)
+        if m:
+            return m.group(0)
+    return None
 
 
 def gate_no_cannot_execute_verdict(path, rows, heading_label):
@@ -389,11 +440,9 @@ def gate_no_cannot_execute_verdict(path, rows, heading_label):
         row_langs = [t for t in languages if bounded_present(row, t)]
         if not row_langs:
             continue
-        for rx in CANNOT_EXECUTE_RES:
-            m = rx.search(row)
-            if m:
-                bad.append((", ".join(row_langs), m.group(0)))
-                break
+        hit = cannot_execute_hit(row)
+        if hit:
+            bad.append((", ".join(row_langs), hit))
     if bad:
         for lang, hit in bad:
             failures.append(
@@ -448,6 +497,93 @@ gate_no_cannot_execute_verdict(portability_path, portability_rows, "Engines")
 # ── Step 3: the embed skill's per-target table ─────────────────────────────
 embed_rows = gate_engine_table(embed_path, embed_text, r"Per-target honest status", "Per-target honest status")
 gate_no_cannot_execute_verdict(embed_path, embed_rows, "Per-target honest status")
+
+# ── Step 4: the embed skill's per-target REFERENCE doc (issue #709) ────────
+# Same two questions as rules 3-4, against a file whose per-language unit is a
+# `## <Language> — …` SECTION, not a table row. Scoped to the sections for the
+# same reason rule 3 is scoped to table rows: every engine's name survives in
+# this file's snippets and caveats (`ball-engine`, `go/engine`, "the Dart CLI")
+# long after its section is gone, so a whole-file name scan is a fake green.
+H2_RE = re.compile(r"^##[ \t]+([^\n]+)$", re.MULTILINE)
+
+
+def extract_h2_sections(text):
+    """[(heading, body)] for every top-level `## ` heading, in document order."""
+    heads = list(H2_RE.finditer(text))
+    out = []
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        out.append((m.group(1).strip(), text[m.end() : end]))
+    return out
+
+
+def heading_token(heading):
+    """The FIRST WORD of a heading — the same convention rule 2 applies to a
+    parity row's display name. `## C# — trusted only …` -> "C#";
+    `## Transport: …` -> "Transport", which matches no derived language."""
+    cleaned = heading.replace("`", "").replace("*", "").strip()
+    if not cleaned:
+        return ""
+    return cleaned.split()[0].rstrip(":,.;")
+
+
+def has_prose(body):
+    """Does this section body carry anything but blank lines and rules?"""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or set(stripped) <= set("-=*_"):
+            continue
+        return True
+    return False
+
+
+sections = extract_h2_sections(per_target_text)
+if not sections:
+    failures.append(
+        f"{per_target_path}: carries no '## ' sections at all — this guard refuses to pass a per-target doc whose per-language sections it cannot even locate"
+    )
+else:
+    by_token = {}
+    for heading, body in sections:
+        by_token.setdefault(heading_token(heading), []).append((heading, body))
+
+    missing = []
+    empty = []
+    verdicts = []
+    for lang in languages:
+        hits = [sec for alias in aliases(lang) for sec in by_token.get(alias, [])]
+        if not hits:
+            missing.append(lang)
+            continue
+        for heading, body in hits:
+            if not has_prose(body):
+                empty.append((lang, heading))
+                continue
+            hit = cannot_execute_hit(body)
+            if hit:
+                verdicts.append((lang, hit))
+
+    if missing:
+        failures.append(
+            f"{per_target_path}: no '## ' section for {', '.join(missing)} — a name in the file's snippets or caveats does NOT count, the per-language section is what an embedder reads"
+        )
+    else:
+        ok(f"{per_target_path}: names all {len(languages)} derived engine(s) in per-language sections (OK)")
+
+    for lang, heading in empty:
+        failures.append(
+            f"{per_target_path}: the '## {lang}' section carries no prose (heading: \"{heading}\") — a heading with nothing under it is not per-target guidance"
+        )
+
+    if verdicts:
+        for lang, hit in verdicts:
+            failures.append(
+                f"{per_target_path}: the '## {lang}' section claims \"{hit}\" — that language has a row in "
+                f"conformance-matrix.yml's `summary` parity table, i.e. its engine runs the WHOLE corpus to a "
+                f"byte-exact golden on every run (issue #709)"
+            )
+    elif not missing and not empty:
+        ok(f"{per_target_path}: no per-language section claims a parity-table engine cannot execute a program (OK)")
 
 if failures:
     for f in failures:
@@ -996,5 +1132,5 @@ if [ "$SELF_TEST" -eq 1 ]; then
   exit $?
 fi
 
-check_files "$WORKFLOW" "$PORTABILITY" "$EMBED"
+check_files "$WORKFLOW" "$PORTABILITY" "$EMBED" "$PER_TARGET"
 exit $?

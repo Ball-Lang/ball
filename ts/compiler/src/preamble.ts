@@ -297,12 +297,29 @@ function __ball_to_string(v: any): string {
       StateError: 'Bad state',
       FormatException: 'FormatException',
       RangeError: 'RangeError',
+      // Neither its own name nor empty: Dart spells an ArgumentError
+      // "Invalid argument(s): <message>". No runtime in the repo RAISES one --
+      // only a program's own throw ArgumentError('nope') builds one -- so it
+      // was in no target's table at all and printed as the raw map form
+      // {message: nope} (issue #658). Verified against the SDK; guard:
+      // tests/conformance/473_caught_user_thrown_builtin_error.
+      ArgumentError: 'Invalid argument(s)',
       TypeError: '',
     };
-    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
-        && __ball_err_prefix[v['__type__']] !== undefined) {
-      const __p = __ball_err_prefix[v['__type__']];
-      return __p === '' ? v['message'] : __p + ': ' + v['message'];
+    // The tag arrives module-qualified from a USER throw ('main:StateError')
+    // and bare from a runtime-raised one; every sibling table strips the prefix
+    // (go's messageShortName, C#'s LastIndexOf(':'), C++'s rfind(':')) and this
+    // one did not, so a caught throw StateError('boom') missed the table and
+    // fell through to the Map-like branch below -- which hides every
+    // __-prefixed key, so it printed {arg0: boom, message: boom} with no hint
+    // that a type tag was even there (issue #658).
+    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string') {
+      const __t = v['__type__'];
+      const __bare = __t.indexOf(':') >= 0 ? __t.substring(__t.lastIndexOf(':') + 1) : __t;
+      if (__ball_err_prefix[__bare] !== undefined) {
+        const __p = __ball_err_prefix[__bare];
+        return __p === '' ? v['message'] : __p + ': ' + v['message'];
+      }
     }
     // A text sink (#630) or the legacy StringBuffer object it replaces:
     // stringify as the accumulated text, never as a map. The declared sink's

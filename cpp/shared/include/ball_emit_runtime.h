@@ -96,6 +96,13 @@ inline std::string _ball_dart_error_to_string(const std::string& type_name,
     if (bare == "StateError") prefix = "Bad state";
     else if (bare == "FormatException") prefix = "FormatException";
     else if (bare == "RangeError") prefix = "RangeError";
+    // Neither its own name nor empty: Dart spells an ArgumentError
+    // "Invalid argument(s): <message>". No runtime raises one — only a
+    // program's own `throw ArgumentError('nope')` builds one — so it was in NO
+    // target's table at all, and #641's closed-set checks (all keyed on what a
+    // runtime RAISES) could not see the gap (issue #658). Verified against the
+    // SDK; guard: tests/conformance/473_caught_user_thrown_builtin_error.
+    else if (bare == "ArgumentError") prefix = "Invalid argument(s)";
     if (prefix == nullptr) return std::string();
     return std::string(prefix) + ": " + message;
 }

@@ -330,8 +330,10 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   `0 passed, 321 failed` from the day it shipped (the compiler emits a flat
   package dispatching through `ballrt.*` over `ballrt.Value`, a shape the
   syntactic `go/ast` encoder was never built to re-parse), then 31 after #642
-  gave the universal `std` helpers an inverse, and it climbs as `go/encoder`
-  learns more of the compiler's emitted shapes (#691). **Never make it green by
+  gave the universal `std` helpers an inverse, then **79 of 358** once #691 added
+  the `std_collections` inverses and the four shapes the compiler emits for every
+  program (measured on PR #738's matrix, run 34802773565), and it climbs as
+  `go/encoder` learns more of them. **Never make it green by
   weakening either side, and never lower the floor** — raising it is
   encoder/compiler work, and `GO_ROUNDTRIP_FLOOR` must be raised in the SAME PR
   as the fix that earned it (the job prints the exact new value).

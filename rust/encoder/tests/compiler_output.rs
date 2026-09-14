@@ -180,6 +180,120 @@ fn unmapped_runtime_helper_fails_loud() {
     ball_lang_encoder::encode("fn main() { ball_no_such_helper(1); }");
 }
 
+// ── The immediately-invoked closure's Ball shape (issue #687) ────────────────
+
+/// The value bound by `main`'s FIRST `let` — the encoded shape of whatever
+/// expression the fixture puts there.
+fn main_first_let_value(source: &str) -> Expression {
+    let program = ball_lang_encoder::encode(source);
+    let main = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .and_then(|m| m.functions.iter().find(|f| f.name == "main"))
+        .expect("no main function")
+        .clone();
+    let body = main.body.as_ref().expect("main has no body");
+    let block = match body.expr.as_ref().expect("main body has no expr") {
+        Expr::Block(b) => b,
+        other => panic!("main body is not a block: {other:?}"),
+    };
+    let first = block.statements.first().expect("main body is empty");
+    let let_binding = match first.stmt.as_ref().expect("statement has no stmt") {
+        Stmt::Let(l) => l,
+        other => panic!("first statement is not a let: {other:?}"),
+    };
+    let_binding.value.clone().expect("let has no value")
+}
+
+/// A zero-argument closure invoked on the spot IS its body when the body cannot
+/// exit early, so it inlines into the Ball `block` it already was — the shape
+/// `rust/compiler`'s entry-point, method-write-back and constructor wrappers
+/// all take, and the one that makes them re-encodable at all (#646).
+#[test]
+fn an_iife_without_an_early_return_inlines_into_a_block() {
+    let value = main_first_let_value(
+        r#"fn main() { let x = (|| -> i64 { 1 + 2 })(); println!("{}", x); }"#,
+    );
+    assert!(
+        matches!(value.expr.as_ref(), Some(Expr::Block(_))),
+        "an early-exit-free IIFE must inline into the block its body already is, not grow a \
+         `std.invoke` indirection: {value:?}"
+    );
+}
+
+/// A `return` in the body makes the two constructs DIFFERENT: Rust's returns
+/// from the closure, Ball's `block` return from the enclosing function. The
+/// faithful Ball shape is therefore `std.invoke` over a `lambda` — a Ball
+/// `return` inside a `lambda` returns from the lambda — which is exactly what
+/// `dart/encoder/lib/encoder.dart` emits for a `FunctionExpressionInvocation`.
+#[test]
+fn an_iife_with_an_early_return_encodes_as_std_invoke_over_a_lambda() {
+    let value = main_first_let_value(
+        r#"fn main() { let x = (|| -> i64 { return 1; })(); println!("{}", x); }"#,
+    );
+    let call = match value.expr.as_ref() {
+        Some(Expr::Call(call)) => call.clone(),
+        other => panic!("an IIFE with a `return` must encode as a call, got: {other:?}"),
+    };
+    assert_eq!(
+        (call.module.as_str(), call.function.as_str()),
+        ("std", "invoke"),
+        "the call must be `std.invoke`, the universal base function for calling a function VALUE"
+    );
+    let input = call.input.as_ref().expect("std.invoke has no input message");
+    let creation = match input.expr.as_ref() {
+        Some(Expr::MessageCreation(creation)) => creation.clone(),
+        other => panic!("std.invoke's input must be a message: {other:?}"),
+    };
+    let callee = creation
+        .fields
+        .iter()
+        .find(|f| f.name == "callee")
+        .and_then(|f| f.value.as_ref())
+        .expect("std.invoke's input must carry a `callee` field");
+    assert!(
+        matches!(callee.expr.as_ref(), Some(Expr::Lambda(_))),
+        "the callee must be the closure itself, as a Ball lambda: {callee:?}"
+    );
+}
+
+/// `?` is Rust's OTHER closure-bound early exit, and this encoder lowers it to
+/// a `std.return` (`control_flow.rs::encode_try_operator`) — so a body using it
+/// is no more inlinable than one spelling `return` out. Deriving the rule from
+/// what the encoder actually emits is what keeps this a closed set rather than
+/// a guess about syntax.
+#[test]
+fn an_iife_whose_body_uses_the_question_mark_operator_encodes_as_std_invoke() {
+    let value = main_first_let_value(
+        r#"fn main() { let x = (|| -> Result<i64, i64> { let y = probe()?; Ok(y) })(); println!("{}", x); }
+           fn probe() -> Result<i64, i64> { Ok(1) }"#,
+    );
+    match value.expr.as_ref() {
+        Some(Expr::Call(call)) => assert_eq!(
+            (call.module.as_str(), call.function.as_str()),
+            ("std", "invoke"),
+            "a `?` in the body binds to the closure, so the closure must survive as a lambda"
+        ),
+        other => panic!("an IIFE whose body uses `?` must encode as `std.invoke`: {other:?}"),
+    }
+}
+
+/// A `return` inside a NESTED closure binds to that closure, not to the
+/// immediately-invoked one — so the outer wrapper still inlines. Without this
+/// the rule would over-fire on every compiled program that builds a callback,
+/// turning the common shape into a needless `std.invoke`.
+#[test]
+fn a_return_inside_a_nested_closure_does_not_block_inlining() {
+    let value = main_first_let_value(
+        r#"fn main() { let x = (|| -> i64 { let f = |n: i64| { return n; }; f(1) })(); println!("{}", x); }"#,
+    );
+    assert!(
+        matches!(value.expr.as_ref(), Some(Expr::Block(_))),
+        "the nested closure owns its own `return`, so the outer IIFE is still its body: {value:?}"
+    );
+}
+
 /// A file that declares its OWN `fn ball_*` still wins — the table never
 /// shadows a real same-file definition.
 #[test]

@@ -19,13 +19,14 @@
 //! `println!`/`format!`/`vec!`. So **every** library with a struct and one
 //! method failed stage 3 with ``unsupported macro invocation `panic!` ``.
 //!
-//! The three stages here are the library-mode ones on purpose: that is the
+//! Three of the stages here are the library-mode ones on purpose: that is the
 //! pipeline Tier A actually measures. The *script*-mode `compile()` wraps the
-//! entry body in an immediately-invoked closure this encoder also cannot read
-//! back — a second instance of the same invariant, in a shape Tier A never
-//! reaches; it is pinned as its own documented gap in
-//! `documented_gaps.rs::compiled_entry_point_iife_is_a_documented_gap` and
-//! tracked as issue #687.
+//! entry body in an immediately-invoked closure Tier A never reaches, so it
+//! gets its own leg at the foot of this file (issue #687) — a re-encode of the
+//! compiled entry point, plus two RUN-proofs, because the closure is not
+//! interchangeable with the block it wraps: a Rust `return` inside it leaves
+//! the CLOSURE, while a Ball `return` inside a `block` leaves the enclosing
+//! FUNCTION.
 //!
 //! ## Stage 3 is an ENCODE gate, and the run-proofs sit beside it
 //!
@@ -523,5 +524,140 @@ fn a_bare_unreachable_encodes_the_message_rust_itself_prints() {
         !rendered.contains("entered unreachable code: "),
         "with no arguments there is nothing to append, so the `: ` separator must not appear: \
          {rendered}"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SCRIPT mode, and the immediately-invoked closure (issue #687)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Ordinary hand-written Rust using the early-exit idiom: a zero-argument
+/// closure invoked on the spot, with a `return` inside it. A Rust `return`
+/// there leaves the CLOSURE — `code` is bound to `10` and `classify` keeps
+/// running — which is the whole reason the idiom exists.
+///
+/// `flag` is threaded through both arms so one run proves the taken
+/// (`return 10`) and the fallen-through (`20`) path: a fixture exercising only
+/// the early return could not tell a correct encoding from one that dropped
+/// the closure body entirely.
+const IIFE_EARLY_RETURN_SOURCE: &str = r#"
+fn classify(flag: i64) -> i64 {
+    let code = (|| -> i64 {
+        if flag > 0 {
+            return 10;
+        }
+        20
+    })();
+    println!("{}", code);
+    code + 1
+}
+
+fn main() {
+    println!("{}", classify(1));
+    println!("{}", classify(0));
+}
+"#;
+
+/// What `rustc` prints for [`IIFE_EARLY_RETURN_SOURCE`] itself — the reference
+/// this round trip must reproduce. `classify(1)` binds `code = 10`, prints it
+/// and returns `11`; `classify(0)` falls through to `20` and returns `21`.
+const IIFE_EARLY_RETURN_EXPECTED_STDOUT: &str = "10\n11\n20\n21\n";
+
+/// The entry body's own early exit — the behaviour the compiler's `fn main()`
+/// IIFE exists for (#300). A Ball `return` here returns from the ENTRY
+/// function, so `after` must never print.
+const ENTRY_EARLY_RETURN_SOURCE: &str = r#"
+fn main() {
+    println!("before");
+    if 1 > 0 {
+        return;
+    }
+    println!("after");
+}
+"#;
+
+/// `before` and nothing else — on the first compile and on the compile of the
+/// re-encoded program alike.
+const ENTRY_EARLY_RETURN_EXPECTED_STDOUT: &str = "before\n";
+
+/// **The #687 run-proof.** RED before the fix.
+///
+/// `encode_call` inlined EVERY immediately-invoked zero-argument closure into
+/// the Ball `block` its body already was. That is sound only while the body
+/// cannot exit early: a Ball `return` inside a `block` returns from the
+/// enclosing FUNCTION, while the Rust `return` it came from returned only from
+/// the closure. So this fixture's `return 10` silently became "return 10 from
+/// `classify`", `println!("{}", code)` never ran for the first call, and the
+/// program printed `10\n20\n21\n` — a wrong answer no encode-shape assertion
+/// could see, which is why it is proven by BUILDING and RUNNING the compiled
+/// output against what `rustc` prints for the original source.
+#[test]
+fn an_immediately_invoked_closures_return_stays_inside_the_closure() {
+    let program = ball_lang_encoder::encode(IIFE_EARLY_RETURN_SOURCE);
+    let compiled = Compiler::new(&program).compile();
+    let stdout = compile_and_run("iife_early_return", &compiled);
+    assert_eq!(
+        stdout, IIFE_EARLY_RETURN_EXPECTED_STDOUT,
+        "a `return` inside an immediately-invoked closure must return from the CLOSURE, exactly \
+         as it does in the Rust this was encoded from — inlining the closure into a Ball block \
+         re-binds it to the enclosing function"
+    );
+}
+
+/// The SCRIPT-mode leg of the compiler↔encoder round trip (#687), beside the
+/// library-mode legs above. `Compiler::compile()` wraps the entry body in
+/// `(|| -> BallValue { … })()`, a construct no library-mode stage ever
+/// produces, so nothing in this file reached it.
+///
+/// The first assertion is a staleness guard, not decoration: if the compiler
+/// ever stops emitting the wrapper, this test would keep passing while
+/// exercising nothing.
+#[test]
+fn script_mode_compiler_output_re_encodes() {
+    let program = ball_lang_encoder::encode(r#"fn main() { println!("{}", 6 * 7); }"#);
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        compiled.contains("(|| -> BallValue {"),
+        "script mode must still wrap the entry body in an immediately-invoked closure — \
+         otherwise this test no longer exercises the construct it names:\n{compiled}"
+    );
+
+    let reencoded = ball_lang_encoder::encode(&compiled);
+    assert_eq!(reencoded.entry_function, "main");
+    let calls = std_calls(&reencoded);
+    assert!(
+        calls.iter().any(|name| name == "print"),
+        "the entry body's `println!` must survive the round trip — a re-encode that dropped the \
+         wrapper's body would still produce a structurally valid Program. std calls found: \
+         {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|name| name == "multiply"),
+        "the entry body's arithmetic must survive too. std calls found: {calls:?}"
+    );
+}
+
+/// #687's second half: the entry IIFE is LOAD-BEARING, so the fix must not cost
+/// the behaviour it buys. A `return` in the entry body still ends the entry
+/// body — proven by running the compiled program AND the compile of its own
+/// re-encoding, and asserting the two agree rather than merely that each
+/// produces something.
+#[test]
+fn an_entry_body_return_survives_the_compile_reencode_round_trip() {
+    let program = ball_lang_encoder::encode(ENTRY_EARLY_RETURN_SOURCE);
+    let compiled = Compiler::new(&program).compile();
+    let first = compile_and_run("entry_return_first", &compiled);
+    assert_eq!(
+        first, ENTRY_EARLY_RETURN_EXPECTED_STDOUT,
+        "a `return` in the entry body must end the entry body"
+    );
+
+    let reencoded = ball_lang_encoder::encode(&compiled);
+    let recompiled = Compiler::new(&reencoded).compile();
+    let second = compile_and_run("entry_return_second", &recompiled);
+    assert_eq!(
+        second, first,
+        "the re-encoded program must still stop at the `return` — whichever Ball shape the \
+         encoder chose for the wrapper"
     );
 }

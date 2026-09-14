@@ -175,11 +175,16 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   the prefixed form passes one half and breaks the other.
   This target needed the most: only `StateError` had a `ballrt` factory, so
   `throw FormatException('bad')` compiled to an anonymous dict - it printed as
-  `{arg0: bad}`, `.message` read `null`, and having no class at all it
-  satisfied EVERY typed `on T catch` clause it met. `_BUILTIN_DART_ERROR_CTORS`
+  `{arg0: bad}` and `.message` read `null`. `_BUILTIN_DART_ERROR_CTORS`
   (`python/compiler/ball_compiler/compiler.py`) maps all four to the real
   classes, and `ArgumentError.toString` now spells Dart's
-  `Invalid argument(s)`.
+  `Invalid argument(s)`. The class is ALSO the prerequisite for telling one
+  built-in error from another — but not the whole story: this target's `run_try`
+  still compiles `catches[0]` alone and ignores its `type`, so a typed clause
+  runs for any payload and every later clause is dropped. Measured while fixing
+  #658 and filed as **#724**; it is the defect #615 closed for Rust/C#/Go, and
+  no CI leg compiles a conformance fixture through `python/compiler`, which is
+  why it survived.
 
 ### Encoder
 

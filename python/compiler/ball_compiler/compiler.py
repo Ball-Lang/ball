@@ -79,9 +79,8 @@ _SYNTH_FIELDS = frozenset({"__type_args__", "type_args", "__const__"})
 # … constructs a Dart built-in that carries no `TypeDefinition`, so it never
 # reaches the user-class path. Map each to the ballrt factory for the REAL class
 # (issue #658). Before this only `StateError` had one and the other three fell
-# through to an anonymous dict, which printed as `{arg0: bad}`, answered `null`
-# for `.message`, and — having no class at all — satisfied EVERY typed
-# `on T catch` clause it met. Guard: conformance
+# through to an anonymous dict, which printed as `{arg0: bad}` and answered
+# `null` for `.message`. Guard: conformance
 # `473_caught_user_thrown_builtin_error`, plus the cross-target rendering
 # contract in `tools/check_error_rendering_tables.py`.
 _BUILTIN_DART_ERROR_CTORS = {

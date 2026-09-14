@@ -66,11 +66,13 @@ class IndexError(Error):  # noqa: A001 — Dart's IndexError, not Python's
 # A Ball program's own `throw FormatException('bad')` reaches the compiler as a
 # `messageCreation` for a type with no `TypeDefinition`. Before #658 only
 # `StateError` had a factory, so the other three compiled to an anonymous dict
-# `{arg0: 'bad'}` — which printed as `{arg0: bad}`, answered `null` for
-# `.message`, and, having no class at all, matched EVERY typed `on T catch`
-# clause it met (fixture 473's `on StateError` clause caught a FormatException).
-# Constructing the real class fixes all three at once, because `is_type` matches
-# by class name over the MRO.
+# `{arg0: 'bad'}`, which printed as `{arg0: bad}` and answered `null` for
+# `.message`. Constructing the real class fixes both, and is also the
+# PREREQUISITE for discriminating one from another: `is_type` matches by class
+# name over the MRO, and an anonymous dict has no class to match. (It is only the
+# prerequisite — this target's `run_try` still compiles `catches[0]` alone and
+# ignores its `type`, so a typed clause runs for any payload. That is issue #724,
+# a separate defect with its own measurement.)
 
 
 def make_format_exception(message=""):

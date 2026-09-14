@@ -3289,9 +3289,8 @@ class DartCompiler {
     final dotIdx = call.function.lastIndexOf('.');
     if (dotIdx <= 0) return null;
     final qualifier = call.function.substring(0, dotIdx);
-    if (!_extensionTypeNames.contains(qualifier)) return null;
     final member = call.function.substring(dotIdx + 1);
-    if (member.isEmpty) return null;
+    if (member.isEmpty || !_extensionTypeNames.contains(qualifier)) return null;
 
     final selfField = fields.firstWhere((f) => f.name == 'self');
     final remaining = fields

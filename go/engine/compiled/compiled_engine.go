@@ -2575,6 +2575,15 @@ func _stdNot(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_stdNot' for " + __t})
 }
 
+func _stdValueIsEmpty(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___stdValueIsEmpty(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_stdValueIsEmpty' for " + __t})
+}
+
 func _stdConcat(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -32236,56 +32245,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _stdConvert(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", i)
-				__m.Set("arg1", ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
-					_ = input
-					v := input
-					_ = v
-					defer ballrt.CatchReturn(&__ret)
-					__ret = func() ballrt.Value {
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "String")) {
-								return ballrt.Return(ballrt.StrIsEmpty(v))
-							}
-							return ballrt.Value(nil)
-						}()
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "BallString")) {
-								return ballrt.Return(ballrt.StrIsEmpty(ballrt.FieldGet(v, "value")))
-							}
-							return ballrt.Value(nil)
-						}()
-						var l ballrt.Value = _stdAsList(ballrt.Arg0WithSelf(v, __self))
-						_ = l
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Neq(l, ballrt.Value(nil))) {
-								return ballrt.Return(ballrt.StrIsEmpty(l))
-							}
-							return ballrt.Value(nil)
-						}()
-						var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(v, __self))
-						_ = m
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Neq(m, ballrt.Value(nil))) {
-								return ballrt.Return(ballrt.StrIsEmpty(m))
-							}
-							return ballrt.Value(nil)
-						}()
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "Set")) {
-								return ballrt.Return(ballrt.StrIsEmpty(v))
-							}
-							return ballrt.Value(nil)
-						}()
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "Iterable")) {
-								return ballrt.Return(ballrt.StrIsEmpty(v))
-							}
-							return ballrt.Value(nil)
-						}()
-						return ballrt.StrIsEmpty(ballrt.AsType(v, "String"))
-					}()
-					return
-				}))
+				__m.Set("arg1", ballrt.Fn("_stdValueIsEmpty", func(__arg ballrt.Value) ballrt.Value { return _stdValueIsEmpty(ballrt.Arg0WithSelf(__arg, __self)) }))
 				return __m
 			}(), __self))
 			return
@@ -32303,49 +32263,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 					v := input
 					_ = v
 					defer ballrt.CatchReturn(&__ret)
-					__ret = func() ballrt.Value {
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "String")) {
-								return ballrt.Return(ballrt.StrIsNotEmpty(v))
-							}
-							return ballrt.Value(nil)
-						}()
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "BallString")) {
-								return ballrt.Return(ballrt.StrIsNotEmpty(ballrt.FieldGet(v, "value")))
-							}
-							return ballrt.Value(nil)
-						}()
-						var l ballrt.Value = _stdAsList(ballrt.Arg0WithSelf(v, __self))
-						_ = l
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Neq(l, ballrt.Value(nil))) {
-								return ballrt.Return(ballrt.StrIsNotEmpty(l))
-							}
-							return ballrt.Value(nil)
-						}()
-						var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(v, __self))
-						_ = m
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Neq(m, ballrt.Value(nil))) {
-								return ballrt.Return(ballrt.StrIsNotEmpty(m))
-							}
-							return ballrt.Value(nil)
-						}()
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "Set")) {
-								return ballrt.Return(ballrt.StrIsNotEmpty(v))
-							}
-							return ballrt.Value(nil)
-						}()
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.IsType(v, "Iterable")) {
-								return ballrt.Return(ballrt.StrIsNotEmpty(v))
-							}
-							return ballrt.Value(nil)
-						}()
-						return ballrt.StrIsNotEmpty(ballrt.AsType(v, "String"))
-					}()
+					__ret = ballrt.Not(_stdValueIsEmpty(ballrt.Arg0WithSelf(v, __self)))
 					return
 				}))
 				return __m
@@ -41238,6 +41156,119 @@ func BallEngine___stdNot(input ballrt.Value) (__ret ballrt.Value) {
 		var value ballrt.Value = _extractUnaryArg(ballrt.Arg0WithSelf(ball_input, __self))
 		_ = value
 		return ballrt.Not(_toBool(ballrt.Arg0WithSelf(value, __self)))
+	}()
+	return
+}
+
+func BallEngine___stdValueIsEmpty(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	v := ballrt.ArgGet(input, "v", "arg0")
+	_ = v
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.IsType(v, "String")) {
+				return ballrt.Return(ballrt.StrIsEmpty(v))
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.IsType(v, "BallString")) {
+				return ballrt.Return(ballrt.StrIsEmpty(ballrt.FieldGet(v, "value")))
+			}
+			return ballrt.Value(nil)
+		}()
+		var l ballrt.Value = _stdAsList(ballrt.Arg0WithSelf(v, __self))
+		_ = l
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Neq(l, ballrt.Value(nil))) {
+				return ballrt.Return(ballrt.StrIsEmpty(l))
+			}
+			return ballrt.Value(nil)
+		}()
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(v, __self))
+		_ = m
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Neq(m, ballrt.Value(nil))) {
+				return ballrt.Return(ballrt.StrIsEmpty(m))
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.IsType(v, "Set")) {
+				return ballrt.Return(ballrt.StrIsEmpty(v))
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.IsType(v, "Iterable")) {
+				return ballrt.Return(ballrt.StrIsEmpty(v))
+			}
+			return ballrt.Value(nil)
+		}()
+		return ballrt.StrIsEmpty(ballrt.AsType(v, "String"))
 	}()
 	return
 }

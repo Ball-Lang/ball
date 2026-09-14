@@ -505,27 +505,28 @@ public static partial class BallRuntime
     // Polymorphic like Dart's `.isEmpty`: the syntactic encoder routes every
     // `.isEmpty` (on a String, List, Map, or Set) to `string_is_empty`, so this
     // must accept any collection, not just a String.
-    public static BallValue StringIsEmpty(BallValue value) => value switch
-    {
-        BallString s => BallValue.Bool(s.Value.Length == 0),
-        BallList l => BallValue.Bool(l.IsEmpty),
-        BallMap m => BallValue.Bool(m.IsEmpty),
-        BallBytes b => BallValue.Bool(b.Value.Length == 0),
-        _ => throw new BallRuntimeException($"isEmpty expects a string/collection, got {TypeName(value)}"),
-    };
+    public static BallValue StringIsEmpty(BallValue value) =>
+        BallValue.Bool(ValueIsEmpty(value, "isEmpty"));
 
     /// <summary><c>value.isNotEmpty</c>.</summary>
-    // Its OWN op, never the negation of StringIsEmpty: the encoder must ask a
-    // receiver for the member the source named, because a DELEGATING receiver
-    // can see which member it is asked for (issue #674). Polymorphic over the
-    // same receivers as StringIsEmpty.
-    public static BallValue StringIsNotEmpty(BallValue value) => value switch
+    // `.isNotEmpty` is its OWN base function in the IR, never
+    // `not(string_is_empty(...))`: the ENCODER must ask a receiver for the
+    // member the source named, because a DELEGATING receiver can see which one
+    // it is asked for (issue #674). Inside this runtime the two answers are
+    // complementary by construction, so both go through the one predicate
+    // rather than duplicating its receiver arms.
+    public static BallValue StringIsNotEmpty(BallValue value) =>
+        BallValue.Bool(!ValueIsEmpty(value, "isNotEmpty"));
+
+    // `member` names the Dart member being answered so an unsupported receiver
+    // fails with the spelling the program actually used.
+    private static bool ValueIsEmpty(BallValue value, string member) => value switch
     {
-        BallString s => BallValue.Bool(s.Value.Length != 0),
-        BallList l => BallValue.Bool(!l.IsEmpty),
-        BallMap m => BallValue.Bool(!m.IsEmpty),
-        BallBytes b => BallValue.Bool(b.Value.Length != 0),
-        _ => throw new BallRuntimeException($"isNotEmpty expects a string/collection, got {TypeName(value)}"),
+        BallString s => s.Value.Length == 0,
+        BallList l => l.IsEmpty,
+        BallMap m => m.IsEmpty,
+        BallBytes b => b.Value.Length == 0,
+        _ => throw new BallRuntimeException($"{member} expects a string/collection, got {TypeName(value)}"),
     };
 
     /// <summary><c>left.contains(right)</c>.</summary>

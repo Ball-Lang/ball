@@ -8322,55 +8322,12 @@ export class BallEngine {
         }));
       }), ['string_is_empty']: ((i) => {
         const input = i;
-        return this._stdConvert(i, ((v) => {
-          const input = v;
-          if ((typeof v === 'string')) {
-            return (v.length === 0);
-          }
-          if ((typeof v === 'string')) {
-            return (v.value.length === 0);
-          }
-          let l = this._stdAsList(v);
-          if (!__ball_eq(l, null)) {
-            return (l.length === 0);
-          }
-          let m = this._stdAsMap(v);
-          if (!__ball_eq(m, null)) {
-            return (m.length === 0);
-          }
-          if ((v instanceof Set)) {
-            return (v.length === 0);
-          }
-          if (Array.isArray(v)) {
-            return (v.length === 0);
-          }
-          return (v.length === 0);
-        }));
+        return this._stdConvert(i, this._stdValueIsEmpty.bind(this));
       }), ['string_is_not_empty']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
-          if ((typeof v === 'string')) {
-            return (v.length !== 0);
-          }
-          if ((typeof v === 'string')) {
-            return (v.value.length !== 0);
-          }
-          let l = this._stdAsList(v);
-          if (!__ball_eq(l, null)) {
-            return (l.length !== 0);
-          }
-          let m = this._stdAsMap(v);
-          if (!__ball_eq(m, null)) {
-            return (m.length !== 0);
-          }
-          if ((v instanceof Set)) {
-            return (v.length !== 0);
-          }
-          if (Array.isArray(v)) {
-            return (v.length !== 0);
-          }
-          return (v.length !== 0);
+          return !this._stdValueIsEmpty(v);
         }));
       }), ['string_concat']: this._stdConcat.bind(this), ['string_contains']: ((i) => {
         const input = i;
@@ -10045,6 +10002,31 @@ export class BallEngine {
   _stdNot(input: any): any {
     let value = this._extractUnaryArg(input);
     return !this._toBool(value);
+  }
+
+  _stdValueIsEmpty(v: any): any {
+    const input = v;
+    if ((typeof v === 'string')) {
+      return (v.length === 0);
+    }
+    if ((typeof v === 'string')) {
+      return (v.value.length === 0);
+    }
+    let l = this._stdAsList(v);
+    if (!__ball_eq(l, null)) {
+      return (l.length === 0);
+    }
+    let m = this._stdAsMap(v);
+    if (!__ball_eq(m, null)) {
+      return (m.length === 0);
+    }
+    if ((v instanceof Set)) {
+      return (v.length === 0);
+    }
+    if (Array.isArray(v)) {
+      return (v.length === 0);
+    }
+    return (v.length === 0);
   }
 
   _stdConcat(input: any): any {

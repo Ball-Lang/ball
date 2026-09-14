@@ -1403,17 +1403,19 @@ class DartEncoder {
     String member,
     List<FieldValuePair> args,
   ) {
+    // analyzer 13: `ArgumentList.arguments` holds `Argument` nodes, whose value
+    // is `.argumentExpression` (see `_encodeArgList`). An override takes
+    // exactly one positional argument — the receiver — and anything else is
+    // already a Dart error, so it joins the refusal conditions rather than
+    // being guessed at.
     final extName = override.name.lexeme;
+    final arguments = override.argumentList.arguments;
     if (override.importPrefix != null ||
         override.typeArguments != null ||
+        arguments.length != 1 ||
         !_localExtensionNames.contains(extName)) {
       return null;
     }
-    // analyzer 13: `ArgumentList.arguments` holds `Argument` nodes, whose
-    // value is `.argumentExpression` (see `_encodeArgList`). An override always
-    // takes exactly one positional argument — the receiver.
-    final arguments = override.argumentList.arguments;
-    if (arguments.length != 1) return null;
 
     final fields = <FieldValuePair>[
       FieldValuePair()

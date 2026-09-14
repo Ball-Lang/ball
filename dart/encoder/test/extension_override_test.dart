@@ -63,6 +63,10 @@ extension ByCompare on List<int> {
     }
     return true;
   }
+
+  bool get flagged => length > 0;
+
+  int tally() => length;
 }
 
 extension Natural on List<int> {
@@ -75,6 +79,16 @@ extension Natural on List<int> {
     }
     return true;
   }
+
+  // Every member below is ALSO declared by `ByCompare`, so the override is the
+  // only thing selecting the other one.
+  bool get flagged => false;
+
+  int tally() => -1;
+
+  bool otherFlagged() => ByCompare(this).flagged;
+
+  int otherTally() => ByCompare(this).tally();
 }
 ''';
 
@@ -84,11 +98,20 @@ const _importedOverrideSource = r'''
 import 'elsewhere.dart';
 
 int firstOrZero(List<int> xs) => Elsewhere(xs).firstOrZero();
+
+int head(List<int> xs) => Elsewhere(xs).headOrZero;
+
+int viaCascade(List<int> xs) {
+  Elsewhere(xs)..firstOrZero();
+  return 0;
+}
 ''';
 
 const _elsewhereSource = r'''
 extension Elsewhere on List<int> {
   int firstOrZero() => isEmpty ? 0 : this[0];
+
+  int get headOrZero => isEmpty ? 0 : this[0];
 }
 ''';
 
@@ -251,6 +274,37 @@ void main() {
         );
       });
 
+      test('an override GETTER keeps its accessor shape', () {
+        // `Ext(x).member` and `Ext(x).member()` encode identically (a call
+        // carrying only `self`), so which one comes back is read from the
+        // member's own `is_getter` — the accessor-shape family of #501/#664.
+        expect(
+          _calledFunctions(bodyOf(':Natural.otherFlagged')),
+          contains('lib.subject.lib.subject:ByCompare.flagged'),
+        );
+        expect(
+          compiled,
+          contains('ByCompare(this).flagged;'),
+          reason:
+              'a getter must NOT be emitted as a call. Compiled output was:\n'
+              '$compiled',
+        );
+      });
+
+      test('an override zero-argument METHOD keeps its parentheses', () {
+        expect(
+          _calledFunctions(bodyOf(':Natural.otherTally')),
+          contains('lib.subject.lib.subject:ByCompare.tally'),
+        );
+        expect(
+          compiled,
+          contains('ByCompare(this).tally()'),
+          reason:
+              'a zero-argument method must NOT be emitted as a tear-off. '
+              'Compiled output was:\n$compiled',
+        );
+      });
+
       test('the override is NOT erased into a self-recursive call', () {
         // `ByCompare(this).isSorted(compare)` erased to `this.isSorted(compare)`
         // resolves, inside `Natural.isSorted`, to `Natural.isSorted` itself.
@@ -342,6 +396,29 @@ void main() {
         );
         expect(warning, contains('Elsewhere(xs)'));
         expect(warning, contains('#670'));
+      });
+
+      test('every refused shape is reported, not just the first', () {
+        final reported = encoder.warnings
+            .where((w) => w.contains('Extension-override'))
+            .toList();
+        // The method call, the getter access and the cascade target each reach
+        // the refusal through a DIFFERENT encoder path.
+        expect(
+          reported.where((w) => w.contains('Elsewhere(xs).firstOrZero()')),
+          isNotEmpty,
+        );
+        expect(
+          reported.where((w) => w.contains('Elsewhere(xs).headOrZero')),
+          isNotEmpty,
+        );
+        expect(
+          reported.where((w) => w.endsWith('Elsewhere(xs)')),
+          isNotEmpty,
+          reason:
+              'a bare override (here a cascade target) reaches `_encodeExpr` '
+              'itself. All warnings were: ${encoder.warnings}',
+        );
       });
 
       test('the refusal is a placeholder, never a plain member access', () {

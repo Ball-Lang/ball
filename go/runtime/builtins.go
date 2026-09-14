@@ -164,26 +164,16 @@ func StrIsEmpty(v Value) Value {
 	return len(ToStr(v)) == 0
 }
 
-// StrIsNotEmpty implements std.string_is_not_empty. Its OWN op, never the
-// negation of StrIsEmpty: the encoder must ask a receiver for the member the
-// source named, because a DELEGATING receiver can see which member it is asked
-// for (issue #674). Polymorphic over the same receivers as StrIsEmpty.
+// StrIsNotEmpty implements std.string_is_not_empty. `.isNotEmpty` is its OWN
+// base function in the IR, never not(string_is_empty(...)): the ENCODER must
+// ask a receiver for the member the source named, because a DELEGATING receiver
+// can see which one it is asked for (issue #674). Inside this runtime the two
+// answers are complementary by construction, so this delegates rather than
+// duplicating StrIsEmpty's receiver arms — two copies could drift apart.
 func StrIsNotEmpty(v Value) Value {
-	switch x := unwrap(v).(type) {
-	case string:
-		return len(x) != 0
-	case *List:
-		return x.Len() != 0
-	case *Map:
-		return x.Len() != 0
-	case *Set:
-		return len(x.Items) != 0
-	case []byte:
-		return len(x) != 0
-	case nil:
-		return false
-	}
-	return len(ToStr(v)) != 0
+	// The type assertion is deliberate: StrIsEmpty always answers a bool, and
+	// a day where it does not must fail loudly rather than quietly say true.
+	return !StrIsEmpty(v).(bool)
 }
 
 // StrCodeUnitAt implements std.string_code_unit_at (UTF-16 code unit).

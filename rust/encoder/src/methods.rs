@@ -519,6 +519,12 @@ impl Encoder {
     /// `itertools::join` "join sites" shape — keep seeing a `String`), and if
     /// it does not, this refuses LOUDLY. Everything else — a parameter, a
     /// field, an unannotated closure parameter, a call result — is a sink.
+    ///
+    /// A bare name that is a `&mut` ALIAS binding (issue #642) resolves to the
+    /// variable it borrows before any of that, so `write!(slot, ..)` after
+    /// `let slot = &mut s;` classifies `s` — the same answer
+    /// `write!(&mut s, ..)` gets, and the same resolution every other read of
+    /// the alias goes through.
     fn classify_write_destination(
         &self,
         destination: &syn::Expr,
@@ -530,7 +536,24 @@ impl Encoder {
         let Some(ident) = path_expr.path.get_ident() else {
             return WriteDestination::Sink;
         };
-        let name = ident.to_string();
+        let mut name = ident.to_string();
+        // A `&mut` alias reads as the variable it BORROWS (issue #642), and a
+        // `write!` destination is a read like any other: `let slot = &mut s;
+        // write!(slot, ..)` writes into `s`, exactly as `write!(&mut s, ..)`
+        // does. Resolved FIRST, the way `lib.rs::encode_path_expr` resolves
+        // every other read, so both halves of one encode agree — the sink arm
+        // below encodes the destination through that same function, so an
+        // unresolved name here would classify the alias while the emitted tree
+        // named the borrowed variable. An alias is deliberately never recorded
+        // in `local_scopes` (it has no `let` of its own), so without this the
+        // lookup below misses and the absence reads as "not a local": a local
+        // `String` would take the sink arm and hand `std.sink_write` a plain
+        // string, which every engine and runtime rejects at RUN time
+        // (`rust/shared/src/runtime.rs::sink_backing`) — loud, but one stage
+        // too late for a question this encoder can answer.
+        if let Some(target) = self.ref_aliases.get(&name) {
+            name = target.clone();
+        }
         match self.lookup_local(&name) {
             Some(crate::LocalKind::LocalString) => WriteDestination::LocalString(name),
             Some(crate::LocalKind::Other(initialiser)) => panic!(

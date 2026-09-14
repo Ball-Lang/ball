@@ -151,7 +151,7 @@ arms are wrapped in the unified `Ok(..)` outcome message, because `write!` evalu
 `fmt::Result` which real call sites immediately consume with `?` or `.unwrap()`; `?` applied to a
 non-outcome value is a silent-degradation seed.
 
-Two supporting mechanisms ship with the rule:
+Three supporting mechanisms ship with the rule:
 
 * **`Encoder::local_scopes`** — a stack of binding frames: one per fn / closure / `impl` method /
   default-bodied trait method body, seeded with that body's parameters, **and one per `{ .. }`
@@ -162,6 +162,19 @@ Two supporting mechanisms ship with the rule:
   records parameters only for a 2+-parameter body (its `input`-aliasing rule) and an `impl` method
   pushes no fn scope at all — either would leave a parameter looking like a local, and a parameter
   misread as a local `String` is exactly the silent miscompile the frame exists to prevent.
+* **A `&mut` alias binding resolves to the variable it borrows, before classification.**
+  `let slot = &mut s;` is recorded in `Encoder::ref_aliases` and emits no `let` at all (issue #642 —
+  Ball has no references, so binding it as a value would turn every write through it into a write to
+  a copy), and every read of `slot` resolves back to `s` in `lib.rs::encode_path_expr`. A `write!`
+  destination is a read like any other, so the classifier resolves the bare name through that table
+  first: `write!(slot, ..)` and `write!(&mut s, ..)` are the same write and take the same arm, in
+  both directions — an alias of a local `String` is re-assigned, an alias of a sink parameter stays
+  `std.sink_write` on the parameter. Skipping the resolution is not a *silent* error (an alias is
+  never recorded in a binding frame, so the local `String` would take the sink arm and every target
+  rejects a non-sink loudly) but it answers at run time a question this encoder already has the
+  answer to at encode time. Tests:
+  `write_sinks.rs::a_write_through_a_mut_alias_re_assigns_the_local_string_it_borrows` and
+  `::a_write_through_a_mut_alias_of_a_sink_parameter_stays_a_sink_write`.
 * **`String::new()` / `String::with_capacity(n)` encode as the empty string.** Both were in the
   encoder's "unsupported call target" bucket, so the local-`String` arm would have been unreachable.
   Capacity is an allocation hint with no observable effect on what a program computes, and Ball has

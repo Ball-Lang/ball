@@ -782,7 +782,7 @@ part (`core` spells its no-argument arm as literally `write!($dst, "\n")`), and 
 wrapped in the unified `Ok(..)` outcome because `write!` evaluates to a `fmt::Result` that 22 of
 the 25 corpus sites consume with `?` or `.unwrap()`.
 
-Two supporting changes ship with it. `Encoder::local_scopes` is a stack of binding frames — one per
+Three supporting changes ship with it. `Encoder::local_scopes` is a stack of binding frames — one per
 fn / closure / `impl` method / default-bodied trait method, seeded with that body's parameters, and
 one per `{ .. }` block, because a block's `let`s are gone at its closing brace and leaking one past
 it leaves a shadowed parameter looking like a local; each frame is filled with its `let`s and looked
@@ -793,6 +793,16 @@ local `String` is the silent miscompile the frame exists to prevent. And `String
 `String::with_capacity(n)` now encode as the empty string — both were in the "unsupported call
 target" bucket, so arm (a) would have been unreachable; capacity is an allocation hint with no
 observable effect and Ball has no allocation model to carry it into.
+
+And a `&mut` ALIAS binding resolves to the variable it borrows before the table above is
+consulted. `let slot = &mut s;` is recorded in `Encoder::ref_aliases` and emits no `let` at all
+(issue #642 — Ball has no references), and every read of `slot` resolves back to `s` in
+`encode_path_expr`; a `write!` destination is a read like any other, so `write!(slot, ..)` and
+`write!(&mut s, ..)` take the same arm in both directions. Without the resolution the alias is
+simply absent from every binding frame, which reads as "not a local": a local `String` would take
+arm (b) and hand `std.sink_write` a plain string, which every engine and runtime rejects at RUN
+time (`rust/shared/src/runtime.rs::sink_backing`) — loud, but one stage later than the encoder
+can answer it.
 
 **Measured, on the 77 scored files** (the post-#648 denominator, not the 110 the histograms above
 are written against), same 5 pins, by the repo's own instrument — a `Coverage Study` dispatch on the
@@ -817,8 +827,9 @@ and which a plain `Ok(x)` in hand-written source always has been — compiles to
 `{ let mut __ball_map = BallMap::new(); … }`, and `BallMap::new()` is an associated function on a
 foreign type the encoder documents as a permanent gap. Same round-trip-closure class as #632.
 
-Tests: `rust/encoder/tests/write_sinks.rs` (19 cases — every destination shape, the newline rule,
-the join-sites rule, the closure- and block-shadowing traps, both loud refusals, a real
+Tests: `rust/encoder/tests/write_sinks.rs` (21 cases — every destination shape, the newline rule,
+the join-sites rule, the closure- and block-shadowing traps, both directions of an alias
+binding, both loud refusals, a real
 `cargo build` of the compiled-back library, and an end-to-end run of the local-`String` arm).
 
 #### Data-carrying enum variants are deliberately NOT bundled with the above

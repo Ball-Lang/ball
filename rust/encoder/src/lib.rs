@@ -1435,15 +1435,45 @@ impl Encoder {
     fn encode_call(&mut self, e: &syn::ExprCall) -> Expression {
         // ── An IMMEDIATELY-INVOKED CLOSURE — `(|| -> BallValue { … })()` ──
         //
-        // `rust/compiler` wraps a Ball block that lands in value position (the
-        // entry body included) in exactly this shape, and the encoder used to
-        // refuse it outright, which is why not one conformance fixture could
-        // round-trip (issue #642). A 0-argument closure invoked on the spot IS
-        // its body, so inlining it preserves semantics rather than special-casing
-        // a round-trip. A closure that takes parameters is left alone — it is a
-        // real call with arguments to bind.
+        // `rust/compiler` emits this shape at three FUNCTION-body sites — the
+        // entry `fn main()` (`lib.rs::compile_entry_main`, because `main`
+        // returns `()`), a method with instance-field write-back and a
+        // body-carrying constructor (both `type_emit.rs`) — and the encoder used
+        // to refuse it outright, which is why not one conformance fixture could
+        // round-trip (issue #642). A value-position Ball `block` is NOT one of
+        // them: `compile_block` emits a native Rust block, since Rust blocks are
+        // already tail-expression-valued (unlike C++/Go, whose compilers do need
+        // an IIFE and therefore route `return` through runtime flow signals).
+        //
+        // Inlining it — a 0-argument closure invoked on the spot IS its body —
+        // is what makes those three re-encodable, and it is exactly right for
+        // them: the Ball `return` being compiled there returns from that same
+        // function.
+        //
+        // But it is NOT right in general, and this encoder's input is ordinary
+        // hand-written Rust (issue #687). A Rust `return` inside the closure
+        // leaves the CLOSURE; a Ball `return` inside a `block` leaves the
+        // enclosing FUNCTION. So the early-exit idiom
+        // `let x = (|| { if …{ return a; } b })();` would inline into a block
+        // that returns `a` from the enclosing function and skips everything
+        // after it — a well-formed Program with a different answer, which no
+        // assertion about the encoded shape can see.
+        //
+        // When the body can exit early, the faithful Ball is therefore a
+        // `lambda` invoked through `std.invoke` — a Ball `return` inside a
+        // `lambda` returns from the lambda, and `rust/compiler` compiles that
+        // lambda back to `BallValue::Function(BallFunction::new(…, move |input|
+        // { … }))`, whose `return` leaves the closure again. It is also the
+        // shape `dart/encoder/lib/encoder.dart` emits for the same construct
+        // (its `FunctionExpressionInvocation` arm: `std.invoke` with a `callee`
+        // field). A closure that takes parameters is left alone either way — it
+        // is a real call with arguments to bind.
         if let Some(closure) = as_zero_arg_closure(e.func.as_ref()) {
             if e.args.is_empty() {
+                if closure_body_exits_early(&closure.body) {
+                    let lambda = self.encode_closure(closure);
+                    return std_call("invoke", Some(args_message(vec![("callee", lambda)])));
+                }
                 return self.encode_expr(&closure.body);
             }
         }
@@ -2345,14 +2375,67 @@ fn path_to_string(path: &syn::Path) -> String {
 const BALL_VALUE_TYPE: &str = "BallValue";
 
 /// The closure of an immediately-invoked `(|| … )()`, when it takes no
-/// parameters — `rust/compiler`'s lowering of a Ball block in value position.
-/// Unwraps the parentheses `syn` keeps as an `ExprParen`.
+/// parameters — the shape `rust/compiler` wraps each of its three function
+/// bodies in (see [`Encoder::encode_call`]), and the ordinary Rust early-exit
+/// idiom. Unwraps the parentheses `syn` keeps as an `ExprParen`.
 fn as_zero_arg_closure(expr: &syn::Expr) -> Option<&syn::ExprClosure> {
     match expr {
         syn::Expr::Paren(paren) => as_zero_arg_closure(&paren.expr),
         syn::Expr::Closure(closure) if closure.inputs.is_empty() => Some(closure),
         _ => None,
     }
+}
+
+/// Does `body` contain an early exit that binds to the closure it is the body
+/// of (issue #687)? That is the ONE thing separating an immediately-invoked
+/// closure from the block it wraps, so it is what decides whether
+/// [`Encoder::encode_call`] may inline it.
+///
+/// The set of early exits is derived from what this encoder actually emits a
+/// `std.return` for, not from a guess about Rust syntax:
+///
+/// - `return` — [`Encoder::encode_return`];
+/// - `?` — [`Encoder::encode_try_operator`], which propagates the failure
+///   outcome by *returning* it;
+/// - `break`/`continue` cannot occur: rustc rejects a loop jump that crosses a
+///   closure boundary, so one inside the body always targets a loop inside the
+///   body, and inlining moves neither.
+///
+/// Over-firing would be its own bug — every compiled program that builds a
+/// callback contains a nested closure with a `return` — so the walk stops at
+/// each frame that owns its own `return`: a nested closure, a nested item
+/// (`fn`/`impl`/…), an `async` block (whose `return` returns from the future's
+/// body) and a `try` block (whose `?` and `return` bind to the block). It is a
+/// [`syn::visit::Visit`] rather than a hand-written recursion so every other
+/// node kind is covered by construction — a forgotten arm here would be a
+/// silent wrong answer in the unsafe direction, which is the exact failure mode
+/// #687 exists to remove.
+fn closure_body_exits_early(body: &syn::Expr) -> bool {
+    struct EarlyExitFinder {
+        found: bool,
+    }
+
+    impl<'ast> syn::visit::Visit<'ast> for EarlyExitFinder {
+        fn visit_expr_return(&mut self, _: &'ast syn::ExprReturn) {
+            self.found = true;
+        }
+
+        fn visit_expr_try(&mut self, _: &'ast syn::ExprTry) {
+            self.found = true;
+        }
+
+        fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+
+        fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
+
+        fn visit_expr_try_block(&mut self, _: &'ast syn::ExprTryBlock) {}
+
+        fn visit_item(&mut self, _: &'ast syn::Item) {}
+    }
+
+    let mut finder = EarlyExitFinder { found: false };
+    syn::visit::Visit::visit_expr(&mut finder, body);
+    finder.found
 }
 
 /// A conservative heuristic used only to disambiguate `/`'s int-truncating

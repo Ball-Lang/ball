@@ -442,12 +442,18 @@ instructions.
   `compiled_spliced_list_literal_is_a_documented_gap` (driven through the real compiler, asserting
   both constructs are still emitted) and `the_matches_macro_is_a_documented_gap` (the second
   refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is
-  **CLOSED** — by #646's `lib.rs::as_zero_arg_closure`, which INLINES the closure body rather than
-  emitting the `std.invoke`-over-`lambda` shape **#687** proposed; sound in both directions, since a
-  Ball `return` returns from the enclosing FUNCTION and the entry body IS the function body. Its pin
-  is flipped to `compiled_entry_point_iife_encodes`, which asserts the entry body's `std.print`
-  SURVIVES (a dropped body would not panic either); whether the IIFE is equally faithful for a
-  NESTED block in value position is a compiler question still on #687.
+  **CLOSED**, and so is **#687**. #646's `lib.rs::as_zero_arg_closure` INLINES the closure body
+  rather than emitting the `std.invoke`-over-`lambda` shape #687 proposed, and for the entry
+  wrapper that is sound in both directions — a Ball `return` returns from the enclosing FUNCTION
+  and the entry body IS the function body. Its pin is flipped to
+  `compiled_entry_point_iife_encodes`, which asserts the entry body's `std.print` SURVIVES (a
+  dropped body would not panic either). The open half — whether the IIFE is equally faithful for a
+  NESTED block in value position — was answered by a run-proof, and it is an ENCODER question, not
+  a compiler one: `compile_block` emits a native Rust block, so nothing nested is ever wrapped,
+  but the unconditional inlining re-bound a `return` in the HAND-WRITTEN Rust this encoder reads.
+  Inlining is conditional now, and #687's shape is what an early-exiting body gets — see
+  "Immediately-invoked closures" below. The script-mode round-trip leg lives beside the
+  library-mode ones in `compile_reencode_roundtrip.rs`.
   The invariant's **second** open instance is the compiled method dispatcher's scrutinee, **#718**: `compile_method_dispatchers`
   opens every instance-method dispatcher with `match ball_message_type_name(&__self).as_str()`,
   and that helper has no universal-`std` inverse — it returns the receiver's module-QUALIFIED tag

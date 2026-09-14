@@ -43,7 +43,8 @@ cargo fmt --check && cargo clippy --workspace
   `ball_lang_shared::runtime`); `lvalue.rs` handles assignment/mutation; `type_emit.rs` handles
   `typeDefs[]` → struct/trait/enum + multi-module output.
 - `ball-lang-encoder` (`rust/encoder/`) — Rust → Ball via `syn` 2.x (`features = ["full",
-  "extra-traits", "visit-mut"]`). Routes every construct through universal `std`/`std_collections`
+  "extra-traits", "visit", "visit-mut"]`). Routes every construct through universal
+  `std`/`std_collections`
   — **no `rust_std` base module**, ever.
 - `ball-lang-macro-expand` (`rust/macro-expand/`) — `macro_rules!` expansion (#629). Quarantines
   `ra_ap_mbe` + `ra_ap_tt`/`ra_ap_span`/`ra_ap_intern` (all `=0.0.351`) + salsa + `serde_json`
@@ -486,14 +487,20 @@ and its own encoder refuses caps that column no matter how good either half is o
   funnel, and a lane that wants those numbers up works on stage 1's named reasons
   (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
   the invariant; the third-party funnel is a separate, slower instrument.
-- The script-mode entry-point IIFE is **CLOSED**, by #646's `lib.rs::as_zero_arg_closure`, and
-  its pin is flipped to `compiled_entry_point_iife_encodes`. #687 proposed `std.invoke` over a
-  `lambda` (what `dart/encoder` emits for a `FunctionExpressionInvocation`) on the worry that a
-  plain Ball `block` moves where a `return` lands; #646 INLINED the closure body instead, which is
-  sound in both directions — a Ball `return` returns from the enclosing FUNCTION, the IIFE exists
-  only because Rust's `main` returns `()`, and the entry body IS the function body. Whether the
-  IIFE is equally faithful for a NESTED block in value position is a COMPILER question, still on
-  **#687**.
+- The script-mode entry-point IIFE is **CLOSED**, and #687 with it. #646's
+  `lib.rs::as_zero_arg_closure` inlines the closure body (pin flipped to
+  `compiled_entry_point_iife_encodes`), which is sound for the entry wrapper — a Ball `return`
+  returns from the enclosing FUNCTION, the IIFE exists only because Rust's `main` returns `()`,
+  and the entry body IS the function body. The open half — "is the IIFE equally faithful for a
+  NESTED block in value position" — was answered by #687's own run-proof, and the answer moved
+  the fix to the ENCODER, not the compiler: `compile_block` emits a **native Rust block**, so the
+  compiler never wraps a value-position block at all, but `as_zero_arg_closure` inlined every
+  immediately-invoked closure in the HAND-WRITTEN Rust the encoder reads, which re-binds a
+  `return` from the closure to the enclosing function. Inlining is now conditional on the body
+  having no closure-bound early exit, and #687's `std.invoke`-over-`lambda` shape is what an
+  early-exiting one gets. See the Encoder section's bullet on it, and `rust/AGENTS.md`'s
+  "Immediately-invoked closures". The script-mode round-trip leg lives beside the library-mode
+  ones in `compile_reencode_roundtrip.rs`.
 - The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
   - the **spliced collection-literal lowering**, tracked as **#712**, the broader of the
     two: `compile_list_literal` goes imperative the moment any element splices, and emits
@@ -662,8 +669,10 @@ and its own encoder refuses caps that column no matter how good either half is o
 - `indexmap = "2"` — backs `BallMap`; insertion-ordered like every other engine's map type
   (Dart's `LinkedHashMap`, C++'s `BallOrderedMap`). Never substitute `HashMap` for Ball-value
   maps.
-- `syn = "2"` (`features = ["full", "extra-traits", "visit-mut"]`) + `proc-macro2` + `quote` —
-  encoder's Rust parser. `visit-mut` drives the macro-expansion pre-pass and the hygiene rename.
+- `syn = "2"` (`features = ["full", "extra-traits", "visit", "visit-mut"]`) + `proc-macro2` +
+  `quote` — encoder's Rust parser. `visit-mut` drives the macro-expansion pre-pass and the hygiene
+  rename; `visit` drives `closure_body_exits_early`, the read-only walk that decides whether an
+  immediately-invoked closure may be inlined (#687).
 - `ra_ap_mbe` / `ra_ap_tt` / `ra_ap_span` / `ra_ap_intern`, all `"=0.0.351"`, plus `salsa = "0.28"`
   and `serde_json = "1"` — **`ball-lang-macro-expand` only** (#629). The `=` pins are mandatory:
   `ra_ap_mbe` pins its own siblings with `=`, so a mixed set does not resolve. These republish

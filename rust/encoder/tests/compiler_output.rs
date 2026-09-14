@@ -241,7 +241,10 @@ fn an_iife_with_an_early_return_encodes_as_std_invoke_over_a_lambda() {
         ("std", "invoke"),
         "the call must be `std.invoke`, the universal base function for calling a function VALUE"
     );
-    let input = call.input.as_ref().expect("std.invoke has no input message");
+    let input = call
+        .input
+        .as_ref()
+        .expect("std.invoke has no input message");
     let creation = match input.expr.as_ref() {
         Some(Expr::MessageCreation(creation)) => creation.clone(),
         other => panic!("std.invoke's input must be a message: {other:?}"),

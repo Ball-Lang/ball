@@ -493,6 +493,10 @@ cargo fmt --check && cargo clippy --workspace
     `main:main_Dog`, while the instances the same program builds still carry
     `BallMessage::new("main:Dog", …)`. That type-NAME infidelity predates #692 and is asserted
     (not papered over) in `the_compiled_class_registry_re_encodes_as_superclass_metadata`.
+  - **Measured yield:** the `rust-roundtrip` row moved **100 -> 109 of 358** (run 34803611448),
+    and both buckets' fixtures now stop on their NEXT blocker — `101_simple_class`/
+    `102_inheritance` on `ball_message_type_name` (#718). A closed bucket moves the histogram; it
+    does not on its own make every fixture in it pass.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -732,11 +736,17 @@ and its own encoder refuses caps that column no matter how good either half is o
   `failed`: the per-fixture budget is `BALL_TIMEOUT_MS` (default 60 000, fail-loud on a
   non-integer) and `roundtrip_floor.sh` reds the row on any `FAILING [name] timeout` line (C#'s
   row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
-  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, the only
-  non-`#[ignore]`d test in that target, so it runs in `cargo test --workspace` on every PR. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
-  `BallMap::new()`/`BallList::new()` and the class-registry helpers), never as an "expected
-  baseline"; the method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A,
-  not this leg.
+  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, and
+  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
+  `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Those are
+  the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on every
+  PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
+  as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109 of
+  358** (run 34803611448) — and the measured leaders are now `ball_arg_get` (59 fixtures),
+  `BallFlow::Normal` (25) and `ball_message_type_name` (21, which is #718). The
+  method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
+  leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

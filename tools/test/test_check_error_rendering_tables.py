@@ -38,6 +38,15 @@ COPY = [
     "python/compiler/ball_compiler",
 ]
 
+# Individual FILES the checker reads that live beside a copied directory rather
+# than inside one — `cpp/shared/*.h`, the loose headers #708 brought into the
+# C++ raise-site glob (`ball_protobuf_rt.h` and its two siblings). Copying
+# `cpp/shared` wholesale would drag the entire C++ shared tree into every
+# scratch root; naming just the files the checker globs keeps it small.
+COPY_FILES = sorted(
+    str(f.relative_to(REPO).as_posix()) for f in (REPO / "cpp" / "shared").glob("*.h")
+)
+
 _failures: list[str] = []
 
 
@@ -50,6 +59,18 @@ def _mkroot(tmp: pathlib.Path) -> pathlib.Path:
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, dst)
+    if not COPY_FILES:
+        raise SystemExit(
+            "self-test: cpp/shared/*.h matched no files — the C++ raise-site glob "
+            "the checker reads (#708) would be copied empty and the cases below "
+            "would pass vacuously")
+    for rel in COPY_FILES:
+        src = REPO / rel
+        if not src.is_file():
+            raise SystemExit(f"self-test: expected file {rel} to exist")
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
     return root
 
 
@@ -190,6 +211,19 @@ def main() -> int:
                            'ball_throw_typed("StateError"',
                            'ball_throw_typed("BananaError"'),
         1, "which the cross-target contract does not know")
+
+    # The same closure check, driven through the COMMITTED generated C++
+    # artifact `cpp/shared/ball_protobuf_rt.h` — the file #708 found outside
+    # every glob here. Ball's portable protobuf engine, cross-compiled into
+    # that header, raises Dart error names of its own; before #708 this
+    # mutation was invisible, because the C++ extractor read
+    # `cpp/shared/include/*.h` and the compiler and nothing else.
+    case(
+        "a raised name in the generated ball_protobuf runtime is in scope",
+        lambda root: _edit(root, "cpp/shared/ball_protobuf_rt.h",
+                           'BallException("FormatException"',
+                           'BallException("BananaError"'),
+        1, "cpp: raises ['BananaError']")
 
     # ── Floors: a silently-broken extractor must FAIL, not pass vacuously ────
     def _blank_rust_raises(root: pathlib.Path) -> None:

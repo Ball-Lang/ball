@@ -1139,7 +1139,7 @@ jobs:
       # NEVER lower this to turn a red build green — preventing exactly that is
       # the whole point of a ratchet. The job prints the exact new value when it
       # sees an improvement; raise it in the SAME PR as the fix that earned it.
-      CSHARP_ROUNDTRIP_FLOOR: "76"
+      CSHARP_ROUNDTRIP_FLOOR: "86"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1175,8 +1175,9 @@ jobs:
             echo "**Gap, tracked in #689.** The rest of the corpus does not round-trip:"
             echo "the Ball -> C# compiler dispatches through \`BallRuntime.*\` over"
             echo "\`BallValue\`, and the syntactic Roslyn encoder reads idiomatic"
-            echo "hand-written C#. #689 carries the measured first blocker"
-            echo "(\`BallRuntime.FieldGet\`) and the smallest next step."
+            echo "hand-written C#. #689's first two blockers are closed"
+            echo "(\`BallRuntime.FieldGet\`/\`ArgGet\`, 76 -> 86); the measured"
+            echo "first blocker is now \`BallRuntime.MessageTypeName\`."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           # C#'s harness prints `  <fixture>: ERROR: …` under `--- failures ---`

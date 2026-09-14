@@ -36,12 +36,15 @@
 ///
 /// The contract this suite pins, in both directions:
 ///   * an override on an extension THIS module declares encodes as that
-///     extension's member and compiles back to the override form;
+///     extension's member and compiles back to the override form — with the
+///     MEMBER's own type arguments (`Ext(x).m<int>()`, which reify a type and
+///     so may not be dropped) and in a WRITE position (`Ext(x).m = v`, whose
+///     setter must come back as an assignable left-hand side, not `Ext(x).m()`);
 ///   * an override the encoder cannot name soundly (an imported or
-///     cross-module extension, or one carrying explicit type arguments) is
-///     REFUSED LOUDLY — a warning that names the construct, and a placeholder
-///     that breaks the front end — never a plain member access, because that
-///     can resolve to a different member than the source named.
+///     cross-module extension, or one carrying explicit type arguments ON THE
+///     EXTENSION) is REFUSED LOUDLY — a warning that names the construct, and a
+///     placeholder that breaks the front end — never a plain member access,
+///     because that can resolve to a different member than the source named.
 @TestOn('vm')
 library;
 

@@ -305,7 +305,11 @@ cargo fmt --check && cargo clippy --workspace
   per `{ .. }` block, since a block's `let`s die at its closing brace; looked up innermost-first so
   a closure param or a nested block's own binding shadows an enclosing local) is deliberately SEPARATE from
   `push_fn_scope`, which records parameters only for a 2+-parameter body and is not pushed for an
-  `impl` method at all; and `String::new()`/`String::with_capacity(n)` now encode as the empty
+  `impl` method at all; a bare destination name that is a `&mut` ALIAS binding resolves to the
+  variable it borrows FIRST (issue #642's `ref_aliases`, the same resolution
+  `encode_path_expr` does for every other read — so `write!(slot, ..)` after
+  `let slot = &mut s;` classifies `s`, in both directions); and
+  `String::new()`/`String::with_capacity(n)` now encode as the empty
   string (both were "unsupported call target", so the local-`String` arm would have been
   unreachable; capacity is an allocation hint with no observable effect). Measured: Tier A
   `encoded` **1/77 -> 7/77**, `compiled back` 1 -> 7, `clean` unchanged at 0. Proof:

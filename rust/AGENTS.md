@@ -148,8 +148,31 @@ cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --igno
 Its CI home is the `rust-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:` trigger sharing
 its `push` filter, and `rust/**` is in that filter, so the row runs on any PR touching this
-directory with no `gh workflow run` dispatch. It still gates harness health only, never the
-failure count.
+directory with no `gh workflow run` dispatch. It gates harness health, the positive floor and the
+ratchet — plus, since #693, **no fixture may HANG**.
+
+### The per-fixture budget, and why it is self-tested (#693)
+
+The leg shells out to the Dart CLI per fixture, so a re-encoded program that never terminates
+would wedge the row's 90-minute job rather than report anything. That is not hypothetical: the
+`&mut` alias bug below made **28 loop fixtures** re-encode "clean" and then hang, and the
+60-second per-fixture kill is the only reason the row reported them instead of timing the job out.
+
+- The budget is `BALL_TIMEOUT_MS` (default 60 000) — the same spelling
+  `go/engine/conformance/roundtrip.go` uses. A non-integer value is a hard error, never a silent
+  fallback. It is configurable *so that it is testable*: a hard-coded constant is a budget nobody
+  has measured.
+- `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` is the self-test. It
+  builds a **fabricated runaway** with `rustc` at test time (a program that ignores its arguments
+  and never exits), drives it through the real `run_dart` path, and asserts it comes back as the
+  `__timeout__` sentinel inside the configured budget. It is the only non-`#[ignore]`d test in
+  that target, so `cargo test --workspace` runs it on every PR and `-- --ignored` runs the sweep
+  alone — they never share a process, which is what makes the test's `set_var` safe.
+- A `timeout` outcome is a **hard error** in `tools/ci/roundtrip_floor.sh`, not one more increment
+  of `failed`. Folded into the failure count it is indistinguishable from a golden mismatch, and
+  the ratchet can only notice it once enough fixtures hang to push `passed` under the floor. All
+  four round-trip rows measured **zero** timeouts before that gate was switched on (run
+  34791323674, main).
 
 ## Build & Test
 

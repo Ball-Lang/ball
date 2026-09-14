@@ -507,6 +507,29 @@ Python **41**, Go **31** of 352. Those are the floors. None of the four is a par
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 
+5. **A fixture that HANGS is its own hard error, never one more `failed` (#693).**
+   A count cannot tell a golden mismatch from a program that does not terminate,
+   and the ratchet can only notice the latter once enough fixtures hang to push
+   `passed` under the floor — which is exactly how 28 loop fixtures hung for as
+   long as they did. `roundtrip_floor.sh` reds a row on any per-fixture timeout
+   line, anchored on the STATUS field so a fixture merely NAMED `196_timeout` is
+   not a hang, and overridable per row (C#'s harness prints `  <name>: TIMEOUT`
+   rather than the `FAILING [name] timeout …` the other three share). All four
+   rows measured **zero** timeouts before the gate was switched on (run
+   34791323674, main) — a gate goes live at a measured value, never at an
+   aspiration.
+6. **A harness that can hang forever is itself a defect, and its budget is
+   self-tested.** Every one of these legs shells out to the Dart CLI per fixture,
+   so each needs a per-fixture kill or one runaway wedges the whole job. Having
+   one is not the same as knowing it works: Rust's was a hard-coded `const`
+   inside an `#[ignore]`d test, reachable from nothing and therefore measured by
+   nothing. It reads `BALL_TIMEOUT_MS` now (the spelling Go's leg already used;
+   Python's is `BALL_TIMEOUT_S`), fails loud on a non-integer value, and
+   `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` proves
+   the kill against a **fabricated runaway** — a program built with `rustc` at
+   test time that ignores its arguments and never exits — driven through the real
+   production path, on every PR.
+
 Python's floor is **63** since PR #733 (run 34800144249, the PR's own row), which
 mapped every `ballrt.*` helper with an exact universal-`std` inverse — the
 `math_*` family the issue named, the unary string family, field access, index
@@ -1413,6 +1436,8 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
+| **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
+| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
 | **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |

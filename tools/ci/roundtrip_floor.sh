@@ -184,9 +184,13 @@ fi
 # ── 5. No fixture may HANG (#693) ────────────────────────────────────────────
 # Checked before the floor so a hang is named as a hang even on a row that is
 # otherwise at or above its ratchet.
-first_timeout=$(grep -E "$timeout_pattern" "$output_file" | head -1 || true)
-if [ -n "$first_timeout" ]; then
-  timeout_count=$(grep -cE "$timeout_pattern" "$output_file" || true)
+# `|| timeout_lines=""` rather than `|| true`: grep exits 1 on NO MATCH, which is
+# the healthy case here. Spelling the empty result explicitly keeps the branch
+# below driven by the CONTENT, so no exit status is being discarded.
+timeout_lines=$(grep -E "$timeout_pattern" "$output_file") || timeout_lines=""
+if [ -n "$timeout_lines" ]; then
+  first_timeout=$(printf '%s\n' "$timeout_lines" | head -1)
+  timeout_count=$(printf '%s\n' "$timeout_lines" | wc -l | tr -d ' ')
   echo "::error::$label round-trip leg: $timeout_count fixture(s) did not TERMINATE and were killed by the leg's per-fixture budget. A re-encoded program that hangs is structurally valid and \`ball check\`-clean, so nothing upstream can see it — it is the issue #55 class, not one more golden mismatch, and it is never absorbed into the failure count (issue #693). First: $first_timeout"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {

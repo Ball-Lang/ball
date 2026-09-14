@@ -39,16 +39,32 @@
 //! CI home is the `rust-roundtrip` row in
 //! `.github/workflows/conformance-matrix.yml`, which since #619 has a
 //! path-filtered `pull_request` trigger sharing its `push` filter — so the row
-//! runs on any PR touching `rust/**` with no dispatch. It still gates harness
-//! health only (a parseable `Results:` line, integer counts, `total >= 1`),
-//! never the failure count. Run it explicitly:
+//! runs on any PR touching `rust/**` with no dispatch. `tools/ci/roundtrip_floor.sh`
+//! gates harness health (a parseable `Results:` line, integer counts,
+//! `total >= 1`), `passed >= 1`, the `RUST_ROUNDTRIP_FLOOR` ratchet, and — since
+//! #693 — that no fixture TIMED OUT. Never the failure count itself. Run it
+//! explicitly:
 //!
 //! ```bash
 //! cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture
 //! ```
 //!
 //! `BALL_FIXTURE=<name>` runs a single fixture; `BALL_DART=<path>` overrides the
-//! Dart launcher.
+//! Dart launcher; `BALL_TIMEOUT_MS=<ms>` overrides the per-fixture budget
+//! (default 60 000 — the same spelling Go's leg uses).
+//!
+//! ## The harness must not be able to hang
+//!
+//! A re-encoded program that never terminates is the #55 class: it type-checks,
+//! `ball check` accepts it, and the only symptom is that it does not stop.
+//! Issue #693 is the measured instance — 28 loop fixtures re-encoded "clean"
+//! and hung, every one of them killed by the per-fixture budget below. That
+//! budget is the difference between a leg that REPORTS 28 hangs and a leg that
+//! wedges its own 90-minute job, so it is self-tested on a fabricated runaway
+//! (`a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`)
+//! rather than assumed from reading the poll loop, and a `timeout` outcome is a
+//! hard error in `tools/ci/roundtrip_floor.sh` rather than one more increment
+//! of `failed`.
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -60,8 +76,38 @@ use ball_lang_shared::proto::ball::v1::Program;
 use prost::Message;
 use prost_reflect::{DynamicMessage, SerializeOptions};
 
-/// Per-fixture wall-clock budget for the Dart run.
-const DART_TIMEOUT: Duration = Duration::from_secs(60);
+/// Per-fixture wall-clock budget for the Dart run, in milliseconds.
+///
+/// A re-encoded program that never terminates is the #55 class — it is not
+/// caught by anything upstream, because it type-checks and `ball check` accepts
+/// it — so the sweep must kill it rather than wait. Issue #693's 28 loop
+/// fixtures are what that budget is for.
+const DEFAULT_TIMEOUT_MS: u64 = 60_000;
+
+/// The per-fixture budget, overridable through `BALL_TIMEOUT_MS` — the same
+/// spelling `go/engine/conformance/roundtrip.go` uses.
+///
+/// An operator needs it to shorten a sweep on a slow machine, and
+/// `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` needs
+/// it to prove the kill in milliseconds instead of burning the production 60 s.
+/// A budget that cannot be reached from a test is a budget nobody has measured.
+fn fixture_timeout() -> Duration {
+    match std::env::var("BALL_TIMEOUT_MS") {
+        Ok(raw) => {
+            // Fail loud: a typo'd budget must never fall back to the default and
+            // report a number nobody asked for.
+            let ms: u64 = raw.trim().parse().unwrap_or_else(|_| {
+                panic!(
+                    "BALL_TIMEOUT_MS is {raw:?}, not a whole number of milliseconds — refusing to \
+                     silently fall back to {DEFAULT_TIMEOUT_MS}ms"
+                )
+            });
+            assert!(ms >= 1, "BALL_TIMEOUT_MS must be at least 1ms, got {ms}");
+            Duration::from_millis(ms)
+        }
+        Err(_) => Duration::from_millis(DEFAULT_TIMEOUT_MS),
+    }
+}
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -198,7 +244,7 @@ fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, S
         .spawn()
         .map_err(|e| format!("could not spawn `{dart}`: {e}"))?;
 
-    let deadline = std::time::Instant::now() + DART_TIMEOUT;
+    let deadline = std::time::Instant::now() + fixture_timeout();
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(_) => break,
@@ -261,10 +307,7 @@ fn round_trip_one(
     let (code, stdout, stderr) = match run_dart(dart, &ball_json, root) {
         Ok(result) => result,
         Err(e) if e == "__timeout__" => {
-            return Outcome::of(
-                "timeout",
-                format!("killed after {}s", DART_TIMEOUT.as_secs()),
-            );
+            return Outcome::of("timeout", format!("killed after {:?}", fixture_timeout()));
         }
         Err(e) => return Outcome::of("error", format!("dart exec: {e}")),
     };
@@ -301,6 +344,102 @@ fn first_line(text: &str) -> String {
     } else {
         line.chars().take(200).collect::<String>() + "…"
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The harness's own correctness: the per-fixture budget, self-tested
+// ════════════════════════════════════════════════════════════════════════════
+
+/// A fabricated runaway: a program that ignores every argument and never exits.
+/// Compiled with `rustc` at test time rather than shipped as a `[[bin]]` — a
+/// binary whose whole purpose is to hang has no business inside the published
+/// `ball-lang-engine` crate, and `rustc` is on `PATH` wherever `cargo test` can
+/// run at all.
+const RUNAWAY_SOURCE: &str =
+    "fn main() { loop { std::thread::sleep(std::time::Duration::from_secs(3600)); } }";
+
+/// Build [`RUNAWAY_SOURCE`] and return the executable's path.
+fn build_runaway_launcher(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).expect("failed to create the runaway scratch directory");
+    let source = dir.join("runaway.rs");
+    std::fs::write(&source, RUNAWAY_SOURCE).expect("failed to write the runaway source");
+    let exe = dir.join(if cfg!(windows) {
+        "ball_runaway.exe"
+    } else {
+        "ball_runaway"
+    });
+    let status = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg("-o")
+        .arg(&exe)
+        .arg(&source)
+        .current_dir(dir)
+        .status()
+        .expect("could not run `rustc` to build the fabricated runaway");
+    assert!(
+        status.success(),
+        "rustc failed to build the fabricated runaway (exit {status:?})"
+    );
+    exe
+}
+
+/// **The harness must not be able to hang.**
+///
+/// A sweep that shells out per fixture and waits without a budget is itself a
+/// defect: the 28 loop fixtures of issue #693 re-encoded "clean" and then never
+/// terminated, and without a per-fixture kill the leg would have wedged its
+/// 90-minute job instead of reporting them. The kill therefore has to be proven
+/// on a REAL runaway child, not assumed from reading the poll loop.
+///
+/// The budget is read from `BALL_TIMEOUT_MS` — the same spelling Go's
+/// round-trip leg uses (`go/engine/conformance/roundtrip.go`) — precisely so
+/// this self-test can prove the kill in milliseconds instead of burning the
+/// production 60 s. A hard-coded budget is an untestable budget.
+///
+/// Safety of `set_var`: this is the only NON-`#[ignore]`d test in this target,
+/// and the sweep below is `#[ignore]`d, so `cargo test` runs this one alone and
+/// `cargo test -- --ignored` runs the sweep alone. The two never share a
+/// process, so nothing else can read the environment while it is being written.
+#[test]
+fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
+    let root = repo_root();
+    // Any real fixture path: the fabricated launcher never reads its arguments.
+    let ball_json = conformance_dir().join("28_fibonacci.ball.json");
+    assert!(
+        ball_json.is_file(),
+        "the self-test needs a real fixture path to hand the launcher: {}",
+        ball_json.display()
+    );
+
+    let scratch = std::env::temp_dir().join(format!("ball_runaway_{}", std::process::id()));
+    let runaway = build_runaway_launcher(&scratch);
+
+    // SAFETY: see the doc comment — this target runs exactly one test per
+    // process, so there is no concurrent reader of the environment.
+    unsafe {
+        std::env::set_var("BALL_TIMEOUT_MS", "300");
+    }
+
+    let started = std::time::Instant::now();
+    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root);
+    let elapsed = started.elapsed();
+
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    assert_eq!(
+        result.as_ref().err().map(String::as_str),
+        Some("__timeout__"),
+        "a child that never exits must come back as the `__timeout__` sentinel \
+         `round_trip_one` reports as the `timeout` status, not as a hang and not as a \
+         generic error: {result:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "the per-fixture budget must be configurable through BALL_TIMEOUT_MS so the kill is \
+         provable in milliseconds; the runaway was only killed after {elapsed:?}, which means \
+         the budget is a hard-coded constant this self-test cannot reach"
+    );
 }
 
 #[test]

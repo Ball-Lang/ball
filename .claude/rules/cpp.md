@@ -449,6 +449,14 @@ Five things have to be true, and each is now pinned by CI rather than by prose:
    the gate loud**, because a new uncacheable reason silently left out of the
    sum is the very state the ceiling exists to catch. `ccache -s` is still run,
    purely so the human numbers reach the log, and its failure is a hard error.
+   So is a `ccache --version` the gate cannot read: since #700 it collects the
+   version alongside the statistics, prints it on every run, and names it in the
+   `UNCLASSIFIED CCACHE COUNTER ID(s)` / `MISSING CCACHE COUNTER ID(s)` failures
+   with the remedy — `hendrikmuhs/ccache-action` installs the OS package and
+   pins no version, so an image that moves ccache and grows a counter must not
+   read as a cache regression. A version off `CCACHE_TABLE_VERSIONS` whose
+   counters all classify stays GREEN and says so; the assertion is the counter
+   set, never the version string.
 
 5. **The gate step must run BEFORE the e2e smoke steps, and that is gated too**
    (#660). ubuntu's *post-job* `ccache -s` shows 4 uncacheable calls, which

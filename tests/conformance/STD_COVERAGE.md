@@ -13,13 +13,13 @@ Every base function across the 8 universal std modules, generated directly from 
 
 | Metric | Count |
 |---|---|
-| Total base functions | 274 |
-| Encoder-emittable | 126 |
-| Covered by a conformance fixture | 138 |
-| Dart engine-implemented | 236 |
+| Total base functions | 304 |
+| Encoder-emittable | 144 |
+| Covered by a conformance fixture | 157 |
+| Dart engine-implemented | 266 |
 | Documented carve-outs | 0 |
 
-## `std` (130 functions)
+## `std` (160 functions)
 
 Universal standard library base module. Every function here represents a language-agnostic operation that all target languages implement natively. Types use protobuf descriptors so they map to every target language.
 
@@ -36,14 +36,22 @@ Universal standard library base module. Every function here represents a languag
 | `bitwise_or` | ✅ | ✅ 3 fixture(s): `206_integer_arithmetic_edge`, `284_enc_bitwise`, `61_bitwise_ops` | ✅ |
 | `bitwise_xor` | ✅ | ✅ 5 fixture(s): `113_operator_overloading`, `206_integer_arithmetic_edge`, `251_bitwise_signed_edges` +2 more | ✅ |
 | `break` | ✅ | ✅ 11 fixture(s): `100_complex_control_flow`, `136_string_pattern_match`, `148_labeled_loops` +8 more | ✅ |
+| `cascade` | ❌ | ❌ | ✅ |
+| `ceil_to_double` | ✅ | ✅ 1 fixture(s): `351_num_to_double` | ✅ |
+| `collection_for` | ✅ | ✅ 7 fixture(s): `307_list_comprehension_foreach`, `308_list_comprehension_cstyle`, `309_spread_elements` +4 more | ✅ |
+| `collection_if` | ✅ | ✅ 2 fixture(s): `307_list_comprehension_foreach`, `417_null_aware_collection_elements` | ✅ |
 | `compare_to` | ✅ | ✅ 2 fixture(s): `122_list_sort_comparator`, `261_conversion_and_ops` | ✅ |
 | `concat` | ✅ | ✅ 102 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +99 more | ✅ |
 | `continue` | ✅ | ✅ 7 fixture(s): `100_complex_control_flow`, `148_labeled_loops`, `274_enc_nested_control` +4 more | ✅ |
+| `dart_list_filled` | ❌ | ❌ | ✅ |
+| `dart_list_generate` | ❌ | ❌ | ✅ |
 | `divide` | ✅ | ✅ 18 fixture(s): `108_class_tostring`, `132_merge_sort`, `143_perfect_number` +15 more | ✅ |
 | `divide_double` | ✅ | ✅ 12 fixture(s): `104_getter_setter`, `130_running_average`, `214_nan_propagation` +9 more | ✅ |
 | `do_while` | ✅ | ✅ 2 fixture(s): `282_enc_do_while`, `47_do_while` | ✅ |
+| `double_to_int` | ❌ | ❌ | ✅ |
 | `double_to_string` | ✅ | ✅ 1 fixture(s): `389_typed_to_string` | ✅ |
 | `equals` | ✅ | ✅ 72 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `117_list_generate` +69 more | ✅ |
+| `floor_to_double` | ✅ | ✅ 1 fixture(s): `351_num_to_double` | ✅ |
 | `for` | ✅ | ✅ 93 fixture(s): `100_complex_control_flow`, `103_abstract_class`, `105_static_methods` +90 more | ✅ |
 | `for_in` | ✅ | ✅ 47 fixture(s): `103_abstract_class`, `109_enum_values`, `117_list_generate` +44 more | ✅ |
 | `goto` | ❌ | ✅ 1 fixture(s): `390_goto_label` | ✅ |
@@ -51,14 +59,20 @@ Universal standard library base module. Every function here represents a languag
 | `gte` | ✅ | ✅ 11 fixture(s): `131_insertion_sort`, `140_caesar_cipher`, `151_recursive_descent_parser` +8 more | ✅ |
 | `if` | ✅ | ✅ 89 fixture(s): `100_complex_control_flow`, `105_static_methods`, `106_factory_constructor` +86 more | ✅ |
 | `index` | ✅ | ✅ 59 fixture(s): `106_factory_constructor`, `119_nested_maps`, `120_list_of_maps` +56 more | ✅ |
+| `int_to_double` | ❌ | ❌ | ✅ |
 | `int_to_string` | ✅ | ✅ 1 fixture(s): `389_typed_to_string` | ✅ |
+| `invoke` | ✅ | ✅ 6 fixture(s): `203_closure_in_loop`, `223_closure_loop_capture`, `224_currying_partial_apply` +3 more | ✅ |
 | `is` | ✅ | ✅ 12 fixture(s): `113_operator_overloading`, `167_generics_reified`, `180_generic_list_ops` +9 more | ✅ |
 | `is_not` | ✅ | ✅ 1 fixture(s): `380_is_not_type_check` | ✅ |
 | `label` | ✅ | ✅ 1 fixture(s): `390_goto_label` | ✅ |
+| `labeled` | ✅ | ✅ 3 fixture(s): `148_labeled_loops`, `23_labeled_break`, `280_enc_labeled_break` | ✅ |
 | `left_shift` | ✅ | ✅ 4 fixture(s): `206_integer_arithmetic_edge`, `251_bitwise_signed_edges`, `284_enc_bitwise` +1 more | ✅ |
 | `length` | ❌ | ❌ | ✅ |
 | `less_than` | ✅ | ✅ 76 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +73 more | ✅ |
+| `list_filled` | ❌ | ✅ 1 fixture(s): `197_memory_limit` | ✅ |
+| `list_generate` | ❌ | ❌ | ✅ |
 | `lte` | ✅ | ✅ 42 fixture(s): `105_static_methods`, `125_group_by`, `132_merge_sort` +39 more | ✅ |
+| `map_create` | ✅ | ✅ 31 fixture(s): `106_factory_constructor`, `116_map_iteration`, `119_nested_maps` +28 more | ✅ |
 | `math_abs` | ✅ | ✅ 5 fixture(s): `108_class_tostring`, `230_signed_int_boundaries`, `259_math_functions` +2 more | ✅ |
 | `math_acos` | ❌ | ❌ | ✅ |
 | `math_asin` | ❌ | ❌ | ✅ |
@@ -95,14 +109,20 @@ Universal standard library base module. Every function here represents a languag
 | `negate` | ✅ | ✅ 44 fixture(s): `105_static_methods`, `135_linear_search_sentinel`, `170_pattern_switch_expr` +41 more | ✅ |
 | `not` | ✅ | ✅ 14 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +11 more | ✅ |
 | `not_equals` | ✅ | ✅ 14 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +11 more | ✅ |
+| `null_aware_access` | ❌ | ❌ | ✅ |
+| `null_aware_call` | ❌ | ❌ | ✅ |
+| `null_aware_cascade` | ❌ | ❌ | ✅ |
 | `null_check` | ✅ | ✅ 9 fixture(s): `106_factory_constructor`, `119_nested_maps`, `125_group_by` +6 more | ✅ |
 | `null_coalesce` | ✅ | ✅ 2 fixture(s): `124_frequency_counter`, `401_switch_expr_null_arm` | ✅ |
+| `null_spread` | ✅ | ✅ 1 fixture(s): `309_spread_elements` | ✅ |
 | `or` | ✅ | ✅ 8 fixture(s): `135_linear_search_sentinel`, `151_recursive_descent_parser`, `153_memoized_recursive` +5 more | ✅ |
+| `paren` | ✅ | ✅ 2 fixture(s): `256_editions_resolver`, `285_enc_ternary` | ✅ |
 | `post_decrement` | ✅ | ✅ 6 fixture(s): `131_insertion_sort`, `308_list_comprehension_cstyle`, `40_increment_decrement` +3 more | ✅ |
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `print` | ✅ | ✅ 359 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +356 more | ✅ |
+| `record` | ✅ | ✅ 2 fixture(s): `207_record_pattern_destructure`, `305_record_patterns` | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -111,9 +131,11 @@ Universal standard library base module. Every function here represents a languag
 | `rethrow` | ✅ | ✅ 9 fixture(s): `146_nested_try_catch_types`, `208_async_chain_rethrow`, `221_rethrow_preserves_chain` +6 more | ✅ |
 | `return` | ✅ | ✅ 60 fixture(s): `105_static_methods`, `106_factory_constructor`, `109_enum_values` +57 more | ✅ |
 | `right_shift` | ✅ | ✅ 5 fixture(s): `206_integer_arithmetic_edge`, `251_bitwise_signed_edges`, `284_enc_bitwise` +2 more | ✅ |
+| `round_to_double` | ✅ | ✅ 1 fixture(s): `351_num_to_double` | ✅ |
 | `sink_create` | ✅ | ✅ 3 fixture(s): `140_caesar_cipher`, `150_state_machine`, `466_string_sink` | ✅ |
 | `sink_to_string` | ✅ | ✅ 3 fixture(s): `140_caesar_cipher`, `150_state_machine`, `466_string_sink` | ✅ |
 | `sink_write` | ✅ | ✅ 3 fixture(s): `140_caesar_cipher`, `150_state_machine`, `466_string_sink` | ✅ |
+| `spread` | ✅ | ✅ 2 fixture(s): `309_spread_elements`, `310_set_map_comprehension` | ✅ |
 | `string_char_at` | ❌ | ❌ | ✅ |
 | `string_char_code_at` | ❌ | ❌ | ✅ |
 | `string_code_unit_at` | ✅ | ✅ 4 fixture(s): `140_caesar_cipher`, `151_recursive_descent_parser`, `249_string_control_char_edges` +1 more | ✅ |
@@ -122,6 +144,7 @@ Universal standard library base module. Every function here represents a languag
 | `string_ends_with` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
 | `string_from_char_code` | ✅ | ✅ 2 fixture(s): `140_caesar_cipher`, `466_string_sink` | ✅ |
 | `string_index_of` | ❌ | ❌ | ✅ |
+| `string_interpolation` | ❌ | ❌ | ✅ |
 | `string_is_empty` | ✅ | ✅ 15 fixture(s): `115_generic_class`, `123_queue_simulation`, `195_deep_nesting` +12 more | ✅ |
 | `string_last_index_of` | ✅ | ✅ 1 fixture(s): `264_string_replace_ops` | ✅ |
 | `string_length` | ✅ | ✅ 1 fixture(s): `466_string_sink` | ✅ |
@@ -143,6 +166,9 @@ Universal standard library base module. Every function here represents a languag
 | `string_trim_start` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
 | `subtract` | ✅ | ✅ 40 fixture(s): `104_getter_setter`, `113_operator_overloading`, `131_insertion_sort` +37 more | ✅ |
 | `switch` | ✅ | ✅ 24 fixture(s): `109_enum_values`, `147_complex_switch`, `150_state_machine` +21 more | ✅ |
+| `switch_expr` | ✅ | ✅ 8 fixture(s): `170_pattern_switch_expr`, `239_switch_expr_relational`, `257_relational_pattern` +5 more | ✅ |
+| `symbol` | ✅ | ✅ 1 fixture(s): `322_symbol_literal` | ✅ |
+| `tear_off` | ❌ | ❌ | ✅ |
 | `throw` | ✅ | ✅ 25 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +22 more | ✅ |
 | `to_double` | ✅ | ✅ 4 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +1 more | ✅ |
 | `to_int` | ✅ | ✅ 5 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +2 more | ✅ |
@@ -150,11 +176,15 @@ Universal standard library base module. Every function here represents a languag
 | `to_string_as_exponential` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
 | `to_string_as_fixed` | ✅ | ✅ 1 fixture(s): `316_to_string_as_fixed` | ✅ |
 | `to_string_as_precision` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
+| `truncate_to_double` | ✅ | ✅ 1 fixture(s): `351_num_to_double` | ✅ |
 | `try` | ✅ | ✅ 30 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `199_malicious_input_patterns` +27 more | ✅ |
+| `type_literal` | ✅ | ✅ 2 fixture(s): `340_type_literal`, `345_inherited_field_type_name_collision` | ✅ |
 | `type_of` | ✅ | ✅ 1 fixture(s): `434_type_of` | ✅ |
+| `typed_list` | ✅ | ✅ 13 fixture(s): `203_closure_in_loop`, `205_map_ordering`, `209_generator_filtered_state` +10 more | ✅ |
 | `unsigned_right_shift` | ✅ | ✅ 1 fixture(s): `381_unsigned_right_shift` | ✅ |
 | `while` | ✅ | ✅ 26 fixture(s): `100_complex_control_flow`, `108_class_tostring`, `123_queue_simulation` +23 more | ✅ |
 | `yield` | ✅ | ✅ 6 fixture(s): `162_generator_sync`, `163_generator_async`, `174_generator_yield_star` +3 more | ✅ |
+| `yield_each` | ✅ | ✅ 1 fixture(s): `174_generator_yield_star` | ✅ |
 
 ## `std_collections` (59 functions)
 
@@ -351,18 +381,22 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 
 ## Gaps
 
-### Not encoder-emittable (148) — no Dart-source construct routes to this function
+### Not encoder-emittable (160) — no Dart-source construct routes to this function
 
 - `std_memory.address_of`
 - `std_io.args_get`
 - `std_concurrency.atomic_compare_exchange`
 - `std_concurrency.atomic_load`
 - `std_concurrency.atomic_store`
+- `std.cascade`
+- `std.dart_list_filled`
+- `std.dart_list_generate`
 - `std_time.day`
 - `std_memory.deref`
 - `std_fs.dir_create`
 - `std_fs.dir_exists`
 - `std_fs.dir_list`
+- `std.double_to_int`
 - `std_time.duration_add`
 - `std_time.duration_subtract`
 - `std_io.env_get`
@@ -377,11 +411,14 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_time.format_timestamp`
 - `std.goto`
 - `std_time.hour`
+- `std.int_to_double`
 - `std.length`
 - `std_collections.list_drop`
+- `std.list_filled`
 - `std_collections.list_find`
 - `std_collections.list_first`
 - `std_collections.list_flat_map`
+- `std.list_generate`
 - `std_collections.list_get`
 - `std_collections.list_is_empty`
 - `std_collections.list_last`
@@ -460,6 +497,9 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_concurrency.mutex_unlock`
 - `std_time.now`
 - `std_time.now_micros`
+- `std.null_aware_access`
+- `std.null_aware_call`
+- `std.null_aware_cascade`
 - `std_memory.nullptr`
 - `std_io.panic`
 - `std_time.parse_timestamp`
@@ -495,8 +535,10 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std.string_concat`
 - `std.string_contains`
 - `std.string_index_of`
+- `std.string_interpolation`
 - `std_collections.string_join`
 - `std.string_repeat`
+- `std.tear_off`
 - `std_concurrency.thread_join`
 - `std_concurrency.thread_spawn`
 - `std_io.timestamp_ms`

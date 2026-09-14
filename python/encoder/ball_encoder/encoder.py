@@ -630,8 +630,12 @@ class _Encoder:
         return self.encode_user_call(name, node.args)
 
     def encode_ballrt_call(self, name: str, args: list[ast.expr]) -> dict:
-        """Encode a ``ballrt.<name>(args…)`` call — one universal ``std`` base
-        call each, per ``ballrt_calls.HELPERS``."""
+        """Encode a ``ballrt.<name>(args…)`` call.
+
+        Most are one universal ``std`` base call, per ``ballrt_calls.HELPERS``.
+        The shapes that are not — a ``fieldAccess`` node, an assignment l-value,
+        a bare type-NAME operand, an adapter with no Ball spelling — are named
+        constants in that module and handled explicitly first."""
         if name in rt.PASSTHROUGH:
             # An adapter whose Ball semantics are implicit in the consuming node
             # (condition truthiness, `for_in`/`spread` iteration).

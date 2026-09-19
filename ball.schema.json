@@ -555,7 +555,11 @@
         "module": { "type": "string" },
         "function": { "type": "string" },
         "calleeModule": { "type": "string" },
-        "calleeFunction": { "type": "string" }
+        "calleeFunction": { "type": "string" },
+        "resolvedModule": {
+          "type": "string",
+          "description": "The module that DECLARES the callee, when it differs from calleeModule (the engine dispatches a base call by function identity, not by the call-site module string). Empty when the call site named the declaring module itself, and for every std capability."
+        }
       }
     },
     "FunctionCapability": {

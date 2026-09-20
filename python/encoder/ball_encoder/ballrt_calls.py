@@ -154,6 +154,9 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "string_trim_start": ("string_trim_start", _UNARY),
     "string_trim_end": ("string_trim_end", _UNARY),
     "string_is_empty": ("string_is_empty", _UNARY),
+    # Its own base function, never the negation of `string_is_empty`: a
+    # delegating receiver sees WHICH member it was asked for (issue #674).
+    "string_is_not_empty": ("string_is_not_empty", _UNARY),
     "string_to_int": ("string_to_int", _UNARY),
     "string_to_double": ("string_to_double", _UNARY),
     "string_from_char_code": ("string_from_char_code", _UNARY),

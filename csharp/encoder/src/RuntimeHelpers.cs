@@ -37,6 +37,14 @@ namespace Ball.Encoder;
 ///   expression).</item>
 /// </list>
 ///
+/// <para>Two helpers sit OUTSIDE that table on purpose, as named node-shaped
+/// arms (<see cref="FieldGet"/>, <see cref="ArgGet"/> — issue #689): their
+/// inverses are not "one <c>std</c> base call whose positional arguments fill
+/// named input fields" at all, so expressing them as rows would have meant
+/// widening every row to carry a shape it does not have. Each arm keeps the
+/// same fail-loud boundary — a non-literal key, or the wrong arity, is an
+/// error.</para>
+///
 /// <para>Statement-shaped lowerings (<c>if</c>/<c>for</c>/<c>while</c>/
 /// <c>try</c>) are not here at all: the compiler emits them as native C#
 /// statements, which the encoder already reads back from that syntax.</para>
@@ -53,6 +61,32 @@ internal static class RuntimeHelpers
     /// performs that coercion implicitly wherever a condition is evaluated (<c>std.and</c>,
     /// <c>std.if</c>, …), so it encodes back to its operand unchanged.</summary>
     internal const string Truthy = "Truthy";
+
+    /// <summary>
+    /// <c>BallRuntime.FieldGet(obj, "name")</c> — the compiler's emission of a
+    /// <c>field_access</c> EXPRESSION NODE, not of a base call, so it cannot be a
+    /// <see cref="Table"/> row (issue #689). Its inverse is
+    /// <c>field_access(obj, name)</c>: <c>BallRuntime.FieldGet</c>'s own contract
+    /// (<c>csharp/shared/src/BallRuntime.cs</c>) is "read a field of a message / key of a map,
+    /// or a virtual property" — exactly what the reference engine evaluates a
+    /// <c>field_access</c> node to.
+    /// </summary>
+    internal const string FieldGet = "FieldGet";
+
+    /// <summary>
+    /// <c>BallRuntime.ArgGet(input, "name", "argN")</c> — the compiler's parameter prologue for a
+    /// 2+-parameter callee (<c>CSharpCompiler.ParamPrologue</c>): read the declared parameter by
+    /// NAME out of the one input message, falling back to its positional <c>argN</c> slot for a
+    /// call site that had no names to pack (a first-class <c>invoke</c> of a function value).
+    /// Node-shaped like <see cref="FieldGet"/>, and a two-key read rather than one, so it is not
+    /// a <see cref="Table"/> row either: the inverse is
+    /// <c>std.null_coalesce(map_get(input, name), map_get(input, argN))</c>, which is
+    /// <c>BallMethods.ArgGet</c>'s <c>?? ?? Null</c> chain written in Ball. Both operands are a
+    /// TOLERANT keyed read rather than a <c>field_access</c> node, because exactly one of the two
+    /// keys is present in any real input and <c>std.null_coalesce</c> is eager — see
+    /// <c>Methods.EncodeArgGetHelper</c> for the full statement of why.
+    /// </summary>
+    internal const string ArgGet = "ArgGet";
 
     private static readonly string[] Unary = { "value" };
     private static readonly string[] Binary = { "left", "right" };
@@ -102,6 +136,7 @@ internal static class RuntimeHelpers
             ["ToInt"] = ("to_int", Unary),
             ["NullCheck"] = ("null_check", Unary),
             ["StringIsEmpty"] = ("string_is_empty", Unary),
+            ["StringIsNotEmpty"] = ("string_is_not_empty", Unary),
             ["StringContains"] = ("string_contains", Binary),
             ["StringStartsWith"] = ("string_starts_with", Binary),
             ["StringEndsWith"] = ("string_ends_with", Binary),
@@ -134,6 +169,23 @@ internal static class RuntimeHelpers
     /// </summary>
     internal static bool IsClassReference(ExpressionSyntax expression, string className) =>
         expression is IdentifierNameSyntax id && id.Identifier.Text == className;
+
+    /// <summary>
+    /// The compile-time text of a plain C# string literal operand, or <c>null</c> when
+    /// <paramref name="expression"/> is anything else.
+    ///
+    /// <para>A Ball <c>field_access</c> node's <c>field</c> is a NAME, not an expression, so the
+    /// node-shaped arms can only invert a helper whose key operand is literally spelled at the
+    /// call site — which is exactly what <c>Naming.StringLiteral</c> emits. A computed key
+    /// (<c>FieldGet(o, k)</c>) has no Ball counterpart and must fail loud rather than be guessed
+    /// at; an interpolated string is deliberately excluded too, since it is a
+    /// <c>InterpolatedStringExpressionSyntax</c>, not a literal.</para>
+    /// </summary>
+    internal static string? StringLiteralText(ExpressionSyntax expression) =>
+        expression is LiteralExpressionSyntax literal &&
+        literal.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.StringLiteralExpression
+            ? literal.Token.ValueText
+            : null;
 
     /// <summary>
     /// The Ball literal a <c>BallValue</c> static factory call produces

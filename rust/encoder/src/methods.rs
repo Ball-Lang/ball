@@ -551,7 +551,17 @@ impl Encoder {
         // string, which every engine and runtime rejects at RUN time
         // (`rust/shared/src/runtime.rs::sink_backing`) — loud, but one stage
         // too late for a question this encoder can answer.
-        if let Some(target) = self.ref_aliases.get(&name) {
+        //
+        // Only the MODELLED half resolves. `AliasTarget::Opaque` — a borrow of
+        // a place this encoder cannot name (`&mut p.x`, `&mut v[0]`, issue
+        // #693) — deliberately falls through with the alias's own name, which
+        // `encode_local` DID record as a local whose initialiser is that
+        // borrow: the lookup below therefore reaches the loud refusal naming
+        // both, which is the same answer `encode_assign` gives a plain write
+        // through such an alias (`lib.rs`'s
+        // `refuse_write_through_an_unmodellable_borrow`). Silently treating it
+        // as a sink would write into the COPY that binding emits.
+        if let Some(crate::AliasTarget::Variable(target)) = self.ref_aliases.get(&name) {
             name = target.clone();
         }
         match self.lookup_local(&name) {

@@ -75,6 +75,21 @@ _UNIVERSAL_METHODS = frozenset({"toString", "hashCode", "noSuchMethod"})
 # never real constructor arguments.
 _SYNTH_FIELDS = frozenset({"__type_args__", "type_args", "__const__"})
 
+# A user program's own `throw StateError('boom')` / `FormatException('bad')` /
+# … constructs a Dart built-in that carries no `TypeDefinition`, so it never
+# reaches the user-class path. Map each to the ballrt factory for the REAL class
+# (issue #658). Before this only `StateError` had one and the other three fell
+# through to an anonymous dict, which printed as `{arg0: bad}` and answered
+# `null` for `.message`. Guard: conformance
+# `473_caught_user_thrown_builtin_error`, plus the cross-target rendering
+# contract in `tools/check_error_rendering_tables.py`.
+_BUILTIN_DART_ERROR_CTORS = {
+    "StateError": "ballrt.make_state_error",
+    "FormatException": "ballrt.make_format_exception",
+    "RangeError": "ballrt.make_range_error",
+    "ArgumentError": "ballrt.make_argument_error",
+}
+
 
 class CompileError(Exception):
     """A Ball construct the compiler does not support (fail-loud, issue #55)."""
@@ -1393,8 +1408,8 @@ class Compiler:
             return f"ballrt.make_regexp({fdict})"
         if short == "StringBuffer":
             return f"ballrt.make_string_buffer({first if args else ''})"
-        if short == "StateError":
-            return f"ballrt.make_state_error({first})"
+        if short in _BUILTIN_DART_ERROR_CTORS:
+            return f"{_BUILTIN_DART_ERROR_CTORS[short]}({first})"
         if short == "Duration":
             return f"ballrt.make_duration({fdict})"
         if short in ("LinkedHashMap", "Map"):
@@ -1724,6 +1739,7 @@ class Compiler:
             "string_to_upper": "string_to_upper", "string_to_lower": "string_to_lower",
             "string_trim": "string_trim", "string_trim_start": "string_trim_start",
             "string_trim_end": "string_trim_end", "string_is_empty": "string_is_empty",
+            "string_is_not_empty": "string_is_not_empty",
             "string_to_int": "string_to_int", "string_to_double": "string_to_double",
             # `String.fromCharCode(n)` / `fromCharCodes(list)`. The runtime
             # helpers have always existed (the self-hosted engine reaches them

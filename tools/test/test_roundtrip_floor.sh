@@ -32,9 +32,11 @@ trap 'rm -rf "$work"' EXIT
 ran=0
 failures=0
 
-# run_case <name> <expected-exit> <floor> <leg-exit> <output-text> [expect-substring] [fail-pattern]
+# run_case <name> <expected-exit> <floor> <leg-exit> <output-text> [expect-substring] \
+#          [fail-pattern] [timeout-pattern]
 run_case() {
   local name=$1 want_exit=$2 floor=$3 leg_exit=$4 text=$5 expect=${6:-} pattern=${7:-}
+  local timeout_pattern=${8:-}
   ran=$((ran + 1))
 
   local out_file="$work/$name.out"
@@ -46,7 +48,10 @@ run_case() {
   : > "$GITHUB_STEP_SUMMARY"
 
   local got
-  if [ -n "$pattern" ]; then
+  if [ -n "$timeout_pattern" ]; then
+    got=$(bash "$script" "TestLang" "$floor" "$leg_exit" "$out_file" "" \
+      "${pattern:-^FAILING \[}" "$timeout_pattern" 2>&1)
+  elif [ -n "$pattern" ]; then
     got=$(bash "$script" "TestLang" "$floor" "$leg_exit" "$out_file" "" "$pattern" 2>&1)
   else
     got=$(bash "$script" "TestLang" "$floor" "$leg_exit" "$out_file" 2>&1)
@@ -192,6 +197,43 @@ run_case no_failure_line_is_fine 0 3 0 \
   "Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)" \
   "Results: 349 passed, 0 failed, 349 total (floor: 3)"
 
+# ── A fixture that HUNG is a hard failure, never one more "failed" ───────────
+# Issue #693: 28 loop fixtures re-encoded "clean" and then never terminated,
+# each killed by the leg's per-fixture budget. Folded into `failed`, a hang is
+# indistinguishable from an ordinary golden mismatch — and the ratchet can only
+# see it once enough fixtures hang to push `passed` below the floor. A
+# non-terminating program is the #55 class (round-trips clean, behaves
+# differently), so ANY timeout is red on its own, whatever the counts say.
+run_case timeout_is_red 1 1 1 \
+  "FAILING [46_while_loop] timeout killed after 60s
+Results: 3 passed, 346 failed, 349 total (4 skipped carve-outs)" \
+  "did not TERMINATE"
+
+# ...including when the leg is otherwise IMPROVING: a row that would have
+# printed `IMPROVED` and exited 0 must still be red while a fixture hangs.
+run_case timeout_is_red_even_above_the_floor 1 2 1 \
+  "FAILING [28_fibonacci] timeout killed after 60s
+Results: 7 passed, 342 failed, 349 total (4 skipped carve-outs)" \
+  "FAILING [28_fibonacci] timeout killed after 60s"
+
+# C#'s harness prints `  <name>: TIMEOUT`, so that row passes its own pattern —
+# the gate must be per-row overridable rather than assuming one output shape.
+run_case custom_timeout_pattern_is_honoured 1 1 1 \
+  "--- failures ---
+  101_simple_class: TIMEOUT
+Results: 1 passed, 348 failed, 349 total (4 skipped carve-outs)" \
+  "did not TERMINATE" \
+  "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)" \
+  "^ +[0-9A-Za-z_]+: TIMEOUT"
+
+# Negative control: `196_timeout` is a FIXTURE NAME. A gate that matched the
+# word anywhere on the line would red a leg that never hung — the pattern is
+# anchored on the STATUS field for exactly that reason.
+run_case a_fixture_merely_named_timeout_is_not_a_hang 0 1 1 \
+  "FAILING [196_timeout] encode-error ball-lang-encoder: unsupported construct
+Results: 1 passed, 348 failed, 349 total (4 skipped carve-outs)" \
+  "Results: 1 passed, 348 failed, 349 total (floor: 1)"
+
 # ── The wiring: every round-trip row must actually CALL this script ──────────
 # A parser test that runs the script directly cannot notice that the workflow
 # re-implements the comparison inline and never invokes it — the exact hole
@@ -215,6 +257,20 @@ for row in CSHARP PYTHON GO RUST; do
     failures=$((failures + 1))
   fi
 done
+
+# A row that overrides the FAIL pattern must override the TIMEOUT pattern too
+# (#693). C#'s harness prints `  <name>: TIMEOUT`, which the default
+# `FAILING [name] timeout` pattern can never match — leaving that row's
+# no-fixture-may-hang gate switched off while the job stayed green, the exact
+# shape of silently-dead gate this whole script exists to avoid.
+ran=$((ran + 1))
+if grep -qF 'roundtrip_floor.sh" "C#"' "$matrix" &&
+  grep -qF '"^ +[0-9A-Za-z_]+: TIMEOUT"' "$matrix"; then
+  echo "ok   [wiring:the C# row passes its own TIMEOUT pattern]"
+else
+  echo "FAIL [wiring]: the C# round-trip row overrides the fail pattern but not the timeout pattern — its hang gate would never match its own output"
+  failures=$((failures + 1))
+fi
 
 # Each row must NAME the gap it still has, with an issue number, in the note it
 # appends to the step summary. "No floor is enforced: 0/N is the expected

@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 357 passed, 0
-failed, 357 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 359 passed, 0
+failed, 359 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -149,8 +149,31 @@ cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --igno
 Its CI home is the `rust-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:` trigger sharing
 its `push` filter, and `rust/**` is in that filter, so the row runs on any PR touching this
-directory with no `gh workflow run` dispatch. It still gates harness health only, never the
-failure count.
+directory with no `gh workflow run` dispatch. It gates harness health, the positive floor and the
+ratchet — plus, since #693, **no fixture may HANG**.
+
+### The per-fixture budget, and why it is self-tested (#693)
+
+The leg shells out to the Dart CLI per fixture, so a re-encoded program that never terminates
+would wedge the row's 90-minute job rather than report anything. That is not hypothetical: the
+`&mut` alias bug below made **28 loop fixtures** re-encode "clean" and then hang, and the
+60-second per-fixture kill is the only reason the row reported them instead of timing the job out.
+
+- The budget is `BALL_TIMEOUT_MS` (default 60 000) — the same spelling
+  `go/engine/conformance/roundtrip.go` uses. A non-integer value is a hard error, never a silent
+  fallback. It is configurable *so that it is testable*: a hard-coded constant is a budget nobody
+  has measured.
+- `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` is the self-test. It
+  builds a **fabricated runaway** with `rustc` at test time (a program that ignores its arguments
+  and never exits), drives it through the real `run_dart` path, and asserts it comes back as the
+  `__timeout__` sentinel inside the configured budget. It is the only non-`#[ignore]`d test in
+  that target, so `cargo test --workspace` runs it on every PR and `-- --ignored` runs the sweep
+  alone — they never share a process, which is what makes the test's `set_var` safe.
+- A `timeout` outcome is a **hard error** in `tools/ci/roundtrip_floor.sh`, not one more increment
+  of `failed`. Folded into the failure count it is indistinguishable from a golden mismatch, and
+  the ratchet can only notice it once enough fixtures hang to push `passed` under the floor. All
+  four round-trip rows measured **zero** timeouts before that gate was switched on (run
+  34791323674, main).
 
 ## Build & Test
 
@@ -347,8 +370,8 @@ was not an option; it carries `version.workspace = true` and sits in the publish
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 357 passed, 0 failed,
-357 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 359 passed, 0 failed,
+359 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -407,8 +430,14 @@ instructions.
   gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`, which runs Tier A's three
   library-mode stages. Stage 3 is an **encode** gate and says so: the compiler's output names
   runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not user functions, so
-  re-encoding it yields calls resolving to nothing and **re-compiling that is not a fixpoint** —
-  measured, and neither Tier A nor that test pretends otherwise. The behavioural half sits beside
+  **re-compiling stage 3's output is not a fixpoint** — measured, and neither Tier A nor that test
+  pretends otherwise. Since #646 reading those helpers is fail-loud: `runtime_helpers.rs` maps the
+  ones with a universal-`std` inverse and an UNMAPPED `ball_*` aborts the file instead of becoming
+  a same-file call to a function nobody declared. That table is the universal-`std` subset only,
+  so a compiled library naming any other helper stops at the first one; never read a green run of
+  that gate as "stage 3 is green for libraries at large". Sweep the difference, never quote it:
+  `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the quoted names in
+  `runtime_helpers.rs`. The behavioural half sits beside
   it: three cases compile the compiler's own output, link it against a hand-written `main`, and
   RUN it, asserting the thrown message as bytes. Extend that test when you add a compiler emission
   shape; never add a second, weaker round trip.
@@ -431,11 +460,36 @@ instructions.
   refusing every real-world one — which is what Tier A measures. The fix is compiler-side (a plain
   `ball_is_null(&__sp)` helper plus the existing `BallList`/`BallValue::List` vocabulary), in the
   same plain-call style the neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` already
-  use, which re-encodes soft instead of aborting the file. Pinned by
+  use — but note that style no longer re-encodes *soft*: since #646 an unmapped `ball_*` is a hard
+  refusal, so a compiler-side fix owes `runtime_helpers.rs` the matching inverse, or its own pin
+  where no inverse exists. Pinned by
   `compiled_spliced_list_literal_is_a_documented_gap` (driven through the real compiler, asserting
   both constructs are still emitted) and `the_matches_macro_is_a_documented_gap` (the second
-  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is the
-  invariant's other open instance — also pinned in `documented_gaps.rs`, tracked as **#687**.
+  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is
+  **CLOSED**, and so is **#687**. #646's `lib.rs::as_zero_arg_closure` INLINES the closure body
+  rather than emitting the `std.invoke`-over-`lambda` shape #687 proposed, and for the entry
+  wrapper that is sound in both directions — a Ball `return` returns from the enclosing FUNCTION
+  and the entry body IS the function body. Its pin is flipped to
+  `compiled_entry_point_iife_encodes`, which asserts the entry body's `std.print` SURVIVES (a
+  dropped body would not panic either). The open half — whether the IIFE is equally faithful for a
+  NESTED block in value position — was answered by a run-proof, and it is an ENCODER question, not
+  a compiler one: `compile_block` emits a native Rust block, so nothing nested is ever wrapped,
+  but the unconditional inlining re-bound a `return` in the HAND-WRITTEN Rust this encoder reads.
+  Inlining is conditional now, and #687's shape is what an early-exiting body gets — see
+  "Immediately-invoked closures" below. The script-mode round-trip leg lives beside the
+  library-mode ones in `compile_reencode_roundtrip.rs`.
+  The invariant's **second** open instance is the compiled method dispatcher's scrutinee, **#718**: `compile_method_dispatchers`
+  opens every instance-method dispatcher with `match ball_message_type_name(&__self).as_str()`,
+  and that helper has no universal-`std` inverse — it returns the receiver's module-QUALIFIED tag
+  (`main:Point`) while `std.type_of` (#489) returns the SHORT base name, so mapping one to the
+  other would re-encode a dispatcher whose arms can never match its own scrutinee, and
+  `dart/shared/std.json` declares no qualified-name function to map it to instead. It is a
+  semantic merge conflict between #646 (the fail-loud table) and #685 (the first test that
+  re-encodes a dispatcher), each green on its own branch; it reddened the required `Rust` context
+  on `main`. Pinned by `compiled_method_dispatcher_scrutinee_is_a_documented_gap`; the
+  dispatcher's behavioural half is untouched and still run-proved by
+  `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
+  fail-loud direction.
   `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
   `ThrowExpression` arm emits: on this target the two are literally one mechanism
   (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a
@@ -461,6 +515,48 @@ instructions.
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a
   construct is unsupported by accident vs. by design.
+
+### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
+
+`(|| … )()` is the shape `rust/compiler` wraps each of its three **function** bodies in — the
+entry `fn main()` (`lib.rs::compile_entry_main`, because `main` returns `()` while every compiled
+expression is `BallValue`-typed), a method with instance-field write-back, and a body-carrying
+constructor (both `type_emit.rs`). #646's `encoder/src/lib.rs::as_zero_arg_closure` inlines it into
+the Ball `block` its body already is, and that is what makes those three re-encodable at all.
+
+It is **not** the lowering of a value-position Ball `block`. `compile_block` emits a native Rust
+block, because Rust blocks are already tail-expression-valued; C++ and Go do need an IIFE there,
+which is exactly why *their* compilers route `return`/`break`/`continue` through runtime flow
+signals and this one does not. Any note claiming the Rust compiler wraps a nested block in an IIFE
+is stale — check `compile_block` before repeating it.
+
+Inlining becomes unsound the moment the body can exit early, because that is the one way the two
+constructs differ:
+
+| | Rust `(|| { … return a; … })()` | Ball `block { … return a … }` |
+| --- | --- | --- |
+| where `return a` lands | the CLOSURE — the caller binds `a` and keeps running | the enclosing FUNCTION |
+
+So the ordinary early-exit idiom `let x = (|| { if …{ return a; } b })();` inlined to a Ball block
+that returned `a` from the enclosing function and skipped everything after it — a **well-formed**
+Program with a different answer, which is why it is proved by building and RUNNING the compiled
+output (`compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`)
+against what `rustc` prints for the same source, not by any assertion on the encoded shape.
+
+When the body *can* exit early the faithful Ball is **`std.invoke` over a `lambda`** — the shape
+`dart/encoder/lib/encoder.dart` emits for a `FunctionExpressionInvocation`, and the one
+`compile_lambda` turns back into `BallValue::Function(BallFunction::new(…, move |input| { … }))`,
+whose `return` leaves the closure again.
+
+The early-exit set is **derived from what this encoder emits a `std.return` for**, never guessed
+from syntax: `return` (`encode_return`) and `?` (`encode_try_operator`, which propagates by
+returning the whole outcome). `break`/`continue` cannot occur — rustc rejects a loop jump crossing
+a closure boundary. The scan (`closure_body_exits_early`) is a `syn::visit::Visit` rather than a
+hand-written recursion, so every other node kind is covered by construction, and it stops at each
+frame that owns its own `return`: a nested closure, a nested item, an `async` block, a `try` block.
+Over-firing would be its own regression — every compiled program that builds a callback contains a
+nested closure with a `return` — and `compiler_output.rs::a_return_inside_a_nested_closure_does_not_block_inlining`
+is the negative control on it.
 
 ### Real-code coverage study (issue #491)
 

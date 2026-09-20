@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 357 passed, 0 failed, 357 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 359 passed, 0 failed, 359 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -166,6 +166,27 @@ compile items so the sibling projects never double-compile each other's files.
   runtime RAISES has an entry in this runtime's table and that every entry's
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
+
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed only the `ArgumentError` row: `BallThrow`'s untyped
+  constructor (#615) already aliases `arg0` to `message`.
+  `csharp/compiler/test/UserThrownBuiltinErrorTests.cs` drives a real
+  `BallRuntime.Throw` so the alias is pinned rather than assumed.
 
 - **`try` dispatches EVERY catch clause, in source order (#615).**
   `CompileTryStatement` emits one `catch (BallThrow __ballEx)` containing an
@@ -392,6 +413,51 @@ compile items so the sibling projects never double-compile each other's files.
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero
   (`int`/`long`/… → `0`, `double`/`float` → `0.0`, `bool` → `false`); a reference type, a generic
   parameter, or a keyword Ball has no counterpart for (`char`, `decimal`) keeps the honest null.
+- **`BallRuntime.FieldGet`/`ArgGet` are NODE-shaped arms, not `RuntimeHelpers.Table` rows (#689).**
+  That table expresses exactly one shape — a helper name, the `std` base function it is the
+  emission of, and that function's input field for each positional argument — and neither of these
+  fits it, which is why both failed loud (issue #55 doctrine) until they were added as named arms
+  beside it. `FieldGet(obj, "name")` inverts to a **`field_access` node**, a different `Expression`
+  kind than any row can express; `ArgGet(input, "name", "argN")` — the compiler's parameter
+  prologue for a 2+-parameter callee (`CSharpCompiler.ParamPrologue`) — inverts to
+  `std.null_coalesce(map_get(input, name), map_get(input, argN))`, which is
+  `BallMethods.ArgGet`'s own `?? ?? Null` chain written in Ball. **Do not widen the table to carry
+  them**, and keep each arm's fail-loud boundary: a key that is not a string literal (neither node
+  can COMPUTE a key) and the wrong arity are both `EncoderException`s. The `ArgGet` arm needs no
+  knowledge of the enclosing function's arity — a one-parameter callee is bound directly to the
+  input and never emits this prologue.
+- **`ArgGet`'s two operands are a TOLERANT `std_collections.map_get`, never `field_access`
+  (#730).** The first cut of that arm emitted two `field_access` nodes, and it threw on the
+  reference engine for **every real input**: exactly one of the two keys is ever present (a call
+  site that knows the callee's parameter names packs `{name: …}`, a first-class `invoke` packs
+  `{arg0, arg1}`), a `field_access` on the absent key is a hard
+  `BallRuntimeError: Field "…" not found` (`dart/engine/lib/engine_eval.dart`), and
+  `std.null_coalesce` is EAGER — it is not one of `_evalCall`'s lazily-evaluated base functions, so
+  both operands are evaluated whichever key won. `map_get` is a plain `map[key]` that answers
+  `null`, which is what the `??` chain needs and what `BallMethods.ArgGet`'s own `_ => Null` arm
+  does for a non-map input; it is also universally implemented, unlike `std.null_aware_access`
+  (Dart + TS only). Call `MarkCollectionsUsed()` — the encoded program must DECLARE the module it
+  reads through. **A shape assertion could not see this**, and neither could executing the tree on
+  the C# target (`BallRuntime.FieldGet` answers `BallValue.Null` for a missing map key, so it is
+  green there): only the reference engine can.
+  Guards: `encoder/test/RuntimeNodeHelperTests.cs` (the shapes + both boundaries + the module
+  declaration), `encoder/test/ReferenceEngineExecutionTests.cs` (encodes compiler-shaped C# and
+  RUNS the re-encoded program on the Dart reference engine — which is why `ci.yml`'s `csharp` job
+  sets Dart up BEFORE `dotnet test`, and why an unresolvable `dart` is a FAILURE there rather than
+  a skip), and the whole-corpus
+  `csharp-roundtrip` row, whose floor #689 raised **76 -> 86** — `FieldGet` was the first blocker
+  for the largest bucket of its failures (`101_simple_class`, `102_inheritance`,
+  `103_abstract_class`, `104_getter_setter`, `106_factory_constructor`, …) and `ArgGet` for
+  `105_static_methods`. The row's measured first blocker is now `BallRuntime.MessageTypeName`,
+  the compiler's instance-method dispatch preamble — read the live number and the live first
+  blocker off that row, never off this line.
+- **Known, pre-existing: a positionally-packed input does not survive the re-encode.** The
+  compiler's `__in` is the whole input message, but the reference engine destructures a
+  SINGLE-parameter function's input when that map carries `arg0` and not the parameter's own name
+  (`dart/engine/lib/engine_invocation.dart`'s parameter binding), so a re-encoded callee receives
+  the bare `arg0` VALUE instead of the message. That is independent of the `ArgGet` arm — it
+  applies to any re-encoded compiler output — and is one of the reasons the `csharp-roundtrip` row
+  is a ratchet rather than a parity gate. Do not "fix" the `ArgGet` arm for it.
 - **Round-trip proof, not encode-only.** A bucket flip is proven by compiling the ENCODED fixture
   back to C# and RUNNING it (`encoder/test/PredefinedTypeCallTests.cs` asserts exactly `43\n`).
   That is what caught the compiler's callback-field bug below — an encode-only assertion would
@@ -401,8 +467,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 357 passed, 0 failed,
-  357 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 359 passed, 0 failed,
+  359 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without
@@ -423,7 +489,10 @@ compile items so the sibling projects never double-compile each other's files.
   Roslyn encoder refused the compiler's own output outright: the unconditional `BallOneofs` class,
   every `BallRuntime.*` base-call helper, and the `BallValue` literal factories.
   `encoder/src/RuntimeHelpers.cs` is the inverse table that closes the dominant part of that, and
-  `encoder/test/CompilerOutputTests.cs` is the fast guard on the shape). Since #452 item 1 the
+  `encoder/test/CompilerOutputTests.cs` is the fast guard on the shape; #689 then added the two
+  NODE-shaped arms that table cannot hold, `FieldGet`/`ArgGet`, guarded by
+  `encoder/test/RuntimeNodeHelperTests.cs` + `encoder/test/ReferenceEngineExecutionTests.cs`).
+  Since #452 item 1 the
   round-trip leg is ALSO run in CI, by the `csharp-roundtrip` row, and since #642 that row is
   **floored and ratcheted**: harness health (a parseable `Results:` line, integer counts,
   `total >= 1`) PLUS `passed >= 1` PLUS `passed >= CSHARP_ROUNDTRIP_FLOOR`, all enforced by
@@ -497,6 +566,10 @@ compile items so the sibling projects never double-compile each other's files.
 - `dotnet test Ball.slnx` from `csharp/` runs every default-build test project. `Ball.Engine`'s
   and `Ball.Cli`'s self-hosted/cli-core-gated test classes are feature-gated off by default, so
   this stays green without requiring the generated, gitignored `CompiledEngine.cs`/`CompiledCli.cs`.
+  It DOES require the **Dart SDK plus a resolved workspace** (`dart pub get` at the repo root):
+  `encoder/test/ReferenceEngineExecutionTests.cs` runs re-encoded programs on the Dart reference
+  engine and FAILS — never skips — when `dart` is unresolvable (`BALL_DART` overrides which
+  executable it drives). That is why `ci.yml`'s `csharp` job sets Dart up before its `Test` step.
 - `csharp/compiler/test/` — xUnit v3. `EndToEndTests` compile-and-run real fixtures via
   in-memory Roslyn and assert **byte-exact** stdout; prefer extending these (or conformance
   fixtures) over C#-only unit tests, per the repo-wide "prefer conformance tests" rule. But note

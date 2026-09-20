@@ -148,9 +148,22 @@ jobs:
       # artifact would double a 20-minute job. Hence `!cancelled()`: the artifact
       # must be taken even when the ratchet FAILS, or Codecov's history would get
       # a hole exactly at the commit that dropped — the one run worth publishing.
-      # The step cannot mask the ratchet's verdict: a failed step is not rescued
-      # by later steps running, so this job's conclusion is still the floor's.
+      # The step cannot HIDE the ratchet's verdict: a failed step is not rescued
+      # by a later one running, so a ratchet failure still reds this job, and
       # tools/ci/check_coverage_upload_isolation.sh is what keeps it that way.
+      #
+      # RESIDUAL, in the OTHER direction (#700 item 2): this job's conclusion is
+      # a LOWER BOUND on the ratchet, not the ratchet itself. `if-no-files-found:
+      # error` below is deliberate — an empty artifact would make the upload job
+      # green while publishing nothing — but it also means an artifact-upload
+      # flake reds `dart` with no coverage regression whatsoever: the same
+      # "transport reddened a green measurement" class #638 is about, arriving
+      # through the other half of the job. An earlier wording here said this
+      # job's conclusion "is still the floor's", which is false in exactly that
+      # direction. So read the `Dart line coverage ratchet (all packages)` STEP
+      # and the number it printed, never this job's conclusion — the rule
+      # cpp/build-cov-floor.sh's header states for the C++ job, true here for the
+      # same reason.
       - name: Publish the Dart lcov for the upload job
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

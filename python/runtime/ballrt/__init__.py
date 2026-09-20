@@ -26,6 +26,11 @@ from .flow import (
     rethrow,
     throw,
 )
+from .dart_errors import (
+    make_argument_error,
+    make_format_exception,
+    make_range_error,
+)
 from .io import print_, print_error, run_entry
 from .ops import (
     add,
@@ -79,6 +84,7 @@ from .ops import (
     string_ends_with,
     string_index_of,
     string_is_empty,
+    string_is_not_empty,
     string_last_index_of,
     string_length,
     string_pad_left,

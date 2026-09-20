@@ -263,11 +263,9 @@ Map<String, String> buildCapabilityTable() {
     'std.yield': 'async',
     'std.yield_each': 'async',
     'std.await': 'async',
-    'std.async': 'async',
 
     // ── std: assignment (pure) ──
     'std.assign': 'pure',
-    'std.compound_assign': 'pure',
 
     // ── std: type operations (pure) ──
     'std.is': 'pure',
@@ -314,8 +312,15 @@ Map<String, String> buildCapabilityTable() {
     'std.map_create': 'pure',
 
     // ── std: indexing (pure) ──
+    //
+    // Reading only. There is no `index_assign` key because there is no such
+    // base function: `a[i] = v` encodes as `std.assign` whose TARGET is a
+    // `std.index` call, on every encoder. It was keyed here until #702's
+    // reverse closed set asked the table to name only functions a builder
+    // declares; `std.async` (async is a FunctionDefinition modifier, never a
+    // call) and `std.compound_assign` (`+=` desugars to the operator plus
+    // `std.assign`, which is what `AssignInput.op` records) went the same way.
     'std.index': 'pure',
-    'std.index_assign': 'pure',
 
     // ── std: labels (pure) ──
     'std.labeled': 'pure',
@@ -326,6 +331,7 @@ Map<String, String> buildCapabilityTable() {
     // ── std: string operations (pure) ──
     'std.string_length': 'pure',
     'std.string_is_empty': 'pure',
+    'std.string_is_not_empty': 'pure',
     'std.string_concat': 'pure',
     'std.string_contains': 'pure',
     'std.string_starts_with': 'pure',

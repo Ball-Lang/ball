@@ -13,7 +13,8 @@
 #
 # Contract:
 #
-#   roundtrip_floor.sh <label> <floor> <leg-exit-code> <output-file> [note-file] [fail-pattern]
+#   roundtrip_floor.sh <label> <floor> <leg-exit-code> <output-file> [note-file] \
+#                      [fail-pattern] [timeout-pattern]
 #
 #   label           human name for the row, e.g. "C#".
 #   floor           the per-target ratchet constant. MUST be an integer >= 1:
@@ -33,6 +34,9 @@
 #                   shape. The FIRST match is echoed verbatim, to stdout and to
 #                   the step summary, so the row's log always carries one real,
 #                   unabridged diagnosis of the gap rather than a bare count.
+#   timeout-pattern optional ERE matching a per-fixture TIMEOUT line; defaults to
+#                   the same legs' `FAILING [name] timeout …`. ANY match is a
+#                   hard error — see gate 4 below.
 #
 # Gates, in order:
 #   1. the floor itself is a bare integer >= 1;
@@ -42,9 +46,17 @@
 #      through to exit 0 — a silently disabled gate, see
 #      .claude/rules/ci-gates or the C# compiler leg's own comment);
 #   3. total >= 1   — the harness discovered fixtures (harness health);
-#   4. passed >= 1  — the leg actually round-tripped something. THE gate #642
+#   4. no fixture TIMED OUT (issue #693). A re-encoded program that never
+#      terminates is the #55 class — structurally valid, `ball check`-clean, and
+#      it computes nothing. Folded into `failed` it is indistinguishable from an
+#      ordinary golden mismatch, and the ratchet can only notice it once enough
+#      fixtures hang to push `passed` under the floor, which is exactly how 28
+#      loop fixtures hung for as long as they did. Measured at ZERO on all four
+#      rows (run 34791323674, main) before this gate was enabled — a gate is
+#      switched on at a measured value, never at an aspiration;
+#   5. passed >= 1  — the leg actually round-tripped something. THE gate #642
 #                     adds: a flat zero is no longer green;
-#   5. passed >= floor — ratchet: a fixture that used to round-trip still does.
+#   6. passed >= floor — ratchet: a fixture that used to round-trip still does.
 #
 # An improvement prints a ::notice:: naming the exact new floor to record.
 # Never lower a floor to turn a red build green — that is what a ratchet is for.
@@ -59,6 +71,10 @@ note_file=${5:-}
 # prints `  <name>: ERROR: …` under a `--- failures ---` header, so that row
 # passes its own pattern.
 fail_pattern=${6:-'^FAILING \['}
+# Anchored on the STATUS field, never on the word "timeout" anywhere in the line:
+# `196_timeout` is a FIXTURE NAME, and a looser match would red a leg that never
+# hung. C#'s harness prints `  <name>: TIMEOUT`, so that row passes its own.
+timeout_pattern=${7:-'^FAILING \[[^]]+\] timeout'}
 
 if [ -z "$label" ] || [ -z "$output_file" ]; then
   echo "::error::roundtrip_floor.sh: usage: roundtrip_floor.sh <label> <floor> <leg-exit-code> <output-file> [note-file]"
@@ -165,13 +181,36 @@ if [ "$total" -lt 1 ]; then
   exit 1
 fi
 
-# ── 5. Positive floor (#642) ─────────────────────────────────────────────────
+# ── 5. No fixture may HANG (#693) ────────────────────────────────────────────
+# Checked before the floor so a hang is named as a hang even on a row that is
+# otherwise at or above its ratchet.
+# `|| timeout_lines=""` rather than `|| true`: grep exits 1 on NO MATCH, which is
+# the healthy case here. Spelling the empty result explicitly keeps the branch
+# below driven by the CONTENT, so no exit status is being discarded.
+timeout_lines=$(grep -E "$timeout_pattern" "$output_file") || timeout_lines=""
+if [ -n "$timeout_lines" ]; then
+  first_timeout=$(printf '%s\n' "$timeout_lines" | head -1)
+  timeout_count=$(printf '%s\n' "$timeout_lines" | wc -l | tr -d ' ')
+  echo "::error::$label round-trip leg: $timeout_count fixture(s) did not TERMINATE and were killed by the leg's per-fixture budget. A re-encoded program that hangs is structurally valid and \`ball check\`-clean, so nothing upstream can see it — it is the issue #55 class, not one more golden mismatch, and it is never absorbed into the failure count (issue #693). First: $first_timeout"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "### $label round-trip leg: $timeout_count fixture(s) HUNG (issue #693)"
+      echo ""
+      echo '```'
+      echo "$first_timeout"
+      echo '```'
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+  exit 1
+fi
+
+# ── 6. Positive floor (#642) ─────────────────────────────────────────────────
 if [ "$passed" -lt 1 ]; then
   echo "::error::The $label round-trip leg round-tripped ZERO of $total fixtures. A measurement leg that cannot pass a single fixture is not measuring — fix the instrument or name the gap with its issue number, never leave the row green on a flat zero (issue #642)."
   exit 1
 fi
 
-# ── 6. Ratchet ───────────────────────────────────────────────────────────────
+# ── 7. Ratchet ───────────────────────────────────────────────────────────────
 if [ "$passed" -lt "$floor" ]; then
   echo "::error::$label round-trip leg REGRESSED: $passed passed, below the floor of $floor — a fixture that used to round-trip no longer does."
   exit 1

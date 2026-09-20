@@ -125,6 +125,26 @@ class DartCompiler {
   // alias (e.g. 'dev') for the module currently being compiled.
   Map<String, String> _dartModuleAliases = {};
 
+  // ── Extension typeDefs of the module currently being compiled ──
+  // Ball names (e.g. 'lib.src.foo:IterableExtension') of every `TypeDefinition`
+  // whose metadata says `kind: 'extension'`. A `self`-carrying call whose
+  // function name is `<one of these>.<member>` is an extension OVERRIDE and
+  // must be re-emitted as `Ext(receiver).member(args)` — issue #670.
+  Set<String> _extensionTypeNames = <String>{};
+
+  // ── Extension ACCESSORS declared in the module being compiled ──
+  // `Ext(x).member` and `Ext(x).member()` encode identically (a call carrying
+  // only `self`), so which one to emit is read from the member's own
+  // DECLARATION — the same accessor-shape metadata `_buildMethod` already uses
+  // to emit `get member => …` (see `docs/METADATA_SPEC.md`, "Accessor shape").
+  //
+  // SETTERS are in this set too, and they are not an optional nicety: a write
+  // (`Ext(x).m = v`, `Ext(x).m += 1`, `Ext(x).m++`) encodes as the very same
+  // `self`-carrying call, and emitting the METHOD shape for it produces
+  // `Ext(x).m() = v` — not parseable Dart, so `dart_style` throws and the
+  // WHOLE module produces no output instead of one broken expression (#670).
+  Set<String> _extensionAccessorFunctions = <String>{};
+
   // ── Conditional import/export directives ───────────────────
   // Stored as raw strings because code_builder doesn't support them.
   // Post-processed into the output to replace the plain import.
@@ -472,6 +492,16 @@ class DartCompiler {
   cb.Library _buildLibrary(Module mainModule, FunctionDefinition? entryFunc) {
     // Build dart module → import alias mapping for this module.
     _dartModuleAliases = _buildDartModuleAliases(mainModule);
+    _extensionTypeNames = {
+      for (final td in mainModule.typeDefs)
+        if (_kindOf(td) == 'extension') td.name,
+    };
+    _extensionAccessorFunctions = {
+      for (final func in mainModule.functions)
+        if (_readMeta(func)['is_getter'] == true ||
+            _readMeta(func)['is_setter'] == true)
+          func.name,
+    };
 
     final typeDefsByName = <String, TypeDefinition>{
       for (final td in mainModule.typeDefs) td.name: td,
@@ -1101,11 +1131,7 @@ class DartCompiler {
       // must know whether any constructor in this class is const (#305).
       final hasConstConstructor = methods.any((m) {
         final mMeta = _readMeta(m);
-        var mKind = mMeta['kind'] as String? ?? 'method';
-        if (mKind == 'method' && _memberName(m.name) == 'new') {
-          mKind = 'constructor';
-        }
-        return mKind == 'constructor' && mMeta['is_const'] == true;
+        return _isConstructorMeta(m, mMeta) && mMeta['is_const'] == true;
       });
 
       _addClassFields(
@@ -1113,6 +1139,7 @@ class DartCompiler {
         descriptor,
         meta,
         hasConstConstructor: hasConstConstructor,
+        definitelyAssigned: _definitelyAssignedFields(methods),
       );
 
       final staticFields = methods
@@ -1236,11 +1263,87 @@ class DartCompiler {
     });
   }
 
+  /// Whether [m] declares a constructor.
+  ///
+  /// Constructors are usually tagged `kind: constructor`, but a member named
+  /// `<Class>.new` is one even when its metadata still says `method`.
+  bool _isConstructorMeta(FunctionDefinition m, Map<String, Object?> mMeta) {
+    final kind = mMeta['kind'] as String? ?? 'method';
+    if (kind == 'constructor') return true;
+    return kind == 'method' && _memberName(m.name) == 'new';
+  }
+
+  /// The instance fields that EVERY generative constructor in [methods]
+  /// definitely assigns before its body runs — so they never need `late`
+  /// (#651).
+  ///
+  /// Two IR shapes prove an assignment, both already recorded by the encoder:
+  ///
+  ///  * `metadata['initializers']` entry `{kind: field, name, value}` — the
+  ///    constructor's own initializer list (`Foo(int end) : length = end`);
+  ///  * `metadata['params']` entry with `is_this: true` that is ALWAYS
+  ///    supplied — a required positional, a `required` named, or an optional
+  ///    one carrying a `default`. An optional initializing formal with no
+  ///    default proves nothing: the caller may omit it.
+  ///
+  /// Constructors that delegate rather than initialize are skipped, because
+  /// the constructor they delegate to is the one that must prove the
+  /// assignment: factories, `Foo.zero() = Foo(0)` (`redirects_to`) and
+  /// `Foo.zero() : this(0)` (an initializer of `kind: redirect`).
+  ///
+  /// The result is the INTERSECTION across the remaining constructors, so a
+  /// class that assigns the field in one constructor's body keeps its `late`.
+  /// A class with no generative constructor at all proves nothing.
+  Set<String> _definitelyAssignedFields(List<FunctionDefinition> methods) {
+    Set<String>? assigned;
+
+    for (final m in methods) {
+      final mMeta = _readMeta(m);
+      if (!_isConstructorMeta(m, mMeta)) continue;
+      if (mMeta['is_factory'] == true) continue;
+      if (mMeta['redirects_to'] != null) continue;
+
+      final inits = mMeta['initializers'] as List?;
+      if (inits != null &&
+          inits.any((i) => i is Map && i['kind'] == 'redirect')) {
+        continue;
+      }
+
+      final here = <String>{};
+      if (inits != null) {
+        for (final init in inits) {
+          if (init is! Map || init['kind'] != 'field') continue;
+          final name = init['name'];
+          if (name is String) here.add(name);
+        }
+      }
+      final params = mMeta['params'] as List?;
+      if (params != null) {
+        for (final param in params) {
+          if (param is! Map || param['is_this'] != true) continue;
+          final name = param['name'];
+          if (name is! String) continue;
+          final isOptional =
+              param['is_optional'] == true ||
+              param['is_optional_named'] == true;
+          if (isOptional && param['default'] == null) continue;
+          here.add(name);
+        }
+      }
+
+      assigned = assigned == null ? here : assigned.intersection(here);
+      if (assigned.isEmpty) return const {};
+    }
+
+    return assigned ?? const {};
+  }
+
   void _addClassFields(
     cb.ClassBuilder b,
     google.DescriptorProto type,
     Map<String, Object?> meta, {
     bool hasConstConstructor = false,
+    Set<String> definitelyAssigned = const {},
   }) {
     _addInstanceFields(
       (f) => b.fields.add(f),
@@ -1248,6 +1351,7 @@ class DartCompiler {
       type,
       meta,
       hasConstConstructor: hasConstConstructor,
+      definitelyAssigned: definitelyAssigned,
     );
   }
 
@@ -1259,6 +1363,7 @@ class DartCompiler {
     google.DescriptorProto type,
     Map<String, Object?> meta, {
     bool hasConstConstructor = false,
+    Set<String> definitelyAssigned = const {},
   }) {
     final fieldsMeta = meta['fields'] as List?;
 
@@ -1332,11 +1437,18 @@ class DartCompiler {
             if (hasExplicitType && fieldType != null) {
               fb.type = cb.refer(fieldType);
             }
-            // Non-nullable fields without an initializer need `late` in
-            // null-safe Dart (they're set in the constructor body) — EXCEPT
-            // when the class has a const constructor, which forbids `late
-            // final` fields (they're initialized via initializing formals /
-            // the initializer list instead) (#305).
+            // A non-nullable field with no inline initializer needs `late`
+            // in null-safe Dart only when nothing PROVES it is assigned by
+            // the time construction finishes — i.e. when it is written in a
+            // constructor BODY (#305). Two shapes prove it without a body,
+            // and [definitelyAssigned] carries both straight out of the IR
+            // the encoder already records: an assignment in EVERY generative
+            // constructor's own initializer list, and an always-supplied
+            // initializing formal. Emitting `late` for those is not merely
+            // redundant — a `late final` field is assignable after
+            // construction, so it also contributes an implicit SETTER, which
+            // collides with a user-declared setter of the same name (#651).
+            // A const constructor forbids `late final` outright (#305).
             fb.late =
                 !hasConstConstructor &&
                 (isLate ||
@@ -1344,7 +1456,9 @@ class DartCompiler {
                         hasExplicitType &&
                         fieldType != null &&
                         !fieldType.endsWith('?') &&
-                        modifier != 'const'));
+                        modifier != 'const' &&
+                        !definitelyAssigned.contains(field.name) &&
+                        !definitelyAssigned.contains(fieldName)));
             if (initializer != null) fb.assignment = cb.Code(initializer);
             switch (modifier) {
               case 'final':
@@ -1467,6 +1581,7 @@ class DartCompiler {
           (m) => b.methods.add(m),
           td.descriptor,
           meta,
+          definitelyAssigned: _definitelyAssignedFields(methods),
         );
       }
 
@@ -3170,6 +3285,59 @@ class DartCompiler {
     }
   }
 
+  /// Re-emits `Ext(receiver).member(args)` for a `self`-carrying call whose
+  /// function name resolves to a member of an extension THIS module declares.
+  ///
+  /// Returns `null` for every other `self`-carrying call, which keeps its
+  /// ordinary `receiver.member(args)` emission.
+  ///
+  /// Type arguments written on the MEMBER (`Ext(x).m<int>()`) come back too:
+  /// the encoder puts them in the call's structured `type_args`, exactly as it
+  /// does for every other instance call, and dropping them here would reify a
+  /// different type than the source named (issue #670).
+  String? _tryCompileExtensionOverride(
+    FunctionCall call,
+    List<FieldValuePair> fields,
+  ) {
+    final dotIdx = call.function.lastIndexOf('.');
+    if (dotIdx <= 0) return null;
+    final qualifier = call.function.substring(0, dotIdx);
+    final member = call.function.substring(dotIdx + 1);
+    if (member.isEmpty || !_extensionTypeNames.contains(qualifier)) return null;
+
+    final selfField = fields.firstWhere((f) => f.name == 'self');
+    final remaining = fields
+        .where((f) => f.name != 'self' && f.name != '__type_args__')
+        .toList();
+    final typeArgs = _memberTypeArgsStr(call, fields);
+    final receiver = '${_dartType(qualifier)}(${_e(selfField.value)})';
+    if (remaining.isEmpty) {
+      // An accessor takes no `()` — and no type arguments either, so an
+      // explicit `<…>` proves the member is a generic METHOD however it was
+      // declared.
+      return typeArgs.isEmpty &&
+              _extensionAccessorFunctions.contains(call.function)
+          ? '$receiver.$member'
+          : '$receiver.$member$typeArgs()';
+    }
+    return '$receiver.$member$typeArgs(${_compileArgs(remaining)})';
+  }
+
+  /// The `<…>` source for a call's explicit type arguments: the structured
+  /// `type_args` field when present, else the legacy `__type_args__` argument
+  /// carried in the input message. Empty when the call has neither.
+  String _memberTypeArgsStr(FunctionCall call, List<FieldValuePair> fields) {
+    final structured = _callTypeArgsStr(call);
+    if (structured.isNotEmpty) return structured;
+    return fields
+            .where((f) => f.name == '__type_args__')
+            .firstOrNull
+            ?.value
+            .literal
+            .stringValue ??
+        '';
+  }
+
   String _compileCall(FunctionCall call) {
     if (_isBaseModule(call.module)) return _compileBaseCall(call);
 
@@ -3178,15 +3346,15 @@ class DartCompiler {
       final fields = call.input.messageCreation.fields;
       final selfField = fields.where((f) => f.name == 'self').firstOrNull;
       if (selfField != null) {
-        final typeArgs = _callTypeArgsStr(call).isNotEmpty
-            ? _callTypeArgsStr(call)
-            : (fields
-                      .where((f) => f.name == '__type_args__')
-                      .firstOrNull
-                      ?.value
-                      .literal
-                      .stringValue ??
-                  '');
+        // Extension override (issue #670). A call whose function name is
+        // `<module>:<Ext>.<member>`, where `<module>:<Ext>` is a `kind:
+        // 'extension'` typeDef of THIS module, selected that extension
+        // explicitly; `self.member(args)` would resolve by ordinary lookup and
+        // can name a DIFFERENT member (measured: `collection`'s
+        // `IterableComparableExtension.isSorted` calls itself).
+        final overrideStr = _tryCompileExtensionOverride(call, fields);
+        if (overrideStr != null) return overrideStr;
+        final typeArgs = _memberTypeArgsStr(call, fields);
         final remaining = fields
             .where((f) => f.name != 'self' && f.name != '__type_args__')
             .toList();
@@ -3396,6 +3564,9 @@ class DartCompiler {
       // ── Strings ─────────────────────────────────────────────
       'string_length' => _propertyAccess(f, 'length'),
       'string_is_empty' => _propertyAccess(f, 'isEmpty'),
+      // Its own member, never `!(…isEmpty)`: a delegating receiver sees WHICH
+      // member it is asked for (issue #674).
+      'string_is_not_empty' => _propertyAccess(f, 'isNotEmpty'),
       'string_concat' => _binOp(f, '+'),
       'string_contains' => _methodCall2(f, 'contains'),
       'string_starts_with' => _methodCall2(f, 'startsWith'),

@@ -1427,7 +1427,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 359 passed, 0 failed, 359 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1443,14 +1443,19 @@ Three legs, one runner, selected via `--leg=`:
 - **`roundtrip`**: every fixture compiles Ball → C# → re-encodes that C# source back to Ball via
   the Roslyn encoder (`CSharpEncoder.Encode`) → runs the RE-ENCODED program on the **Dart reference
   engine** (`dart run dart/cli/bin/ball.dart run <file>`, ground truth — proves the C# pipeline
-  round-trips, not merely that it agrees with itself) → diffs stdout. Verified fresh (2026-09-02,
-  and now re-measured by CI on every `conformance-matrix.yml` run via the `csharp-roundtrip` row —
-  read the live number there, not this line): **`Results: 0
-  passed, 320 failed, 320 total`** — an honest, expected zero: the Phase-4 compiler emits a single
-  flat class dispatching through `BallRuntime.*` static calls and `BallValue` types, which is not a
-  shape the Phase-5 syntactic encoder's heuristics were built to recognize (`BallRuntime.Truthy(x)`
-  parses as an unrecognized instance method call on an unknown receiver, `new BallList(...)` as an
-  unknown-type construction, etc. — see the "Encoder" section's "Documented gaps" above). The
+  round-trips, not merely that it agrees with itself) → diffs stdout. **Re-measured by CI on every
+  `conformance-matrix.yml` run via the `csharp-roundtrip` row — read the live number there, never a
+  number written down here.** It was a flat, honest zero at first: the Phase-4 compiler emits a
+  single flat class dispatching through `BallRuntime.*` static calls and `BallValue` types, which is
+  not a shape the Phase-5 syntactic encoder's heuristics were built to recognize
+  (`BallRuntime.Truthy(x)` parsed as an unrecognized instance method call on an unknown receiver,
+  `new BallList(...)` as an unknown-type construction, etc. — see the "Encoder" section's
+  "Documented gaps" above). #642 taught the encoder that dispatch shape
+  (`encoder/src/RuntimeHelpers.cs`) and #689 added the two NODE-shaped arms that inverse table
+  cannot hold — `BallRuntime.FieldGet` (→ a `field_access` node) and `BallRuntime.ArgGet` (→
+  `null_coalesce` over two **tolerant** `std_collections.map_get` reads, NOT two `field_access`
+  nodes; see the "Encoder" section), respectively the first blocker for the class-shaped fixtures
+  and for `105_static_methods`. The
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
   through the real `dart run` subprocess, so a future encoder improvement that closes this gap will
@@ -1653,7 +1658,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)`.
+  `Results: 359 passed, 0 failed, 359 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1722,7 +1727,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 356 passed, 0 failed, 356 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 359 passed, 0 failed, 359 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1892,8 +1897,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 356 passed, 0 failed,
-  356 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 359 passed, 0 failed,
+  359 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

@@ -35,7 +35,17 @@ COPY = [
     "ts/compiler/src",
     "ts/engine/src",
     "python/runtime/ballrt",
+    "python/compiler/ball_compiler",
 ]
+
+# Individual FILES the checker reads that live beside a copied directory rather
+# than inside one — `cpp/shared/*.h`, the loose headers #708 brought into the
+# C++ raise-site glob (`ball_protobuf_rt.h` and its two siblings). Copying
+# `cpp/shared` wholesale would drag the entire C++ shared tree into every
+# scratch root; naming just the files the checker globs keeps it small.
+COPY_FILES = sorted(
+    str(f.relative_to(REPO).as_posix()) for f in (REPO / "cpp" / "shared").glob("*.h")
+)
 
 _failures: list[str] = []
 
@@ -49,6 +59,18 @@ def _mkroot(tmp: pathlib.Path) -> pathlib.Path:
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, dst)
+    if not COPY_FILES:
+        raise SystemExit(
+            "self-test: cpp/shared/*.h matched no files — the C++ raise-site glob "
+            "the checker reads (#708) would be copied empty and the cases below "
+            "would pass vacuously")
+    for rel in COPY_FILES:
+        src = REPO / rel
+        if not src.is_file():
+            raise SystemExit(f"self-test: expected file {rel} to exist")
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
     return root
 
 
@@ -139,6 +161,49 @@ def main() -> int:
                            'bare == kStateError) prefix = kBadState'),
         1, "rendering table"),
 
+    # ── Literal-throw coverage: a name no runtime RAISES but a user can THROW ─
+    #
+    # The #658 blind spot. Every case above is driven by a raise site the RAISED
+    # extractor can see; `ArgumentError` has none on any target, so dropping its
+    # row has to fail on its own account or the check is decorative.
+    case(
+        "cpp table missing the literal-throwable ArgumentError row",
+        lambda root: _edit(root, "cpp/shared/include/ball_emit_runtime.h",
+                           'if (bare == "ArgumentError") prefix = "Invalid argument(s)";',
+                           ""),
+        1, "cpp: cpp/shared/include/ball_emit_runtime.h::_ball_dart_error_to_string "
+           "has no entry for ['ArgumentError']")
+    case(
+        "the reference engine's own table missing a row",
+        lambda root: _edit(root, "dart/engine/lib/engine_std.dart",
+                           "if (bare == 'StateError') return 'Bad state';", ""),
+        1, "has no entry for ['StateError']")
+    # A COVERAGE-exempt target is exempt from covering what its own runtime
+    # raises, never from the literal-throw side — the Dart reference engine is
+    # both, and #658 is precisely the half its exemption used to hide.
+    # The self-hosted TS ENGINE answers `to_string` from its OWN hand-written
+    # `__bts`, which SHADOWS the compiled engine's — a second table that had no
+    # Dart-error arm at all until #658, and that no check could see because the
+    # checker only knew about the compiler's preamble.
+    case(
+        "the ts engine's shadowing table missing a row",
+        lambda root: _edit(root, "ts/engine/src/engine_setup.ts",
+                           "        StateError: 'Bad state',", ""),
+        1, "ts-engine: ts/engine/src/engine_setup.ts::__bts has no entry for "
+           "['StateError']")
+    case(
+        "the ts engine's shadowing table disagreeing with Dart",
+        lambda root: _edit(root, "ts/engine/src/engine_setup.ts",
+                           "        ArgumentError: 'Invalid argument(s)',",
+                           "        ArgumentError: 'ArgumentError',"),
+        1, "renders 'ArgumentError' with prefix 'ArgumentError'")
+    case(
+        "go table missing the literal-throwable ArgumentError row",
+        lambda root: _edit(root, "go/runtime/ops.go",
+                           'case "ArgumentError":', 'case "NotAnErrorName":'),
+        1, "go: go/runtime/ops.go::dartErrorToString has no entry for "
+           "['ArgumentError']")
+
     # ── Closure: a brand-new raised name the contract has never heard of ─────
     case(
         "a new raised name fails until the contract learns it",
@@ -146,6 +211,19 @@ def main() -> int:
                            'ball_throw_typed("StateError"',
                            'ball_throw_typed("BananaError"'),
         1, "which the cross-target contract does not know")
+
+    # The same closure check, driven through the COMMITTED generated C++
+    # artifact `cpp/shared/ball_protobuf_rt.h` — the file #708 found outside
+    # every glob here. Ball's portable protobuf engine, cross-compiled into
+    # that header, raises Dart error names of its own; before #708 this
+    # mutation was invisible, because the C++ extractor read
+    # `cpp/shared/include/*.h` and the compiler and nothing else.
+    case(
+        "a raised name in the generated ball_protobuf runtime is in scope",
+        lambda root: _edit(root, "cpp/shared/ball_protobuf_rt.h",
+                           'BallException("FormatException"',
+                           'BallException("BananaError"'),
+        1, "cpp: raises ['BananaError']")
 
     # ── Floors: a silently-broken extractor must FAIL, not pass vacuously ────
     def _blank_rust_raises(root: pathlib.Path) -> None:
@@ -173,6 +251,7 @@ def main() -> int:
         for name, prefix in (("StateError", "Bad state"),
                              ("FormatException", "FormatException"),
                              ("RangeError", "RangeError"),
+                             ("ArgumentError", "Invalid argument(s)"),
                              ("TypeError", "")):
             old = f"      {name}: '{prefix}',"
             if old not in text:

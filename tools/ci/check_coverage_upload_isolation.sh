@@ -140,7 +140,22 @@ ART_PREFIX = "coverage-lcov-"
 
 # Positive floors — see the header. Lower them only when a stack is genuinely
 # retired, and say so in the commit.
-MIN_FLOOR_STEPS = 4
+#
+# MEASURED, not rounded down (#700 item 1). coverage.yml has FIVE floor steps
+# across FOUR measurement jobs: `Dart line coverage ratchet (all packages)`,
+# `C++ line coverage floor`, `C++ per-target coverage floors
+# (compiler/encoder/shared — gated)`, `Rust line coverage floor` and
+# `C# line coverage floor` — the cpp job carries two. At 4, renaming exactly ONE
+# floor step away from the phrase FLOOR_RE matches was absorbed, and every rule
+# below is scoped to the steps that regex found: the renamed step silently left
+# the post-floor, masking and isolation checks with nothing said. The one-rename
+# mutation is a self-test case now, so this number cannot quietly drift below
+# the file again.
+#
+# The `typescript` job measures coverage and uploads it but has no floor of its
+# own, which is why MIN_MEASUREMENT_JOBS is 4 and not 5. When it gains one,
+# raise BOTH numbers in the same commit.
+MIN_FLOOR_STEPS = 5
 MIN_MEASUREMENT_JOBS = 4
 MIN_ARTIFACTS = 4
 MIN_CODECOV_STEPS = 4
@@ -257,7 +272,10 @@ if len(floor_steps) < MIN_FLOOR_STEPS:
     die(
         f"{path} has {len(floor_steps)} coverage floor step(s), fewer than the "
         f"{MIN_FLOOR_STEPS} this guard expects — it refuses to certify a file it "
-        "found nothing to check."
+        "found nothing to check. A floor step this guard cannot see is a floor "
+        "step none of the rules below cover, so the usual cause is a RENAME away "
+        f"from the phrase this guard matches ({FLOOR_RE.pattern!r}): rename it "
+        "back, or retire the stack and lower MIN_FLOOR_STEPS in the same commit."
     )
 if len(measurement_jobs) < MIN_MEASUREMENT_JOBS:
     die(
@@ -612,6 +630,12 @@ YAML
 
     fixture_artifact "$art_name" "$mut" ''
     [ "$flag" = "typescript" ] || fixture_floor "$flag" "$mut"
+    # The real cpp job carries TWO floor steps — `C++ line coverage floor` and
+    # `C++ per-target coverage floors (compiler/encoder/shared - gated)` — so
+    # the fixture carries 5 floor steps across 4 measurement jobs, like the
+    # file it stands in for. That is what lets `floor_renamed` below drop
+    # exactly ONE floor step rather than the job's only one.
+    [ "$flag" = "cpp" ] && fixture_per_target_floor
 
     if [ "$flag" = "cpp" ] && [ "$mut" = "codecov_in_measurement" ]; then
       fixture_codecov cpp
@@ -657,10 +681,27 @@ fixture_artifact() {
 # fixture_floor <flag> <mutation>
 fixture_floor() {
   local flag="$1" mut="$2"
+  # `floor_renamed` renames the cpp job's FIRST floor step — the mutation
+  # measured against the real file in #700 item 1 (`C++ line coverage floor`
+  # -> `C++ line check`). Deliberately not the LAST floor step of its job:
+  # rule 3 below catches that one incidentally, as a plain step trailing a
+  # floor, and the point of this control is the rename nothing else catches.
+  if [ "$mut" = "floor_renamed" ] && [ "$flag" = "cpp" ]; then
+    printf '      - name: %s line check\n' "$flag"
+    printf '        run: echo floor\n'
+    return 0
+  fi
   printf '      - name: %s line coverage floor\n' "$flag"
   [ "$mut" = "floor_if_always" ] && [ "$flag" = "cpp" ] && printf '        if: always()\n'
   [ "$mut" = "continue_on_error" ] && [ "$flag" = "cpp" ] && printf '        continue-on-error: true\n'
   printf '        run: echo floor\n'
+}
+
+# fixture_per_target_floor — the cpp job's SECOND floor step, so the fixture
+# mirrors the real file's 5-floors-across-4-jobs shape.
+fixture_per_target_floor() {
+  printf '      - name: C++ per-target coverage floors\n'
+  printf '        run: echo per-target floor\n'
 }
 
 # fixture_codecov <flag> [mutation]
@@ -771,6 +812,16 @@ self_test() {
     "$(fixture files_outside_download)" \
     "under none of this job's download destinations"
 
+  # The ONE-RENAME mutation (#700 item 1). Every post-floor, masking and
+  # isolation rule above is scoped to the steps FLOOR_RE found, so renaming a
+  # single floor step away from that phrase silently removes it from all of
+  # them. With the floor set AT the measured count that is a refusal, not a
+  # shrug — and the renamed step here is NOT the last of its job, so no other
+  # rule can catch it incidentally.
+  expect "renaming exactly ONE floor step out of the matched set is refused" 1 \
+    "$(fixture floor_renamed)" \
+    "has 4 coverage floor step(s), fewer than the 5"
+
   local too_few='name: Coverage
 on: {push: {branches: [main]}}
 jobs:
@@ -795,8 +846,10 @@ on: {push: {branches: [main]}}
 ' "::error::"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 16 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 16) — a self-test that ran nothing is not a passing self-test."
+  # AT the number of cases above, not under it (#700 item 1): a floor with slack
+  # is a floor that absorbs a case quietly disappearing.
+  if [ "$pass" -lt 21 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 21) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

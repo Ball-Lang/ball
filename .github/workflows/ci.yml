@@ -409,7 +409,7 @@ jobs:
       # file, so a new fixture can no longer skip the C++ e2e leg unnoticed.
       # `--self-test` first, so a guard that found nothing to compare cannot
       # report success.
-      - name: C++ e2e fixture-list drift guard (#63 / #511)
+      - name: "C++ e2e fixture-list drift guard (#63 / #511)"
         run: |
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
@@ -530,7 +530,7 @@ jobs:
       # none of them that it cannot execute a program; the portability doc may
       # additionally freeze no fixture or engine tally.
       # `--self-test` first: a guard that stopped deriving must not pass.
-      - name: Engine-row doc drift guard (#610, #613)
+      - name: "Engine-row doc drift guard (#610, #613)"
         run: |
           bash tools/ci/check_engine_row_docs.sh --self-test
           bash tools/ci/check_engine_row_docs.sh
@@ -558,6 +558,28 @@ jobs:
         run: |
           bash tools/ci/check_pr_job_fanout.sh --self-test
           bash tools/ci/check_pr_job_fanout.sh
+
+      # Unquoted-hash name-scalar guard (#704, a #666/#671 follow-up). YAML
+      # starts a comment at an unquoted `<space>#`, so a plain `name:` scalar
+      # like `- name: C++ e2e fixture-list drift guard (#63 / #511)` silently
+      # truncates in the Actions UI at the FIRST unquoted `<space>#`. #671
+      # quoted two such names; its own review found three more; this guard's
+      # first run found a FOURTH that predated #671 entirely (#652's "Engine-row
+      # doc drift guard (#610, #613)" step) — proof that a one-time human sweep
+      # does not stay true. A `job:`-level truncation would be worse than
+      # cosmetic (it could move a required status context), so every finding is
+      # tagged `workflow`/`job`/`step` by structural position; today's four are
+      # all `step`, and tools/ci/check_pr_job_fanout.sh (above) independently
+      # re-derives the full 19-context set from the parsed job `name:` values on
+      # every PR regardless. Deliberately PyYAML-free — a second, independent
+      # way of reading these files. `--self-test` first: the fabricated
+      # offender, the quoted-sibling negative control, the job/workflow-level
+      # tagging cases, the block-scalar false-positive guard, and the
+      # empty-directory positive floor must all still be able to fail.
+      - name: Name-scalar hash guard (#704)
+        run: |
+          bash tools/ci/check_name_scalar_hash_guard.sh --self-test
+          bash tools/ci/check_name_scalar_hash_guard.sh
 
       # docs/TESTING_STRATEGY.md spells out WHICH status checks the `Protect
       # main` ruleset requires — the list a lane reads to decide "the checks are
@@ -1635,6 +1657,98 @@ jobs:
         if: env.BALL_CPP_ACTIVE == 'true'
         run: cmake --build cpp/build --config Release
 
+      # ── cpp/shared/ball_protobuf_rt.h freshness (#708) ────────────────────
+      # The C++ target's one COMMITTED generated artifact, and until #708 the
+      # only committed generated artifact in the repo that NO job regenerated
+      # and diffed. It is Ball's own `ball_protobuf` runtime compiled Ball -> C++
+      # in `--library` mode, and `cpp/shared/ball_rt_decode.cpp` #includes it —
+      # so it is real, linked code, not documentation. It had drifted for four
+      # months: last regenerated at #398, it still carried the two-argument
+      # `ball_cast_assert` that #659 replaced everywhere else and none of the
+      # `sink` handling #630 added, because the compiler splices its runtime
+      # preamble into every file it emits and this file's copy froze at #398.
+      #
+      # Regenerate-and-diff, the same contract `ball-freshness` applies to
+      # compiled_engine.ts / compiled_cli.ts / the two Go artifacts — and the
+      # same ONE-GATE-PER-ARTIFACT rule: this is the only place the header is
+      # regenerated in CI, so do not add a second pass elsewhere.
+      #
+      # It lives HERE rather than in `ball-freshness` for one reason: the
+      # generator is `ball_cpp_compile`, which only this job builds.
+      # `ball-freshness` installs Dart, Node and Go and no C++ toolchain, so
+      # wiring it there would mean a second full CMake configure+build of the
+      # compiler on every PR that touches dart/ or ts/.
+      #
+      # Linux only. All three legs build the same compiler, but the header is
+      # compared byte-for-byte against the committed copy, and only the Linux
+      # leg is guaranteed to write it with the LF endings git stores (the
+      # Windows leg's checkout is LF too, but nothing in the repo pins that, and
+      # one gate is the rule). The Linux leg is also the one that configures
+      # `-DBALL_BUILD_PROTOBUF_RT=ON`, i.e. the leg that actually compiles this
+      # header standalone.
+      - name: "Regenerate the committed ball_protobuf C++ runtime (#708)"
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=cpp/build/compiler/ball_cpp_compile
+          if [ ! -x "$exe" ]; then
+            echo "::error::$exe is missing — the regeneration below cannot run, and a skipped regeneration would make the freshness gate pass vacuously."
+            exit 1
+          fi
+          "$exe" dart/shared/ball_protobuf.json \
+            --library --ns ball_protobuf \
+            --out cpp/shared/ball_protobuf_rt.h
+          # Positive floor at a MEASURED value. `git diff --exit-code` cannot
+          # tell "the committed file matches" from "the generator wrote a stub
+          # and the committed file is that same stub", so size the header
+          # against what the generator really emits. Measured on this branch
+          # (g++ 14.2 / WSL, the #708 regeneration): 9575 lines.
+          lines="$(wc -l < cpp/shared/ball_protobuf_rt.h)"
+          case "$lines" in ''|*[!0-9]*) echo "::error::could not count the regenerated header's lines (got '$lines')"; exit 1;; esac
+          if [ "$lines" -lt 9000 ]; then
+            echo "::error::the regenerated cpp/shared/ball_protobuf_rt.h is only $lines lines (floor 9000) — ball_cpp_compile emitted a truncated or stubbed library."
+            exit 1
+          fi
+          echo "Regenerated cpp/shared/ball_protobuf_rt.h ($lines lines)."
+
+      - name: "Assert the committed ball_protobuf C++ runtime is up to date (#708)"
+        id: assert-cpp-protobuf-rt
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- cpp/shared/ball_protobuf_rt.h; then
+            echo "::error::cpp/shared/ball_protobuf_rt.h is stale. Rebuild ball_cpp_compile and regenerate it ('cd dart && dart run compiler/tool/compile_ball_protobuf_cpp.dart', or the compiler directly: 'ball_cpp_compile dart/shared/ball_protobuf.json --library --ns ball_protobuf --out cpp/shared/ball_protobuf_rt.h'), then commit — this file is generated (see cpp/shared/AGENTS.md), never hand-edited. The regenerated bytes are attached to this run as the 'regenerated-cpp-protobuf-rt' artifact."
+            exit 1
+          fi
+          echo "cpp/shared/ball_protobuf_rt.h is up to date."
+
+      # CI produces the fix, same idea as ball-freshness's `regenerated-artifacts`
+      # upload (#619) — and it matters more here, because a lane on Windows
+      # cannot build ball_cpp_compile at all without WSL. Gated on the ASSERT
+      # step's own outcome, never a bare `failure()`: a Regenerate step that died
+      # mid-write under `set -euo pipefail` leaves a TRUNCATED header, and
+      # uploading that as "the fix" is worse than uploading nothing (#625).
+      # A distinct artifact name, because tools/ci/apply_regenerated.sh owns
+      # `regenerated-artifacts` and two uploads may not share one name.
+      - name: Upload the regenerated ball_protobuf C++ runtime
+        if: failure() && steps.assert-cpp-protobuf-rt.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: regenerated-cpp-protobuf-rt
+          path: cpp/shared/ball_protobuf_rt.h
+          if-no-files-found: error
+          retention-days: 7
+
+      # The committed header must be restored before anything below reads the
+      # working tree: `test_e2e` and the coverage steps compile whatever is on
+      # disk, and leaving a regenerated file there would mean the rest of this
+      # job tested bytes no reviewer ever saw. A no-op on a green run.
+      - name: Restore the committed ball_protobuf C++ runtime
+        if: always() && env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
+        shell: bash
+        run: git checkout -- cpp/shared/ball_protobuf_rt.h
+
       # One place decides the parallelism for `ctest -j` and for the scratch
       # fixture build inside test_e2e (issue #521). `nproc` ships with GNU
       # coreutils on the Linux runner AND with Git for Windows' bash, so the
@@ -1669,7 +1783,7 @@ jobs:
       # CI — the same "silent until a human dispatches it manually" class that
       # already bit the macOS release leg (#404). This runs on all three OS legs.
       # `ball version` is real (not a self-host stub) in a plain cmake build.
-      - name: Install smoke (exercises install(TARGETS ball) — issue #368)
+      - name: "Install smoke (exercises install(TARGETS ball) — issue #368)"
         if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
@@ -1847,22 +1961,53 @@ jobs:
             --build-dir cpp/build \
             --coverage-file cpp/build/test/e2e_coverage.txt
 
-      # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
-      # leg (avoids tripling cost across the 3-OS matrix). The full-corpus
-      # cpp/test/full_e2e.sh sweep (Ball IR -> native C++ via ball_cpp_compile ->
-      # g++ -> run, diffed against golden output) otherwise runs ONLY on
-      # push-to-main + weekly, inside conformance-matrix.yml's cpp-compiled job —
-      # so a PR-introduced conformance regression on the compiled C++ leg could
-      # merge green and only turn red after landing on main (this is exactly how
-      # the C++ Compiled leg was red for days post-#302 before anyone noticed).
-      # ball_cpp_compile is already built by the "Build all targets" step above,
-      # so this adds only the marginal cost of compiling+running the changed
-      # fixtures with g++ (seconds to low minutes), NOT a second CMake build.
-      # `needs.changes` computed which conformance fixtures this PR added/changed
-      # vs the merge-base (or the `ALL` fail-open sentinel when it couldn't
-      # determine a diff base) — run full_e2e.sh against just those. See #347.
-      - name: "C++ compiled e2e — new/changed fixtures only (closes main-only-leg escape class)"
-        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' && needs.changes.outputs.changed_fixtures != '' }}
+      # Lean per-PR conformance gate for NEW/CHANGED fixtures, on the Linux leg
+      # (avoids tripling cost across the 3-OS matrix), ALWAYS floored by a small
+      # derived harness slice. The full-corpus cpp/test/full_e2e.sh sweep (Ball
+      # IR -> native C++ via ball_cpp_compile -> g++ -> run, diffed against
+      # golden output) otherwise runs ONLY on push-to-main + weekly, inside
+      # conformance-matrix.yml's cpp-compiled job — so a PR-introduced
+      # conformance regression on the compiled C++ leg could merge green and only
+      # turn red after landing on main (this is exactly how the C++ Compiled leg
+      # was red for days post-#302 before anyone noticed). ball_cpp_compile is
+      # already built by the "Build all targets" step above, so this adds only the
+      # marginal cost of compiling+running a handful of fixtures with g++ (seconds
+      # to low minutes), NOT a second CMake build. `needs.changes` computed which
+      # conformance fixtures this PR added/changed vs the merge-base (or the `ALL`
+      # fail-open sentinel when it couldn't determine a diff base). See #347.
+      #
+      # TWO roles, ONE invocation, deliberately:
+      #
+      #  * every fixture the PR touched is compiled + run before merge (#347);
+      #  * full_e2e.sh's own parallel worker path (worker dispatch, xargs -P,
+      #    per-fixture CWD isolation, corpus-ordered aggregation, the
+      #    dropped-fixture assertion) is exercised on EVERY PR (#521) — before
+      #    that slice existed the harness had no required-check coverage at all on
+      #    a PR touching no fixture, which is the common case.
+      #
+      # They share ONE call rather than sitting in two steps because full_e2e.sh
+      # carries a POSITIVE FLOOR: `passed == 0 && failed == 0` is a leg that
+      # proved nothing, and it exits 1 saying so. That floor fires on a change set
+      # whose every entry is a tracked `CPP_COMPILE_CARVEOUTS` entry — #651's
+      # `472_initializer_list_field_with_setter` was exactly that while the C++
+      # target gap #695 was open (it is closed now, by #680, and
+      # `CPP_COMPILE_CARVEOUTS` is empty again) — because the filter selects one
+      # fixture, the carve-out skips it, and nothing runs. The hole is structural
+      # and outlives any one carve-out, so the widened filter stays. Two steps
+      # cannot fix
+      # that: the floor is per-invocation. So the filter is WIDENED, which is what
+      # full_e2e.sh's own error message prescribes — the harness slice rides along
+      # in the same run, so the floor always measures real compiles, and a
+      # carved-out fixture stays loudly reported as a carve-out instead of forcing
+      # either a fake green or a red that names the wrong cause.
+      #
+      # The slice is DERIVED, not hard-coded: the first four fixtures with a
+      # golden, in corpus order. A rename or renumber can never leave a stale stem
+      # behind (which full_e2e.sh treats as a hard error, correctly), and four is
+      # enough that JOBS>1 genuinely overlaps workers. Overlap with the changed
+      # set is free — full_e2e.sh resolves `--fixtures` into a set.
+      - name: "C++ compiled e2e — new/changed fixtures + harness slice (closes main-only-leg escape class)"
+        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' }}
         # full_e2e.sh compiles one g++ TU per fixture. Same two knobs as
         # test_e2e above (issue #521): compile the fixtures concurrently, and
         # route them through this job's ccache so an unchanged fixture is a
@@ -1870,56 +2015,32 @@ jobs:
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
           BALL_E2E_LAUNCHER: ccache
-        run: |
-          if [ "${{ needs.changes.outputs.changed_fixtures }}" = "ALL" ]; then
-            echo "No usable diff base upstream — running the FULL full_e2e.sh sweep."
-            bash cpp/test/full_e2e.sh
-          else
-            echo "Running full_e2e.sh for changed fixtures: ${{ needs.changes.outputs.changed_fixtures }}"
-            bash cpp/test/full_e2e.sh --fixtures "${{ needs.changes.outputs.changed_fixtures }}"
-          fi
-
-      # ...and when a PR changes NO fixture, run the same harness over a small
-      # slice anyway (#521). Before this, full_e2e.sh's parallel worker path had
-      # NO required-check coverage at all: the step above is skipped on a PR that
-      # touches no fixture (the common case), leaving the dispatch-only
-      # conformance-matrix `C++ Compiled` leg — which runs on push-to-main and
-      # weekly — as the only thing that ever executed it. A regression in the
-      # harness itself (worker dispatch, xargs -P, per-fixture CWD isolation,
-      # the corpus-ordered aggregation, the dropped-fixture assertion) would
-      # therefore have merged green, which is the same escape class #347 closed
-      # for fixture regressions.
-      #
-      # The slice is DERIVED, not hard-coded: the first four fixtures with a
-      # golden, in corpus order. A rename or renumber can never leave a stale
-      # stem behind (which full_e2e.sh treats as a hard error, correctly), and
-      # four is enough that JOBS>1 genuinely overlaps workers. Cost is four
-      # ccache-backed g++ -O0 TUs, seconds — this is a harness smoke, not a
-      # conformance gate; the full corpus stays in the matrix leg.
-      - name: "C++ compiled e2e — harness smoke (full_e2e.sh parallel path, no fixtures changed)"
-        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' && needs.changes.outputs.changed_fixtures == '' }}
-        env:
-          BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
-          BALL_E2E_LAUNCHER: ccache
+          CHANGED_FIXTURES: ${{ needs.changes.outputs.changed_fixtures }}
         run: |
           set -euo pipefail
+          if [ "$CHANGED_FIXTURES" = "ALL" ]; then
+            echo "No usable diff base upstream — running the FULL full_e2e.sh sweep."
+            bash cpp/test/full_e2e.sh
+            exit 0
+          fi
           # Plain glob + loop rather than `ls | head`: with `pipefail`, an
           # early-exiting `head` can SIGPIPE the producer once the corpus
           # outgrows the pipe buffer, turning a healthy run red for no reason.
-          smoke=""
+          slice=""
           count=0
           for g in tests/conformance/*.expected_output.txt; do
             [ -e "$g" ] || break
-            smoke="$smoke $(basename "$g" .expected_output.txt)"
+            slice="$slice $(basename "$g" .expected_output.txt)"
             count=$((count + 1))
             if [ "$count" -ge 4 ]; then break; fi
           done
           if [ "$count" -lt 2 ]; then
-            echo "::error::resolved only $count smoke fixture(s) from tests/conformance — cannot exercise the parallel path."
+            echo "::error::resolved only $count harness-slice fixture(s) from tests/conformance — cannot exercise the parallel path."
             exit 1
           fi
-          echo "Harness smoke over $count fixture(s): $smoke"
-          bash cpp/test/full_e2e.sh --fixtures "$smoke"
+          echo "Changed fixtures: ${CHANGED_FIXTURES:-(none)}"
+          echo "Harness slice ($count fixture(s)):$slice"
+          bash cpp/test/full_e2e.sh --fixtures "$CHANGED_FIXTURES$slice"
 
   # ──────────────────────────────────────────────────
   # vcpkg overlay-port install smoke (issue #368)
@@ -2591,6 +2712,23 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('csharp/Directory.Packages.props', 'csharp/**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # ── Dart, BEFORE `dotnet test` ──
+      # Two things in this job need it, and the earlier of the two is the test
+      # suite: csharp/encoder/test/ReferenceEngineExecutionTests.cs encodes
+      # compiler-shaped C# and RUNS the re-encoded program on the Dart REFERENCE
+      # ENGINE (issue #689). That is the only instrument that can see a
+      # re-encoded tree which the C# runtime evaluates happily and the reference
+      # engine rejects — the `field_access`-on-an-absent-key class of defect. It
+      # FAILS rather than skips when `dart` is unresolvable, so this setup is
+      # load-bearing, not an optimisation: do not move it back below `Test`.
+      # The second consumer is the engine.ball.pb regeneration further down.
+      - name: Setup Dart (reference engine + engine.ball.pb regeneration)
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
+
       - name: Build
         run: dotnet build csharp/Ball.slnx
 
@@ -2633,20 +2771,16 @@ jobs:
       # -p:SelfHost=true and assert Dart parity — the exact regen chain and
       # division of responsibility documented in csharp/AGENTS.md's
       # "Self-hosted engine" and "Conformance harness" -> "Regen seam for CI"
-      # sections, mirroring the rust job's identical regen-then-run shape.
-      - name: Setup Dart (for engine.ball.pb regeneration)
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
-        with:
-          sdk: stable
-
+      # sections, mirroring the rust job's identical regen-then-run shape. Dart
+      # itself is set up (and its workspace bootstrapped) near the top of this
+      # job, because the `Test` step needs it too — see the comment there.
+      #
       # compile_engine_cpp.dart writes dart/self_host/engine.ball.pb BEFORE it
       # tries (and, with no C++ compiler built in this job, fails) to emit C++
       # — the trailing failure is expected and harmless here; only the .pb
       # matters (see csharp/AGENTS.md's "Build & Test"). gen_engine_json.dart
       # alone only writes the JSON, which exceeds System.Text.Json's default
       # depth limit for this program, so the .pb must be materialized instead.
-      - name: Bootstrap Dart workspace
-        uses: ./.github/actions/dart-pub-get
       - name: Regenerate engine.ball.pb
         run: |
           cd dart
@@ -2663,7 +2797,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the
+      # "Results: 359 passed, 0 failed, 359 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2808,7 +2942,7 @@ jobs:
       #
       # After the six tags are pushed, the follow-up is to point the same script
       # at the real proxy (drop the synthesized one) — the assertions stay.
-      - name: Go module external-consumer smoke (issue #361)
+      - name: "Go module external-consumer smoke (issue #361)"
         shell: bash
         run: |
           set -euo pipefail
@@ -2858,7 +2992,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the 4
+      # "Results: 359 passed, 0 failed, 359 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3013,7 +3147,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the 4
+      # "Results: 359 passed, 0 failed, 359 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

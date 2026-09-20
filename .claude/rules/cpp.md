@@ -287,6 +287,19 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
 
+- **`cpp/shared/ball_protobuf_rt.h` is regenerated and diffed by CI (#708).**
+  It is the C++ target's one COMMITTED generated artifact — Ball's own
+  `ball_protobuf` runtime compiled Ball → C++ in `--library` mode — and it
+  carries a SPLICED COPY of the compiler's runtime preamble. Change the preamble
+  (`cpp/compiler/src/compiler.cpp` or `cpp/shared/include/ball_emit_runtime.h`)
+  and this file is stale until it is regenerated. Nothing noticed for four
+  months: it froze at #398 with the two-argument `ball_cast_assert` #659
+  replaced and none of #630's `sink` handling. The gate is the `cpp` job's
+  Linux leg (`Regenerate` + `Assert the committed ball_protobuf C++ runtime`),
+  and it is the ONLY one — never add a second regeneration pass. Red run →
+  the fixed bytes are the run's `regenerated-cpp-protobuf-rt` artifact. See
+  `cpp/shared/AGENTS.md` → "Freshness".
+
 - **A caught `TypeError` reads as Dart's own message, and the rendering table is
   CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
   spells it
@@ -311,6 +324,25 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   exactly like Go's, C#'s, Rust's and TS's, with a negative control in the
   self-test proving that check fires. Add a new built-in error here and to that
   contract in the same PR, or the checker fails.
+
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed only the `ArgumentError` row: #640's `arg0` -> `message`
+  rename in the throw lowering already had it ahead of every sibling.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
@@ -430,6 +462,14 @@ Five things have to be true, and each is now pinned by CI rather than by prose:
    the gate loud**, because a new uncacheable reason silently left out of the
    sum is the very state the ceiling exists to catch. `ccache -s` is still run,
    purely so the human numbers reach the log, and its failure is a hard error.
+   So is a `ccache --version` the gate cannot read: since #700 it collects the
+   version alongside the statistics, prints it on every run, and names it in the
+   `UNCLASSIFIED CCACHE COUNTER ID(s)` / `MISSING CCACHE COUNTER ID(s)` failures
+   with the remedy — `hendrikmuhs/ccache-action` installs the OS package and
+   pins no version, so an image that moves ccache and grows a counter must not
+   read as a cache regression. A version off `CCACHE_TABLE_VERSIONS` whose
+   counters all classify stays GREEN and says so; the assertion is the counter
+   set, never the version string.
 
 5. **The gate step must run BEFORE the e2e smoke steps, and that is gated too**
    (#660). ubuntu's *post-job* `ccache -s` shows 4 uncacheable calls, which
@@ -463,10 +503,19 @@ they execute fixtures concurrently (`test_e2e` parallelises only the build).
 That is what makes concurrent execution safe for a future `std_fs` fixture; do
 not drop it.
 
-`full_e2e.sh` gets required-check coverage on every PR: the changed-fixture gate
-when a PR touches fixtures, and otherwise a derived four-fixture harness smoke
-on the Linux leg. Without one of those, the only thing exercising it is the
-dispatch-only `C++ Compiled` matrix leg, which runs after merge.
+`full_e2e.sh` gets required-check coverage on every PR, from ONE step on the
+Linux leg (`C++ compiled e2e — new/changed fixtures + harness slice`): the PR's
+added/changed fixtures **plus** a derived four-fixture slice, in a single call.
+Without it, the only thing exercising the harness is the `C++ Compiled` matrix
+leg, which runs after merge. The two live in one invocation because
+`full_e2e.sh`'s positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is
+per-invocation: a PR whose every changed fixture is a tracked
+`CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the
+wrong cause. `472_initializer_list_field_with_setter` was that PR while #695 was
+open; #680 closed #695 and `CPP_COMPILE_CARVEOUTS` is empty again, but the hole
+is structural and outlives any one entry, so the widened filter stays. Widen the
+filter — which is what the floor's own error message says — never delete the
+floor or the carve-out.
 
 ### Fast local `test_compiler` without CMake
 

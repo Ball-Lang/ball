@@ -284,12 +284,29 @@ export function __ball_to_string(v: any): string {
       StateError: 'Bad state',
       FormatException: 'FormatException',
       RangeError: 'RangeError',
+      // Neither its own name nor empty: Dart spells an ArgumentError
+      // "Invalid argument(s): <message>". No runtime in the repo RAISES one --
+      // only a program's own throw ArgumentError('nope') builds one -- so it
+      // was in no target's table at all and printed as the raw map form
+      // {message: nope} (issue #658). Verified against the SDK; guard:
+      // tests/conformance/473_caught_user_thrown_builtin_error.
+      ArgumentError: 'Invalid argument(s)',
       TypeError: '',
     };
-    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
-        && __ball_err_prefix[v['__type__']] !== undefined) {
-      const __p = __ball_err_prefix[v['__type__']];
-      return __p === '' ? v['message'] : __p + ': ' + v['message'];
+    // The tag arrives module-qualified from a USER throw ('main:StateError')
+    // and bare from a runtime-raised one; every sibling table strips the prefix
+    // (go's messageShortName, C#'s LastIndexOf(':'), C++'s rfind(':')) and this
+    // one did not, so a caught throw StateError('boom') missed the table and
+    // fell through to the Map-like branch below -- which hides every
+    // __-prefixed key, so it printed {arg0: boom, message: boom} with no hint
+    // that a type tag was even there (issue #658).
+    if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string') {
+      const __t = v['__type__'];
+      const __bare = __t.indexOf(':') >= 0 ? __t.substring(__t.lastIndexOf(':') + 1) : __t;
+      if (__ball_err_prefix[__bare] !== undefined) {
+        const __p = __ball_err_prefix[__bare];
+        return __p === '' ? v['message'] : __p + ': ' + v['message'];
+      }
     }
     // A text sink (#630) or the legacy StringBuffer object it replaces:
     // stringify as the accumulated text, never as a map. The declared sink's
@@ -1720,17 +1737,17 @@ export function infoReport(program: any): any {
   for (const module of program.modules) {
     let isBase = _allBase(module.functions);
     lines = (lines.push((('  ' + __ball_to_string(module.name)) + __ball_to_string((isBase ? ' (base)' : '')))), lines);
-    if (!(module.typeDefs.length === 0)) {
+    if ((module.typeDefs.length !== 0)) {
       lines = (lines.push(('    typeDefs:  ' + __ball_to_string(module.typeDefs.length))), lines);
     }
-    if (!(module.typeAliases.length === 0)) {
+    if ((module.typeAliases.length !== 0)) {
       lines = (lines.push(('    aliases:   ' + __ball_to_string(module.typeAliases.length))), lines);
     }
-    if (!(module.enums.length === 0)) {
+    if ((module.enums.length !== 0)) {
       lines = (lines.push(('    enums:     ' + __ball_to_string(module.enums.length))), lines);
     }
     lines = (lines.push(('    functions: ' + __ball_to_string(module.functions.length))), lines);
-    if (!(module.description.length === 0)) {
+    if ((module.description.length !== 0)) {
       lines = (lines.push(('    desc:      ' + __ball_to_string(module.description))), lines);
     }
   }
@@ -1746,7 +1763,7 @@ export function validationErrors(program: any): any {
   if ((program.entryFunction.length === 0)) {
     errors = (errors.push('Missing entry_function'), errors);
   }
-  if ((!(program.entryModule.length === 0) && !(program.entryFunction.length === 0))) {
+  if (((program.entryModule.length !== 0) && (program.entryFunction.length !== 0))) {
     let entryMod;
     for (const m of program.modules) {
       if (__ball_eq(m.name, program.entryModule)) {
@@ -1777,7 +1794,7 @@ export function validationErrors(program: any): any {
   }
   let seen = [];
   for (const m of program.modules) {
-    if (!(m.name.length === 0)) {
+    if ((m.name.length !== 0)) {
       if (seen.includes(m.name)) {
         errors = (errors.push((('Duplicate module name: "' + __ball_to_string(m.name)) + '"')), errors);
       } else {
@@ -1823,7 +1840,7 @@ export function treeReport(program: any): any {
   let lines = [];
   lines = (lines.push(((__ball_to_string(program.name) + ' v') + __ball_to_string(program.version))), lines);
   for (const m of program.modules) {
-    let isBase = (_allBase(m.functions) && !(m.functions.length === 0));
+    let isBase = (_allBase(m.functions) && (m.functions.length !== 0));
     let tag = (isBase ? ' (base)' : '');
     let fnCount = m.functions.length;
     lines = (lines.push(((((('  ' + __ball_to_string(m.name)) + __ball_to_string(tag)) + ' \u2014 ') + __ball_to_string(fnCount)) + ' functions')), lines);
@@ -1859,7 +1876,7 @@ export function auditReport(program: any): any {
   let report = analyzeCapabilities(program);
   let out = (__ball_to_string(formatCapabilityReport(report)) + '\n');
   let termWarnings = analyzeTermination(program);
-  if (!(termWarnings.length === 0)) {
+  if ((termWarnings.length !== 0)) {
     out = (((__ball_to_string(out) + '\n') + __ball_to_string(formatTerminationReport(termWarnings))) + '\n');
   }
   return out;
@@ -1944,7 +1961,7 @@ export function lookupCapabilityByName(table: any, function_: any): any {
   let modules = capabilityModuleNames();
   for (const m of modules) {
     let cap = lookupCapability(table, m, function_);
-    if (!(cap.length === 0)) {
+    if ((cap.length !== 0)) {
       return cap;
     }
   }
@@ -1955,7 +1972,7 @@ export function lookupBaseModuleByName(table: any, function_: any): any {
   let modules = capabilityModuleNames();
   for (const m of modules) {
     let cap = lookupCapability(table, m, function_);
-    if (!(cap.length === 0)) {
+    if ((cap.length !== 0)) {
       return m;
     }
   }
@@ -1963,7 +1980,7 @@ export function lookupBaseModuleByName(table: any, function_: any): any {
 }
 
 export function buildCapabilityTable(): any {
-  return { ['std.print']: 'io', ['std.add']: 'pure', ['std.subtract']: 'pure', ['std.multiply']: 'pure', ['std.divide']: 'pure', ['std.divide_double']: 'pure', ['std.modulo']: 'pure', ['std.negate']: 'pure', ['std.equals']: 'pure', ['std.not_equals']: 'pure', ['std.less_than']: 'pure', ['std.greater_than']: 'pure', ['std.lte']: 'pure', ['std.gte']: 'pure', ['std.and']: 'pure', ['std.or']: 'pure', ['std.not']: 'pure', ['std.bitwise_and']: 'pure', ['std.bitwise_or']: 'pure', ['std.bitwise_xor']: 'pure', ['std.bitwise_not']: 'pure', ['std.left_shift']: 'pure', ['std.right_shift']: 'pure', ['std.unsigned_right_shift']: 'pure', ['std.pre_increment']: 'pure', ['std.pre_decrement']: 'pure', ['std.post_increment']: 'pure', ['std.post_decrement']: 'pure', ['std.concat']: 'pure', ['std.length']: 'pure', ['std.to_string']: 'pure', ['std.int_to_string']: 'pure', ['std.double_to_string']: 'pure', ['std.string_to_int']: 'pure', ['std.string_to_double']: 'pure', ['std.to_int']: 'pure', ['std.to_double']: 'pure', ['std.int_to_double']: 'pure', ['std.double_to_int']: 'pure', ['std.to_string_as_fixed']: 'pure', ['std.to_string_as_exponential']: 'pure', ['std.to_string_as_precision']: 'pure', ['std.ceil_to_double']: 'pure', ['std.floor_to_double']: 'pure', ['std.round_to_double']: 'pure', ['std.truncate_to_double']: 'pure', ['std.compare_to']: 'pure', ['std.null_coalesce']: 'pure', ['std.null_check']: 'pure', ['std.if']: 'pure', ['std.for']: 'pure', ['std.for_in']: 'pure', ['std.while']: 'pure', ['std.do_while']: 'pure', ['std.switch']: 'pure', ['std.try']: 'pure', ['std.throw']: 'pure', ['std.rethrow']: 'pure', ['std.assert']: 'pure', ['std.return']: 'pure', ['std.break']: 'pure', ['std.continue']: 'pure', ['std.yield']: 'async', ['std.yield_each']: 'async', ['std.await']: 'async', ['std.async']: 'async', ['std.assign']: 'pure', ['std.compound_assign']: 'pure', ['std.is']: 'pure', ['std.is_not']: 'pure', ['std.as']: 'pure', ['std.type_of']: 'pure', ['std.type_literal']: 'pure', ['std.symbol']: 'pure', ['std.cascade']: 'pure', ['std.null_aware_access']: 'pure', ['std.null_aware_call']: 'pure', ['std.null_aware_cascade']: 'pure', ['std.invoke']: 'pure', ['std.tear_off']: 'pure', ['std.spread']: 'pure', ['std.null_spread']: 'pure', ['std.collection_if']: 'pure', ['std.collection_for']: 'pure', ['std.switch_expr']: 'pure', ['std.record']: 'pure', ['std.typed_list']: 'pure', ['std.list_filled']: 'pure', ['std.list_generate']: 'pure', ['std.dart_list_filled']: 'pure', ['std.dart_list_generate']: 'pure', ['std.map_create']: 'pure', ['std.index']: 'pure', ['std.index_assign']: 'pure', ['std.labeled']: 'pure', ['std.label']: 'pure', ['std.goto']: 'pure', ['std.paren']: 'pure', ['std.string_length']: 'pure', ['std.string_is_empty']: 'pure', ['std.string_concat']: 'pure', ['std.string_contains']: 'pure', ['std.string_starts_with']: 'pure', ['std.string_ends_with']: 'pure', ['std.string_index_of']: 'pure', ['std.string_last_index_of']: 'pure', ['std.string_substring']: 'pure', ['std.string_char_at']: 'pure', ['std.string_char_code_at']: 'pure', ['std.string_from_char_code']: 'pure', ['std.string_to_upper']: 'pure', ['std.string_to_lower']: 'pure', ['std.string_trim']: 'pure', ['std.string_trim_start']: 'pure', ['std.string_trim_end']: 'pure', ['std.string_replace']: 'pure', ['std.string_replace_all']: 'pure', ['std.string_split']: 'pure', ['std.string_repeat']: 'pure', ['std.string_pad_left']: 'pure', ['std.string_pad_right']: 'pure', ['std.string_interpolation']: 'pure', ['std.string_code_unit_at']: 'pure', ['std.string_runes']: 'pure', ['std.sink_create']: 'pure', ['std.sink_write']: 'pure', ['std.sink_to_string']: 'pure', ['std.regex_match']: 'pure', ['std.regex_find']: 'pure', ['std.regex_find_all']: 'pure', ['std.regex_replace']: 'pure', ['std.regex_replace_all']: 'pure', ['std.math_abs']: 'pure', ['std.math_floor']: 'pure', ['std.math_ceil']: 'pure', ['std.math_round']: 'pure', ['std.math_trunc']: 'pure', ['std.math_sqrt']: 'pure', ['std.math_pow']: 'pure', ['std.math_log']: 'pure', ['std.math_log2']: 'pure', ['std.math_log10']: 'pure', ['std.math_exp']: 'pure', ['std.math_sin']: 'pure', ['std.math_cos']: 'pure', ['std.math_tan']: 'pure', ['std.math_asin']: 'pure', ['std.math_acos']: 'pure', ['std.math_atan']: 'pure', ['std.math_atan2']: 'pure', ['std.math_min']: 'pure', ['std.math_max']: 'pure', ['std.math_clamp']: 'pure', ['std.math_pi']: 'pure', ['std.math_e']: 'pure', ['std.math_infinity']: 'pure', ['std.math_nan']: 'pure', ['std.math_is_nan']: 'pure', ['std.math_is_finite']: 'pure', ['std.math_is_infinite']: 'pure', ['std.math_sign']: 'pure', ['std.math_gcd']: 'pure', ['std.math_lcm']: 'pure', ['std_io.print_error']: 'io', ['std_io.read_line']: 'io', ['std_io.exit']: 'process', ['std_io.panic']: 'process', ['std_io.sleep_ms']: 'time', ['std_io.timestamp_ms']: 'time', ['std_io.random_int']: 'random', ['std_io.random_double']: 'random', ['std_io.env_get']: 'io', ['std_io.args_get']: 'io', ['std_fs.file_read']: 'fs', ['std_fs.file_read_bytes']: 'fs', ['std_fs.file_write']: 'fs', ['std_fs.file_write_bytes']: 'fs', ['std_fs.file_append']: 'fs', ['std_fs.file_exists']: 'fs', ['std_fs.file_delete']: 'fs', ['std_fs.dir_list']: 'fs', ['std_fs.dir_create']: 'fs', ['std_fs.dir_exists']: 'fs', ['std_collections.list_push']: 'pure', ['std_collections.list_pop']: 'pure', ['std_collections.list_insert']: 'pure', ['std_collections.list_remove_at']: 'pure', ['std_collections.list_get']: 'pure', ['std_collections.list_set']: 'pure', ['std_collections.list_length']: 'pure', ['std_collections.list_is_empty']: 'pure', ['std_collections.list_first']: 'pure', ['std_collections.list_last']: 'pure', ['std_collections.list_single']: 'pure', ['std_collections.list_contains']: 'pure', ['std_collections.list_index_of']: 'pure', ['std_collections.list_map']: 'pure', ['std_collections.list_filter']: 'pure', ['std_collections.list_reduce']: 'pure', ['std_collections.list_find']: 'pure', ['std_collections.list_any']: 'pure', ['std_collections.list_all']: 'pure', ['std_collections.list_none']: 'pure', ['std_collections.list_sort']: 'pure', ['std_collections.list_sort_by']: 'pure', ['std_collections.list_reverse']: 'pure', ['std_collections.list_slice']: 'pure', ['std_collections.list_flat_map']: 'pure', ['std_collections.list_zip']: 'pure', ['std_collections.list_take']: 'pure', ['std_collections.list_drop']: 'pure', ['std_collections.list_concat']: 'pure', ['std_collections.list_clear']: 'pure', ['std_collections.list_foreach']: 'pure', ['std_collections.list_join']: 'pure', ['std_collections.list_to_list']: 'pure', ['std_collections.map_get']: 'pure', ['std_collections.map_set']: 'pure', ['std_collections.map_delete']: 'pure', ['std_collections.map_contains_key']: 'pure', ['std_collections.map_keys']: 'pure', ['std_collections.map_values']: 'pure', ['std_collections.map_entries']: 'pure', ['std_collections.map_from_entries']: 'pure', ['std_collections.map_merge']: 'pure', ['std_collections.map_map']: 'pure', ['std_collections.map_filter']: 'pure', ['std_collections.map_is_empty']: 'pure', ['std_collections.map_length']: 'pure', ['std_collections.map_contains_value']: 'pure', ['std_collections.map_put_if_absent']: 'pure', ['std_collections.set_create']: 'pure', ['std_collections.set_add']: 'pure', ['std_collections.set_remove']: 'pure', ['std_collections.set_contains']: 'pure', ['std_collections.set_union']: 'pure', ['std_collections.set_intersection']: 'pure', ['std_collections.set_difference']: 'pure', ['std_collections.set_length']: 'pure', ['std_collections.set_is_empty']: 'pure', ['std_collections.set_to_list']: 'pure', ['std_collections.string_join']: 'pure', ['std_convert.json_encode']: 'pure', ['std_convert.json_decode']: 'pure', ['std_convert.utf8_encode']: 'pure', ['std_convert.utf8_decode']: 'pure', ['std_convert.base64_encode']: 'pure', ['std_convert.base64_decode']: 'pure', ['std_time.now']: 'time', ['std_time.now_micros']: 'time', ['std_time.format_timestamp']: 'time', ['std_time.parse_timestamp']: 'time', ['std_time.duration_add']: 'pure', ['std_time.duration_subtract']: 'pure', ['std_time.year']: 'time', ['std_time.month']: 'time', ['std_time.day']: 'time', ['std_time.hour']: 'time', ['std_time.minute']: 'time', ['std_time.second']: 'time', ['std_memory.memory_alloc']: 'memory', ['std_memory.memory_free']: 'memory', ['std_memory.memory_realloc']: 'memory', ['std_memory.memory_read_i8']: 'memory', ['std_memory.memory_read_u8']: 'memory', ['std_memory.memory_read_i16']: 'memory', ['std_memory.memory_read_u16']: 'memory', ['std_memory.memory_read_i32']: 'memory', ['std_memory.memory_read_u32']: 'memory', ['std_memory.memory_read_i64']: 'memory', ['std_memory.memory_read_u64']: 'memory', ['std_memory.memory_read_f32']: 'memory', ['std_memory.memory_read_f64']: 'memory', ['std_memory.memory_write_i8']: 'memory', ['std_memory.memory_write_u8']: 'memory', ['std_memory.memory_write_i16']: 'memory', ['std_memory.memory_write_u16']: 'memory', ['std_memory.memory_write_i32']: 'memory', ['std_memory.memory_write_u32']: 'memory', ['std_memory.memory_write_i64']: 'memory', ['std_memory.memory_write_u64']: 'memory', ['std_memory.memory_write_f32']: 'memory', ['std_memory.memory_write_f64']: 'memory', ['std_memory.memory_copy']: 'memory', ['std_memory.memory_set']: 'memory', ['std_memory.memory_compare']: 'memory', ['std_memory.ptr_add']: 'memory', ['std_memory.ptr_sub']: 'memory', ['std_memory.ptr_diff']: 'memory', ['std_memory.stack_alloc']: 'memory', ['std_memory.stack_push_frame']: 'memory', ['std_memory.stack_pop_frame']: 'memory', ['std_memory.memory_sizeof']: 'memory', ['std_memory.address_of']: 'memory', ['std_memory.deref']: 'memory', ['std_memory.nullptr']: 'memory', ['std_memory.memory_heap_size']: 'memory', ['std_memory.memory_stack_size']: 'memory', ['std_concurrency.thread_spawn']: 'concurrency', ['std_concurrency.thread_join']: 'concurrency', ['std_concurrency.mutex_create']: 'concurrency', ['std_concurrency.mutex_lock']: 'concurrency', ['std_concurrency.mutex_unlock']: 'concurrency', ['std_concurrency.scoped_lock']: 'concurrency', ['std_concurrency.atomic_load']: 'concurrency', ['std_concurrency.atomic_store']: 'concurrency', ['std_concurrency.atomic_compare_exchange']: 'concurrency' };
+  return { ['std.print']: 'io', ['std.add']: 'pure', ['std.subtract']: 'pure', ['std.multiply']: 'pure', ['std.divide']: 'pure', ['std.divide_double']: 'pure', ['std.modulo']: 'pure', ['std.negate']: 'pure', ['std.equals']: 'pure', ['std.not_equals']: 'pure', ['std.less_than']: 'pure', ['std.greater_than']: 'pure', ['std.lte']: 'pure', ['std.gte']: 'pure', ['std.and']: 'pure', ['std.or']: 'pure', ['std.not']: 'pure', ['std.bitwise_and']: 'pure', ['std.bitwise_or']: 'pure', ['std.bitwise_xor']: 'pure', ['std.bitwise_not']: 'pure', ['std.left_shift']: 'pure', ['std.right_shift']: 'pure', ['std.unsigned_right_shift']: 'pure', ['std.pre_increment']: 'pure', ['std.pre_decrement']: 'pure', ['std.post_increment']: 'pure', ['std.post_decrement']: 'pure', ['std.concat']: 'pure', ['std.length']: 'pure', ['std.to_string']: 'pure', ['std.int_to_string']: 'pure', ['std.double_to_string']: 'pure', ['std.string_to_int']: 'pure', ['std.string_to_double']: 'pure', ['std.to_int']: 'pure', ['std.to_double']: 'pure', ['std.int_to_double']: 'pure', ['std.double_to_int']: 'pure', ['std.to_string_as_fixed']: 'pure', ['std.to_string_as_exponential']: 'pure', ['std.to_string_as_precision']: 'pure', ['std.ceil_to_double']: 'pure', ['std.floor_to_double']: 'pure', ['std.round_to_double']: 'pure', ['std.truncate_to_double']: 'pure', ['std.compare_to']: 'pure', ['std.null_coalesce']: 'pure', ['std.null_check']: 'pure', ['std.if']: 'pure', ['std.for']: 'pure', ['std.for_in']: 'pure', ['std.while']: 'pure', ['std.do_while']: 'pure', ['std.switch']: 'pure', ['std.try']: 'pure', ['std.throw']: 'pure', ['std.rethrow']: 'pure', ['std.assert']: 'pure', ['std.return']: 'pure', ['std.break']: 'pure', ['std.continue']: 'pure', ['std.yield']: 'async', ['std.yield_each']: 'async', ['std.await']: 'async', ['std.assign']: 'pure', ['std.is']: 'pure', ['std.is_not']: 'pure', ['std.as']: 'pure', ['std.type_of']: 'pure', ['std.type_literal']: 'pure', ['std.symbol']: 'pure', ['std.cascade']: 'pure', ['std.null_aware_access']: 'pure', ['std.null_aware_call']: 'pure', ['std.null_aware_cascade']: 'pure', ['std.invoke']: 'pure', ['std.tear_off']: 'pure', ['std.spread']: 'pure', ['std.null_spread']: 'pure', ['std.collection_if']: 'pure', ['std.collection_for']: 'pure', ['std.switch_expr']: 'pure', ['std.record']: 'pure', ['std.typed_list']: 'pure', ['std.list_filled']: 'pure', ['std.list_generate']: 'pure', ['std.dart_list_filled']: 'pure', ['std.dart_list_generate']: 'pure', ['std.map_create']: 'pure', ['std.index']: 'pure', ['std.labeled']: 'pure', ['std.label']: 'pure', ['std.goto']: 'pure', ['std.paren']: 'pure', ['std.string_length']: 'pure', ['std.string_is_empty']: 'pure', ['std.string_is_not_empty']: 'pure', ['std.string_concat']: 'pure', ['std.string_contains']: 'pure', ['std.string_starts_with']: 'pure', ['std.string_ends_with']: 'pure', ['std.string_index_of']: 'pure', ['std.string_last_index_of']: 'pure', ['std.string_substring']: 'pure', ['std.string_char_at']: 'pure', ['std.string_char_code_at']: 'pure', ['std.string_from_char_code']: 'pure', ['std.string_to_upper']: 'pure', ['std.string_to_lower']: 'pure', ['std.string_trim']: 'pure', ['std.string_trim_start']: 'pure', ['std.string_trim_end']: 'pure', ['std.string_replace']: 'pure', ['std.string_replace_all']: 'pure', ['std.string_split']: 'pure', ['std.string_repeat']: 'pure', ['std.string_pad_left']: 'pure', ['std.string_pad_right']: 'pure', ['std.string_interpolation']: 'pure', ['std.string_code_unit_at']: 'pure', ['std.string_runes']: 'pure', ['std.sink_create']: 'pure', ['std.sink_write']: 'pure', ['std.sink_to_string']: 'pure', ['std.regex_match']: 'pure', ['std.regex_find']: 'pure', ['std.regex_find_all']: 'pure', ['std.regex_replace']: 'pure', ['std.regex_replace_all']: 'pure', ['std.math_abs']: 'pure', ['std.math_floor']: 'pure', ['std.math_ceil']: 'pure', ['std.math_round']: 'pure', ['std.math_trunc']: 'pure', ['std.math_sqrt']: 'pure', ['std.math_pow']: 'pure', ['std.math_log']: 'pure', ['std.math_log2']: 'pure', ['std.math_log10']: 'pure', ['std.math_exp']: 'pure', ['std.math_sin']: 'pure', ['std.math_cos']: 'pure', ['std.math_tan']: 'pure', ['std.math_asin']: 'pure', ['std.math_acos']: 'pure', ['std.math_atan']: 'pure', ['std.math_atan2']: 'pure', ['std.math_min']: 'pure', ['std.math_max']: 'pure', ['std.math_clamp']: 'pure', ['std.math_pi']: 'pure', ['std.math_e']: 'pure', ['std.math_infinity']: 'pure', ['std.math_nan']: 'pure', ['std.math_is_nan']: 'pure', ['std.math_is_finite']: 'pure', ['std.math_is_infinite']: 'pure', ['std.math_sign']: 'pure', ['std.math_gcd']: 'pure', ['std.math_lcm']: 'pure', ['std_io.print_error']: 'io', ['std_io.read_line']: 'io', ['std_io.exit']: 'process', ['std_io.panic']: 'process', ['std_io.sleep_ms']: 'time', ['std_io.timestamp_ms']: 'time', ['std_io.random_int']: 'random', ['std_io.random_double']: 'random', ['std_io.env_get']: 'io', ['std_io.args_get']: 'io', ['std_fs.file_read']: 'fs', ['std_fs.file_read_bytes']: 'fs', ['std_fs.file_write']: 'fs', ['std_fs.file_write_bytes']: 'fs', ['std_fs.file_append']: 'fs', ['std_fs.file_exists']: 'fs', ['std_fs.file_delete']: 'fs', ['std_fs.dir_list']: 'fs', ['std_fs.dir_create']: 'fs', ['std_fs.dir_exists']: 'fs', ['std_collections.list_push']: 'pure', ['std_collections.list_pop']: 'pure', ['std_collections.list_insert']: 'pure', ['std_collections.list_remove_at']: 'pure', ['std_collections.list_get']: 'pure', ['std_collections.list_set']: 'pure', ['std_collections.list_length']: 'pure', ['std_collections.list_is_empty']: 'pure', ['std_collections.list_first']: 'pure', ['std_collections.list_last']: 'pure', ['std_collections.list_single']: 'pure', ['std_collections.list_contains']: 'pure', ['std_collections.list_index_of']: 'pure', ['std_collections.list_map']: 'pure', ['std_collections.list_filter']: 'pure', ['std_collections.list_reduce']: 'pure', ['std_collections.list_find']: 'pure', ['std_collections.list_any']: 'pure', ['std_collections.list_all']: 'pure', ['std_collections.list_none']: 'pure', ['std_collections.list_sort']: 'pure', ['std_collections.list_sort_by']: 'pure', ['std_collections.list_reverse']: 'pure', ['std_collections.list_slice']: 'pure', ['std_collections.list_flat_map']: 'pure', ['std_collections.list_zip']: 'pure', ['std_collections.list_take']: 'pure', ['std_collections.list_drop']: 'pure', ['std_collections.list_concat']: 'pure', ['std_collections.list_clear']: 'pure', ['std_collections.list_foreach']: 'pure', ['std_collections.list_join']: 'pure', ['std_collections.list_to_list']: 'pure', ['std_collections.map_get']: 'pure', ['std_collections.map_set']: 'pure', ['std_collections.map_delete']: 'pure', ['std_collections.map_contains_key']: 'pure', ['std_collections.map_keys']: 'pure', ['std_collections.map_values']: 'pure', ['std_collections.map_entries']: 'pure', ['std_collections.map_from_entries']: 'pure', ['std_collections.map_merge']: 'pure', ['std_collections.map_map']: 'pure', ['std_collections.map_filter']: 'pure', ['std_collections.map_is_empty']: 'pure', ['std_collections.map_length']: 'pure', ['std_collections.map_contains_value']: 'pure', ['std_collections.map_put_if_absent']: 'pure', ['std_collections.set_create']: 'pure', ['std_collections.set_add']: 'pure', ['std_collections.set_remove']: 'pure', ['std_collections.set_contains']: 'pure', ['std_collections.set_union']: 'pure', ['std_collections.set_intersection']: 'pure', ['std_collections.set_difference']: 'pure', ['std_collections.set_length']: 'pure', ['std_collections.set_is_empty']: 'pure', ['std_collections.set_to_list']: 'pure', ['std_collections.string_join']: 'pure', ['std_convert.json_encode']: 'pure', ['std_convert.json_decode']: 'pure', ['std_convert.utf8_encode']: 'pure', ['std_convert.utf8_decode']: 'pure', ['std_convert.base64_encode']: 'pure', ['std_convert.base64_decode']: 'pure', ['std_time.now']: 'time', ['std_time.now_micros']: 'time', ['std_time.format_timestamp']: 'time', ['std_time.parse_timestamp']: 'time', ['std_time.duration_add']: 'pure', ['std_time.duration_subtract']: 'pure', ['std_time.year']: 'time', ['std_time.month']: 'time', ['std_time.day']: 'time', ['std_time.hour']: 'time', ['std_time.minute']: 'time', ['std_time.second']: 'time', ['std_memory.memory_alloc']: 'memory', ['std_memory.memory_free']: 'memory', ['std_memory.memory_realloc']: 'memory', ['std_memory.memory_read_i8']: 'memory', ['std_memory.memory_read_u8']: 'memory', ['std_memory.memory_read_i16']: 'memory', ['std_memory.memory_read_u16']: 'memory', ['std_memory.memory_read_i32']: 'memory', ['std_memory.memory_read_u32']: 'memory', ['std_memory.memory_read_i64']: 'memory', ['std_memory.memory_read_u64']: 'memory', ['std_memory.memory_read_f32']: 'memory', ['std_memory.memory_read_f64']: 'memory', ['std_memory.memory_write_i8']: 'memory', ['std_memory.memory_write_u8']: 'memory', ['std_memory.memory_write_i16']: 'memory', ['std_memory.memory_write_u16']: 'memory', ['std_memory.memory_write_i32']: 'memory', ['std_memory.memory_write_u32']: 'memory', ['std_memory.memory_write_i64']: 'memory', ['std_memory.memory_write_u64']: 'memory', ['std_memory.memory_write_f32']: 'memory', ['std_memory.memory_write_f64']: 'memory', ['std_memory.memory_copy']: 'memory', ['std_memory.memory_set']: 'memory', ['std_memory.memory_compare']: 'memory', ['std_memory.ptr_add']: 'memory', ['std_memory.ptr_sub']: 'memory', ['std_memory.ptr_diff']: 'memory', ['std_memory.stack_alloc']: 'memory', ['std_memory.stack_push_frame']: 'memory', ['std_memory.stack_pop_frame']: 'memory', ['std_memory.memory_sizeof']: 'memory', ['std_memory.address_of']: 'memory', ['std_memory.deref']: 'memory', ['std_memory.nullptr']: 'memory', ['std_memory.memory_heap_size']: 'memory', ['std_memory.memory_stack_size']: 'memory', ['std_concurrency.thread_spawn']: 'concurrency', ['std_concurrency.thread_join']: 'concurrency', ['std_concurrency.mutex_create']: 'concurrency', ['std_concurrency.mutex_lock']: 'concurrency', ['std_concurrency.mutex_unlock']: 'concurrency', ['std_concurrency.scoped_lock']: 'concurrency', ['std_concurrency.atomic_load']: 'concurrency', ['std_concurrency.atomic_store']: 'concurrency', ['std_concurrency.atomic_compare_exchange']: 'concurrency' };
 }
 
 export function analyzeCapabilities(program: any): any {
@@ -2125,10 +2142,10 @@ export function _collectCustomBaseFns(modules: any, table: any): any {
       if (!f.isBase) {
         continue;
       }
-      if (!(lookupCapability(table, module.name, f.name).length === 0)) {
+      if ((lookupCapability(table, module.name, f.name).length !== 0)) {
         continue;
       }
-      if ((lenient && !(lookupCapabilityByName(table, f.name).length === 0))) {
+      if ((lenient && (lookupCapabilityByName(table, f.name).length !== 0))) {
         continue;
       }
       let key = ((__ball_to_string(module.name) + '.') + __ball_to_string(f.name));
@@ -2283,7 +2300,7 @@ export function _walkCapCall(ctx: any): any {
       cap = lookupCapabilityByName(table, fn);
     }
   }
-  if (!(cap.length === 0)) {
+  if ((cap.length !== 0)) {
     _recordCapSite({ ['cap']: cap, ['caps']: caps, ['capSites']: capSites, ['module']: contextModule, ['function']: contextFunction, ['calleeModule']: module, ['calleeFunction']: fn });
   } else {
     if ((!isCustom && !__ball_eq(callees, null))) {
@@ -2376,7 +2393,7 @@ export function _buildReportFromFunctions(programName: any, programVersion: any,
       capabilitiesOut = (capabilitiesOut.push({ ['capability']: cap, ['riskLevel']: capabilityRisk(cap), ['callSites']: [] }), capabilitiesOut);
       continue;
     }
-    if (!(sites.length === 0)) {
+    if ((sites.length !== 0)) {
       capabilitiesOut = (capabilitiesOut.push({ ['capability']: cap, ['riskLevel']: capabilityRisk(cap), ['callSites']: sites }), capabilitiesOut);
     }
   }
@@ -2459,11 +2476,11 @@ export function formatCapabilityReport(report: any): any {
   if (__ball_eq(__ball_index(s, 'usesRandom'), false)) {
     absent = (absent.push('random'), absent);
   }
-  if (!(absent.length === 0)) {
+  if ((absent.length !== 0)) {
     lines = (lines.push(('  \u2717 NONE: ' + __ball_to_string(absent.join(', ')))), lines);
   }
   let shadows = (__ball_map_has(report, 'map_contains_key', 'shadows') ? __ball_index(report, 'shadows') : []);
-  let hasShadows = !(shadows.length === 0);
+  let hasShadows = (shadows.length !== 0);
   if (hasShadows) {
     lines = (lines.push(''), lines);
     lines = (lines.push('Shadowed base functions:'), lines);
@@ -2879,7 +2896,7 @@ export function _checkWhileLoop(ctx: any): any {
       intersects = true;
     }
   }
-  if ((((!isLiteralTrue && !(condVars.length === 0)) && !hasExit) && !intersects)) {
+  if ((((!isLiteralTrue && (condVars.length !== 0)) && !hasExit) && !intersects)) {
     warnings = (warnings.push({ ['severity']: 'warning', ['category']: 'infinite_loop', ['message']: ((((__ball_to_string(kind) + ' loop condition references ') + __ball_to_string(condVars.join(', '))) + ' but body ') + 'does not modify any of them and has no break/return'), ['location']: location }), warnings);
   }
 }
@@ -3280,7 +3297,7 @@ export function _checkOrphanedLabels(ctx: any): any {
       _collectLabelUsages({ ['expr']: fn.body, ['usages']: usedLabels });
       for (const usage of usedLabels) {
         let label = __ball_index(usage, 'label');
-        if ((!(label.length === 0) && !definedLabels.includes(label))) {
+        if (((label.length !== 0) && !definedLabels.includes(label))) {
           warnings = (warnings.push({ ['severity']: 'error', ['category']: 'orphaned_label', ['message']: ((((('std.' + __ball_to_string(__ball_index(usage, 'kind'))) + '(label: "') + __ball_to_string(label)) + '") references ') + (('undefined label "' + __ball_to_string(label)) + '"')), ['location']: ((__ball_to_string(module.name) + '.') + __ball_to_string(fn.name)) }), warnings);
         }
       }
@@ -3302,7 +3319,7 @@ export function _collectDefinedLabels(ctx: any): any {
       let callInput = call.input;
       if (hasMessageCreation(callInput)) {
         let name = _getStringFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'name' });
-        if ((!__ball_eq(name, null) && !(name.length === 0))) {
+        if ((!__ball_eq(name, null) && (name.length !== 0))) {
           if (!labels.includes(name)) {
             labels = (labels.push(name), labels);
           }
@@ -3359,7 +3376,7 @@ export function _collectLabelUsages(ctx: any): any {
       let callInput = call.input;
       if (hasMessageCreation(callInput)) {
         let label = _getStringFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'label' });
-        if ((!__ball_eq(label, null) && !(label.length === 0))) {
+        if ((!__ball_eq(label, null) && (label.length !== 0))) {
           usages = (usages.push({ ['kind']: call.function, ['label']: label }), usages);
         }
       }
@@ -3452,7 +3469,7 @@ export function _collectReferencedVars(ctx: any): any {
     return;
   }
   if (hasReference(expr)) {
-    if (!(expr.reference.name.length === 0)) {
+    if ((expr.reference.name.length !== 0)) {
       if (!vars.includes(expr.reference.name)) {
         vars = (vars.push(expr.reference.name), vars);
       }

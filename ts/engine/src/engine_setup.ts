@@ -564,6 +564,35 @@ export function createEngineSetup(mod: EngineModule) {
       if (v['__buffer__'] && Array.isArray(v['__buffer__'])) return v['__buffer__'].join('');
       const tn = v['__type__'];
       if (typeof tn === 'string' && (tn.endsWith(':StringBuffer') || tn === 'StringBuffer')) return v['__buffer__'] ?? '';
+      // A built-in Dart error a program THREW itself (`throw StateError('boom')`)
+      // reaches `to_string` as the tagged instance map the messageCreation built.
+      // This function shadows the compiled engine's own `_ballToStringAsync`, so
+      // the engine's `_dartErrorPrefix` never ran here and the value fell through
+      // to the generic map form below — which FILTERS every `__`-prefixed key, so
+      // it printed `{arg0: boom, message: boom}` with no hint that a type tag was
+      // even present (issue #658). The tag arrives module-qualified from a user
+      // throw and bare from a runtime-raised one, so it is stripped like every
+      // sibling table does (go's `messageShortName`, C#'s `LastIndexOf(':')`).
+      //
+      // CLOSED over Dart's own names, and measured against the SDK: a user class
+      // called `ValidationError` that merely carries a `message` field is not a
+      // Dart error and keeps the map form. Contract + cross-target agreement:
+      // `tools/check_error_rendering_tables.py`; guard:
+      // `tests/conformance/473_caught_user_thrown_builtin_error`.
+      const __ball_err_prefix: Record<string, string> = {
+        StateError: 'Bad state',
+        FormatException: 'FormatException',
+        RangeError: 'RangeError',
+        ArgumentError: 'Invalid argument(s)',
+        TypeError: '',
+      };
+      if (typeof tn === 'string' && typeof v['message'] === 'string') {
+        const bare = tn.indexOf(':') >= 0 ? tn.substring(tn.lastIndexOf(':') + 1) : tn;
+        const prefix = __ball_err_prefix[bare];
+        if (prefix !== undefined) {
+          return prefix === '' ? v['message'] : prefix + ': ' + v['message'];
+        }
+      }
       if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') return v.toString();
       const keys = Object.keys(v).filter((k: string) => !k.startsWith('__'));
       if (keys.length > 0) return '{' + keys.map((k: string) => __bts(k) + ': ' + __bts(v[k])).join(', ') + '}';

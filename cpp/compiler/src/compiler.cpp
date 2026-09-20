@@ -5173,6 +5173,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_length") return "ball_length(BallDyn(" + get_message_field(call, "value") + "))";
     if (fn == "string_is_empty") return get_message_field(call, "value") + ".empty()";
+    if (fn == "string_is_not_empty") return "!(" + get_message_field(call, "value") + ").empty()";
     if (fn == "string_contains") return "(" + get_message_field(call, "left") + ".find(" +
                                           get_message_field(call, "right") + ") != std::string::npos)";
     if (fn == "string_substring") {
@@ -5513,6 +5514,9 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_is_empty") {
         return "BallDyn(static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
+    }
+    if (fn == "string_is_not_empty") {
+        return "BallDyn(!static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
     }
     // std math functions take floating args; a BallDyn argument is ambiguous
     // under gcc/clang (multiple user conversions: operator double vs int64_t),

@@ -104,6 +104,19 @@ ball_classify_stacks() {
   local self_host=false
   if m '^dart/engine/lib/|^dart/shared/lib/(cli_core|capability_analyzer|capability_table|termination_analyzer)\.dart$'; then self_host=true; fi
 
+  # The SECOND Dart->C++ cross-compilation input, and the one #708 found
+  # ungated: `cpp/shared/ball_protobuf_rt.h` is a COMMITTED artifact the C++
+  # job regenerates and diffs, compiled by `ball_cpp_compile --library` from
+  # `dart/shared/ball_protobuf.json` — which is itself encoded from
+  # `dart/ball_protobuf/lib/**` by `gen_ball_protobuf.dart`. Mapped by
+  # top-level dir alone those two paths set only `dart=true`, so a change to
+  # the portable protobuf engine would move the header's content with the C++
+  # job never running to notice. Kept OUT of `self_host` on purpose: nothing in
+  # dart/ball_protobuf reaches the Rust/C#/Go/Python self-hosted engines, so
+  # widening `self_host` would start four unrelated heavy jobs.
+  local ball_protobuf_src=false
+  if m '^dart/ball_protobuf/lib/|^dart/shared/ball_protobuf\.(json|bin)$'; then ball_protobuf_src=true; fi
+
   # New/changed conformance fixtures (never deleted) under
   # tests/conformance/*.ball.json, as bare fixture stems (no dir, no
   # extension), space-separated. Closes the escape class where a fixture
@@ -173,7 +186,10 @@ ball_classify_stacks() {
   # cross-compile into the C++/Rust/C#/Go/Python self-host artifacts even
   # though they live under dart/ (python's engine regen reads
   # dart/self_host/engine.ball.json, generated from dart/engine).
-  if m '^cpp/' || [ "$self_host" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
+  # cpp additionally runs on a ball_protobuf source change
+  # (ball_protobuf_src above — #708), the other Dart input that cross-compiles
+  # into a COMMITTED C++ artifact.
+  if m '^cpp/' || [ "$self_host" = true ] || [ "$ball_protobuf_src" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
   if m '^rust/' || [ "$self_host" = true ]; then echo "rust=true"; else echo "rust=false"; fi
   if m '^csharp/' || [ "$self_host" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
   if m '^go/' || [ "$self_host" = true ]; then echo "go=true"; else echo "go=false"; fi

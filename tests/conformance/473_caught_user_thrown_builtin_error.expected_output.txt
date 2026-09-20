@@ -1,0 +1,10 @@
+untyped state: Bad state: boom
+untyped format: FormatException: bad
+untyped argument: Invalid argument(s): nope
+on StateError: Bad state: one
+state message: one
+on FormatException: FormatException: two
+format message: two
+on ArgumentError: Invalid argument(s): three
+argument message: three
+fallback: FormatException: unmatched

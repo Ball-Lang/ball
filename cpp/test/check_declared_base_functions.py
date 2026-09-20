@@ -34,10 +34,13 @@ WHAT IT ASSERTS
      mapped dispatcher yielded at least one. A regex that quietly stops matching
      would otherwise make every check above pass vacuously.
 
-`compile_std_call`'s 25 undeclared names and two more (`std_collections`'s
-`map_create`, `std_time`'s `timestamp_ms`) were already there when this guard
-landed; they are frozen in the known-gaps file, MEASURED not assumed. Closing
-one means declaring it in the relevant `dart/shared/lib/std*.dart` builder,
+The drift that predates this guard is frozen in the known-gaps file, MEASURED by
+running the check with an empty list, never assumed. It started at 27 names and
+now stands at 5 (`std.null_aware_index`, `std.set_create`, `std.string_join`,
+`std_collections.map_create`, `std_time.timestamp_ms`): the other 22 became
+DECLARED while this guard's own branch was open, and rule 2 is what forced them
+out of the list instead of letting them rot as a passing exemption. Closing one
+means declaring it in the relevant `dart/shared/lib/std*.dart` builder,
 regenerating `std_coverage.json`, and deleting its line — deliberately not done
 here, because each declaration ripples through every compiler, every engine and
 the coverage inventory.
@@ -76,9 +79,9 @@ DISPATCHER_MODULES = {
 }
 
 # Positive floor: the total number of implemented names the extraction must find
-# across the mapped dispatchers. It stood at 247 when this guard landed; the
-# floor is set well below that so ordinary churn never trips it, but a regex
-# that stops matching does.
+# across the mapped dispatchers. MEASURED, not guessed: it stands at 357 on the
+# tree that carries this line. The floor is set well below that so ordinary
+# churn never trips it, but a regex that stops matching does.
 MIN_TOTAL_NAMES = 200
 
 _DEF_RE = re.compile(r"^std::string CppCompiler::(compile_\w+_call)\(")

@@ -513,6 +513,13 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   representation on every target. `tests/conformance/475_std_concurrency_handles`
   is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
   the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
+  **`sandbox: true` gates none of it.** `_checkSandbox` is called from exactly
+  three `std_io` handlers (`exit`, `panic`, `env_get`) and the `std_fs` family;
+  no `std_concurrency` handler consults it, so every function in this module
+  runs freely under a sandboxed engine. That is deliberate — a handle table and
+  an eagerly-run body touch no host resource — but it means the ONLY way to
+  withhold the module is to leave it out of `StdModuleHandler.subset(...)`,
+  which is a Dart-embedder knob and has no equivalent on the compiled targets.
 - **A field write asks whether the field's own DECLARATION contributes a setter,
   not whether the instance carries that key (#501 + #664).**
   `_trySetterDispatch`'s guard used to be a bare

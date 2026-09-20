@@ -166,7 +166,10 @@ void main() {
 ''');
       expect(_callsTo(js, 'std', 'sink_to_string'), hasLength(4));
       expect(_callsTo(js, 'std', 'string_length'), hasLength(1));
-      expect(_callsTo(js, 'std', 'string_is_empty'), hasLength(2));
+      expect(_callsTo(js, 'std', 'string_is_empty'), hasLength(1));
+      // `.isNotEmpty` reads the BUFFER too, through its own std function
+      // rather than a negated `string_is_empty` (issue #674).
+      expect(_callsTo(js, 'std', 'string_is_not_empty'), hasLength(1));
     });
 
     test('a StringBuffer PARAMETER is a sink inside the callee', () {

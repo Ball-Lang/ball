@@ -113,6 +113,22 @@ row "self-host-cli-core" 'dart/shared/lib/cli_core.dart' '' \
 # every compiled program), so dart_core is true.
 row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' '' "$(expect dart dart_core)"
 
+# ── ball_protobuf: the OTHER dart/ edit that cross-compiles into a COMMITTED
+# C++ artifact (#708). cpp/shared/ball_protobuf_rt.h is regenerated and diffed
+# by the cpp job from dart/shared/ball_protobuf.json, itself encoded from
+# dart/ball_protobuf/lib/**; without this signal such a PR set only dart=true
+# and the freshness gate never ran. It must NOT flip self_host (nothing here
+# reaches the Rust/C#/Go/Python engines), and it must NOT flip rust/csharp/go/
+# python either — those four legs are the cost the narrow signal avoids.
+row "ball-protobuf-library-source" 'dart/ball_protobuf/lib/marshal.dart' ''   "$(expect dart cpp)"
+row "ball-protobuf-compiled-artifact" 'dart/shared/ball_protobuf.json' ''   "$(expect dart cpp dart_core)"
+# Negative control: the ball_protobuf package's OWN test suite is not a
+# compilation input, so it must not start the C++ job.
+row "ball-protobuf-test-is-not-cpp" 'dart/ball_protobuf/test/editions_test.dart' ''   "$(expect dart)"
+# Negative control: a sibling dart/shared artifact that feeds no C++ artifact
+# must not start the C++ job either.
+row "dart-shared-std-artifact-is-not-cpp" 'dart/shared/std.json' ''   "$(expect dart dart_core)"
+
 # ── corpus / dart_core: the conformance-matrix row selectors (#666) ──────────
 # conformance-matrix.yml's `pull_request:` trigger is `paths:`-filtered, and
 # since #666 each ROW is additionally conditioned on the stack it covers.

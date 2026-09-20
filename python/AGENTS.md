@@ -69,7 +69,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 **compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
 four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 357 passed, 0 failed, 357 total (4 skipped carve-outs)` — Dart-identical
+`Results: 360 passed, 0 failed, 360 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
@@ -84,20 +84,31 @@ re-encodes that source back to Ball, runs the **RE-ENCODED** program on the **Da
 reference engine** (ground truth — Python's own engine would only prove the
 pipeline agrees with itself), and byte-diffs the golden.
 
-Honest baseline **`Results: 0 passed, 321 failed, 321 total`** (55 compile-error,
-266 encode-error; measured 2026-09-02). That zero is expected BY CONSTRUCTION and
-is the product: the compiler emits a flat module dispatching through `ballrt.*`
-helpers, a shape the syntactic `ast` encoder was never built to re-parse. It
-mirrors `csharp/engine/conformance/RoundTripLeg.cs`. **Do not make it green by
-weakening either side.** Gated only on harness health (a sweep that ran zero
-fixtures raises), never on the failure count. Reads goldens and subprocess stdout
-as **bytes**, normalising only CRLF.
+It measured a flat **`0 passed, 321 failed`** from the day it shipped
+(2026-09-02) until #642. That zero was not "expected by construction": the
+encoder refused the compiler's own output outright — the `try:`/`except
+ballrt.BallReturn` wrapper the compiler put around EVERY function body, and every
+`ballrt.*` base-call helper. #642 fixed both halves (conditional wrapper
+emission + `ball_encoder/ballrt_calls.py`, the inverse surface) and #690 tracks
+the remainder, mapping one shape family at a time.
+
+**A ratcheted MEASUREMENT, not a parity gate.** `tools/ci/roundtrip_floor.sh`
+enforces harness health PLUS `passed >= 1` PLUS
+`passed >= PYTHON_ROUNDTRIP_FLOOR` — so a flat zero is red and a fixture that
+used to round-trip still must. The floor only rises: **raise it in the SAME PR as
+the fix that earned it** (the job prints the exact new value). Never lower it,
+and never make a row green by weakening either side. Reads goldens and subprocess
+stdout as **bytes**, normalising only CRLF.
+
+The remaining blockers, in descending order of the fixtures they head: the
+compiler's `try:`/`except` for a body that genuinely returns (`ast`'s `Try` is an
+unsupported statement here), top-level classes, and the `ret`/`arg` return and
+parameter plumbing. All are named in #690.
 
 CI home: the `python-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:`
 trigger sharing its `push` filter, and `python/**` is in that filter, so the row
-runs on any PR touching this directory with no `gh workflow run` dispatch. It
-still gates harness health only, never the failure count.
+runs on any PR touching this directory with no `gh workflow run` dispatch.
 
 ## Publishing (PyPI)
 

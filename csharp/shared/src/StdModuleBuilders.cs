@@ -64,6 +64,28 @@ public static class StdModuleBuilders
             TypeDef("SinkCreateInput", ExprField("initial", 1)),
             TypeDef("SinkWriteInput", ExprField("sink", 1), ExprField("text", 2)),
             TypeDef("SinkToStringInput", ExprField("sink", 1)),
+            // Language-construct input types (issue #702). Ported from
+            // `dart/shared/lib/std.dart`, where the reasoning lives: every
+            // construct below was dispatched by the engines and emitted by the
+            // encoders while no builder declared it.
+            TypeDef("CascadeInput", ExprField("target", 1), ExprField("sections", 2), BoolField("null_aware", 3)),
+            TypeDef("NullAwareAccessInput", ExprField("target", 1), StringField("field", 2)),
+            TypeDef("NullAwareCallInput", ExprField("target", 1), StringField("method", 2)),
+            TypeDef("InvokeInput", ExprField("callee", 1)),
+            TypeDef("TearOffInput", ExprField("callback", 1), ExprField("target", 2), StringField("method", 3)),
+            TypeDef("SymbolInput", StringField("value", 1)),
+            TypeDef("TypeLiteralInput", StringField("type", 1)),
+            TypeDef("LabeledInput", StringField("label", 1), ExprField("body", 2)),
+            TypeDef("TypedListInput", StringField("type_args", 1), ExprField("elements", 2)),
+            TypeDef("MapCreateInput", StringField("type_args", 1), ExprListField("entry", 2), ExprListField("element", 3)),
+            TypeDef("MapCreateEntry", ExprField("key", 1), ExprField("value", 2)),
+            TypeDef("RecordInput", ExprField("fields", 1)),
+            TypeDef("CollectionForInput", StringField("variable", 1), ExprField("iterable", 2), ExprField("init", 3), ExprField("condition", 4), ExprField("update", 5), ExprField("body", 6)),
+            TypeDef("SwitchExprInput", ExprField("subject", 1), ExprField("cases", 2)),
+            TypeDef("SwitchExprCase", StringField("pattern", 1), ExprField("body", 2), ExprField("pattern_expr", 3), ExprField("guard", 4), BoolField("is_default", 5)),
+            TypeDef("ListFilledInput", ExprField("length", 1), ExprField("value", 2)),
+            TypeDef("ListGenerateInput", ExprField("length", 1), ExprField("generator", 2)),
+            TypeDef("StringInterpolationInput", ExprField("parts", 1), ExprField("value", 2)),
         });
 
         module.Functions.AddRange(new[]
@@ -161,6 +183,7 @@ public static class StdModuleBuilders
             // Strings (pure manipulation, universal)
             BaseFn("string_length", "UnaryInput", "", "String length: value.length"),
             BaseFn("string_is_empty", "UnaryInput", "", "Is string empty: value.isEmpty"),
+            BaseFn("string_is_not_empty", "UnaryInput", "", "Is string non-empty: value.isNotEmpty (issue #674)"),
             BaseFn("string_concat", "BinaryInput", "", "String concat: left + right"),
             BaseFn("string_contains", "BinaryInput", "", "String contains: left.contains(right)"),
             BaseFn("string_starts_with", "BinaryInput", "", "Starts with: left.startsWith(right)"),
@@ -234,6 +257,41 @@ public static class StdModuleBuilders
             BaseFn("math_sign", "UnaryInput", "", "Sign: value.sign"),
             BaseFn("math_gcd", "BinaryInput", "", "GCD: gcd(left, right)"),
             BaseFn("math_lcm", "BinaryInput", "", "LCM: lcm(left, right)"),
+            // Language constructs (issue #702). Every name below was already
+            // dispatched by the engines, keyed by the capability table and run
+            // by the conformance corpus while NO builder declared it — the
+            // #505 class, now gated in both directions
+            // (`dart/shared/test/std_reverse_closed_set_test.dart`).
+            BaseFn("int_to_double", "UnaryInput", "", "Int to double: value.toDouble() (statically an int)"),
+            BaseFn("double_to_int", "UnaryInput", "", "Double to int, truncating toward zero: value.toInt()"),
+            BaseFn("ceil_to_double", "UnaryInput", "", "Ceiling as a double: value.ceilToDouble()"),
+            BaseFn("floor_to_double", "UnaryInput", "", "Floor as a double: value.floorToDouble()"),
+            BaseFn("round_to_double", "UnaryInput", "", "Round as a double: value.roundToDouble()"),
+            BaseFn("truncate_to_double", "UnaryInput", "", "Truncate as a double: value.truncateToDouble()"),
+            BaseFn("null_aware_access", "NullAwareAccessInput", "", "Null-aware field access: target?.field — null when target is null"),
+            BaseFn("null_aware_call", "NullAwareCallInput", "", "Null-aware method call: target?.method(args) — null when target is null"),
+            BaseFn("paren", "UnaryInput", "", "Parenthesized expression: (value) — preserves operator precedence"),
+            BaseFn("labeled", "LabeledInput", "", "Labeled statement: label: <body> — the target of a labelled break/continue"),
+            BaseFn("yield_each", "UnaryInput", "", "Delegate to another generator: yield* value"),
+            BaseFn("type_literal", "TypeLiteralInput", "", "A type used as a value: int, Box<int> — carries the type source text"),
+            BaseFn("cascade", "CascadeInput", "", "Cascade: target..a()..b — evaluates each section against target and returns TARGET, not the last section"),
+            BaseFn("null_aware_cascade", "CascadeInput", "", "Null-aware cascade: target?..a()..b — null when target is null"),
+            BaseFn("invoke", "InvokeInput", "", "Call a function VALUE: callee(args). The arguments are the input's remaining fields; a single argument is passed through directly."),
+            BaseFn("tear_off", "TearOffInput", "", "Function tear-off: the function value named by callback, or by target.method — never invoked"),
+            BaseFn("symbol", "SymbolInput", "", "Symbol literal: #value"),
+            BaseFn("record", "RecordInput", "", "Record literal: (a, b, name: c). Positional components are the input's $1, $2, … fields (1-based, matching Dart's record.$1) and named components carry their own name."),
+            BaseFn("typed_list", "TypedListInput", "", "List literal with explicit type arguments: <T>[elements]"),
+            BaseFn("map_create", "MapCreateInput", "", "Map literal: {k: v, …}. Each plain pair is one `entry` field; a comprehension element is spliced through `element`."),
+            BaseFn("list_filled", "ListFilledInput", "", "Fixed-size list of one repeated value: List.filled(length, value). Engines also accept `count` for `length`."),
+            BaseFn("list_generate", "ListGenerateInput", "", "List built by index: List.generate(length, generator). Engines also accept `count` for `length` and `callback` for `generator`."),
+            BaseFn("dart_list_filled", "ListFilledInput", "", "List.filled(length, value) reached as a constructor call"),
+            BaseFn("dart_list_generate", "ListGenerateInput", "", "List.generate(length, generator) reached as a constructor call"),
+            BaseFn("spread", "UnaryInput", "", "Spread element inside a collection literal: ...value"),
+            BaseFn("null_spread", "UnaryInput", "", "Null-aware spread element: ...?value — contributes nothing when null"),
+            BaseFn("collection_if", "IfInput", "", "Conditional element inside a collection literal: [if (condition) then else else]"),
+            BaseFn("collection_for", "CollectionForInput", "", "Comprehension element inside a collection literal: [for (variable in iterable) body] / [for (init; condition; update) body]"),
+            BaseFn("switch_expr", "SwitchExprInput", "", "Switch EXPRESSION: switch (subject) { pattern => body, … } — yields a value, unlike the std.switch statement"),
+            BaseFn("string_interpolation", "StringInterpolationInput", "", "String interpolation: 'a${b}c' — stringify each element of `parts` and concatenate in order"),
         });
 
         return module;

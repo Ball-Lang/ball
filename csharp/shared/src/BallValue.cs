@@ -228,6 +228,14 @@ public abstract class BallValue
             "StateError" => "Bad state",
             "FormatException" => "FormatException",
             "RangeError" => "RangeError",
+            // Neither its own name nor empty: Dart spells an `ArgumentError`
+            // `Invalid argument(s): <message>`. No runtime raises one — only a
+            // program's own `throw ArgumentError('nope')` builds one — so it
+            // was in NO target's table at all, and #641's closed-set checks
+            // (every one of them keyed on what a runtime RAISES) could not see
+            // the gap (issue #658). Verified against the SDK; guard:
+            // `tests/conformance/473_caught_user_thrown_builtin_error`.
+            "ArgumentError" => "Invalid argument(s)",
             // The empty prefix is not "unset" — it is Dart's answer. A
             // `_TypeError`'s `toString()` IS its message ("type 'int' is not a
             // subtype of type 'String' in type cast"), with no type-name prefix

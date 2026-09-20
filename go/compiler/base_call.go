@@ -178,6 +178,8 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.Substring(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "start"), end)
 	case "string_is_empty":
 		return fmt.Sprintf("ballrt.StrIsEmpty(%s)", V())
+	case "string_is_not_empty":
+		return fmt.Sprintf("ballrt.StrIsNotEmpty(%s)", V())
 	case "string_code_unit_at":
 		return fmt.Sprintf("ballrt.StrCodeUnitAt(%s, %s)", c.arg(f, "value"), c.arg(f, "index"))
 	case "string_last_index_of":

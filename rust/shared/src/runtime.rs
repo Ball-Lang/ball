@@ -1165,21 +1165,39 @@ pub fn ball_as(value: BallValue, type_name: &str) -> BallValue {
 // Strings (pure manipulation)
 // ════════════════════════════════════════════════════════════
 
-/// `.isEmpty` (and, negated, `.isNotEmpty`) — **polymorphic**. The encoder
-/// emits `string_is_empty` for every `.isEmpty`/`.isNotEmpty` (it is syntactic
-/// and cannot tell a `String` receiver from a `List`/`Set`/`Map`), so this must
-/// accept any collection rather than only a string — matching the Dart
-/// reference engine's own polymorphic `string_is_empty`
-/// (`dart/engine/lib/engine_std.dart`).
+/// `.isEmpty` — **polymorphic**. The encoder emits `string_is_empty` for every
+/// `.isEmpty` (it is syntactic and cannot tell a `String` receiver from a
+/// `List`/`Set`/`Map`), so this must accept any collection rather than only a
+/// string — matching the Dart reference engine's own polymorphic
+/// `string_is_empty` (`dart/engine/lib/engine_std.dart`). `.isNotEmpty` has its
+/// own function, [`ball_string_is_not_empty`] (issue #674).
 pub fn ball_string_is_empty(value: BallValue) -> BallValue {
-    BallValue::Bool(match &value {
+    BallValue::Bool(value_is_empty(&value, "isEmpty"))
+}
+
+/// `.isNotEmpty` is its OWN base function in the IR, never
+/// `not(string_is_empty(...))`: the ENCODER must ask a receiver for the member
+/// the source named, because a DELEGATING receiver can see which one it is
+/// asked for (issue #674). Inside this runtime the two answers are
+/// complementary by construction, so both go through the one predicate rather
+/// than duplicating its receiver arms — two copies could drift apart, and the
+/// whole point of #674 is that they must not.
+pub fn ball_string_is_not_empty(value: BallValue) -> BallValue {
+    BallValue::Bool(!value_is_empty(&value, "isNotEmpty"))
+}
+
+/// Whether [`BallValue`] is an empty string / list / map / byte string, with
+/// `null` counting as empty. `member` names the Dart member being answered so
+/// an unsupported receiver panics with the spelling the program used.
+fn value_is_empty(value: &BallValue, member: &str) -> bool {
+    match value {
         BallValue::String(s) => s.is_empty(),
         BallValue::List(l) => l.is_empty(),
         BallValue::Map(m) => m.is_empty(),
         BallValue::Bytes(b) => b.is_empty(),
         BallValue::Null => true,
-        other => panic!("ball-lang-compiler runtime: isEmpty on {other:?}"),
-    })
+        other => panic!("ball-lang-compiler runtime: {member} on {other:?}"),
+    }
 }
 
 pub fn ball_string_contains(left: BallValue, right: BallValue) -> BallValue {

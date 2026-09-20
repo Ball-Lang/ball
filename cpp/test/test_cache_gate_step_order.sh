@@ -30,6 +30,13 @@
 #   (e) the job carries no `continue-on-error`, which would let the gate's exit
 #       code evaporate.
 #
+# HOUSE RULE THIS FILE ALSO ENFORCES ON ITSELF (#700): no pipeline here may end
+# in `head`. `head -N` exits as soon as it has its N lines, the producer
+# upstream takes SIGPIPE, and `set -o pipefail` turns that into exit 141 — a
+# "failure" with nothing wrong, which is what produced RED run 34755211709.
+# Every first-line read goes through `awk 'NR == 1'`, which consumes its whole
+# input. The `no_head_after_a_pipe` case at the bottom is the negative control.
+#
 # ...and then proves the assertion is not vacuous with a NEGATIVE CONTROL: the
 # real ci.yml, rewritten so the gate step is relocated to the end of the `cpp`
 # job, must be REJECTED. A checker that cannot fail is not a checker.
@@ -137,9 +144,11 @@ check_order() {
   fi
   [ "$rc" -eq 0 ] || return 1
 
+  # `awk 'NR == 1'`, never a first-line reader that exits early: see the
+  # no_head_after_a_pipe control at the bottom of this file.
   local gate_step
-  gate_step="$(printf '%s\n' "$gates" | head -1)"
-  first_smoke="$(printf '%s\n' "$smokes" | head -1)"
+  gate_step="$(printf '%s\n' "$gates" | awk 'NR == 1')"
+  first_smoke="$(printf '%s\n' "$smokes" | awk 'NR == 1')"
   if [ "$gate_step" -ge "$first_smoke" ]; then
     echo "::error::the 'Compiler cache applied' step is step $gate_step, at or after the first full_e2e.sh step ($first_smoke). full_e2e.sh's compile-and-link smoke adds uncacheable ccache calls, so the gate MUST read the statistics before it runs or the ubuntu/macOS legs go red at 4 against a ceiling of 0. See issues #660 / #599."
     return 1
@@ -157,7 +166,7 @@ check_order() {
   # One steps list over the 3-OS matrix is what makes the order above true for
   # EVERY leg. A per-OS split would need its own assertion.
   local oses
-  oses="$(slice_cpp_job "$wf" | sed -n 's/^[[:space:]]*os:[[:space:]]*\[\(.*\)\]$/\1/p' | head -1)"
+  oses="$(slice_cpp_job "$wf" | sed -n 's/^[[:space:]]*os:[[:space:]]*\[\(.*\)\]$/\1/p' | awk 'NR == 1')"
   local n_os
   n_os="$(printf '%s' "$oses" | tr ',' '\n' | grep -c 'latest')"
   if [ "$n_os" -ne 3 ]; then
@@ -241,11 +250,33 @@ sed 's|- name: "Compiler cache applied (#594)"|- name: "Cache sanity"|' "$WORKFL
 assert_cmd "a ci.yml that renamed the gate step away from the documented name is rejected" 1 \
   check_order "$RENAMED"
 
+# ── the SIGPIPE control (#700 item 4) ──────────────────────────────────────
+#
+# Nothing in this file may pipe into `head`. `head -N` exits as soon as it has
+# its N lines, so the producer upstream takes SIGPIPE, and under
+# `set -o pipefail` the whole pipeline reports 141 — a "failure" with nothing
+# wrong. That is the shape that produced RED run 34755211709, and the same
+# reasoning the `grep -c`, never `grep -q` comment above spells out: the two
+# differ only in WHICH command exits early. Every first-line read here goes
+# through `awk 'NR==1'`, which consumes its whole input, or through a shell
+# variable. This grep is the negative control for that rule.
+no_head_after_a_pipe() {
+  local n
+  n="$(grep -cE '\|[[:space:]]*head([[:space:]]|$)' "${BASH_SOURCE[0]}")"
+  if [ "${n:-1}" -ne 0 ]; then
+    echo "::error::$n pipeline(s) in this file end in \`head\`, which exits early and makes the upstream producer die of SIGPIPE — exit 141 under \`set -o pipefail\`, a failure with nothing wrong (run 34755211709, #700). Use \`awk 'NR==1'\` or read the value into a variable."
+    return 1
+  fi
+  return 0
+}
+assert_cmd "no pipeline in this file ends in head (SIGPIPE 141 under pipefail)" 0 \
+  no_head_after_a_pipe
+
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything
-# passed" from "nothing ran".
-if [ "$total" -lt 6 ]; then
-  echo "::error::cache-gate step-order test ran only $total case(s) — expected at least 6."
+# passed" from "nothing ran". Set AT the number of cases above.
+if [ "$total" -lt 7 ]; then
+  echo "::error::cache-gate step-order test ran only $total case(s) — expected at least 7."
   exit 1
 fi
 echo "Results: $pass passed, $fail failed, $total total"

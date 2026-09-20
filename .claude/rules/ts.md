@@ -224,7 +224,7 @@ const json = toJson(ProgramSchema, program);
   name. #681 is the same collision at its plainest — `class Holder { int
   length; }` read back `1` where every other engine read `3`, while that very
   object's `toString` printed `{length: 3}` — and
-  `472_instance_field_named_length` is its cross-target gate beside
+  `475_instance_field_named_length` is its cross-target gate beside
   `470_setter_beside_final_field`. Any new fast path added ahead of
   `origEvalFieldAccess` owes the same deferral;
   `test/engine_setup.test.ts`'s "a declared field beats the virtual map getters"
@@ -306,6 +306,41 @@ const json = toJson(ProgramSchema, program);
   runtime RAISES has an entry in this runtime's table and that every entry's
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
+
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  The COMPILER half needed only the `ArgumentError` row in `__ball_err_prefix`
+  (plus module-prefix stripping on the lookup, which every sibling table already
+  did and this one did not). **The ENGINE half is a separate table, and it is the
+  one that was completely absent.** `ts/engine/src/engine_setup.ts` registers
+  extra std functions that SHADOW the compiled engine's own — `to_string` among
+  them — so the self-hosted engine never reaches `_ballToStringAsync`'s
+  Dart-error arm and answers from the hand-written `__bts` instead. `__bts` had
+  no Dart-error arm at all, and its generic map branch FILTERS every
+  `__`-prefixed key, so a caught `throw StateError('boom')` printed
+  `{arg0: boom, message: boom}` — not even the type tag was visible in the
+  output. A fix to the Dart engine source plus a regen does NOT reach it; the
+  arm had to be added to `__bts` too. `tools/check_error_rendering_tables.py`
+  now carries it as its own target, `ts-engine`, with two negative controls in
+  the self-test — because a shadowing override is exactly the kind of second
+  implementation that drifts unwatched.
+  `ts/compiler/test/full_e2e.ts` compiles and RUNS the new fixture on every PR
+  (ci.yml passes it the fixtures the PR itself added), and `ts/engine`'s own
+  conformance sweep covers the engine half.
 
 ### Encoder
 

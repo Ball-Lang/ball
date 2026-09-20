@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 357 passed, 0 failed, 357 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 360 passed, 0 failed, 360 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -43,7 +43,8 @@ cargo fmt --check && cargo clippy --workspace
   `ball_lang_shared::runtime`); `lvalue.rs` handles assignment/mutation; `type_emit.rs` handles
   `typeDefs[]` → struct/trait/enum + multi-module output.
 - `ball-lang-encoder` (`rust/encoder/`) — Rust → Ball via `syn` 2.x (`features = ["full",
-  "extra-traits", "visit-mut"]`). Routes every construct through universal `std`/`std_collections`
+  "extra-traits", "visit", "visit-mut"]`). Routes every construct through universal
+  `std`/`std_collections`
   — **no `rust_std` base module**, ever.
 - `ball-lang-macro-expand` (`rust/macro-expand/`) — `macro_rules!` expansion (#629). Quarantines
   `ra_ap_mbe` + `ra_ap_tt`/`ra_ap_span`/`ra_ap_intern` (all `=0.0.351`) + salsa + `serde_json`
@@ -161,6 +162,30 @@ cargo fmt --check && cargo clippy --workspace
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
 
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed TWO fixes. `ball_normalize_thrown` already aliased `arg0`
+  (#615), but `write_entries` rendered a `BallValue::Message` from its field
+  entries alone - a message carries its tag out of band in `type_name`, so the
+  table never saw it - and `dart_error_to_string` did no module-prefix
+  stripping, unlike every sibling. Both are closed in
+  `rust/shared/src/value.rs`, with
+  `a_user_thrown_builtin_error_renders_like_dart` beside them.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compile_try`
   emits an `if`/`else if` chain over the recovered payload: an `on <Type> catch`
   clause runs only when `ball_catch_matches(&__err, "<Type>")` accepts the thrown
@@ -198,6 +223,28 @@ cargo fmt --check && cargo clippy --workspace
   input; 1 param → kept as a plain `reference(name)` driven by `metadata.params` (compiler's
   `param_alias_prologue` turns it into a real local binding); 2+ params → packed into one
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
+- **An immediately-invoked zero-argument closure inlines ONLY when its body cannot exit early
+  (#687).** `(|| … )()` is the shape `rust/compiler` wraps each of its three FUNCTION bodies in —
+  the entry `fn main()` (`compile_entry_main`, because `main` returns `()`), a method with
+  instance-field write-back, and a body-carrying constructor (both `type_emit.rs`) — and #646's
+  `as_zero_arg_closure` inlines it into the Ball `block` its body already is, which is what makes
+  those re-encodable. It is **not** the lowering of a value-position Ball `block`: `compile_block`
+  emits a native Rust block, since Rust blocks are already tail-expression-valued (C++ and Go do
+  need an IIFE there, and route `return` through runtime flow signals because of it). Inlining is
+  unsound the moment the body can exit early, because that is the one way the two constructs
+  differ — a Rust `return` inside the closure leaves the CLOSURE, a Ball `return` inside a `block`
+  leaves the enclosing FUNCTION — so the ordinary early-exit idiom
+  `let x = (|| { if …{ return a; } b })();` would encode to a well-formed Program with a different
+  answer. When the body *can* exit early the faithful Ball is `std.invoke` over a `lambda`, which
+  is what `dart/encoder`'s `FunctionExpressionInvocation` arm emits and what `compile_lambda`
+  turns back into a closure whose `return` leaves the closure again. The early-exit set is derived
+  from what this encoder emits a `std.return` for — `return` and `?` (`encode_try_operator`);
+  `break`/`continue` cannot cross a closure boundary in Rust at all — and the scan
+  (`closure_body_exits_early`) is a `syn::visit::Visit` that stops at every frame owning its own
+  `return`: a nested closure, a nested item, an `async` block, a `try` block. Run-proved, not
+  shape-asserted: `compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`
+  builds and runs the compiled output against what `rustc` prints for the source, because a
+  re-bound `return` produces a perfectly well-formed Ball tree.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
   variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
   encodes — see below; the guard keys on the missing BODY, not the missing receiver), a
@@ -210,10 +257,11 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 9 on 2026-09-14 (three of them are #632 siblings: the script-mode entry-point IIFE,
-  tracked as #687, and the spliced collection-literal lowering's two refusals — `Vec::new()` and
-  `matches!` — tracked as #712 and pinned separately because a `#[should_panic]` observes only the
-  first panic), and everything else in that file is a flipped, positive assertion.
+  prose** — 9 on 2026-09-14 (THREE of them are #632 siblings: the spliced collection-literal
+  lowering's two refusals — `Vec::new()` and `matches!` — tracked as #712 and pinned separately
+  because a `#[should_panic]` observes only the first panic, and the compiled method dispatcher's
+  `ball_message_type_name` scrutinee, tracked as #718), and everything else in that file is a
+  flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -393,6 +441,21 @@ cargo fmt --check && cargo clippy --workspace
   `a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias`,
   `a_later_let_of_the_same_name_shadows_the_alias` and
   `a_parameter_shadows_an_alias_of_the_same_name`.
+  **And a WRITE through a borrow that is NOT that one shape now fails loud (#693).** Leaving
+  `let s = &mut p.x;` to encode as a value is correct for a READ (a read of a borrow and a read of
+  a copy give the same answer) and silently wrong for a write — the same lost write as the alias
+  bug, one place over. `block.rs::encode_local` classifies the initializer as
+  `AliasTarget::Variable` (modelled, no binding emitted) or `AliasTarget::Opaque` (binding still
+  emitted, carrying the borrowed place rendered back to Rust), and
+  `lib.rs::refuse_write_through_an_unmodellable_borrow` — called from `encode_assign`, the single
+  choke point for `=` and every compound operator — panics when a write's ROOT (through
+  parens/deref/field/index, `write_root_name`) resolves to an `Opaque` alias, naming the alias, the
+  place and #692. A `&mut` of a variable that is itself `Opaque` inherits the opaqueness rather
+  than becoming a modelled alias of the copy. A SHARED `&p.x` is never `Opaque`: Rust cannot write
+  through a `&T`, so there is nothing to lose. Guards:
+  `rust/encoder/tests/mut_borrow_writes.rs` — four refused write shapes and four controls (a
+  read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing).
+  A `&mut` handed to a CALLEE (`f(&mut x)`) is a different mechanism and stays with #692.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -416,9 +479,15 @@ and its own encoder refuses caps that column no matter how good either half is o
   Rust.
 - The gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`. Stage 3 is an **encode** gate and
   says so: the compiler's output names runtime helpers (`ball_field_get`,
-  `ball_message_type_name`, …) that are not user functions, so re-encoding it yields calls that
-  resolve to nothing and **re-compiling that is not a fixpoint** — measured, and neither Tier A
-  nor this test pretends otherwise. The behavioural half sits beside it, on the constructs
+  `ball_message_type_name`, …) that are not user functions, so **re-compiling stage 3's output is
+  not a fixpoint** — measured, and neither Tier A nor this test pretends otherwise. Since #646
+  reading them is fail-loud: `encoder/src/runtime_helpers.rs` maps the helpers with a
+  universal-`std` inverse and an UNMAPPED `ball_*` aborts the file rather than becoming a
+  same-file call to a function nobody declared. That table is the universal-`std` subset only, so
+  a compiled library naming any other helper stops at the first one — never read a green run of
+  that file as "stage 3 is green for libraries at large". Sweep the difference, never quote it:
+  `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the quoted names in
+  `runtime_helpers.rs`. The behavioural half sits beside it, on the constructs
   themselves: three cases compile the compiler's own output, link it against a hand-written
   `main`, and RUN it, asserting the thrown message as bytes. A shape assertion alone would pass
   on a throw carrying the wrong message. Extend THAT test when you add a compiler emission shape;
@@ -457,14 +526,22 @@ and its own encoder refuses caps that column no matter how good either half is o
   funnel, and a lane that wants those numbers up works on stage 1's named reasons
   (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
   the invariant; the third-party funnel is a separate, slower instrument.
+- The script-mode entry-point IIFE is **CLOSED**, and #687 with it. #646's
+  `lib.rs::as_zero_arg_closure` inlines the closure body (pin flipped to
+  `compiled_entry_point_iife_encodes`), which is sound for the entry wrapper — a Ball `return`
+  returns from the enclosing FUNCTION, the IIFE exists only because Rust's `main` returns `()`,
+  and the entry body IS the function body. The open half — "is the IIFE equally faithful for a
+  NESTED block in value position" — was answered by #687's own run-proof, and the answer moved
+  the fix to the ENCODER, not the compiler: `compile_block` emits a **native Rust block**, so the
+  compiler never wraps a value-position block at all, but `as_zero_arg_closure` inlined every
+  immediately-invoked closure in the HAND-WRITTEN Rust the encoder reads, which re-binds a
+  `return` from the closure to the enclosing function. Inlining is now conditional on the body
+  having no closure-bound early exit, and #687's `std.invoke`-over-`lambda` shape is what an
+  early-exiting one gets. See the Encoder section's bullet on it, and `rust/AGENTS.md`'s
+  "Immediately-invoked closures". The script-mode round-trip leg lives beside the library-mode
+  ones in `compile_reencode_roundtrip.rs`.
 - The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
-  - the script-mode entry-point IIFE (`compile()` wraps the entry body in
-    `(|| -> BallValue { … })()`, which the encoder refuses),
-    `compiled_entry_point_iife_is_a_documented_gap`, tracked as **#687**. Do not "fix" it by
-    encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return` in the entry
-    body return from the entry body rather than from `main`, and a Ball block's `return` leaves
-    the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
-  - the **spliced collection-literal lowering**, tracked as **#712**, which is the broader of the
+  - the **spliced collection-literal lowering**, tracked as **#712**, the broader of the
     two: `compile_list_literal` goes imperative the moment any element splices, and emits
     `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type
     — measured as the FIRST refusal) and `if !matches!(__sp, BallValue::Null)` behind it. So every
@@ -477,15 +554,29 @@ and its own encoder refuses caps that column no matter how good either half is o
     which is what Tier A measures. The fix belongs on the COMPILER side — a plain
     `ball_is_null(&__sp)` helper and the existing `BallList`/`BallValue::List` vocabulary in place
     of the bare `Vec`, the same plain-call vocabulary the neighbouring
-    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use, which re-encodes soft instead of
-    aborting the file.
+    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use — but note that vocabulary no
+    longer re-encodes *soft*: since #646 an unmapped `ball_*` is a hard refusal, so a
+    compiler-side fix owes `runtime_helpers.rs` the matching inverse, or its own pin where no
+    inverse exists.
+  - the compiled **method dispatcher's scrutinee**, tracked as **#718**, and the one that turned
+    `main` red: `compile_method_dispatchers` opens every instance-method dispatcher with
+    `match ball_message_type_name(&__self).as_str()`, and that helper has no universal-`std`
+    inverse. It returns the receiver's module-QUALIFIED tag (`main:Point`); `std.type_of` (#489)
+    returns the SHORT base name, prefix stripped — so mapping one to the other would re-encode a
+    dispatcher whose arms can never match its own scrutinee, and `dart/shared/std.json` declares
+    no qualified-name function to map it to instead. It is a semantic merge conflict between #646
+    (the fail-loud table) and #685 (the first test that re-encodes a dispatcher), each green
+    alone. Pinned by `compiled_method_dispatcher_scrutinee_is_a_documented_gap`; the dispatcher's
+    behavioural half is untouched and still run-proved by
+    `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
+    fail-loud direction.
 
 ### Engine
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 357 passed, 0 failed, 357 total` (the 4
+  whole corpus with Dart-identical output: `Results: 360 passed, 0 failed, 360 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -597,7 +688,12 @@ and its own encoder refuses caps that column no matter how good either half is o
   #642**: harness health PLUS `passed >= 1` PLUS `passed >= RUST_ROUNDTRIP_FLOOR`, enforced by
   `tools/ci/roundtrip_floor.sh`. Still NOT a parity gate — but a flat zero is red, and the floor
   only rises. **Raise it in the SAME PR as the fix that earned it**; the job prints the exact new
-  value. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
+  value. **A fixture that HANGS is its own hard error since #693**, never one more increment of
+  `failed`: the per-fixture budget is `BALL_TIMEOUT_MS` (default 60 000, fail-loud on a
+  non-integer) and `roundtrip_floor.sh` reds the row on any `FAILING [name] timeout` line (C#'s
+  row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
+  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, the only
+  non-`#[ignore]`d test in that target, so it runs in `cargo test --workspace` on every PR. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
   `BallMap::new()`/`BallList::new()` and the class-registry helpers), never as an "expected
   baseline"; the method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A,
   not this leg.
@@ -617,8 +713,10 @@ and its own encoder refuses caps that column no matter how good either half is o
 - `indexmap = "2"` — backs `BallMap`; insertion-ordered like every other engine's map type
   (Dart's `LinkedHashMap`, C++'s `BallOrderedMap`). Never substitute `HashMap` for Ball-value
   maps.
-- `syn = "2"` (`features = ["full", "extra-traits", "visit-mut"]`) + `proc-macro2` + `quote` —
-  encoder's Rust parser. `visit-mut` drives the macro-expansion pre-pass and the hygiene rename.
+- `syn = "2"` (`features = ["full", "extra-traits", "visit", "visit-mut"]`) + `proc-macro2` +
+  `quote` — encoder's Rust parser. `visit-mut` drives the macro-expansion pre-pass and the hygiene
+  rename; `visit` drives `closure_body_exits_early`, the read-only walk that decides whether an
+  immediately-invoked closure may be inlined (#687).
 - `ra_ap_mbe` / `ra_ap_tt` / `ra_ap_span` / `ra_ap_intern`, all `"=0.0.351"`, plus `salsa = "0.28"`
   and `serde_json = "1"` — **`ball-lang-macro-expand` only** (#629). The `=` pins are mandatory:
   `ra_ap_mbe` pins its own siblings with `=`, so a mixed set does not resolve. These republish

@@ -193,6 +193,20 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # this leg and are listed in cpp/test/e2e_fixture_list.h — alongside
 # 455_ctor_field_writes_that_survive, the positive half of the same test design,
 # which passed this leg all along.
+#
+# 472_initializer_list_field_with_setter was carved out here for #695 and is NOT
+# any more. #695 was a TARGET gap, not a fixture problem: the class declares a
+# `final` field and its OWN setter of the same name, which is legal Dart (a plain
+# `final` field contributes a getter and nothing else) and which every ENGINE —
+# Dart, TS, Rust, C#, Go, Python, and the C++ self-host engine — runs correctly,
+# but C++ has ONE member namespace, so emit_struct's data member and
+# emit_class_methods' setter collided:
+#   'BallDyn FixedSlice::windowSize(auto&&)' conflicts with a previous declaration
+# #680 landed exactly the lowering #695 asked for — `class_setter_backed_fields_`
+# in cpp/compiler, which gives a field declared beside its own same-named setter
+# the #501 backing-member treatment and synthesizes only the GETTER half, leaving
+# the write side to the declared setter — so the fixture compiles, builds and runs
+# on this leg and is listed in cpp/test/e2e_fixture_list.h.
 CPP_COMPILE_CARVEOUTS=()
 _is_carved() { local n="$1" c; (( ${#CPP_COMPILE_CARVEOUTS[@]} == 0 )) && return 1;
   for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }

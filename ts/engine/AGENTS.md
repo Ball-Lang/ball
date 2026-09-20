@@ -85,7 +85,7 @@ Both were live wrong answers — silent, and on this target only. #664 found a c
 `final int length` reading its instance's ENTRY COUNT; #681 found the plain
 `class Holder { int length; }` reading back `1` instead of `3` while the same object's
 `toString` printed `{length: 3}`. `tests/conformance/470_setter_beside_final_field` and
-`472_instance_field_named_length` are the cross-target gates, and
+`475_instance_field_named_length` are the cross-target gates, and
 `test/engine_setup.test.ts`'s `_evalFieldAccess: a declared field beats the virtual map
 getters` group is the unit guard.
 

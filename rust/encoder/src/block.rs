@@ -9,7 +9,7 @@
 use ball_lang_shared::proto::ball::v1::statement::Stmt as BallStmt;
 use ball_lang_shared::proto::ball::v1::{Block, Expression, LetBinding, Statement};
 
-use crate::{Encoder, null_literal};
+use crate::{AliasTarget, Encoder, null_literal};
 
 impl Encoder {
     /// Encode a `syn::Block` to a Ball `block` [`Expression`].
@@ -123,17 +123,36 @@ impl Encoder {
         // "cleanly" and then hung on the Dart reference engine — issue #642.)
         // Record the alias and emit no binding; a read of it resolves to the
         // borrowed variable, which is what the Rust actually means.
-        if let Some(init) = &local.init {
-            if let Some(target) = borrowed_variable(&init.expr) {
-                let resolved = self
-                    .ref_aliases
-                    .get(&target)
-                    .cloned()
-                    .unwrap_or_else(|| target.clone());
-                self.ref_aliases.insert(name, resolved);
+        //
+        // A borrow of any OTHER place (`&mut p.x`, `&mut v[0]`) is classified
+        // as `AliasTarget::Opaque` a few lines down: the binding is still
+        // emitted, because a read of a borrow and a read of a copy give the
+        // same answer, but a WRITE through it is refused rather than silently
+        // dropped (issue #693 — see `lib.rs`'s
+        // `refuse_write_through_an_unmodellable_borrow`).
+        // A borrow of a variable that is ITSELF an alias (`let a = &mut i;
+        // let b = &mut a;`) collapses to whatever `a` resolves to — including
+        // its OPAQUENESS: `let a = &mut p.x; let b = &mut a;` makes a write
+        // through `b` land on the same copy, so `b` inherits the refusal
+        // rather than becoming a modelled alias of the copy.
+        let alias = match local.init.as_ref().and_then(|init| borrowed(&init.expr)) {
+            Some(Borrow::Variable(target)) => match self.ref_aliases.get(&target) {
+                Some(AliasTarget::Variable(inner)) => Some(AliasTarget::Variable(inner.clone())),
+                Some(AliasTarget::Opaque(place)) => Some(AliasTarget::Opaque(place.clone())),
+                None => Some(AliasTarget::Variable(target)),
+            },
+            Some(Borrow::Opaque(place)) => Some(AliasTarget::Opaque(place)),
+            None => None,
+        };
+        let opaque_place = match alias {
+            Some(AliasTarget::Variable(resolved)) => {
+                self.ref_aliases
+                    .insert(name, AliasTarget::Variable(resolved));
                 return None;
             }
-        }
+            Some(AliasTarget::Opaque(place)) => Some(place),
+            None => None,
+        };
         let value = match &local.init {
             Some(init) => self.encode_expr(&init.expr),
             None => null_literal(),
@@ -148,6 +167,16 @@ impl Encoder {
         // the right-hand `r` is the OLD binding, so it must still resolve
         // through the alias.
         self.ref_aliases.remove(&name);
+        // ...and only THEN is the unmodellable borrow recorded, so it replaces
+        // whatever this name meant before rather than being wiped by the
+        // shadowing `remove` above (issue #693). The binding itself is still
+        // emitted — reads of it are correct — but a write through it now fails
+        // loud in `lib.rs`'s `refuse_write_through_an_unmodellable_borrow`
+        // instead of landing on the copy.
+        if let Some(place) = opaque_place {
+            self.ref_aliases
+                .insert(name.clone(), AliasTarget::Opaque(place));
+        }
         // Cosmetic mutability round-trip (issue #43): `let mut x = ...;` ->
         // `metadata.is_mut = true`; a plain `let x = ...;` (Rust's default,
         // conceptually Dart's `final`) carries no metadata at all — matches
@@ -171,20 +200,38 @@ impl Encoder {
     }
 }
 
-/// The variable a `&mut <ident>` (or `&<ident>`) initializer borrows, if the
-/// initializer is exactly that and nothing else.
+/// What a `let`'s borrow initializer borrows (issues #642/#693).
+enum Borrow {
+    /// `&mut <ident>` (or `&<ident>`) — a plain NAMED variable, the one place
+    /// this encoder can model.
+    Variable(String),
+    /// `&mut <place>` where `<place>` is a field, an index, a call result or
+    /// anything else this encoder cannot resolve — carried as the place
+    /// rendered back to Rust, purely so a refused write can name it.
+    Opaque(String),
+}
+
+/// Classify a `let`'s initializer as a [`Borrow`], or `None` when it is not a
+/// borrow at all.
 ///
-/// Deliberately narrow: only a borrow of a plain NAMED variable, through any
-/// number of parentheses. A borrow of a field, an index, a call result or any
-/// other place (`&mut v[0]`, `&mut p.x`) is NOT an alias this encoder can model,
-/// and is left to encode the way it always has — widening it would be guessing
-/// at which place a later write lands on.
-fn borrowed_variable(expr: &syn::Expr) -> Option<String> {
+/// A SHARED borrow of a non-variable place (`&p.x`) is deliberately `None`, not
+/// `Opaque`: Rust cannot write through a `&T`, so encoding it as a copy can
+/// never lose a write and there is nothing to refuse. Only `&mut` of an
+/// unresolvable place is `Opaque`. (A shared borrow of a plain variable stays
+/// `Variable`, exactly as before — resolving a read of it to the variable is
+/// correct either way.)
+fn borrowed(expr: &syn::Expr) -> Option<Borrow> {
     match expr {
-        syn::Expr::Paren(paren) => borrowed_variable(&paren.expr),
-        syn::Expr::Group(group) => borrowed_variable(&group.expr),
+        syn::Expr::Paren(paren) => borrowed(&paren.expr),
+        syn::Expr::Group(group) => borrowed(&group.expr),
         syn::Expr::Reference(reference) => match strip_parens(&reference.expr) {
-            syn::Expr::Path(path) => path.path.get_ident().map(|i| i.to_string()),
+            syn::Expr::Path(path) => path
+                .path
+                .get_ident()
+                .map(|ident| Borrow::Variable(ident.to_string())),
+            other if reference.mutability.is_some() => {
+                Some(Borrow::Opaque(quote::quote!(#other).to_string()))
+            }
             _ => None,
         },
         _ => None,

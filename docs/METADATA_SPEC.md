@@ -298,6 +298,47 @@ Keep the family closed. `is_const` / `is_late` / `is_static` / `visibility`, and
 every other key in this document, stay purely cosmetic; do not widen the set of
 keys an engine dispatches on without amending this section.
 
+### Extension overrides ride the function NAME, not metadata (issue #670)
+
+Dart's `Ext(receiver).member(args)` names WHICH extension supplies `member`, and
+it is written precisely when the plain `receiver.member(args)` would resolve to
+something else — `collection`'s `IterableComparableExtension.isSorted` calls
+`IterableExtension(this).isSorted(compare)`, and erasing the override makes it
+call itself. So the selection changes what the program computes and, by the rule
+above, may **not** live in metadata.
+
+It does not have to. An extension member is already declared as a module
+function named `<module>:<Ext>.<member>`, and a `FunctionCall` already carries
+its receiver in the input message's `self` field — the shape every instance call
+uses. An override is therefore:
+
+```
+Ext(receiver).member(a, b)
+  ⇒ FunctionCall{ module:   <module>,
+                  function: "<module>:<Ext>.<member>",
+                  input:    MessageCreation{ self: receiver, arg0: a, arg1: b } }
+```
+
+The name is semantic content, so the selection survives metadata stripping. No
+schema change, and no new dispatch key: a `self`-carrying call whose qualifier is
+not an extension typeDef still compiles to `self.member(args)` exactly as before.
+
+Explicit type arguments written on the MEMBER (`Ext(x).m<int>()`) ride
+`FunctionCall.type_args` — a real schema field, not metadata — exactly as they
+do for every other instance call, because an instantiation changes what the
+program computes too. (Type arguments on the EXTENSION, `Ext<int>(x)`, have no
+sound home in this shape and are refused by the encoder.)
+
+Two metadata keys are read while RENDERING that call back to Dart, and both are
+already in the closed family above. `TypeDefinition.metadata['kind'] ==
+"extension"` is what makes the qualifier an extension at all — strip it and the
+module stops declaring an extension, so the override has nothing to name and the
+whole declaration degrades together, consistently. `is_getter` / `is_setter` on
+the member decide `Ext(x).member` versus `Ext(x).member()`, which is the same
+accessor question the section above answers for `obj.x` — and a WRITE
+(`Ext(x).member = v`) encodes as that same call, so reading the setter's shape
+is what keeps the emitted left-hand side assignable. Neither widens the family.
+
 ---
 
 ## Function Overloading Convention

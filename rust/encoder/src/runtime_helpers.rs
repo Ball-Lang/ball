@@ -91,6 +91,7 @@ pub(crate) fn runtime_helper(name: &str) -> Option<(&'static str, &'static [&'st
         "ball_type_of" => ("type_of", UNARY),
         "ball_throw" => ("throw", UNARY),
         "ball_string_is_empty" => ("string_is_empty", UNARY),
+        "ball_string_is_not_empty" => ("string_is_not_empty", UNARY),
         "ball_string_contains" => ("string_contains", BINARY),
         "ball_string_starts_with" => ("string_starts_with", BINARY),
         "ball_string_ends_with" => ("string_ends_with", BINARY),

@@ -146,5 +146,65 @@ void main() {
         contains('Summary: REVIEW REQUIRED — declares base-function shadows'),
       );
     });
+
+    // #609: a site Map built by hand (or decoded from a report produced before
+    // `resolvedModule` existed) carries no such key. The renderer must read
+    // that as "the call site named the declaring module" — the same meaning
+    // `''` carries — rather than crashing on the missing key.
+    test('renders a call site that carries no "resolvedModule" key', () {
+      final report = pureReport();
+      (report['capabilities'] as List)[0] = <String, Object?>{
+        'capability': 'io',
+        'riskLevel': 'low',
+        'callSites': <Object?>[
+          {
+            'module': 'main',
+            'function': 'main',
+            'calleeModule': 'std',
+            'calleeFunction': 'print',
+          },
+        ],
+      };
+      final text = formatCapabilityReport(report);
+      expect(text, contains('io (1 call sites: main.main → std.print)'));
+      expect(text, isNot(contains('call site:')));
+    });
+
+    test('an empty "resolvedModule" renders exactly like an absent one', () {
+      Map<String, Object?> reportWith(String resolvedModule) {
+        final r = pureReport();
+        (r['capabilities'] as List)[0] = <String, Object?>{
+          'capability': 'io',
+          'riskLevel': 'low',
+          'callSites': <Object?>[
+            {
+              'module': 'main',
+              'function': 'main',
+              'calleeModule': 'std',
+              'calleeFunction': 'print',
+              'resolvedModule': resolvedModule,
+            },
+          ],
+        };
+        return r;
+      }
+
+      // '' and the declaring module itself both mean "nothing to disambiguate".
+      expect(
+        formatCapabilityReport(reportWith('')),
+        contains('io (1 call sites: main.main → std.print)'),
+      );
+      expect(
+        formatCapabilityReport(reportWith('std')),
+        contains('io (1 call sites: main.main → std.print)'),
+      );
+      // A DIFFERENT module leads, with the call-site spelling in tow.
+      expect(
+        formatCapabilityReport(reportWith('mymodule')),
+        contains(
+          'io (1 call sites: main.main → mymodule.print (call site: std.print))',
+        ),
+      );
+    });
   });
 }

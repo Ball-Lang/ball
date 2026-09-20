@@ -154,8 +154,9 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "string_trim_start": ("string_trim_start", _UNARY),
     "string_trim_end": ("string_trim_end", _UNARY),
     "string_is_empty": ("string_is_empty", _UNARY),
-    # Its own base function, never the negation of `string_is_empty`: a
-    # delegating receiver sees WHICH member it was asked for (issue #674).
+    # Its OWN base function, never `not string_is_empty(...)`: a delegating
+    # receiver sees WHICH member the source asked for (issue #674), so the
+    # inverse must land back on the same name the compiler emitted.
     "string_is_not_empty": ("string_is_not_empty", _UNARY),
     "string_to_int": ("string_to_int", _UNARY),
     "string_to_double": ("string_to_double", _UNARY),

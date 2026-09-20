@@ -2227,7 +2227,7 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // that predates this. #681 is the same collision reached from the other
     // side — a plain mutable data member `int length;`, no getter and no
     // shadowing field in sight — and `class_has_own_field` is what answers it;
-    // `tests/conformance/472_instance_field_named_length` is its gate.
+    // `tests/conformance/475_instance_field_named_length` is its gate.
     if (field == "length" || field == "isEmpty" || field == "isNotEmpty") {
         const std::string vprop_cls = receiver_class_of(*access.object);
         const std::string vprop_field = sanitize_name(field);

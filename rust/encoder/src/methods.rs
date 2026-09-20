@@ -575,7 +575,20 @@ impl Encoder {
                  in place so its non-sink reads keep seeing a `String`. Guessing between the two \
                  would silently change one of them (issue #630)"
             ),
-            Some(crate::LocalKind::Parameter) | None => WriteDestination::Sink,
+            // A PATTERN binding (a for-loop variable, a `match` arm, an
+            // `if let`) is a sink for the same reason a parameter is: it is
+            // not a `let`-bound `String`, so the re-assignment arm is not even
+            // expressible for it — `s = concat(s, ..)` on a loop variable
+            // writes to the variable, and whether that reaches the collection
+            // is not something Ball models. When the element really is a plain
+            // `String` the write lands in the same documented boundary a
+            // `String` field does and fails LOUD at run time
+            // (`rust/shared/src/runtime.rs::sink_backing`). What it must NEVER
+            // do is fall through to an enclosing binding of the same name —
+            // see `Encoder::with_pattern_binding`.
+            Some(crate::LocalKind::Parameter) | Some(crate::LocalKind::PatternBinding) | None => {
+                WriteDestination::Sink
+            }
         }
     }
 

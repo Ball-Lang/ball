@@ -199,13 +199,28 @@ write"*), and each compiler's runtime does the same. Neither shape occurs in the
 Closing them needs knowledge of how the destination is used *elsewhere* — a resolution-time question
 for `encode_crate`, not a `write!` question — so they stay a loud refusal rather than a guess.
 
-**A second boundary, for the same reason.** A *pattern* binding that shadows an enclosing local
-`String` — a for-loop variable, a `match`-arm or `if let` binding — is not recorded in a frame, so
-the classifier sees the enclosing local instead. Unlike the block case above (a plain scoping bug,
-fixed), this one has no obvious right answer: `for s in writers.iter_mut()` binds a genuine
-`&mut String`, which is **both** a sink and a string, and choosing for it is the same
-representation question the join-sites rule answers for `let`. It is therefore a design question
-left open, not a bug worked around.
+**A *pattern* binding is a binding, and takes the sink arm.** A for-loop variable, a `match`-arm
+binding and an `if let` binding all introduce a name without a `let`, so `record_local` — whose only
+call site is the `let` handling — never sees one. Left unrecorded a pattern binding is not merely
+unknown but **invisible**: the innermost-first lookup walks straight past it to whatever *enclosing*
+binding wears the same name, and an enclosing local `String` is the one kind that does not fail loud.
+`let mut s = String::new(); for s in writers.iter_mut() { write!(s, "x")?; }` encoded as a
+re-assignment of the **outer** `s`, losing every write the Rust aims at an element, with nothing
+reporting it — the one silent direction the rule still had. `Encoder::with_pattern_binding` opens a
+frame for each of the three constructs (and drops a `&mut` alias of that name for its duration,
+exactly as a plain `let` of it does), so the binding shadows.
+
+What it shadows *to* is the **sink** arm, the one every non-`let` destination takes — not a loud
+refusal. The re-assignment arm is not even expressible for a pattern binding: `s = concat(s, ..)`
+would write to the loop variable, and whether that reaches the collection is not something Ball
+models. And `for w in writers.iter_mut() { write!(w, ..) }` over real sinks is an ordinary working
+shape that must keep encoding. When the element is a plain `String` instead, the write lands in
+exactly the documented boundary above — a string where `std.sink_write` expects a sink, which every
+engine and runtime rejects **loudly** at run time. Tests:
+`write_sinks.rs::a_for_loop_variable_shadows_an_enclosing_local_string`, the `if let` and `match`
+siblings, `::a_for_loop_variable_shadows_a_mut_alias_binding`, and the positive control
+`::a_for_loop_variable_that_shadows_nothing_is_still_a_sink` — which is what makes the choice
+falsifiable, since "refuse every pattern binding" would pass the other four.
 
 ## 6. Options considered, and why they were rejected
 

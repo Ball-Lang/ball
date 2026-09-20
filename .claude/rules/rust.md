@@ -356,7 +356,16 @@ cargo fmt --check && cargo clippy --workspace
   `impl` method at all; a bare destination name that is a `&mut` ALIAS binding resolves to the
   variable it borrows FIRST (issue #642's `ref_aliases`, the same resolution
   `encode_path_expr` does for every other read — so `write!(slot, ..)` after
-  `let slot = &mut s;` classifies `s`, in both directions); and
+  `let slot = &mut s;` classifies `s`, in both directions) — but only the MODELLED
+  `AliasTarget::Variable` half, since an `AliasTarget::Opaque` one (#693) emits a real binding
+  recorded as a non-`String` local and must reach the same loud refusal `encode_assign` gives a
+  write through it; `Encoder::with_pattern_binding` gives a for-loop variable, a `match`-arm
+  binding and an `if let` binding a frame of their own — `record_local`'s only call site is the
+  `let` handling, so without one the lookup walked PAST the pattern binding to a same-named
+  enclosing local, and `let mut s = String::new(); for s in writers.iter_mut() { write!(s, ..) }`
+  re-assigned the outer `s`, losing every write SILENTLY (a pattern binding classifies as a SINK,
+  like a parameter, never as a refusal: iterating real sinks is an ordinary shape, and a `String`
+  element lands in the documented boundary below and fails loud at RUN time); and
   `String::new()`/`String::with_capacity(n)` now encode as the empty
   string (both were "unsupported call target", so the local-`String` arm would have been
   unreachable; capacity is an allocation hint with no observable effect). Measured: Tier A
@@ -664,7 +673,10 @@ and its own encoder refuses caps that column no matter how good either half is o
   histogram, not the aggregate; the crate-aware slice was the first one to move
   the aggregate at all, and it moved it by one file, then #630's `write!` slice
   took it 1 -> 7. `clean` has never moved and #630 did not move it either — its
-  remaining walls are #632 and declaration drift. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
+  remaining walls are **#692** (six of the seven stop at stage 3 on
+  ``unsupported runtime helper `ball_arg_get(...)` ``; this used to read #632, whose own
+  wall #685 closed on main while #630 was open — re-measure before quoting one) and
+  declaration drift. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
   `strsim` (`tools/coverage-study/packages/rust.json`), not the original 10-crate
   #491 set. **Always point `CARGO_TARGET_DIR` at a path inside the current
   worktree** — a target dir shared with another lane serves a stale `rlib` and

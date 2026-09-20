@@ -873,7 +873,7 @@ pub(crate) enum AliasTarget {
 
 /// What a binding in the fn/closure/method body currently being encoded
 /// holds, as far as issue #630's `write!`-destination rule is concerned.
-/// Deliberately a closed three-way split with no "don't know" member: an
+/// Deliberately a closed four-way split with no "don't know" member: an
 /// unrecorded name is simply absent from [`Encoder::local_scopes`] and is
 /// therefore not a local at all.
 #[derive(Clone, Debug)]
@@ -886,6 +886,12 @@ pub(crate) enum LocalKind {
     Other(String),
     /// A fn/closure/method parameter. Never a local, so always a sink.
     Parameter,
+    /// A name introduced by a PATTERN rather than a `let` — a for-loop
+    /// variable, a `match`-arm binding, an `if let` binding (see
+    /// [`Encoder::with_pattern_binding`]). Never a `let`-bound local either,
+    /// so also always a sink; a member of its own so the two can never be
+    /// confused, and so a future rule for it has somewhere to live.
+    PatternBinding,
 }
 
 /// Is `expr` a `String` constructor — the initialiser set issue #630's
@@ -996,6 +1002,41 @@ impl Encoder {
 
     pub(crate) fn pop_locals_frame(&mut self) {
         self.local_scopes.pop();
+    }
+
+    /// Encode `f` with `name` in scope as a PATTERN binding — a for-loop
+    /// variable, a `match`-arm binding, or an `if let` binding (issue #630).
+    ///
+    /// Such a name is introduced without a `let`, so [`Self::record_local`] —
+    /// whose only call site is `block.rs`'s `let` handling — never sees it.
+    /// Left unrecorded it is not merely unknown but INVISIBLE: the lookup
+    /// walks straight past it to whatever ENCLOSING binding wears the same
+    /// name, and an enclosing local `String` is the one kind that does not
+    /// fail loud. `let mut s = String::new(); for s in writers.iter_mut() {
+    /// write!(s, "x")?; }` then encodes as a re-assignment of the outer `s`,
+    /// losing every write the Rust aims at an element, silently.
+    ///
+    /// The frame also SHADOWS a `&mut` alias of the same name, exactly as a
+    /// plain `let` of it does (`block.rs::encode_local` drops the entry): the
+    /// alias table is consulted for every read, so while a loop variable
+    /// `slot` is in scope, `slot` is the element — not the place an enclosing
+    /// `let slot = &mut result;` borrows. Restored on the way out, because the
+    /// alias is live again after the loop.
+    pub(crate) fn with_pattern_binding<T>(
+        &mut self,
+        name: &str,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let mut frame = HashMap::new();
+        frame.insert(name.to_string(), LocalKind::PatternBinding);
+        self.local_scopes.push(frame);
+        let shadowed_alias = self.ref_aliases.remove(name);
+        let encoded = f(self);
+        if let Some(alias) = shadowed_alias {
+            self.ref_aliases.insert(name.to_string(), alias);
+        }
+        self.local_scopes.pop();
+        encoded
     }
 
     /// Record a `let` binding in the innermost open frame. A re-`let` of the

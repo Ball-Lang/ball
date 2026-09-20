@@ -898,7 +898,23 @@ consulted. `let slot = &mut s;` is recorded in `Encoder::ref_aliases` and emits 
 simply absent from every binding frame, which reads as "not a local": a local `String` would take
 arm (b) and hand `std.sink_write` a plain string, which every engine and runtime rejects at RUN
 time (`rust/shared/src/runtime.rs::sink_backing`) — loud, but one stage later than the encoder
-can answer it.
+can answer it. Only the MODELLED half resolves: an `AliasTarget::Opaque` binding (#693 — a borrow
+of `p.x`/`v[0]`, which DOES emit a `let`) falls through under its own name and reaches the same
+loud refusal `encode_assign` gives a plain write through it, because the binding it emits is a
+copy.
+
+And a **pattern** binding — a for-loop variable, a `match`-arm binding, an `if let` binding —
+opens a frame of its own (`Encoder::with_pattern_binding`), which also drops a `&mut` alias of
+that name for its duration exactly as a plain `let` of it does. `record_local`'s only call site is
+the `let` handling, so without a frame a pattern binding is not merely unknown but **invisible**:
+the innermost-first lookup walks past it to a same-named ENCLOSING binding, and an enclosing local
+`String` is the one kind that does not fail loud —
+`let mut s = String::new(); for s in writers.iter_mut() { write!(s, "x")?; }` re-assigned the outer
+`s` and lost every write the Rust aims at an element, silently. It classifies as a **sink**, like a
+parameter, never as a refusal: arm (a) is not expressible for a loop variable (whether writing to it
+reaches the collection is not something Ball models), iterating real sinks is an ordinary working
+shape, and a plain-`String` element lands in the documented boundary below and fails loud at RUN
+time.
 
 **Measured, on the 77 scored files** (the post-#648 denominator, not the 110 the histograms above
 are written against), same 5 pins, by the repo's own instrument — a `Coverage Study` dispatch on the
@@ -916,16 +932,19 @@ is that same baseline row, recorded by the last main run:
 | 5 fixpoint (clean) | 0/77 | 0/77 |
 
 `baseline.json`'s Rust row is raised on `encoded` only. **`clean` does not move, and must not be
-promised** — the remaining walls for those 7 are issue #632 (the compiler's method dispatcher emits
-a `panic!` its own encoder refuses) and declaration drift. Stage 3 does not move either, for a
-second pre-existing reason worth knowing: every `MessageCreation` — which the `Ok(..)` outcome is,
-and which a plain `Ok(x)` in hand-written source always has been — compiles to
-`{ let mut __ball_map = BallMap::new(); … }`, and `BallMap::new()` is an associated function on a
-foreign type the encoder documents as a permanent gap. Same round-trip-closure class as #632.
+promised.** The wall for those 7 is stage 3, and **it is not #632 any more** — #632 was closed on
+`main` by #685, and the last dispatch on this branch measured the six as
+``reencode-error: unsupported runtime helper `ball_arg_get(...)` `` instead: the same
+compiler↔encoder round-trip class, one construct further along, and squarely issue **#692**'s.
+The seventh stops at stage 4, on declaration drift. A second pre-existing reason sits behind that
+one: every `MessageCreation` — which the `Ok(..)` outcome is, and which a plain `Ok(x)` in
+hand-written source always has been — compiles to `{ let mut __ball_map = BallMap::new(); … }`, and
+`BallMap::new()` is an associated function on a foreign type the encoder documents as a permanent
+gap (#692 again). Re-measure before quoting a wall: this one moved twice while the PR was open.
 
-Tests: `rust/encoder/tests/write_sinks.rs` (21 cases — every destination shape, the newline rule,
-the join-sites rule, the closure- and block-shadowing traps, both directions of an alias
-binding, both loud refusals, a real
+Tests: `rust/encoder/tests/write_sinks.rs` (27 cases — every destination shape, the newline rule,
+the join-sites rule, the closure-, block- and pattern-shadowing traps, both directions of an alias
+binding, both loud refusals, the `impl Display` shape the issue names, a real
 `cargo build` of the compiled-back library, and an end-to-end run of the local-`String` arm).
 
 #### Data-carrying enum variants are deliberately NOT bundled with the above

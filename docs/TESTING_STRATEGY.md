@@ -941,6 +941,7 @@ in a different, correct place: C++ renames in its compiler's throw lowering
 (#640), Go/Rust/C#/the Dart engine alias it in `std.throw` itself (#615). A
 source-pattern check would either demand one shape of all of them or rubber-stamp
 whatever each does; the fixture measures the observable instead.
+
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
 `std_concurrency` shipped nine declared base functions, a dispatch arm in the

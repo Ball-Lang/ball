@@ -29,7 +29,19 @@ Cross-language foundation: protobuf-generated Ball types, the universal std modu
   custom` enforceable) and the termination analyzer emits an
   `unknown_termination` info naming it (issues #609, #683). Classification keys
   on the DECLARATION, never on the spoofable `call.module` string — see
-  `_collectCustomBaseFns`. #609 keyed it on the module NAME instead, which let a
+  `_collectCustomBaseFns`. **It also resolves by function IDENTITY, not by
+  the call-site module**: the engine's own `_resolveAndCallFunction` falls back
+  to a bare-name scan across every module when the exact `<module>.<function>`
+  key misses, so an unqualified call (`call.module` empty) or one naming a
+  benign-looking module reaches the very same host handler and must audit the
+  same way — `_resolveCustomBaseFn` does exact-first, then bare-name, the
+  sibling of #402's `lookupCapabilityByName`. Both directions fail closed: an
+  undeclared name stays an ordinary user call, and a bare name a non-base user
+  function also declares is never resolved (the engine refuses to dispatch that
+  case at all — the #420 `sawBase && sawUser` guard throws). When the resolution
+  differs from the call site, the DECLARING module leads in the report and the
+  `--deny` violation (`mymodule.exec_shell (call site: main.exec_shell)`) and is
+  carried in `ball.v1.CallSite.resolved_module` for `--output` JSON. #609 keyed it on the module NAME instead, which let a
   program-supplied module *squatting* a std name (a module called `std`
   declaring `exec_shell`) read as pure; #683 closed that. The #402 bare-name
   resolution stays scoped to the eight std module names, because the corpus

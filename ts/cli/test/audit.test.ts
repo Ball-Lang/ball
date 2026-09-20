@@ -275,6 +275,67 @@ describe('cli_core.ts — audit (self-hosted capability + termination)', () => {
     assert.ok(text.includes('Unknown Termination (1):'));
   });
 
+  // #609 follow-up: the engine dispatches a base call by function identity, not
+  // by `call.module`, so an unqualified (or benign-looking) call site reaches
+  // the very same host handler. Classifying only the truthfully qualified
+  // spelling left both of those reading NO RISK with `--deny custom` empty.
+  for (const [label, callModule] of [
+    ['unqualified', undefined],
+    ['spoofed', 'harmless_looking_module'],
+  ] as const) {
+    test(`a ${label} call into a declared custom base module is \`custom\` (#609)`, () => {
+      const program = {
+        ...customProgram,
+        modules: [
+          customProgram.modules[0],
+          customProgram.modules[1],
+          {
+            name: 'main',
+            functions: [
+              {
+                name: 'main',
+                body: {
+                  call: {
+                    ...(callModule === undefined ? {} : { module: callModule }),
+                    function: 'exec_shell',
+                    input: { messageCreation: { fields: [] } },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const report = analyzeCapabilities(program) as {
+        summary: { isPure: boolean };
+      };
+      assert.equal(report.summary.isPure, false);
+      const violations = checkPolicy(report, new Set(['custom']));
+      assert.ok(violations.length > 0, '--deny custom must trip');
+      assert.ok(
+        violations.some((v: string) =>
+          v.includes(
+            `mymodule.exec_shell (call site: ${callModule ?? 'main'}.exec_shell)`,
+          ),
+        ),
+        `violation must name the declaring module: ${JSON.stringify(violations)}`,
+      );
+
+      // The DECLARING module leads; the call-site spelling follows it.
+      const callSite = `${callModule ?? 'main'}.exec_shell`;
+      const text = auditReport(program);
+      assert.ok(
+        text.includes(`mymodule.exec_shell (call site: ${callSite})`),
+        `report must name the declaring module and the call site: ${text}`,
+      );
+      assert.ok(
+        text.includes('REVIEW REQUIRED — calls into custom base modules'),
+      );
+      assert.ok(!text.includes('NO RISK'));
+      assert.ok(text.includes('Unknown Termination (1):'));
+    });
+  }
+
   test('analyzeTermination returns no warnings for a clean program', () => {
     // richProgram has no loops → an empty warning list, and the formatter still
     // produces a (warning-free) section rather than throwing.

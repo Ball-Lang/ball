@@ -2901,6 +2901,17 @@ type CallSite struct {
 	CalleeModule string `protobuf:"bytes,3,opt,name=callee_module,json=calleeModule,proto3" json:"callee_module,omitempty"`
 	// The base function being called (e.g. "file_read").
 	CalleeFunction string `protobuf:"bytes,4,opt,name=callee_function,json=calleeFunction,proto3" json:"callee_function,omitempty"`
+	// The module that DECLARES the callee, when it differs from callee_module.
+	//
+	// The engine dispatches a base call by function identity, not by the
+	// call-site module string: an unqualified call (empty module) or one naming a
+	// benign-looking module still reaches the declaring module's base function.
+	// callee_module keeps what the program wrote; this field names where that
+	// call actually lands, so a machine-readable report cannot be misled by the
+	// call-site spelling (issue #609). Empty when the call site named the
+	// declaring module itself, and for every std capability (whose #402 bare-name
+	// resolution is already unambiguous by function name alone).
+	ResolvedModule string `protobuf:"bytes,5,opt,name=resolved_module,json=resolvedModule,proto3" json:"resolved_module,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2959,6 +2970,13 @@ func (x *CallSite) GetCalleeModule() string {
 func (x *CallSite) GetCalleeFunction() string {
 	if x != nil {
 		return x.CalleeFunction
+	}
+	return ""
+}
+
+func (x *CallSite) GetResolvedModule() string {
+	if x != nil {
+		return x.ResolvedModule
 	}
 	return ""
 }
@@ -3388,12 +3406,13 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\n" +
 	"risk_level\x18\x02 \x01(\tR\triskLevel\x120\n" +
 	"\n" +
-	"call_sites\x18\x03 \x03(\v2\x11.ball.v1.CallSiteR\tcallSites\"\x8c\x01\n" +
+	"call_sites\x18\x03 \x03(\v2\x11.ball.v1.CallSiteR\tcallSites\"\xb5\x01\n" +
 	"\bCallSite\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\tR\x06module\x12\x1a\n" +
 	"\bfunction\x18\x02 \x01(\tR\bfunction\x12#\n" +
 	"\rcallee_module\x18\x03 \x01(\tR\fcalleeModule\x12'\n" +
-	"\x0fcallee_function\x18\x04 \x01(\tR\x0ecalleeFunction\"l\n" +
+	"\x0fcallee_function\x18\x04 \x01(\tR\x0ecalleeFunction\x12'\n" +
+	"\x0fresolved_module\x18\x05 \x01(\tR\x0eresolvedModule\"l\n" +
 	"\x12FunctionCapability\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\tR\x06module\x12\x1a\n" +
 	"\bfunction\x18\x02 \x01(\tR\bfunction\x12\"\n" +

@@ -751,9 +751,7 @@ impl<'a> Compiler<'a> {
                 )
             });
 
-        let mut out = self.compile_modules();
-        out.push_str(&self.compile_entry_main(entry_func));
-        out
+        self.compile_modules(Some(entry_func))
     }
 
     /// Compile [`Self::program`] as a **library** — every module's types and
@@ -771,7 +769,7 @@ impl<'a> Compiler<'a> {
     /// their bare Rust names; every other user module nests under its own
     /// `pub mod`.
     pub fn compile_library(&self) -> String {
-        self.compile_modules()
+        self.compile_modules(None)
     }
 
     /// Emit `pub fn __ball_register_types()` — one `ball_register_superclass`
@@ -801,15 +799,68 @@ impl<'a> Compiler<'a> {
     /// Shared body of [`Self::compile`] and [`Self::compile_library`]: the
     /// preamble (imports) plus every module's types/functions. The entry
     /// module is inlined at the top level; every other non-base module nests
-    /// under its own `pub mod`. Emits neither a `fn main()` nor any
-    /// entry-function lookup — both callers layer that (or not) on top.
-    fn compile_modules(&self) -> String {
+    /// under its own `pub mod`.
+    ///
+    /// `entry_main` is the program's entry [`FunctionDefinition`] in program
+    /// mode and `None` in library mode. It is compiled HERE rather than appended
+    /// by the caller because the oneof-discriminator namespaces are emitted only
+    /// for the names the compiled text mentions (issue #642) — and the entry
+    /// body is the last thing that can mention one, so it has to exist before
+    /// the preamble is assembled.
+    fn compile_modules(&self, entry_main: Option<&FunctionDefinition>) -> String {
         let entry_module = self
             .program
             .modules
             .iter()
             .find(|m| m.name == self.program.entry_module)
             .unwrap_or_else(|| panic!("Entry module \"{}\" not found", self.program.entry_module));
+
+        // Compile every module body (and, in program mode, `fn main()`) FIRST,
+        // into `body`: the oneof-discriminator namespaces below are emitted only
+        // for the names the compiled text actually mentions, so the whole text
+        // has to exist before they can be decided (issue #642).
+        let mut body = String::new();
+
+        // Every other user (non-base) module → its own nested `mod` block,
+        // one per Ball module (issue #38's multi-module output). `use
+        // super::*;` brings the preamble's `BallValue`/`BallMap`/
+        // `BallMessage`/`runtime::*` imports into scope — Rust privacy lets
+        // a child module see its ancestors' private `use` items, so this
+        // needs no re-import.
+        for module in &self.program.modules {
+            if module.name == entry_module.name || self.is_base_module(&module.name) {
+                continue;
+            }
+            let module_body = self.compile_module_body(module);
+            if module_body.trim().is_empty() {
+                // An empty non-base module (no Ball-defined functions or
+                // types) is a pure **namespace marker** for a foreign SDK —
+                // the self-hosted engine declares `dart_math`, `dart_io`, …
+                // this way and then calls into them fully qualified
+                // (`dart_math::sqrt(x)`, `dart_io::File(path)`). Re-export the
+                // shared runtime so those qualified calls resolve to the
+                // matching `ball_lang_shared::runtime` helper (issue #39 gap #2 —
+                // the Dart-SDK method/type surface). A `use super::*;` glob
+                // would *not* work: it imports privately, so the names would
+                // not be reachable as `<mod>::<name>` from the crate root.
+                body.push_str(&format!(
+                    "pub mod {} {{\n    pub use ball_lang_shared::runtime::*;\n}}\n\n",
+                    sanitize_ident(&module.name)
+                ));
+            } else {
+                body.push_str(&format!(
+                    "pub mod {} {{\n    use super::*;\n",
+                    sanitize_ident(&module.name)
+                ));
+                body.push_str(&module_body);
+                body.push_str("}\n\n");
+            }
+        }
+
+        body.push_str(&self.compile_module_body(entry_module));
+        if let Some(entry_func) = entry_main {
+            body.push_str(&self.compile_entry_main(entry_func));
+        }
 
         let mut out = String::new();
         out.push_str(&format!(
@@ -829,9 +880,9 @@ impl<'a> Compiler<'a> {
         // them, yet the self-hosted engine references them as bare
         // `Expression_Expr.call` (issue #39). Emitted at the crate root so the
         // top-level entry module sees them directly and every nested `mod …
-        // { use super::*; }` sees them via its glob import. See
-        // `type_emit::oneof_discriminator_enum_defs`.
-        out.push_str(&type_emit::oneof_discriminator_enum_defs());
+        // { use super::*; }` sees them via its glob import — and only for the
+        // names `body` mentions. See `type_emit::oneof_discriminator_enum_defs`.
+        out.push_str(&type_emit::oneof_discriminator_enum_defs(&body));
         out.push('\n');
 
         // The class-hierarchy registration (`BallObject extends BallMap`, …) —
@@ -841,44 +892,7 @@ impl<'a> Compiler<'a> {
         // wrapper alike).
         out.push_str(&self.emit_type_registrations());
         out.push('\n');
-
-        // Every other user (non-base) module → its own nested `mod` block,
-        // one per Ball module (issue #38's multi-module output). `use
-        // super::*;` brings the preamble's `BallValue`/`BallMap`/
-        // `BallMessage`/`runtime::*` imports into scope — Rust privacy lets
-        // a child module see its ancestors' private `use` items, so this
-        // needs no re-import.
-        for module in &self.program.modules {
-            if module.name == entry_module.name || self.is_base_module(&module.name) {
-                continue;
-            }
-            let body = self.compile_module_body(module);
-            if body.trim().is_empty() {
-                // An empty non-base module (no Ball-defined functions or
-                // types) is a pure **namespace marker** for a foreign SDK —
-                // the self-hosted engine declares `dart_math`, `dart_io`, …
-                // this way and then calls into them fully qualified
-                // (`dart_math::sqrt(x)`, `dart_io::File(path)`). Re-export the
-                // shared runtime so those qualified calls resolve to the
-                // matching `ball_lang_shared::runtime` helper (issue #39 gap #2 —
-                // the Dart-SDK method/type surface). A `use super::*;` glob
-                // would *not* work: it imports privately, so the names would
-                // not be reachable as `<mod>::<name>` from the crate root.
-                out.push_str(&format!(
-                    "pub mod {} {{\n    pub use ball_lang_shared::runtime::*;\n}}\n\n",
-                    sanitize_ident(&module.name)
-                ));
-            } else {
-                out.push_str(&format!(
-                    "pub mod {} {{\n    use super::*;\n",
-                    sanitize_ident(&module.name)
-                ));
-                out.push_str(&body);
-                out.push_str("}\n\n");
-            }
-        }
-
-        out.push_str(&self.compile_module_body(entry_module));
+        out.push_str(&body);
         out
     }
 

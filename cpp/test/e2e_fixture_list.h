@@ -331,7 +331,14 @@ inline const std::vector<std::string>& program_names() {
         "465_state_error_message",
         "466_string_sink",
         "467_caught_type_error_to_string",
-        "468_std_concurrency_handles",
+        "468_map_contains_value",
+        "469_map_put_if_absent",
+        "470_setter_beside_final_field",
+        "471_null_aware_chain_scope",
+        "472_initializer_list_field_with_setter",
+        "473_caught_user_thrown_builtin_error",
+        "474_is_not_empty_receivers",
+        "475_std_concurrency_handles",
     };
     return names;
 }

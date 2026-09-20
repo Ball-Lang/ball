@@ -67,7 +67,7 @@ final Map<String, List<_Probe>> _probes = {
   // Handles are minted 1, 2, 3… per engine instance and `_eval` builds a fresh
   // engine per probe, so the FIRST handle of each kind is deterministic. That
   // exact number is the reference engine's, not a portable promise: conformance
-  // fixture `468_std_concurrency_handles` asserts only that handles are
+  // fixture `475_std_concurrency_handles` asserts only that handles are
   // DISTINCT, which is what a Ball program may rely on.
   'std_concurrency.thread_spawn': [
     (

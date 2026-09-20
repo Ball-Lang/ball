@@ -1270,6 +1270,49 @@ void main() {
         '1',
       );
     });
+    // Dart's `putIfAbsent(key, ifAbsent)` takes a THUNK, and the encoder's
+    // `collectionRoutes` route passes the source's `() => …` straight through
+    // as `value`. A Ball lambda has exactly one input, so the engine's closure
+    // is `(Object?) => …` and calling it with NO argument threw
+    // `NoSuchMethodError: Closure call with mismatched arguments` — the two
+    // cases above pass a plain literal, so nothing ever reached the branch
+    // (issue #488; conformance fixture `469_map_put_if_absent`).
+    test(
+      'map_put_if_absent calls a lambda value when the key is absent',
+      () async {
+        expect(
+          await evalPrint(
+            stdCall(
+              'map_put_if_absent',
+              msg([
+                field('map', mapOf({'a': 1})),
+                field('key', literal('b')),
+                field('value', lambdaExpr(literal(5))),
+              ]),
+            ),
+          ),
+          '5',
+        );
+      },
+    );
+    test(
+      'map_put_if_absent never calls the lambda when the key is present',
+      () async {
+        expect(
+          await evalPrint(
+            stdCall(
+              'map_put_if_absent',
+              msg([
+                field('map', mapOf({'a': 1})),
+                field('key', literal('a')),
+                field('value', lambdaExpr(literal(5))),
+              ]),
+            ),
+          ),
+          '1',
+        );
+      },
+    );
     test('map_keys / map_values', () async {
       expect(
         await evalPrint(

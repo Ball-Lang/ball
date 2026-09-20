@@ -264,8 +264,22 @@ for target in "${!FLOORS[@]}"; do
   # lcov --summary prints a "lines......: NN.N% (a of b lines)" line. This
   # (NOT `--list`'s per-file table) is the reliable aggregate — see the
   # comment above and in build-cov-report.sh.
+  #
+  # POSIX ERE, never `grep -P` (#700 item 6): PCRE mode is a GNU-grep
+  # extension that Git Bash on native Windows refuses outright under a
+  # non-UTF-8 locale — `grep: -P supports only unibyte and UTF-8 locales` —
+  # so this gate, and cpp/test/test_build_cov_floor_parsing.sh with it, was
+  # unrunnable off Linux and read like a real regression. The sed below is
+  # equivalent on the shape lcov prints: optional dots after `lines`, then
+  # the first integer-or-decimal run after the colon.
+  #
+  # And nothing takes the first line on the FAR SIDE of the pipe: `head -1`
+  # exits early, lcov takes SIGPIPE, and `set -o pipefail` (line 139) turns
+  # that into 141. sed consumes its whole input; the first match is taken
+  # from the variable afterwards.
   pct=$(lcov --summary "$lcov_file" --ignore-errors empty 2>/dev/null \
-    | grep -oP 'lines\.*:\s*\K[0-9]+(\.[0-9]+)?' | head -1)
+    | sed -nE 's/.*lines\.*:[[:space:]]*([0-9]+(\.[0-9]+)?).*/\1/p')
+  pct=${pct%%$'\n'*}
   if [ -z "$pct" ]; then
     # FAIL LOUD, never SKIP (issue #63). This branch used to print SKIP and
     # `continue` without setting fail=1, so an empty/corrupt per-target

@@ -474,13 +474,26 @@ const ONEOF_DISCRIMINATOR_ENUMS: &[(&str, &[&str])] = &[
 ///
 /// Emitted once at the crate root (before the nested per-module `mod` blocks),
 /// so top-level entry-module code sees them directly and every nested
-/// `mod … { use super::*; }` sees them via its glob import — matching the
-/// TypeScript target's always-present preamble constants (harmless dead code
-/// for a program that never touches the Ball AST; `#![allow(dead_code)]`
-/// already covers it).
-pub(crate) fn oneof_discriminator_enum_defs() -> String {
+/// `mod … { use super::*; }` sees them via its glob import.
+///
+/// Only the namespaces the compiled body actually MENTIONS are emitted, which
+/// `compiled_body` is: the whole emitted program text, compiled first for
+/// exactly this decision. Emitting all five unconditionally put ~40 lines of
+/// dead `LazyLock` statics at the head of every compiled program, a hello-world
+/// included — dead code, and part of what the syntactic `syn` encoder refuses
+/// when it reads the compiler's own output back (issue #642). A bare reference
+/// to one of these resolves by ordinary Rust scoping (there is no
+/// reference-resolution hook to record a use at), so the test is the presence
+/// of the name in the emitted text: conservative in the safe direction — a name
+/// that appears only inside a string literal emits an unused static, which
+/// `#![allow(dead_code)]` already covers, and a name that is genuinely
+/// referenced can never be missed.
+pub(crate) fn oneof_discriminator_enum_defs(compiled_body: &str) -> String {
     let mut out = String::new();
     for (enum_name, members) in ONEOF_DISCRIMINATOR_ENUMS {
+        if !compiled_body.contains(enum_name) {
+            continue;
+        }
         let mut inserts = String::new();
         for member in *members {
             inserts.push_str(&format!(
@@ -1633,8 +1646,26 @@ impl Compiler<'_> {
                     td.name
                 ));
             }
+            // The fallback arm is REACHABLE program behaviour, not an internal
+            // assertion: a compiled `try` runs `ball_catch_payload` over the
+            // unwound payload, which turns this `panic!`'s message into the
+            // `BallValue::String` the `catch` binds. So the message is an
+            // observable, and the #616/#641 error-rendering contract says one
+            // program must render one way on every target. Go's dispatcher
+            // (`go/compiler/library.go`) throws `no method '<name>' for <type>`
+            // and C#'s (`csharp/compiler/src/TypeEmit.cs`) throws exactly the
+            // same string; this arm used to prefix it with
+            // `ball-lang-compiler runtime:`, which no other target emits.
+            //
+            // `panic!` — rather than a `ball_throw(...)` call — is also what
+            // keeps the compiler's output re-encodable (issue #632):
+            // `encoder/src/methods.rs::encode_macro` reads a `panic!` back as
+            // `std.throw`, so this arm survives a compile → re-encode round trip
+            // as the same throw of the same message. The two halves are gated
+            // together by `rust/encoder/tests/compile_reencode_roundtrip.rs` —
+            // never change this spelling without re-running it.
             out.push_str(&format!(
-                "        other => panic!(\"ball-lang-compiler runtime: no method '{short}' for type '{{}}'\", other),\n"
+                "        other => panic!(\"no method '{short}' for {{}}\", other),\n"
             ));
             out.push_str("    }\n}\n\n");
         }

@@ -780,6 +780,432 @@
               }
             ]
           }
+        },
+        {
+          "name": "CascadeInput",
+          "descriptor": {
+            "name": "CascadeInput",
+            "field": [
+              {
+                "name": "target",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "sections",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "null_aware",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BOOL"
+              }
+            ]
+          }
+        },
+        {
+          "name": "NullAwareAccessInput",
+          "descriptor": {
+            "name": "NullAwareAccessInput",
+            "field": [
+              {
+                "name": "target",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "field",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "NullAwareCallInput",
+          "descriptor": {
+            "name": "NullAwareCallInput",
+            "field": [
+              {
+                "name": "target",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "method",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "InvokeInput",
+          "descriptor": {
+            "name": "InvokeInput",
+            "field": [
+              {
+                "name": "callee",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "TearOffInput",
+          "descriptor": {
+            "name": "TearOffInput",
+            "field": [
+              {
+                "name": "callback",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "target",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "method",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SymbolInput",
+          "descriptor": {
+            "name": "SymbolInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "TypeLiteralInput",
+          "descriptor": {
+            "name": "TypeLiteralInput",
+            "field": [
+              {
+                "name": "type",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "LabeledInput",
+          "descriptor": {
+            "name": "LabeledInput",
+            "field": [
+              {
+                "name": "label",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "body",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "TypedListInput",
+          "descriptor": {
+            "name": "TypedListInput",
+            "field": [
+              {
+                "name": "type_args",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "elements",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MapCreateInput",
+          "descriptor": {
+            "name": "MapCreateInput",
+            "field": [
+              {
+                "name": "type_args",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "entry",
+                "number": 2,
+                "label": "LABEL_REPEATED",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "element",
+                "number": 3,
+                "label": "LABEL_REPEATED",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MapCreateEntry",
+          "descriptor": {
+            "name": "MapCreateEntry",
+            "field": [
+              {
+                "name": "key",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "RecordInput",
+          "descriptor": {
+            "name": "RecordInput",
+            "field": [
+              {
+                "name": "fields",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CollectionForInput",
+          "descriptor": {
+            "name": "CollectionForInput",
+            "field": [
+              {
+                "name": "variable",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "iterable",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "init",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "condition",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "update",
+                "number": 5,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 6,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SwitchExprInput",
+          "descriptor": {
+            "name": "SwitchExprInput",
+            "field": [
+              {
+                "name": "subject",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "cases",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SwitchExprCase",
+          "descriptor": {
+            "name": "SwitchExprCase",
+            "field": [
+              {
+                "name": "pattern",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "body",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "pattern_expr",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "guard",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "is_default",
+                "number": 5,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BOOL"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ListFilledInput",
+          "descriptor": {
+            "name": "ListFilledInput",
+            "field": [
+              {
+                "name": "length",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ListGenerateInput",
+          "descriptor": {
+            "name": "ListGenerateInput",
+            "field": [
+              {
+                "name": "length",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "generator",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "StringInterpolationInput",
+          "descriptor": {
+            "name": "StringInterpolationInput",
+            "field": [
+              {
+                "name": "parts",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         }
       ]
     },

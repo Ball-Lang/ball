@@ -63,7 +63,7 @@ func infoReport(input ballrt.Value) (__ret ballrt.Value) {
 							return __v
 						}()
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(module, "typeDefs")))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(module, "typeDefs"))) {
 								return func() ballrt.Value {
 									__v := ballrt.ListPush(lines, ballrt.Concat("    typeDefs:  ", ballrt.ToStr(ballrt.FieldGet(ballrt.FieldGet(module, "typeDefs"), "length"))))
 									lines = __v
@@ -73,7 +73,7 @@ func infoReport(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}()
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(module, "typeAliases")))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(module, "typeAliases"))) {
 								return func() ballrt.Value {
 									__v := ballrt.ListPush(lines, ballrt.Concat("    aliases:   ", ballrt.ToStr(ballrt.FieldGet(ballrt.FieldGet(module, "typeAliases"), "length"))))
 									lines = __v
@@ -83,7 +83,7 @@ func infoReport(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}()
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(module, "enums")))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(module, "enums"))) {
 								return func() ballrt.Value {
 									__v := ballrt.ListPush(lines, ballrt.Concat("    enums:     ", ballrt.ToStr(ballrt.FieldGet(ballrt.FieldGet(module, "enums"), "length"))))
 									lines = __v
@@ -98,7 +98,7 @@ func infoReport(input ballrt.Value) (__ret ballrt.Value) {
 							return __v
 						}()
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(module, "description")))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(module, "description"))) {
 								return func() ballrt.Value {
 									__v := ballrt.ListPush(lines, ballrt.Concat("    desc:      ", ballrt.ToStr(ballrt.FieldGet(module, "description"))))
 									lines = __v
@@ -145,7 +145,7 @@ func validationErrors(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(program, "entryModule")))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(program, "entryFunction")))))) {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(program, "entryModule"))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(program, "entryFunction"))))) {
 				return func() ballrt.Value {
 					var entryMod ballrt.Value = ballrt.Value(nil)
 					_ = entryMod
@@ -252,7 +252,7 @@ func validationErrors(input ballrt.Value) (__ret ballrt.Value) {
 				_ = m
 				if ballrt.RunLoopBody("", func() {
 					_ = func() ballrt.Value {
-						if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(m, "name")))) {
+						if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(m, "name"))) {
 							return func() ballrt.Value {
 								if ballrt.Truthy(ballrt.ListContains(seen, ballrt.FieldGet(m, "name"))) {
 									return func() ballrt.Value {
@@ -398,7 +398,7 @@ func treeReport(input ballrt.Value) (__ret ballrt.Value) {
 				_ = m
 				if ballrt.RunLoopBody("", func() {
 					_ = func() ballrt.Value {
-						var isBase ballrt.Value = (ballrt.Truthy(_allBase(ballrt.FieldGet(m, "functions"))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(m, "functions")))))
+						var isBase ballrt.Value = (ballrt.Truthy(_allBase(ballrt.FieldGet(m, "functions"))) && ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(m, "functions"))))
 						_ = isBase
 						var tag ballrt.Value = func() ballrt.Value {
 							if ballrt.Truthy(isBase) {
@@ -496,7 +496,7 @@ func auditReport(input ballrt.Value) (__ret ballrt.Value) {
 		var termWarnings ballrt.Value = analyzeTermination(program)
 		_ = termWarnings
 		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(termWarnings))) {
+			if ballrt.Truthy(ballrt.StrIsNotEmpty(termWarnings)) {
 				return func() ballrt.Value {
 					__v := ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(out), "\n"), ballrt.ToStr(formatTerminationReport(termWarnings))), "\n")
 					out = __v
@@ -704,7 +704,7 @@ func lookupCapabilityByName(input ballrt.Value) (__ret ballrt.Value) {
 						}())
 						_ = cap
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(cap))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(cap)) {
 								return ballrt.Return(cap)
 							}
 							return ballrt.Value(nil)
@@ -746,7 +746,7 @@ func lookupBaseModuleByName(input ballrt.Value) (__ret ballrt.Value) {
 						}())
 						_ = cap
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(cap))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(cap)) {
 								return ballrt.Return(m)
 							}
 							return ballrt.Value(nil)
@@ -834,9 +834,7 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std.yield"), "async")
 		__map1.Set(ballrt.ToStr("std.yield_each"), "async")
 		__map1.Set(ballrt.ToStr("std.await"), "async")
-		__map1.Set(ballrt.ToStr("std.async"), "async")
 		__map1.Set(ballrt.ToStr("std.assign"), "pure")
-		__map1.Set(ballrt.ToStr("std.compound_assign"), "pure")
 		__map1.Set(ballrt.ToStr("std.is"), "pure")
 		__map1.Set(ballrt.ToStr("std.is_not"), "pure")
 		__map1.Set(ballrt.ToStr("std.as"), "pure")
@@ -862,13 +860,13 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std.dart_list_generate"), "pure")
 		__map1.Set(ballrt.ToStr("std.map_create"), "pure")
 		__map1.Set(ballrt.ToStr("std.index"), "pure")
-		__map1.Set(ballrt.ToStr("std.index_assign"), "pure")
 		__map1.Set(ballrt.ToStr("std.labeled"), "pure")
 		__map1.Set(ballrt.ToStr("std.label"), "pure")
 		__map1.Set(ballrt.ToStr("std.goto"), "pure")
 		__map1.Set(ballrt.ToStr("std.paren"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_length"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_is_empty"), "pure")
+		__map1.Set(ballrt.ToStr("std.string_is_not_empty"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_concat"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_contains"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_starts_with"), "pure")
@@ -1674,13 +1672,13 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 											return ballrt.Value(nil)
 										}()
 										_ = func() ballrt.Value {
-											if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(lookupCapability(func() ballrt.Value {
+											if ballrt.Truthy(ballrt.StrIsNotEmpty(lookupCapability(func() ballrt.Value {
 												__m := ballrt.NewMap()
 												__m.Set("arg0", table)
 												__m.Set("arg1", ballrt.FieldGet(module, "name"))
 												__m.Set("arg2", ballrt.FieldGet(f, "name"))
 												return __m
-											}())))) {
+											}()))) {
 												return func() ballrt.Value {
 													_ = ballrt.Continue("")
 													return ballrt.Value(nil)
@@ -1689,12 +1687,12 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 											return ballrt.Value(nil)
 										}()
 										_ = func() ballrt.Value {
-											if ballrt.Truthy((ballrt.Truthy(lenient) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(lookupCapabilityByName(func() ballrt.Value {
+											if ballrt.Truthy((ballrt.Truthy(lenient) && ballrt.Truthy(ballrt.StrIsNotEmpty(lookupCapabilityByName(func() ballrt.Value {
 												__m := ballrt.NewMap()
 												__m.Set("arg0", table)
 												__m.Set("arg1", ballrt.FieldGet(f, "name"))
 												return __m
-											}())))))) {
+											}()))))) {
 												return func() ballrt.Value {
 													_ = ballrt.Continue("")
 													return ballrt.Value(nil)
@@ -2197,7 +2195,7 @@ func _walkCapCall(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(cap))) {
+			if ballrt.Truthy(ballrt.StrIsNotEmpty(cap)) {
 				return _recordCapSite(func() ballrt.Value {
 					__map23 := ballrt.NewMap()
 					__map23.Set(ballrt.ToStr("cap"), cap)
@@ -2434,7 +2432,7 @@ func _buildReportFromFunctions(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}()
 						_ = func() ballrt.Value {
-							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(sites))) {
+							if ballrt.Truthy(ballrt.StrIsNotEmpty(sites)) {
 								return func() ballrt.Value {
 									__v := ballrt.ListPush(capabilitiesOut, func() ballrt.Value {
 										__map28 := ballrt.NewMap()
@@ -2699,7 +2697,7 @@ func formatCapabilityReport(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(absent))) {
+			if ballrt.Truthy(ballrt.StrIsNotEmpty(absent)) {
 				return func() ballrt.Value {
 					__v := ballrt.ListPush(lines, ballrt.Concat("  ✗ NONE: ", ballrt.ToStr(ballrt.ListJoin(absent, ", "))))
 					lines = __v
@@ -2715,7 +2713,7 @@ func formatCapabilityReport(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.NewList()
 		}()
 		_ = shadows
-		var hasShadows ballrt.Value = ballrt.Not(ballrt.StrIsEmpty(shadows))
+		var hasShadows ballrt.Value = ballrt.StrIsNotEmpty(shadows)
 		_ = hasShadows
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(hasShadows) {
@@ -4090,7 +4088,7 @@ func _checkWhileLoop(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
-			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Not(isLiteralTrue)) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(condVars))))) && ballrt.Truthy(ballrt.Not(hasExit)))) && ballrt.Truthy(ballrt.Not(intersects)))) {
+			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Not(isLiteralTrue)) && ballrt.Truthy(ballrt.StrIsNotEmpty(condVars)))) && ballrt.Truthy(ballrt.Not(hasExit)))) && ballrt.Truthy(ballrt.Not(intersects)))) {
 				return func() ballrt.Value {
 					__v := ballrt.ListPush(warnings, func() ballrt.Value {
 						__map68 := ballrt.NewMap()
@@ -5308,7 +5306,7 @@ func _checkOrphanedLabels(input ballrt.Value) (__ret ballrt.Value) {
 														var label ballrt.Value = ballrt.IndexGet(usage, "label")
 														_ = label
 														_ = func() ballrt.Value {
-															if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(label))) && ballrt.Truthy(ballrt.Not(ballrt.ListContains(definedLabels, label))))) {
+															if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsNotEmpty(label)) && ballrt.Truthy(ballrt.Not(ballrt.ListContains(definedLabels, label))))) {
 																return func() ballrt.Value {
 																	__v := ballrt.ListPush(warnings, func() ballrt.Value {
 																		__map91 := ballrt.NewMap()
@@ -5400,7 +5398,7 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 											}())
 											_ = name
 											_ = func() ballrt.Value {
-												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(name, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(name))))) {
+												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(name, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(name)))) {
 													return func() ballrt.Value {
 														if ballrt.Truthy(ballrt.Not(ballrt.ListContains(labels, name))) {
 															return func() ballrt.Value { __v := ballrt.ListPush(labels, name); labels = __v; return __v }()
@@ -5589,7 +5587,7 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 											}())
 											_ = label
 											_ = func() ballrt.Value {
-												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(label))))) {
+												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(label)))) {
 													return func() ballrt.Value {
 														__v := ballrt.ListPush(usages, func() ballrt.Value {
 															__map101 := ballrt.NewMap()
@@ -5869,7 +5867,7 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.HasField(expr, "reference")) {
 				return func() ballrt.Value {
-					if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(ballrt.FieldGet(ballrt.FieldGet(expr, "reference"), "name")))) {
+					if ballrt.Truthy(ballrt.StrIsNotEmpty(ballrt.FieldGet(ballrt.FieldGet(expr, "reference"), "name"))) {
 						return func() ballrt.Value {
 							if ballrt.Truthy(ballrt.Not(ballrt.ListContains(vars, ballrt.FieldGet(ballrt.FieldGet(expr, "reference"), "name")))) {
 								return func() ballrt.Value {
@@ -6333,59 +6331,3 @@ func _exprHasExitSignal(input ballrt.Value) (__ret ballrt.Value) {
 	}()
 	return
 }
-
-var ballOneof_Expression_Expr = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("call", "call")
-	__m.Set("literal", "literal")
-	__m.Set("reference", "reference")
-	__m.Set("fieldAccess", "fieldAccess")
-	__m.Set("messageCreation", "messageCreation")
-	__m.Set("block", "block")
-	__m.Set("lambda", "lambda")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("Expression_Expr", __m)
-}()
-
-var ballOneof_Literal_Value = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("intValue", "intValue")
-	__m.Set("doubleValue", "doubleValue")
-	__m.Set("stringValue", "stringValue")
-	__m.Set("boolValue", "boolValue")
-	__m.Set("bytesValue", "bytesValue")
-	__m.Set("listValue", "listValue")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("Literal_Value", __m)
-}()
-
-var ballOneof_ModuleImport_Source = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("http", "http")
-	__m.Set("file", "file")
-	__m.Set("git", "git")
-	__m.Set("registry", "registry")
-	__m.Set("inline", "inline")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("ModuleImport_Source", __m)
-}()
-
-var ballOneof_Statement_Stmt = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("let", "let")
-	__m.Set("expression", "expression")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("Statement_Stmt", __m)
-}()
-
-var ballOneof_structpb_Value_Kind = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("nullValue", "nullValue")
-	__m.Set("numberValue", "numberValue")
-	__m.Set("stringValue", "stringValue")
-	__m.Set("boolValue", "boolValue")
-	__m.Set("structValue", "structValue")
-	__m.Set("listValue", "listValue")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("structpb.Value_Kind", __m)
-}()

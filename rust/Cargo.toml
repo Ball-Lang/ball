@@ -89,6 +89,14 @@ indexmap = "2"
 # identifiers in binding/variable/label positions across a whole expansion, and
 # `syn::visit_mut::VisitMut` is the only way to do that without hand-writing a
 # match arm per `syn` node kind.
-syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
+#
+# `visit` (issue #687): `ball-lang-encoder` must answer "does this closure body
+# contain an early exit that binds to THIS closure" before it may inline an
+# immediately-invoked closure. A hand-written recursion over `syn::Expr` would
+# answer that wrongly — silently, and in the unsafe direction — the first time a
+# node kind was forgotten or `syn` grew one; the read-only visitor covers every
+# kind by construction and needs overriding only at the frames that own their
+# own `return`.
+syn = { version = "2", features = ["full", "extra-traits", "visit", "visit-mut"] }
 proc-macro2 = "1"
 quote = "1"

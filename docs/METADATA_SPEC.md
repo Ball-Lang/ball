@@ -73,7 +73,7 @@ is semantically identical to the original.
 | `is_mixin_class` | `bool` | Mixin class (Dart 3). |
 | `doc` | `string` | Documentation comment. |
 | `annotations` | `[{name, args?, module?}]` | Class-level annotations. |
-| `fields` | `[{name, type?, is_final?, is_const?, is_late?, is_static?, initializer?}]` | Field metadata for round-trip fidelity. |
+| `fields` | `[{name, type?, is_final?, is_const?, is_late?, is_static?, initializer?}]` | Field metadata for round-trip fidelity. `is_final` additionally participates in **accessor shape** — see "Accessor shape" below. |
 | `values` | `[{name, args?, doc?}]` | Enum value metadata (constructor args). |
 | `rep_type` | `string` | Extension-type representation type (Dart 3 extension types). Only when `kind == "extension_type"`. |
 | `rep_field` | `string` | Extension-type representation field name (Dart 3 extension types). Only when `kind == "extension_type"`. |
@@ -273,6 +273,71 @@ All metadata is cosmetic. The semantic content of a Ball program is:
 
 Everything else (visibility, mutability, annotations, syntax sugar) is metadata.
 A Ball program with all metadata stripped still computes the same result.
+
+### Accessor shape — the one closed family metadata participates in
+
+Accessors are the single place where the rule above needs saying precisely
+rather than loosely. Ball has no accessor node type: a getter and a setter are
+ordinary `FunctionDefinition`s, and the ONLY thing that says `main:Box.value` is
+a setter rather than a method named `value` is `FunctionDefinition.metadata`'s
+`is_getter` / `is_setter`. Strip those and a class has no accessors at all —
+every `obj.x = v` is a plain field write, every `obj.x` a plain field read, and
+the program is still internally consistent. That is the sense in which accessor
+metadata is cosmetic: it never changes what an expression *tree* means, only
+which declaration a field access resolves to.
+
+`fields[].is_final` belongs to that same closed family, and engines read it for
+exactly one decision (issue #664): **does this field's own declaration
+contribute a setter?** A non-`final` field does, so it shadows any setter
+inherited from an ancestor and the write is a plain field write (issue #501). A
+`final` field contributes a getter and nothing else, so a setter declared
+alongside it — legal in Dart, and the shape `collection`'s `ListSlice` uses —
+is the only setter for that name and must run.
+
+Keep the family closed. `is_const` / `is_late` / `is_static` / `visibility`, and
+every other key in this document, stay purely cosmetic; do not widen the set of
+keys an engine dispatches on without amending this section.
+
+### Extension overrides ride the function NAME, not metadata (issue #670)
+
+Dart's `Ext(receiver).member(args)` names WHICH extension supplies `member`, and
+it is written precisely when the plain `receiver.member(args)` would resolve to
+something else — `collection`'s `IterableComparableExtension.isSorted` calls
+`IterableExtension(this).isSorted(compare)`, and erasing the override makes it
+call itself. So the selection changes what the program computes and, by the rule
+above, may **not** live in metadata.
+
+It does not have to. An extension member is already declared as a module
+function named `<module>:<Ext>.<member>`, and a `FunctionCall` already carries
+its receiver in the input message's `self` field — the shape every instance call
+uses. An override is therefore:
+
+```
+Ext(receiver).member(a, b)
+  ⇒ FunctionCall{ module:   <module>,
+                  function: "<module>:<Ext>.<member>",
+                  input:    MessageCreation{ self: receiver, arg0: a, arg1: b } }
+```
+
+The name is semantic content, so the selection survives metadata stripping. No
+schema change, and no new dispatch key: a `self`-carrying call whose qualifier is
+not an extension typeDef still compiles to `self.member(args)` exactly as before.
+
+Explicit type arguments written on the MEMBER (`Ext(x).m<int>()`) ride
+`FunctionCall.type_args` — a real schema field, not metadata — exactly as they
+do for every other instance call, because an instantiation changes what the
+program computes too. (Type arguments on the EXTENSION, `Ext<int>(x)`, have no
+sound home in this shape and are refused by the encoder.)
+
+Two metadata keys are read while RENDERING that call back to Dart, and both are
+already in the closed family above. `TypeDefinition.metadata['kind'] ==
+"extension"` is what makes the qualifier an extension at all — strip it and the
+module stops declaring an extension, so the override has nothing to name and the
+whole declaration degrades together, consistently. `is_getter` / `is_setter` on
+the member decide `Ext(x).member` versus `Ext(x).member()`, which is the same
+accessor question the section above answers for `obj.x` — and a WRITE
+(`Ext(x).member = v`) encodes as that same call, so reading the setter's shape
+is what keeps the emitted left-hand side assignable. Neither widens the family.
 
 ---
 

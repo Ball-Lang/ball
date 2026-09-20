@@ -26,11 +26,12 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. **Eight** are flipped today: receiver-less associated functions
+//! unverified. **Nine** are flipped today: receiver-less associated functions
 //! and cross-file call targets (PR #526), non-`Fn` items inside an `impl`
 //! block, tuple + unit structs, module-scope `const`/`static`/`type` aliases,
-//! non-`Fn` items inside a `trait` block, and — newest — the cross-file
-//! METHOD call, closed by the crate-aware `encode_crate`. The deeper proofs
+//! non-`Fn` items inside a `trait` block, the cross-file METHOD call (closed by
+//! the crate-aware `encode_crate`) and — newest — the script-mode entry-point
+//! IIFE, closed by #646's `as_zero_arg_closure`. The deeper proofs
 //! live in `rust/encoder/tests/static_methods.rs`,
 //! `rust/encoder/tests/cross_module_calls.rs`,
 //! `rust/encoder/tests/mixed_impl_items.rs`,
@@ -82,6 +83,13 @@
 //! missing-test bug on its own. It is CLOSED now, by the crate-aware
 //! `encode_crate`, and its test at the bottom of this file is flipped
 //! accordingly.
+
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::{
+    Expression, FieldValuePair, FunctionCall, FunctionDefinition, ListLiteral, Literal,
+    MessageCreation, Module, ModuleImport, Program, Reference,
+};
 
 /// Source is only ever encoded, never compiled, so every snippet here is
 /// minimal — the panic must fire on the shape, not on anything downstream.
@@ -309,8 +317,16 @@ fn top_level_proc_macro_invocation_is_a_documented_gap() {
     encode("some_derive_helper!();\nfn main() { println!(\"{}\", 1); }");
 }
 
-/// 6 of 196 study files. Only `println!`/`format!`/`vec!` are mapped
-/// (`methods.rs::encode_macro`).
+/// 6 of 196 study files. `methods.rs::encode_macro` maps
+/// `println!`/`format!`/`vec!`/`panic!`/`unreachable!` and refuses everything
+/// else — `assert!` here, and `write!` (the measured largest remaining bucket).
+///
+/// The last two arms were added for the compiler↔encoder round trip (#632): the
+/// compiler emits `panic!` and `unreachable!` into user programs, so refusing
+/// them broke Tier A's stage 3. That is the ONLY reason this list grows —
+/// widening it for its own sake is how a syntactic encoder starts guessing. The
+/// third macro that sweep found, `matches!`, is NOT mapped and has its own pin
+/// at the bottom of this file (#712).
 #[test]
 #[should_panic(expected = "unsupported macro invocation")]
 fn unmapped_macro_invocation_is_a_documented_gap() {
@@ -354,4 +370,249 @@ fn cross_file_method_call_encodes() {
         program.modules.iter().any(|m| m.name == "counter"),
         "the crate walk must reach the file declaring the called method"
     );
+}
+
+// ── lib.rs: re-encoding the COMPILER's own output ────────────────────────────
+
+/// **CLOSED**, and flipped here per this file's own rule — by #646's
+/// `lib.rs::as_zero_arg_closure`, not by the shape issue #687 proposed.
+///
+/// `Compiler::compile()` (script mode) wraps the entry function's body in an
+/// immediately-invoked closure — `let _ballvalue_result: BallValue = (|| ->
+/// BallValue { … })();` — and `lib.rs`'s call-target match used to refuse it,
+/// so `encode(compile(p))` failed for EVERY program, hello-world included.
+///
+/// #687 proposed encoding it as a `lambda` invoked through `std.invoke` (what
+/// `dart/encoder` emits for a `FunctionExpressionInvocation`), on the worry that
+/// a plain Ball `block` would change where a `return` lands. #646 INLINED the
+/// closure body instead, and that is sound in both directions: a Ball `return`
+/// returns from the enclosing FUNCTION, the compiler's IIFE exists only because
+/// Rust's `main` returns `()`, and the entry body IS the function body — so
+/// inlining restores exactly the Ball the compiler started from.
+///
+/// The remaining half of #687 — is the IIFE equally faithful for a NESTED block
+/// in value position? — is CLOSED too, and its answer moved the fix to this
+/// side rather than the compiler's: `compile_block` emits a native Rust block,
+/// so the compiler never wraps a value-position block, but inlining EVERY
+/// immediately-invoked closure re-bound a `return` in the hand-written Rust
+/// this encoder reads (`compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`
+/// is the run-proof). Inlining is conditional now — `closure_body_exits_early`
+/// — and #687's `std.invoke`-over-`lambda` shape is what an early-exiting body
+/// gets. This fixture's body cannot exit early, so it still inlines and this
+/// test is unchanged by that.
+///
+/// It is asserted POSITIVELY, not merely as "does not panic": a re-encode that
+/// dropped the inlined body would not panic either. This test was RED against
+/// `main` (`#[should_panic]`, "did not panic as expected") from the moment #646
+/// and #685 were both in — each green on its own branch, the same semantic merge
+/// conflict as `compiled_method_dispatcher_scrutinee_is_a_documented_gap` below.
+#[test]
+fn compiled_entry_point_iife_encodes() {
+    let program = ball_lang_encoder::encode(r#"fn main() { println!("{}", 1); }"#);
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile();
+    assert!(
+        compiled.contains("|| -> BallValue {"),
+        "this test is only meaningful while script mode still wraps the entry body in an IIFE \
+         — if that changed, re-measure #687 and update it:\n{compiled}"
+    );
+
+    let reencoded = ball_lang_encoder::encode(&compiled);
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("\"print\""),
+        "the entry body's `std.print` must survive the inlining — a re-encode that dropped the \
+         body would pass a panic-free assertion just as cleanly: {rendered}"
+    );
+}
+
+/// The same invariant's other OPEN shape, tracked as issue #712 — and the
+/// one the #632 sweep found by enumerating what the compiler EMITS rather than
+/// assuming the dispatcher's `panic!` was the only instance.
+///
+/// `base_call.rs::compile_list_literal` switches to an **imperative** lowering
+/// the moment any element splices (a spread, `collection_if` or
+/// `collection_for`), and that lowering emits TWO constructs this encoder
+/// refuses:
+///
+/// 1. `let mut __lit: Vec<BallValue> = Vec::new();` — an associated function on
+///    a foreign TYPE, a documented `lib.rs` gap, and the FIRST refusal;
+/// 2. `if !matches!(__sp, BallValue::Null)` — the null-spread guard, refused by
+///    `methods.rs::encode_macro` (pinned separately below, since a
+///    `#[should_panic]` can only observe the first panic).
+///
+/// So #712 is the whole lowering, not one macro: every library whose compiled
+/// output contains a spliced collection literal fails stage 3. The `assert!`s
+/// below hold BOTH constructs, so the pin cannot quietly narrow to one.
+///
+/// The input is a Ball program, not Rust source, and deliberately so: Rust has
+/// no `...?` syntax, so this construct can only enter the pipeline from the
+/// Ball side (the Dart encoder emits it for `[...?l]`). It is driven through
+/// the REAL compiler — a pin quoting a remembered emission site stops tracking
+/// the compiler the moment that lowering changes.
+///
+/// The fix belongs on the COMPILER side, in the plain-call vocabulary the
+/// neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` calls already
+/// use — but note that that vocabulary no longer re-encodes *soft*: since #646
+/// an unmapped `ball_*` is a hard refusal, so a compiler-side fix owes
+/// `runtime_helpers.rs` the matching inverse (or, where none exists, its own
+/// pin, as `compiled_method_dispatcher_scrutinee_is_a_documented_gap` below
+/// is). Teaching the encoder a `Vec::new()` or `matches!` arm instead would
+/// encode compiler-internal spellings while still refusing every real-world
+/// one, which is what Tier A actually measures.
+#[test]
+#[should_panic(expected = "unsupported call target")]
+fn compiled_spliced_list_literal_is_a_documented_gap() {
+    let program = null_spread_program();
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("Vec::new()"),
+        "this pin is only meaningful while the spliced-literal lowering still opens with \
+         `Vec::new()` — if that changed, re-measure #712 and update this test:\n{compiled}"
+    );
+    assert!(
+        compiled.contains("matches!"),
+        "…and while it still spells the null-spread guard as `matches!`, which is the SECOND \
+         refusal behind it:\n{compiled}"
+    );
+    let _ = ball_lang_encoder::encode_library(&compiled);
+}
+
+/// The second half of #712, pinned on its own because `#[should_panic]` sees
+/// only the first panic and `Vec::new()` fires ahead of it in the compiled
+/// output above. Without this, "the encoder refuses `matches!`" would be an
+/// assumption the suite never observed — and a later change that mapped
+/// `matches!` would leave the gap looking open when it was closed, or the
+/// reverse.
+#[test]
+#[should_panic(expected = "unsupported macro invocation")]
+fn the_matches_macro_is_a_documented_gap() {
+    encode("fn main() { let ok = matches!(1, 1); println!(\"{}\", ok); }");
+}
+
+/// A library with one struct and one instance method — the smallest source
+/// that makes `type_emit.rs::compile_method_dispatchers` emit a dispatcher.
+/// Kept byte-identical to `compile_reencode_roundtrip.rs`'s own constant so the
+/// pin and the round-trip gate are measuring the same construct.
+const CLASS_WITH_METHOD_SOURCE: &str = r#"
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+impl Point {
+    fn sum(&self) -> i64 {
+        self.x + self.y
+    }
+}
+"#;
+
+/// The round-trip invariant's SECOND open instance, tracked as **#718** — and
+/// one of the two that turned `main` red: a semantic merge conflict between #646,
+/// which built `runtime_helpers.rs` and made an UNMAPPED `ball_*` a hard
+/// refusal, and #685, which added the first test that re-encodes a compiled
+/// method dispatcher. Each was green on its own branch; together they are not.
+///
+/// `type_emit.rs::compile_method_dispatchers` opens every instance-method
+/// dispatcher with `match ball_message_type_name(&__self).as_str()`, and that
+/// helper has **no universal-`std` inverse**. It returns the receiver's
+/// MODULE-QUALIFIED tag (`main:Point` — `rust/shared/src/runtime.rs`), which is
+/// not what `std.type_of` returns: #489 defines `type_of` as the *short* base
+/// type name, module prefix stripped and generic arguments dropped. Mapping the
+/// helper to `type_of` would re-encode a dispatcher whose arms (`"main:Point"`)
+/// can never match its own scrutinee (`"Point"`) — structurally valid, silently
+/// dead, the #55 class the table exists to prevent. And `dart/shared/std.json`,
+/// the canonical base-function inventory, declares no qualified-name function
+/// at all, so this is not a table line either.
+///
+/// It is therefore deliberately NOT fixed here: the three real options (give
+/// the helper a genuine `std` inverse — possibly a `std` change; pin it as a
+/// gap; or change what the dispatcher emits) each decide what the
+/// qualified-vs-short name difference means at the Ball level, and that
+/// decision belongs with #632/#642. Whatever lands must keep #646's fail-loud
+/// direction. Flip this pin to a positive assertion in the PR that closes #718.
+///
+/// **The gap is one construct wide here, and much wider in general.** The table
+/// maps the universal-`std` subset only; `rust/compiler/src` emits many more
+/// `ball_*` helpers than it maps (the collection family, `ball_iterate`,
+/// `ball_with_self`, `ball_call_function`, …), so a compiled library naming any
+/// of them stops at the first one. Sweep it, never quote it from memory:
+/// `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the
+/// quoted names in `rust/encoder/src/runtime_helpers.rs`.
+///
+/// The dispatcher's BEHAVIOURAL half is untouched and still gated:
+/// `compile_reencode_roundtrip.rs::dispatcher_fallback_throws_the_target_neutral_message`
+/// compiles the compiler's own output, links it against a hand-written `main`
+/// and RUNS it, asserting the thrown message as bytes.
+#[test]
+#[should_panic(expected = "unsupported runtime helper `ball_message_type_name")]
+fn compiled_method_dispatcher_scrutinee_is_a_documented_gap() {
+    let program = ball_lang_encoder::encode_library(CLASS_WITH_METHOD_SOURCE);
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("ball_message_type_name(&__self)"),
+        "this pin is only meaningful while the dispatcher still reads the receiver's type \
+         through `ball_message_type_name` — if that changed, re-measure #718 and update this \
+         test:\n{compiled}"
+    );
+    let _ = ball_lang_encoder::encode_library(&compiled);
+}
+
+/// A one-function library whose body is `[...?input]` — the smallest program
+/// that makes `compile_collection_element` emit the null-spread guard.
+fn null_spread_program() -> Program {
+    let null_spread = Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: "null_spread".to_string(),
+            input: Some(Box::new(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields: vec![FieldValuePair {
+                        name: "value".to_string(),
+                        value: Some(Expression {
+                            expr: Some(Expr::Reference(Reference {
+                                name: "input".to_string(),
+                            })),
+                        }),
+                    }],
+                    metadata: None,
+                })),
+            })),
+            type_args: vec![],
+        }))),
+    };
+    let body = Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::ListValue(ListLiteral {
+                elements: vec![null_spread],
+            })),
+        })),
+    };
+    Program {
+        name: "null_spread".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_lang_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![FunctionDefinition {
+                    name: "splice".to_string(),
+                    input_type: String::new(),
+                    output_type: String::new(),
+                    body: Some(Box::new(body)),
+                    description: String::new(),
+                    is_base: false,
+                    metadata: None,
+                }],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: String::new(),
+        metadata: None,
+    }
 }

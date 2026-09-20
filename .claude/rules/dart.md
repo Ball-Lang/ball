@@ -106,6 +106,52 @@ for the authoritative member set).
   than silently un-awaited: the engine awaits it, and dropping the `Future`
   would be a divergence, not an optimisation.
 
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  The reference engine's own fix is `engine_std.dart`'s `_dartErrorPrefix`,
+  consulted by `to_string`'s `Exception`/`Error` arm BEFORE the message arm -
+  and only for Dart's own four names, so a user class called `ValidationError`
+  keeps printing its message. `.message` is deliberately left unprefixed, and
+  `dart/engine/test/user_thrown_builtin_error_test.dart` pins both halves.
+
+- **`late` on an instance field is decided from the IR, not from the field
+  declaration (#651).** A non-nullable field with no inline initializer needs
+  `late` only when nothing PROVES it assigned by the end of construction — i.e.
+  when it is written in a constructor BODY (#305). Two shapes prove it without
+  a body, and the encoder already records both:
+  `metadata['initializers']` `{kind: field, name, value}` (the constructor's own
+  initializer list) and a `metadata['params']` entry with `is_this: true` that is
+  ALWAYS supplied (required positional, `required` named, or optional carrying a
+  `default`). `_definitelyAssignedFields(methods)` in `compiler.dart` computes
+  the INTERSECTION of those across every generative constructor — skipping
+  factories, `redirects_to`, and an initializer of `kind: redirect`, which
+  delegate rather than initialize — and `_addInstanceFields` drops `fb.late` for
+  the result. Never widen the decision back to "no initializer ⇒ `late`": a
+  `late final` field is assignable after construction, so it contributes an
+  implicit SETTER, and next to a user-declared setter of the same name that is a
+  `DUPLICATE_DEFINITION` compile-time error — the real-world case is
+  `collection`'s `ListSlice` (`final int length` + `set length(...)`), which is
+  legal Dart precisely because a plain `final` field contributes a getter and
+  nothing else. `dart/compiler/test/field_finality_test.dart` pins both
+  directions and runs a real `dart analyze` over the compiled output;
+  `tests/conformance/472_initializer_list_field_with_setter` is the cross-target
+  fixture it compiles. Also keep `const`-constructor classes free of `late final`
+  (#305) — that carve-out is unchanged.
+
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`
 - Uses `analyzer` package to parse Dart AST
@@ -196,23 +242,144 @@ avoid constructs that need receiver-type info:
     `dart/self_host/engine.ball.json`, `dart/shared/ball_protobuf.json` and the
     conformance corpus are provably byte-identical.
 
-  What #488 still tracks after #573 is a different set of mechanisms again —
-  `collection/lib/src/list_extensions.dart` (implicit-setter conflict),
-  `collection/lib/src/wrappers.dart` (missing explicit return, unmasked once the
-  receiver-type error ahead of it was fixed),
-  `collection/lib/src/iterable_extensions.dart` (extension-override syntax,
-  `IterableExtension(this).isSorted(…)`, encoded as an `unsupported:` placeholder)
-  and `async/lib/src/cancelable_operation.dart` (`x?.a.b(…)` encoded as
-  `(x?.a).b(…)` instead of `x == null ? null : x.a.b(…)` — the short-circuit
-  scope is wrong, which is an ENGINE-semantics risk, not only a Dart-recompile
-  one). None of them shares a mechanism with #573.
+  After #573 the remaining #488 rows shared no mechanism with it, and none of
+  them was a receiver-TYPE question at all — `PackageEncoder
+  .prepareStaticTypes()` had closed every row that was. Three of the four were
+  fixed in the #488 wrap-up slice, and NONE of them is gated on resolved types
+  (the first two are pure syntax; the third is compiler codegen):
+  - **A `?.` in the MIDDLE of a postfix chain guards the WHOLE remainder.**
+    `x?.a.b(c)` is `x == null ? null : x.a.b(c)`, never
+    `(x == null ? null : x.a).b(c)`. `_buildNullAwareAccess`/
+    `_buildNullAwareCall` are leaf-level and cannot see the link that follows,
+    so the guard collapsed one link early and every following link was applied
+    UNCONDITIONALLY to its result — an ENGINE-semantics bug (on a null receiver
+    every engine called the next link on `null`), not only a Dart-recompile one.
+    `_encodeNullAwareChain` now walks the chain outer→inner, hoists the DEEPEST
+    short-circuiting link's guard to cover everything above it, and re-encodes
+    the chain once with that link marked plain (`_hoistedNullAware`) and its
+    receiver bound (`_chainSubstitutions`). One guard is hoisted per pass, so
+    `a?.b?.c.d()` lowers to nested guards, deepest first, and the recursion
+    terminates. A promotable receiver is named directly; a field/getter/call is
+    bound to a `__nachain_N` temporary — the same rule as `_nullAwareNeedsTemp`.
+    Measured on `async/lib/src/cancelable_operation.dart`; guarded by
+    `dart/encoder/test/null_aware_chain_scope_test.dart` and conformance fixture
+    `471_null_aware_chain_scope`. **Syntactic, so it applies to
+    `encode(String)`** — unlike every earlier #488 slice it CAN move
+    `dart/self_host/engine.ball.json` and the committed TS/Go artifacts. It did
+    not: the engine's own source happens to contain no multi-link `?.` chain
+    today (verified by regenerating all four artifacts). Do not assume that
+    stays true — regenerate rather than reason about it.
+  - **`toList(growable: …)` declines its route** — the last member of the
+    "arity window wider than the std function" family below.
+    `std_collections.list_to_list`'s codegen is `'<list>.toList()'`, full stop,
+    so a `(0, 1)` window could only DROP the operand and hand back a growable
+    list where the source asked for a fixed-length one. Measured on
+    `collection/lib/src/wrappers.dart` (`set.toList(growable: false).add(…)`
+    must throw `UnsupportedError`; after the drop it silently succeeded).
+    Window is now `(0, 0)`; see **#673**.
+  - **`std_collections.map_contains_value` had no case in the DART compiler**
+    — declared, encoder-routed, engine-implemented and present in every other
+    compiler, it alone fell to `_ => '/* unsupported: … */'`, i.e. a COMMENT
+    where an expression belongs (`collection/lib/src/wrappers.dart` compiled to
+    `return /* unsupported: std_collections.map_contains_value */;`).
+    `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the new
+    compiler-side mirror of `check_encoder_completeness.dart`: every
+    ENCODER-EMITTABLE base function must have a compiler case. Declared but
+    unroutable names (11 more in `std_collections`, all of `std_concurrency`)
+    are out of that population and tracked by #654.
+
+  Still open, each with its own issue and its own measured repro:
+  - `collection/lib/src/list_extensions.dart` — the compiler marks a
+    non-nullable final field `late` whenever it has no inline initializer,
+    which is wrong when the CONSTRUCTOR'S OWN INITIALIZER LIST already assigns
+    it, and the stray `late` then collides with a user-declared setter of the
+    same name (`DUPLICATE_DEFINITION`). Ball's field IR cannot tell "assigned
+    by the initializer list" from "assigned in the constructor body". **#651**
+    (a sibling of #573: the same "IR too coarse to tell two source shapes
+    apart" family). That file needs a SECOND fix to go green: `ListSlice`
+    declares a `final length` field next to an explicit `set length`, and the
+    engine's `_trySetterDispatch` suppresses the setter whenever the instance
+    carries a field of that name — right for a non-final field (#501, fixture
+    `432_shadowed_getter_setter_write`), wrong for a final one, which
+    contributes no setter of its own: **#664**.
+  - `collection/lib/src/iterable_extensions.dart` — **`Ext(receiver).member`
+    encodes by NAMING the extension member, and MUST NOT be erased to
+    `receiver.member`.** An extension override is written precisely when the
+    plain access would resolve to something else:
+    `IterableComparableExtension.isSorted([compare])`'s body is
+    `return IterableExtension(this).isSorted(compare);`, and erasing it makes
+    the method call ITSELF. Tier B measured the erasure at `1706 → 1702
+    passing, 4 failing` — a loud build error traded for a silently wrong
+    answer. The encoder's slice of **#670** encodes the override as a
+    `FunctionCall` whose `function` is the extension member's own Ball name
+    (`<module>:<Ext>.<member>`) with the receiver in `self`, and the Dart
+    compiler re-emits `Ext(receiver).member(args)` from the `kind: 'extension'`
+    typeDef — no schema change, because the NAME carries the selection (the
+    design record is in `docs/METADATA_SPEC.md`, "Extension overrides ride the
+    function NAME"). Whether `()` is emitted comes from the member's own
+    `is_getter`, the same accessor-shape family as #501/#664. It is a
+    RESOLVED-AST-only path (`parseString` reads `Ext(x).m()` as a call on a
+    constructor invocation), so `encode(String)`,
+    `dart/self_host/engine.ball.json` and the conformance corpus never reach
+    it. An override this encoder cannot name soundly — an import prefix,
+    type arguments on the EXTENSION (`Ext<int>(x)`), or an extension another
+    module declares — stays a LOUD refusal (a warning naming the construct plus
+    the `/* unsupported: … */` placeholder), and the other compilers/engines
+    still strip everything before the last `:`; that remainder is the rest of
+    #670. Two neighbouring shapes are NOT refusals and each had its own silent
+    failure: type arguments on the MEMBER (`Ext(x).m<int>()`) ride
+    `FunctionCall.typeArgs` like any other instance call — dropping them
+    reified `List<dynamic>` — and a WRITE (`Ext(x).m = v`, `+= 1`, `++`)
+    encodes as the same `self`-carrying call, so the compiler reads
+    `is_setter` alongside `is_getter` (`_extensionAccessorFunctions`);
+    emitting the method shape for a setter-only member produced
+    `Ext(x).m() = v`, and the `FormatterException` that escaped
+    `DartCompiler.compileModule` took the WHOLE module's output with it.
+  - `collection/lib/src/wrappers.dart` — **`x.isNotEmpty` is its own member,
+    never `!x.isEmpty`** (**#674**, fixed). The rewrite changed WHICH member a
+    DELEGATING receiver is asked for — `collection`'s `wrapper_test.dart`
+    records the forwarded `Invocation` symbol, and Tier B measured 5 failures
+    of the form `Expected: Symbol("isEmpty") Actual: Symbol("isNotEmpty")`. The
+    receiver-type seam cannot fix this one: the delegate's static type IS a
+    `dart:core` `Iterable`. So `std.string_is_not_empty` is declared alongside
+    `string_is_empty` and implemented on every target (polymorphic over the same
+    receivers), and `getterRoutes` routes `isNotEmpty` straight to it. Guards:
+    `tests/conformance/474_is_not_empty_receivers` (cross-target) and
+    `dart/encoder/test/is_not_empty_member_identity_test.dart`, which RUNS a
+    recording receiver through `dart run` before and after the round trip —
+    member identity is behavioural, so only executing it can see a change.
+    Same root, other direction: the `.isEmpty` rewrite consults no receiver type
+    at all, so an instance FIELD named `isEmpty` is answered by
+    `std.string_is_empty` on every engine — **#697**, the last member of #488's
+    receiver-type family and the only one outside its 16-file table.
+
+- **The `async` safety return must type-check under `strict-casts`.** Every
+  `async`, non-generator, non-`void` function gets a trailing statement so
+  Dart's flow analysis accepts a body whose Ball IR already returns. It used to
+  be `return null as dynamic;` unconditionally, which
+  `analyzer: language: strict-casts: true` rejects — `dynamic` is not
+  implicitly assignable to a non-dynamic type, and unreachable code is still
+  type-checked (`dart-lang/async`'s own `analysis_options.yaml` sets it, which
+  is how `async/lib/src/stream_queue.dart` and `async/lib/src/async_cache.dart`
+  failed). `_asyncSafetyReturn` now splits the two shapes: a NULLABLE (or
+  `dynamic`) result keeps a plain `return null;` — falling off the end really
+  does produce null there, so a throw would be a behaviour regression — and a
+  NON-NULLABLE result gets a `Never`-typed `throw StateError('unreachable: …')`,
+  which is assignable to every return type and preserves the old line's
+  meaning (it already threw a `TypeError` if reached).
+  `dart/compiler/test/strict_casts_safety_return_test.dart` is the only gate in
+  the repository that runs `dart analyze` under non-default analysis options.
 - **An arity window may never be WIDER than the std function it stands for.**
   A route whose `maxArgs` admits an argument the target function does not
   declare silently DROPS that argument — the compiler emits exactly the
   operands the function models and nothing warns. Four routes had this before
   #488 slice 2: `indexOf` (1,2), `startsWith` (1,2), `lastIndexOf` (1,2) and
   `replaceFirst` (2,3), all now narrowed so the extra-operand form declines to
-  the generic method-call encoding. `indexOf` was the worst: `arg0` and `arg1`
+  the generic method-call encoding — plus `toList` (0,1), the fifth and (as of
+  the #488 wrap-up) last, found the same way and narrowed to (0,0) (#673).
+  Every OTHER variable-arity route was re-audited against its codegen at the
+  same time: `join`, `sublist`, `sort`, `substring`, `padLeft`/`padRight` and
+  `toStringAsExponential` all consume their optional operand. `indexOf` was the worst: `arg0` and `arg1`
   BOTH renamed to `'value'`, so the second overwrote the first in the
   compiler's field map and `path.indexOf('\', 2)` compiled to
   `path.indexOf(2)`. When you add or widen a `collectionRoutes` entry, check
@@ -233,6 +400,14 @@ avoid constructs that need receiver-type info:
   `check_encoder_completeness.dart` checks the opposite direction, and
   `gen_std_coverage.dart` derives its canonical list from the same builders.
   That blind spot hid thirteen routed-but-undeclared functions until #505.
+  **The REVERSE direction is gated too, by
+  `dart/shared/test/std_reverse_closed_set_test.dart` (#702):** every base
+  function the engine's `StdModuleHandler` DISPATCHES, every key of
+  `buildCapabilityTable()`, and every `isBase` function an executed conformance
+  fixture declares must be declared by a builder. `collectionRoutes` is only one
+  consumer, so the #505 gate could not see the 30 language constructs
+  (`map_create`, `typed_list`, `switch_expr`, `invoke`, `paren`, `cascade`, …)
+  every encoder emitted through a different code path. Read the two as a PAIR.
   **A `_fn(...)` added here must be ported to the two hand-maintained mirrors in
   the same PR** — `csharp/shared/src/StdModuleBuilders.cs` and
   `rust/shared/src/std_*_module.rs`. Both are gated name-for-name against this
@@ -335,9 +510,30 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   twice, locking a locked mutex, unlocking an unlocked one, naming an unminted
   handle) raises a `BallRuntimeError`. They are LISTS, not int-keyed maps, on
   purpose: this file is compiled into six other engines and a list index has one
-  representation on every target. `tests/conformance/468_std_concurrency_handles`
+  representation on every target. `tests/conformance/475_std_concurrency_handles`
   is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
   the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
+- **A field write asks whether the field's own DECLARATION contributes a setter,
+  not whether the instance carries that key (#501 + #664).**
+  `_trySetterDispatch`'s guard used to be a bare
+  `if (object.containsKey(fieldName)) return _sentinel;`. That is right for a
+  NON-final field (it declares its own setter, which overrides an inherited one
+  — fixture `432_shadowed_getter_setter_write`) and wrong for a `final` one,
+  which declares a getter and NOTHING else: a setter written beside it is the
+  only setter for that name, and the guard silently overwrote the `final` field
+  instead of running it (fixture `470_setter_beside_final_field`). Finality is
+  read from `TypeDefinition.metadata['fields'][i]['is_final']` into
+  `_declaredFieldIsFinal`, registered on BOTH module paths (`_buildLookupTables`
+  AND `engine_invocation.dart`'s lazy import resolution — a class reached through
+  a lazily resolved import must answer the same), and
+  `_nearestFieldDeclarationIsFinal` answers from the FIRST class up the
+  `__super__` chain that declares the field. Never consult `is_late`: the Dart
+  COMPILER emits `late final` for a final field the initializer list assigns
+  (#651), so the answer would depend on whether the program had been
+  round-tripped through it. This is metadata the engine DISPATCHES on —
+  deliberate and bounded, see `docs/METADATA_SPEC.md`'s "Accessor shape" and
+  `dart/engine/AGENTS.md`.
+
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

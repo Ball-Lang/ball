@@ -12,7 +12,7 @@
  * the preamble installs, mirroring `dart/engine/lib/engine_std.dart`, and
  * throws a COMPILE-time Error for anything it does not implement. The
  * behavioural half — that the emitted program runs and prints the right
- * answers — is conformance fixture `468_std_concurrency_handles`, which this
+ * answers — is conformance fixture `475_std_concurrency_handles`, which this
  * package's `full_e2e.ts` leg executes.
  *
  * Run: node --experimental-strip-types --test test/*.test.ts

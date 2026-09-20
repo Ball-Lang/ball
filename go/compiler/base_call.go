@@ -178,6 +178,8 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.Substring(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "start"), end)
 	case "string_is_empty":
 		return fmt.Sprintf("ballrt.StrIsEmpty(%s)", V())
+	case "string_is_not_empty":
+		return fmt.Sprintf("ballrt.StrIsNotEmpty(%s)", V())
 	case "string_code_unit_at":
 		return fmt.Sprintf("ballrt.StrCodeUnitAt(%s, %s)", c.arg(f, "value"), c.arg(f, "index"))
 	case "string_last_index_of":
@@ -1042,6 +1044,13 @@ func (c *Compiler) compileCollectionsCall(call *ballv1.FunctionCall, f map[strin
 		return fmt.Sprintf("ballrt.ListMap(%s, %s)", list(), c.arg(f, "value", "callback"))
 	case "list_filter":
 		return fmt.Sprintf("ballrt.ListFilter(%s, %s)", list(), c.arg(f, "value", "callback"))
+	// list_foreach had no case at all until #642, so a program that iterates a
+	// collection with it was REFUSED ("unsupported base function") — 116_map_
+	// iteration, 119_nested_maps and 121_map_from_entries could not be compiled
+	// to Go at all, the same shape of gap #597 closed for list_find. Dart emits
+	// `<list>.forEach(<callback>)` for it and every self-hosted engine runs it.
+	case "list_foreach":
+		return fmt.Sprintf("ballrt.ListForEach(%s, %s)", list(), c.arg(f, "value", "callback"))
 	case "list_all":
 		return fmt.Sprintf("ballrt.ListAll(%s, %s)", list(), c.arg(f, "value", "callback"))
 	case "list_any":

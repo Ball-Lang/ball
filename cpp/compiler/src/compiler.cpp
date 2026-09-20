@@ -448,18 +448,46 @@ void CppCompiler::build_lookup_tables() {
                     }
                     ancestor = super_key_of(ancestor);
                 }
-                if (!shadows) continue;
-                shadowed_getter_names_.insert(sfield);
+                // #664: the class ITSELF declares a setter of this name. That
+                // is legal Dart only for a `final` field — a `final` field
+                // contributes a getter and NOTHING else, so the declared setter
+                // is the only setter for that name (`collection`'s `ListSlice`
+                // is the real-world shape). C++ has no such split: a data member
+                // `length` and a member function `length(v)` are the SAME name,
+                // and g++ rejects the pair outright ("'…::length(auto&&)'
+                // conflicts with a previous declaration"). The field therefore
+                // takes the same backing-member treatment a #501 shadowing field
+                // gets — but only the GETTER half of the accessor pair is
+                // synthesized, because the declared setter already occupies the
+                // write side.
+                bool own_setter = false;
+                {
+                    auto sit2 = class_setters_.find(cls);
+                    own_setter = sit2 != class_setters_.end() &&
+                                 sit2->second.count(sfield) > 0;
+                }
+                if (!shadows && !own_setter) continue;
+                if (shadows) {
+                    shadowed_getter_names_.insert(sfield);
+                    if (shadowed_getter != nullptr)
+                        class_shadowed_field_types_[cls][sfield] =
+                            map_return_type(*shadowed_getter);
+                    // Force `virtual` onto the ancestor's getter — and onto its
+                    // setter, when it declares one — so the subclass accessors
+                    // this enables actually bind. Without this the base getter is
+                    // emitted non-virtual and every polymorphic read silently
+                    // answers with the BASE value instead of failing loudly.
+                    overridden_methods_.insert(sfield);
+                }
                 class_shadowed_fields_[cls].insert(sfield);
-                if (shadowed_getter != nullptr)
-                    class_shadowed_field_types_[cls][sfield] =
-                        map_return_type(*shadowed_getter);
-                // Force `virtual` onto the ancestor's getter — and onto its
-                // setter, when it declares one — so the subclass accessors this
-                // enables actually bind. Without this the base getter is emitted
-                // non-virtual and every polymorphic read silently answers with
-                // the BASE value instead of failing loudly.
-                overridden_methods_.insert(sfield);
+                // Deliberately NOT added to shadowed_getter_names_ when the only
+                // reason is this class's own setter: that set is the
+                // program-wide fallback an UNPROVABLE receiver falls back to, and
+                // widening it would reroute an unrelated class's plain
+                // `obj.length = v` into a setter it does not have. A write this
+                // compiler cannot prove the receiver of still names the private
+                // backing member and fails to BUILD — loud, never silent.
+                if (own_setter) class_setter_backed_fields_[cls].insert(sfield);
             }
         }
 
@@ -607,6 +635,28 @@ static const ball::ir::Expression* strip_null_check(
     return e;
 }
 
+// The concrete user class an UNQUALIFIED reference to an own instance field
+// declares, or "" when the name is not such a field (a local/parameter shadows
+// it, there is no enclosing class, the member is an accessor rather than a
+// plain data member, or its declared type is not a concrete struct). Shares the
+// getter/shadowed-field refusals with receiver_class_of's FieldAccess branch —
+// those are CALLS whose C++ return type is map_return_type's answer, not this
+// metadata's.
+std::string CppCompiler::declared_field_class_of_own_name(
+    const std::string& name) const {
+    if (declared_locals_.count(name) > 0) return "";
+    if (current_class_name_.empty()) return "";
+    if (current_class_fields_.count(name) == 0) return "";
+    const std::string sf = sanitize_name_const(name);
+    if (class_has_getter(current_class_name_, sf)) return "";
+    if (class_field_shadows_getter(current_class_name_, sf)) return "";
+    auto cit = class_field_decl_types_by_sname_.find(current_class_name_);
+    if (cit == class_field_decl_types_by_sname_.end()) return "";
+    auto fit = cit->second.find(sf);
+    if (fit == cit->second.end()) return "";
+    return concrete_class_of_declared_type(fit->second);
+}
+
 std::string CppCompiler::receiver_class_of(const ball::ir::Expression& raw) const {
     const ball::ir::Expression& expr = *strip_null_check(raw);
     // A provably CONCRETE slot answers first (self/this, a local emitted with a
@@ -616,8 +666,19 @@ std::string CppCompiler::receiver_class_of(const ball::ir::Expression& raw) cons
 
     if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
         auto it = local_declared_types_.find(expr.reference->name);
-        if (it == local_declared_types_.end()) return "";
-        return concrete_class_of_declared_type(it->second);
+        if (it != local_declared_types_.end())
+            return concrete_class_of_declared_type(it->second);
+        // An UNQUALIFIED read of an own instance field (`node` inside a method
+        // of the class that declares `Node? node`) denotes exactly the slot the
+        // FieldAccess branch below already proves for the explicit `this.node`
+        // — compile_reference emits the bare member name for it, and every
+        // class-typed struct member is a BallDyn. Without this the two spellings
+        // of the SAME field disagreed: `this.node.leaf` compiled, `node.leaf`
+        // emitted a member access on a BallDyn and g++ rejected it with
+        // "'class BallDyn' has no member named 'leaf'" (issue #488's chain
+        // lowering, fixture 471_null_aware_chain_scope, whose `node?.leaf.value`
+        // is the first corpus program to read a class-typed own field this way).
+        return declared_field_class_of_own_name(expr.reference->name);
     }
     if (expr.kind == ball::ir::ExprKind::FieldAccess &&
         expr.fieldAccess != nullptr && expr.fieldAccess->object != nullptr) {
@@ -646,13 +707,18 @@ bool CppCompiler::receiver_is_erased(const ball::ir::Expression& raw) const {
     if (!static_class_of(expr).empty()) return false;
     if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
         auto it = local_declared_types_.find(expr.reference->name);
-        if (it == local_declared_types_.end()) return false;
-        // A NON-nullable user-class parameter is emitted with the concrete
-        // struct type (map_param_type), so only the nullable form is erased.
-        // Every other slot this map records went through map_type, which
-        // answers BallDyn for `T?`.
-        if (it->second.empty() || it->second.back() != '?') return false;
-        return !concrete_class_of_declared_type(it->second).empty();
+        if (it != local_declared_types_.end()) {
+            // A NON-nullable user-class parameter is emitted with the concrete
+            // struct type (map_param_type), so only the nullable form is erased.
+            // Every other slot this map records went through map_type, which
+            // answers BallDyn for `T?`.
+            if (it->second.empty() || it->second.back() != '?') return false;
+            return !concrete_class_of_declared_type(it->second).empty();
+        }
+        // An unqualified own-field read: every class-typed struct MEMBER is a
+        // BallDyn, nullable or not — the same rule the FieldAccess branch below
+        // states for the explicit `this.<field>` spelling.
+        return !declared_field_class_of_own_name(expr.reference->name).empty();
     }
     if (expr.kind == ball::ir::ExprKind::FieldAccess &&
         expr.fieldAccess != nullptr) {
@@ -2148,9 +2214,31 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // Common virtual properties → C++ equivalents.
     // `.length` is UTF-16 code-unit length for strings (Dart parity), element
     // count for lists/maps; ball_length dispatches on the runtime type.
-    if (field == "length") return "ball_length(" + obj + ")";
-    if (field == "isEmpty") return obj + ".empty()";
-    if (field == "isNotEmpty") return "!" + obj + ".empty()";
+    //
+    // #664: a receiver whose own class DECLARES one of these names resolves to
+    // that DECLARATION, never to the virtual collection property — the Dart
+    // reference engine answers an instance's own key before it reaches its
+    // map-length fallback (`engine_eval.dart`'s map field-access block). A class
+    // declaring `final int length` (the `ListSlice` shape) otherwise compiled
+    // `slice.length` to `ball_length(slice)` — the element count of the
+    // instance, not the field, with no error anywhere. Scoped to a PROVABLE
+    // receiver class, like every other receiver-scoped decision here (#515): an
+    // unprovable receiver keeps the virtual property, which is the behaviour
+    // that predates this.
+    if (field == "length" || field == "isEmpty" || field == "isNotEmpty") {
+        const std::string vprop_cls = receiver_class_of(*access.object);
+        const std::string vprop_field = sanitize_name(field);
+        const bool declared_by_receiver =
+            !vprop_cls.empty() &&
+            (class_has_getter(vprop_cls, vprop_field) ||
+             class_field_shadows_getter(vprop_cls, vprop_field) ||
+             class_has_own_field(vprop_cls, vprop_field));
+        if (!declared_by_receiver) {
+            if (field == "length") return "ball_length(" + obj + ")";
+            if (field == "isEmpty") return obj + ".empty()";
+            return "!" + obj + ".empty()";
+        }
+    }
     // Dart double properties: .isNaN, .isInfinite, .isFinite, .isNegative
     if (field == "isNaN") return "ball_isNaN(" + obj + ")";
     if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";
@@ -2304,7 +2392,15 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
                     : obj;
             bool receiver_resolved = false;
             if (!recv_cls.empty()) {
-                if (class_has_getter(recv_cls, sfield)) {
+                // A field the receiver's class re-exposes as an accessor pair is
+                // READ through that getter — the data member itself is private
+                // and renamed, so a plain member read would not even build. For a
+                // #501 shadowing field `class_has_getter` already answers true
+                // (the ancestor declares the getter this one overrides); for a
+                // `final` field declared beside a same-named setter (#664) there
+                // is no ancestor getter at all, and only the shadow table knows.
+                if (class_has_getter(recv_cls, sfield) ||
+                    class_field_shadows_getter(recv_cls, sfield)) {
                     is_getter = true;
                     receiver_resolved = true;
                 } else if (class_has_own_field(recv_cls, sfield) &&
@@ -5077,6 +5173,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_length") return "ball_length(BallDyn(" + get_message_field(call, "value") + "))";
     if (fn == "string_is_empty") return get_message_field(call, "value") + ".empty()";
+    if (fn == "string_is_not_empty") return "!(" + get_message_field(call, "value") + ").empty()";
     if (fn == "string_contains") return "(" + get_message_field(call, "left") + ".find(" +
                                           get_message_field(call, "right") + ") != std::string::npos)";
     if (fn == "string_substring") {
@@ -5417,6 +5514,9 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_is_empty") {
         return "BallDyn(static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
+    }
+    if (fn == "string_is_not_empty") {
+        return "BallDyn(!static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
     }
     // std math functions take floating args; a BallDyn argument is ambiguous
     // under gcc/clang (multiple user conversions: operator double vs int64_t),
@@ -10097,9 +10197,22 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 emit_line("public:");
                 emit_line("virtual " + acc_type + " " + sfname + "() { return " +
                           backing + "; }");
-                emit_line("virtual void " + sfname + "(" + acc_type +
-                          " __ball_shadow_v) { " + backing +
-                          " = __ball_shadow_v; }");
+                // #664: when THIS class declares its own setter of that name the
+                // field is `final` in Dart — a `final` field contributes a getter
+                // and NOTHING else — so the declared setter is the write side and
+                // synthesising the implicit one here would redefine the user's
+                // own member.
+                bool own_setter_backed = false;
+                {
+                    auto obit = class_setter_backed_fields_.find(td.name);
+                    own_setter_backed =
+                        obit != class_setter_backed_fields_.end() &&
+                        obit->second.count(sfname) > 0;
+                }
+                if (!own_setter_backed)
+                    emit_line("virtual void " + sfname + "(" + acc_type +
+                              " __ball_shadow_v) { " + backing +
+                              " = __ball_shadow_v; }");
             } else {
                 emit_line(type + " " + sfname + init + ";");
             }

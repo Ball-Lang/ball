@@ -202,7 +202,7 @@ The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.pr
 | **Python** | Yes | -- | -- | -- |
 | **Java** | Yes | -- | -- | -- |
 
-Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `353 passed, 0 failed, 353 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
+Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `360 passed, 0 failed, 360 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
 
 ```mermaid
 flowchart LR
@@ -229,14 +229,14 @@ encoder and compiler (issue #493).
 | **Python** — Tier A | 73 | 0 (0%) | 5 | 5 | 0 | 0 | 0 |
 | **Rust** — Tier A | 77 | 0 (0%) | 1 | 1 | 1 | 0 | 34 |
 | **Go** — Tier A | 21 | 0 (0%) | 0 | 0 | 0 | 0 | 13 |
-| **Dart** — Tier B (per-file) | 106 | 102 (96%) | — | — | — | — | — |
+| **Dart** — Tier B (per-file) | 106 | 103 (97%) | — | — | — | — | — |
 | **Dart** — Tier B (whole-package) | 5 | 3 (60%) | — | — | — | — | — |
 
 Measured over pinned **third-party** packages — code this project did not write — by `.github/workflows/coverage-study.yml` (weekly, plus `workflow_dispatch`). Tier A is structural (encode → compile back → re-encode → declaration inventory → fixpoint); Tier B substitutes the compiled-back file into the package's own test suite, which is the tier that sees a construct that round-trips cleanly but changes what the program computes.
 
 Tier A scores **library code only**: a package's own test suite is a different population — written against that package's internals, compiled under different settings, and encoded by nobody — so it is excluded from the denominator by each language's own convention, and the count of what that removed is published above rather than applied silently.
 
-Every row is **floored at the number shown**: the workflow fails on a drop in the clean ratio, in the stage-1 funnel ratio, or in the scored denominator, and raises the floor automatically on an improvement (`tools/coverage-study/baseline.json`). The exclusion count is recorded there too but is **not** floored — a pin whose own test suite grew moves it in either direction and neither is a regression. Four rows sit at 0% clean because those compilers emit runtime-call-shaped source their syntactic encoders cannot read back — for those, the funnel columns are the live signal. See `tests/conformance/COVERAGE_STUDY.md` for the methodology and the honest limits.
+Every row is **floored at the number shown**: the workflow fails on a drop in the clean ratio, in ANY funnel stage's ratio, or in the scored denominator, and raises the floor automatically on an improvement (`tools/coverage-study/baseline.json`). The exclusion count is recorded there too but is **not** floored — a pin whose own test suite grew moves it in either direction and neither is a regression. Four rows sit at 0% clean because those compilers emit runtime-call-shaped source their syntactic encoders cannot read back — for those, the funnel columns are the live signal. See `tests/conformance/COVERAGE_STUDY.md` for the methodology and the honest limits.
 <!-- END GENERATED: coverage-study -->
 
 

@@ -78,6 +78,43 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   (`"main:B"`), so a lookup with `current_class_name_` silently misses. For an
   external receiver, resolve its class with `static_class_of()` and fall back
   EXPLICITLY when it cannot be proven; never guess "not shadowed".
+- **A `final` field declared beside a same-named SETTER reuses the #501
+  backing-member lowering — with only the GETTER half (#664).** Dart allows the
+  pair (a `final` field contributes a getter and nothing else, so the explicit
+  setter is the only setter for that name — `collection`'s `ListSlice`); C++ has
+  no such split, and g++ rejects a data member `length` beside a member function
+  `length(v)` outright ("conflicts with a previous declaration"). The
+  shadowed-field analysis therefore also marks a field whose OWN class declares
+  a setter of that name, so `emit_struct` stores it under
+  `shadow_backing_name()` and re-exposes the name as a public accessor — but
+  `class_setter_backed_fields_` suppresses the implicit SETTER half, which would
+  redefine the user's own member. Two consequences: the read path's
+  receiver-scoped branch now answers "getter" for any
+  `class_field_shadows_getter` field (for a #501 field `class_has_getter`
+  already did, via the ancestor that declares it; here there IS no ancestor
+  getter), and these fields are deliberately NOT added to the program-wide
+  `shadowed_getter_names_` — widening that would reroute an unrelated class's
+  plain `obj.length = v` into a setter it does not have. A write whose receiver
+  class cannot be proven therefore names the private backing member and fails to
+  BUILD: loud, never silent. Conformance `470_setter_beside_final_field` is the
+  guard; the self-hosted engine declares **zero** setters, so `engine_rt.cpp` is
+  provably untouched by this branch.
+- **The `.length` / `.isEmpty` / `.isNotEmpty` shortcuts yield to a receiver
+  whose own class DECLARES that name (#664).** Those three sit near the top of
+  `compile_field_access`, ahead of the getter / struct-field dispatch, and used
+  to fire unconditionally — so a class declaring `final int length` compiled
+  `slice.length` to `ball_length(slice)`, the instance's ELEMENT COUNT, with no
+  error anywhere. They are now skipped when `receiver_class_of` PROVES a class
+  that declares the name as a getter, an own field, or a shadow-backed accessor;
+  an unprovable receiver keeps the virtual property, which is the behaviour that
+  predates this. Scoped exactly like every other receiver-scoped decision here
+  (#515). Note `.isEmpty` rarely reaches this code at all — the Dart encoder's
+  `unaryRoutes` turns it into `std.string_is_empty` (that is why conformance
+  `115_generic_class`'s `Stack.isEmpty` getter never tripped it) — so `length`
+  is the reachable case and `470_setter_beside_final_field` is its guard, with
+  `cpp/test/test_compiler.cpp`'s
+  `length_on_a_class_that_declares_it_is_the_field_not_ball_length` as the fast
+  gate.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and
@@ -98,6 +135,13 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   field literally named `value` / `fields` / `kind` / `values` take the struct
   path — that four-name skip list exists for map-backed proto-shaped receivers,
   not for a concrete class that declares such a field.
+  **Both spellings of a field are the same slot (#488).** Inside its own class a
+  field is normally named BARE (`leaf`, not `this.leaf`) — `compile_reference`
+  emits the plain member name for it — so `receiver_class_of()` /
+  `receiver_is_erased()` answer for that Reference through
+  `declared_field_class_of_own_name()`, with the same getter/shadowed-field
+  refusals the FieldAccess branch uses and `declared_locals_` shadowing first. A
+  local/parameter of that name wins, exactly as in Dart.
 - **`BallDyn` accepts a compiler-emitted struct (#513).** `ball_is_user_struct`
   SFINAEs on the `static __ball_type_name()` every emitted struct carries — no
   standard-library or runtime type has it — so the constructor cannot steal
@@ -234,7 +278,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_ball_atomics` tables spliced into the preamble, with the SAME
   single-threaded semantics as `dart/engine/lib/engine_std.dart` — opaque
   1-based handles, a real cell store, a CAS that compares and exchanges, and
-  fail-loud misuse. `tests/conformance/468_std_concurrency_handles` is the
+  fail-loud misuse. `tests/conformance/475_std_concurrency_handles` is the
   cross-target guard (wired into `cpp/test/e2e_fixture_list.h`).
   It also implemented three functions **no module builder declares**
   (`thread_detach`, `unique_lock`, `atomic_fetch_add`), reachable by no encoder
@@ -272,6 +316,19 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
 
+- **`cpp/shared/ball_protobuf_rt.h` is regenerated and diffed by CI (#708).**
+  It is the C++ target's one COMMITTED generated artifact — Ball's own
+  `ball_protobuf` runtime compiled Ball → C++ in `--library` mode — and it
+  carries a SPLICED COPY of the compiler's runtime preamble. Change the preamble
+  (`cpp/compiler/src/compiler.cpp` or `cpp/shared/include/ball_emit_runtime.h`)
+  and this file is stale until it is regenerated. Nothing noticed for four
+  months: it froze at #398 with the two-argument `ball_cast_assert` #659
+  replaced and none of #630's `sink` handling. The gate is the `cpp` job's
+  Linux leg (`Regenerate` + `Assert the committed ball_protobuf C++ runtime`),
+  and it is the ONLY one — never add a second regeneration pass. Red run →
+  the fixed bytes are the run's `regenerated-cpp-protobuf-rt` artifact. See
+  `cpp/shared/AGENTS.md` → "Freshness".
+
 - **A caught `TypeError` reads as Dart's own message, and the rendering table is
   CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
   spells it
@@ -296,6 +353,25 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   exactly like Go's, C#'s, Rust's and TS's, with a negative control in the
   self-test proving that check fires. Add a new built-in error here and to that
   contract in the same PR, or the checker fails.
+
+- **A USER-thrown built-in error reads the same on every target, and the table
+  is closed on the LITERAL-throw side too (#658).** #641's three checks are all
+  keyed on what a runtime RAISES, and that left the commoner path unwatched: a
+  program's own `throw StateError('boom')` is built by the COMPILER, not raised
+  by any runtime, so nothing observed it. The consequences were target-specific
+  and all silent — the Dart REFERENCE engine printed the bare ctor argument
+  (`boom`, not `Bad state: boom`), and `ArgumentError`, which Dart spells
+  `Invalid argument(s): <message>` and no runtime in the repo raises, was in NO
+  target's rendering table at all. `LITERAL_THROWABLE` in
+  `tools/check_error_rendering_tables.py` is the new structural half (every
+  explicit table must cover `StateError`/`FormatException`/`RangeError`/
+  `ArgumentError`, raised or not), and
+  `tests/conformance/473_caught_user_thrown_builtin_error` is the observable one:
+  untyped catch, typed `on T catch`, a non-matching typed clause that falls
+  through, and `.message` read alongside `'$e'` — DIFFERENT strings, so storing
+  the prefixed form passes one half and breaks the other.
+  This target needed only the `ArgumentError` row: #640's `arg0` -> `message`
+  rename in the throw lowering already had it ahead of every sibling.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
@@ -415,6 +491,14 @@ Five things have to be true, and each is now pinned by CI rather than by prose:
    the gate loud**, because a new uncacheable reason silently left out of the
    sum is the very state the ceiling exists to catch. `ccache -s` is still run,
    purely so the human numbers reach the log, and its failure is a hard error.
+   So is a `ccache --version` the gate cannot read: since #700 it collects the
+   version alongside the statistics, prints it on every run, and names it in the
+   `UNCLASSIFIED CCACHE COUNTER ID(s)` / `MISSING CCACHE COUNTER ID(s)` failures
+   with the remedy — `hendrikmuhs/ccache-action` installs the OS package and
+   pins no version, so an image that moves ccache and grows a counter must not
+   read as a cache regression. A version off `CCACHE_TABLE_VERSIONS` whose
+   counters all classify stays GREEN and says so; the assertion is the counter
+   set, never the version string.
 
 5. **The gate step must run BEFORE the e2e smoke steps, and that is gated too**
    (#660). ubuntu's *post-job* `ccache -s` shows 4 uncacheable calls, which
@@ -448,10 +532,19 @@ they execute fixtures concurrently (`test_e2e` parallelises only the build).
 That is what makes concurrent execution safe for a future `std_fs` fixture; do
 not drop it.
 
-`full_e2e.sh` gets required-check coverage on every PR: the changed-fixture gate
-when a PR touches fixtures, and otherwise a derived four-fixture harness smoke
-on the Linux leg. Without one of those, the only thing exercising it is the
-dispatch-only `C++ Compiled` matrix leg, which runs after merge.
+`full_e2e.sh` gets required-check coverage on every PR, from ONE step on the
+Linux leg (`C++ compiled e2e — new/changed fixtures + harness slice`): the PR's
+added/changed fixtures **plus** a derived four-fixture slice, in a single call.
+Without it, the only thing exercising the harness is the `C++ Compiled` matrix
+leg, which runs after merge. The two live in one invocation because
+`full_e2e.sh`'s positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is
+per-invocation: a PR whose every changed fixture is a tracked
+`CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the
+wrong cause. `472_initializer_list_field_with_setter` was that PR while #695 was
+open; #680 closed #695 and `CPP_COMPILE_CARVEOUTS` is empty again, but the hole
+is structural and outlives any one entry, so the widened filter stays. Widen the
+filter — which is what the floor's own error message says — never delete the
+floor or the carve-out.
 
 ### Fast local `test_compiler` without CMake
 

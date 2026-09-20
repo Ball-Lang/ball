@@ -262,6 +262,20 @@
       "isBase": true
     },
     {
+      "name": "int_to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Int to double: value.toDouble() (statically an int)",
+      "isBase": true
+    },
+    {
+      "name": "double_to_int",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Double to int, truncating toward zero: value.toInt()",
+      "isBase": true
+    },
+    {
       "name": "compare_to",
       "inputType": "CompareToInput",
       "outputType": "",
@@ -290,6 +304,34 @@
       "isBase": true
     },
     {
+      "name": "ceil_to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Ceiling as a double: value.ceilToDouble()",
+      "isBase": true
+    },
+    {
+      "name": "floor_to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Floor as a double: value.floorToDouble()",
+      "isBase": true
+    },
+    {
+      "name": "round_to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Round as a double: value.roundToDouble()",
+      "isBase": true
+    },
+    {
+      "name": "truncate_to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Truncate as a double: value.truncateToDouble()",
+      "isBase": true
+    },
+    {
       "name": "null_coalesce",
       "inputType": "BinaryInput",
       "outputType": "",
@@ -301,6 +343,27 @@
       "inputType": "UnaryInput",
       "outputType": "",
       "description": "Null assertion: value!",
+      "isBase": true
+    },
+    {
+      "name": "null_aware_access",
+      "inputType": "NullAwareAccessInput",
+      "outputType": "",
+      "description": "Null-aware field access: target?.field — null when target is null",
+      "isBase": true
+    },
+    {
+      "name": "null_aware_call",
+      "inputType": "NullAwareCallInput",
+      "outputType": "",
+      "description": "Null-aware method call: target?.method(args) — null when target is null. The arguments are the input's remaining fields.",
+      "isBase": true
+    },
+    {
+      "name": "paren",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Parenthesized expression: (value) — preserves operator precedence",
       "isBase": true
     },
     {
@@ -409,10 +472,24 @@
       "isBase": true
     },
     {
+      "name": "labeled",
+      "inputType": "LabeledInput",
+      "outputType": "",
+      "description": "Labeled statement: label: <body> — the target of a labelled break/continue",
+      "isBase": true
+    },
+    {
       "name": "yield",
       "inputType": "UnaryInput",
       "outputType": "",
       "description": "Yield from generator: yield value",
+      "isBase": true
+    },
+    {
+      "name": "yield_each",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Delegate to another generator: yield* value",
       "isBase": true
     },
     {
@@ -458,10 +535,136 @@
       "isBase": true
     },
     {
+      "name": "type_literal",
+      "inputType": "TypeLiteralInput",
+      "outputType": "",
+      "description": "A type used as a value: int, Box<int> — carries the type source text",
+      "isBase": true
+    },
+    {
       "name": "index",
       "inputType": "IndexInput",
       "outputType": "",
       "description": "Index access: target[index]",
+      "isBase": true
+    },
+    {
+      "name": "cascade",
+      "inputType": "CascadeInput",
+      "outputType": "",
+      "description": "Cascade: target..a()..b — evaluates each section against target and returns TARGET, not the last section",
+      "isBase": true
+    },
+    {
+      "name": "null_aware_cascade",
+      "inputType": "CascadeInput",
+      "outputType": "",
+      "description": "Null-aware cascade: target?..a()..b — null when target is null",
+      "isBase": true
+    },
+    {
+      "name": "invoke",
+      "inputType": "InvokeInput",
+      "outputType": "",
+      "description": "Call a function VALUE: callee(args). The arguments are the input's remaining fields; a single argument is passed through directly.",
+      "isBase": true
+    },
+    {
+      "name": "tear_off",
+      "inputType": "TearOffInput",
+      "outputType": "",
+      "description": "Function tear-off: the function value named by callback, or by target.method — never invoked",
+      "isBase": true
+    },
+    {
+      "name": "symbol",
+      "inputType": "SymbolInput",
+      "outputType": "",
+      "description": "Symbol literal: #value",
+      "isBase": true
+    },
+    {
+      "name": "record",
+      "inputType": "RecordInput",
+      "outputType": "",
+      "description": "Record literal: (a, b, name: c). Positional components are the input's $1, $2, … fields (1-based, matching Dart's record.$1) and named components carry their own name.",
+      "isBase": true
+    },
+    {
+      "name": "typed_list",
+      "inputType": "TypedListInput",
+      "outputType": "",
+      "description": "List literal with explicit type arguments: <T>[elements]",
+      "isBase": true
+    },
+    {
+      "name": "map_create",
+      "inputType": "MapCreateInput",
+      "outputType": "",
+      "description": "Map literal: {k: v, …}. Each plain pair is one `entry` field; a comprehension element is spliced through `element`.",
+      "isBase": true
+    },
+    {
+      "name": "list_filled",
+      "inputType": "ListFilledInput",
+      "outputType": "",
+      "description": "Fixed-size list of one repeated value: List.filled(length, value). Engines also accept `count` for `length`.",
+      "isBase": true
+    },
+    {
+      "name": "list_generate",
+      "inputType": "ListGenerateInput",
+      "outputType": "",
+      "description": "List built by index: List.generate(length, generator). Engines also accept `count` for `length` and `callback` for `generator`.",
+      "isBase": true
+    },
+    {
+      "name": "dart_list_filled",
+      "inputType": "ListFilledInput",
+      "outputType": "",
+      "description": "List.filled(length, value) reached as a constructor call",
+      "isBase": true
+    },
+    {
+      "name": "dart_list_generate",
+      "inputType": "ListGenerateInput",
+      "outputType": "",
+      "description": "List.generate(length, generator) reached as a constructor call",
+      "isBase": true
+    },
+    {
+      "name": "spread",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Spread element inside a collection literal: ...value",
+      "isBase": true
+    },
+    {
+      "name": "null_spread",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Null-aware spread element: ...?value — contributes nothing when null",
+      "isBase": true
+    },
+    {
+      "name": "collection_if",
+      "inputType": "IfInput",
+      "outputType": "",
+      "description": "Conditional element inside a collection literal: [if (condition) then else else]",
+      "isBase": true
+    },
+    {
+      "name": "collection_for",
+      "inputType": "CollectionForInput",
+      "outputType": "",
+      "description": "Comprehension element inside a collection literal: [for (variable in iterable) body] / [for (init; condition; update) body]",
+      "isBase": true
+    },
+    {
+      "name": "switch_expr",
+      "inputType": "SwitchExprInput",
+      "outputType": "",
+      "description": "Switch EXPRESSION: switch (subject) { pattern => body, … } — yields a value, unlike the std.switch statement",
       "isBase": true
     },
     {
@@ -476,6 +679,13 @@
       "inputType": "UnaryInput",
       "outputType": "",
       "description": "Is string empty: value.isEmpty",
+      "isBase": true
+    },
+    {
+      "name": "string_is_not_empty",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Is string non-empty: value.isNotEmpty. Its own function, not the negation of string_is_empty: a delegating receiver sees WHICH member it is asked for (issue #674).",
       "isBase": true
     },
     {
@@ -637,6 +847,13 @@
       "inputType": "StringPadInput",
       "outputType": "",
       "description": "Pad right: value.padRight(width, padding)",
+      "isBase": true
+    },
+    {
+      "name": "string_interpolation",
+      "inputType": "StringInterpolationInput",
+      "outputType": "",
+      "description": "String interpolation: 'a${b}c' — stringify each element of `parts` and concatenate in order",
       "isBase": true
     },
     {
@@ -1638,6 +1855,432 @@
           {
             "name": "sink",
             "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CascadeInput",
+      "descriptor": {
+        "name": "CascadeInput",
+        "field": [
+          {
+            "name": "target",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "sections",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "null_aware",
+            "number": 3,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_BOOL"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NullAwareAccessInput",
+      "descriptor": {
+        "name": "NullAwareAccessInput",
+        "field": [
+          {
+            "name": "target",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "field",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NullAwareCallInput",
+      "descriptor": {
+        "name": "NullAwareCallInput",
+        "field": [
+          {
+            "name": "target",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "method",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InvokeInput",
+      "descriptor": {
+        "name": "InvokeInput",
+        "field": [
+          {
+            "name": "callee",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TearOffInput",
+      "descriptor": {
+        "name": "TearOffInput",
+        "field": [
+          {
+            "name": "callback",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "target",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "method",
+            "number": 3,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SymbolInput",
+      "descriptor": {
+        "name": "SymbolInput",
+        "field": [
+          {
+            "name": "value",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TypeLiteralInput",
+      "descriptor": {
+        "name": "TypeLiteralInput",
+        "field": [
+          {
+            "name": "type",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LabeledInput",
+      "descriptor": {
+        "name": "LabeledInput",
+        "field": [
+          {
+            "name": "label",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          },
+          {
+            "name": "body",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TypedListInput",
+      "descriptor": {
+        "name": "TypedListInput",
+        "field": [
+          {
+            "name": "type_args",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          },
+          {
+            "name": "elements",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MapCreateInput",
+      "descriptor": {
+        "name": "MapCreateInput",
+        "field": [
+          {
+            "name": "type_args",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          },
+          {
+            "name": "entry",
+            "number": 2,
+            "label": "LABEL_REPEATED",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "element",
+            "number": 3,
+            "label": "LABEL_REPEATED",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MapCreateEntry",
+      "descriptor": {
+        "name": "MapCreateEntry",
+        "field": [
+          {
+            "name": "key",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "value",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecordInput",
+      "descriptor": {
+        "name": "RecordInput",
+        "field": [
+          {
+            "name": "fields",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CollectionForInput",
+      "descriptor": {
+        "name": "CollectionForInput",
+        "field": [
+          {
+            "name": "variable",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          },
+          {
+            "name": "iterable",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "init",
+            "number": 3,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "condition",
+            "number": 4,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "update",
+            "number": 5,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "body",
+            "number": 6,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwitchExprInput",
+      "descriptor": {
+        "name": "SwitchExprInput",
+        "field": [
+          {
+            "name": "subject",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "cases",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwitchExprCase",
+      "descriptor": {
+        "name": "SwitchExprCase",
+        "field": [
+          {
+            "name": "pattern",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_STRING"
+          },
+          {
+            "name": "body",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "pattern_expr",
+            "number": 3,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "guard",
+            "number": 4,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "is_default",
+            "number": 5,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_BOOL"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListFilledInput",
+      "descriptor": {
+        "name": "ListFilledInput",
+        "field": [
+          {
+            "name": "length",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "value",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListGenerateInput",
+      "descriptor": {
+        "name": "ListGenerateInput",
+        "field": [
+          {
+            "name": "length",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "generator",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StringInterpolationInput",
+      "descriptor": {
+        "name": "StringInterpolationInput",
+        "field": [
+          {
+            "name": "parts",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "value",
+            "number": 2,
             "label": "LABEL_OPTIONAL",
             "type": "TYPE_MESSAGE",
             "typeName": ".ball.v1.Expression"

@@ -64,7 +64,7 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
   the same semantics as the Dart reference engine; the three undeclared ones are
   deleted, and `cpp/test/check_declared_base_functions.py` (ci.yml's always-on
   `proto` job) keeps this dispatch and the canonical builders in sync.
-  `tests/conformance/468_std_concurrency_handles` is the cross-target guard.
+  `tests/conformance/475_std_concurrency_handles` is the cross-target guard.
 
 **Runtime stubs (compile, produce wrong/fake results):**
 - `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h`).
@@ -135,20 +135,21 @@ bound two different ways by the `try` lowering in `cpp/compiler/src/compiler.cpp
 
 Both must print Dart's `toString()`, and they must agree. The single renderer is
 `_ball_dart_error_to_string(type_name, message)` in `cpp/shared/include/ball_emit_runtime.h`
-— #616's closed table, matching `dartErrorToString` (`go/runtime/ops.go`) and
-`DartErrorToString` (`csharp/shared/src/BallValue.cs`) row for row: `StateError` →
-`Bad state`, `FormatException` → `FormatException`, `RangeError` → `RangeError`, and
+— #616's closed table, matching `dartErrorToString` (`go/runtime/ops.go`),
+`DartErrorToString` (`csharp/shared/src/BallValue.cs`), `dart_error_to_string`
+(`rust/shared/src/value.rs`), `__ball_err_prefix` (`ts/compiler/src/preamble.ts`) and
+`_dartErrorPrefix` (`dart/engine/lib/engine_std.dart`) row for row: `StateError` →
+`Bad state`, `FormatException` → `FormatException`, `RangeError` → `RangeError`,
+`ArgumentError` → `Invalid argument(s)` (#658 — neither its own name nor empty), and
 **nothing else**, so a user class that happens to declare a `message` field is never
-re-rendered. Same three rows, same module-prefix stripping.
+re-rendered. Same rows, same module-prefix stripping.
 
-The fourth sibling, `dart_error_to_string` (`rust/shared/src/value.rs`), is **not** identical
-and is deliberately not copied: it carries an extra `TypeError` row and does no module-prefix
-stripping. That three-way split (C#'s map form, Rust's prefixed form, Dart's bare form) is the
-OPEN issue #641, which owns the decision about which spelling wins. Adding the row here would
-pre-empt it and would change nothing anyway — C++ raises `TypeError` through the 2-argument,
-no-`fields` ctor (`ball_cast_assert`, `cpp/compiler/src/compiler.cpp`), so the `message` lookup
-misses and a failed cast keeps printing `type cast failed: not a <T>`, which is what the Dart
-reference engine prints.
+`TypeError` is the one row this table deliberately omits, and it is an omission rather than a
+gap: C++ raises `TypeError` through the 2-argument, no-`fields` ctor (`ball_cast_assert`,
+`cpp/compiler/src/compiler.cpp`), so the THROWER already carries the canonical string and the
+`message` lookup correctly misses. `tools/check_error_rendering_tables.py` models exactly that
+(`coverage_exempt`), and it holds every row this table DOES carry to the same agreement check as
+every sibling's — an exemption from coverage is not an exemption from being right.
 
 The two throw shapes carry the string in different places, and the renderer keys on that
 difference rather than on the type name:
@@ -173,7 +174,12 @@ rather than a wrong answer). `464_typed_catch_clause_dispatch`'s untyped fallbac
 interpolates its exception, which is the corpus's only arm that puts a typed-dispatch catch
 variable in a value position, so the C++ Compiled matrix row compiles that shape on every PR.
 
-Not yet portable: a user-thrown built-in error printed in a value position still differs
-across targets (the Dart reference engine prints the bare ctor argument, the Go compiler the
-type tag), so no conformance fixture can print one today — issue #658 carries the measurements
-and the cross-target fix.
+A USER-thrown built-in error printed in a value position is portable since #658, and
+`473_caught_user_thrown_builtin_error` is the fixture that proves it — the one this note used to
+say could not exist, because the Dart reference engine printed the bare ctor argument (`boom`)
+where Dart prints `Bad state: boom`. It prints a caught `StateError`/`FormatException`/
+`ArgumentError` through an untyped catch, a typed `on T catch`, and a non-matching typed clause
+that falls through, and reads `.message` alongside `'$e'`: the two are DIFFERENT strings, and a
+"fix" that stored the prefixed form would pass one half and break the other. C++ needed only the
+`ArgumentError` row — #640's `arg0` → `message` rename in the throw lowering had already put this
+target ahead of every sibling.

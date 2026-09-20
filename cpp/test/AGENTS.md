@@ -92,7 +92,20 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   non-cache reason. It is echoed to the log only, and `ccache -s` failing is
   now a hard error rather than a warning the run limped past. The counter
   classification is pinned to the runners' ccache versions — 4.9.1 on ubuntu,
-  4.14 on macOS — and an unclassified counter id fails the gate loud.
+  4.14 on macOS, in the script's `CCACHE_TABLE_VERSIONS` — and an unclassified
+  counter id fails the gate loud.
+
+  Since #700 the gate also runs `ccache --version`, prints the version it
+  classified the counters against on EVERY run, and names it in the
+  `UNCLASSIFIED CCACHE COUNTER ID(s)` / `MISSING CCACHE COUNTER ID(s)` failures
+  along with the one-line remedy — because `hendrikmuhs/ccache-action` installs
+  whatever the OS package manager has and exposes no version pin, so a runner
+  image that moves ccache and grows a counter would otherwise red all three legs
+  with a message that reads like a cache regression. A `--version` the gate
+  cannot read is a hard failure like `-s` and `--print-stats`. A version off
+  that list whose counters all still classify is NOT a failure: the assertion is
+  the counter set, and a gate that reddened on an image bump alone would be a
+  spurious red.
 - **The gate step must precede the `full_e2e.sh` smoke steps**, and
   `cpp/test/test_cache_gate_step_order.sh` (ci.yml's always-on `proto` job)
   asserts that from ci.yml with a negative control on a relocated copy (#660).
@@ -147,14 +160,26 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   corpus. Since #619 that leg **is a PR gate**: `conformance-matrix.yml` gained a
   path-filtered `pull_request:` trigger sharing its `push` filter, and `cpp/**`
   is in that filter, so any PR touching this directory gets the row with no
-  `gh workflow run` dispatch. ci.yml's own cheaper legs still run first on the
-  Linux leg: over the added/changed fixtures when there are any, and otherwise
-  over a **derived four-fixture smoke** (`C++ compiled e2e — harness
-  smoke`). The smoke exists so the harness's own moving parts — worker
-  dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation, the
-  dropped-fixture assertion — are covered by a required check instead of only
-  by a post-merge leg. Its fixture list is derived from the corpus at run time,
-  never hard-coded, so a rename cannot leave a stale stem behind.
+  `gh workflow run` dispatch. ci.yml's own cheaper leg still runs first on the
+  Linux leg — ONE step, `C++ compiled e2e — new/changed fixtures + harness
+  slice`, which passes the PR's added/changed fixtures **plus** a **derived
+  four-fixture slice** to a single `full_e2e.sh` call. The slice exists so the
+  harness's own moving parts — worker dispatch, `xargs -P`, CWD isolation,
+  corpus-ordered aggregation, the dropped-fixture assertion — are covered by a
+  required check instead of only by a post-merge leg. Its fixture list is
+  derived from the corpus at run time, never hard-coded, so a rename cannot
+  leave a stale stem behind.
+  **Why one call and not two steps:** `full_e2e.sh`'s positive floor
+  (`passed == 0 && failed == 0` ⇒ exit 1, "this leg proved nothing") is
+  per-invocation. A PR whose every changed fixture is a tracked
+  `CPP_COMPILE_CARVEOUTS` entry — `472_initializer_list_field_with_setter`
+  was exactly that while #695 was open; #680 closed #695, so the list is empty
+  again, and the hole is structural rather than tied to any one entry — would
+  otherwise select one fixture, skip it as a carve-out, run nothing, and go red
+  naming the wrong cause. Widening the
+  filter is what the floor's own message prescribes, so the slice rides along
+  in the same run. Never "fix" that red by deleting the floor or the
+  carve-out.
 - `quick_e2e.sh` / `diff_e2e.sh` — local developer tools; not wired to CI.
 
 ### Coverage-preserving assertions

@@ -1,7 +1,8 @@
 name: Detect changed stacks
 description: >-
   Classify the current PR/push diff into per-language stack flags (dart, ts,
-  cpp, rust, csharp, go, python), an `infra` fail-safe flag, a `self_host` flag
+  cpp, rust, csharp, go, python), an `infra` fail-safe flag, a `self_host` flag,
+  the conformance-matrix signals (`corpus`, `dart_core`, `matrix_self`)
   and the list of changed conformance-fixture stems, so heavy per-stack jobs can
   skip when nothing in their stack changed. Single source of truth for
   ci.yml's and regression-gates.yml's `changes` jobs (issue #458). PRECONDITION:
@@ -60,6 +61,14 @@ outputs:
       must run (#666). Strictly wider than `self_host`, strictly narrower than
       `dart`.
     value: ${{ steps.detect.outputs.dart_core }}
+  matrix_self:
+    description: >-
+      true when the diff touches the conformance matrix's OWN definition —
+      .github/workflows/conformance-matrix.yml or tools/ci/roundtrip_floor.sh.
+      Both are in that workflow's `paths:` filter (#642), and EVERY row ORs this
+      in: a change to the matrix definition can move any row, and without the
+      signal such a PR would start the workflow with every row's `if:` false.
+    value: ${{ steps.detect.outputs.matrix_self }}
   changed_fixtures:
     description: >-
       Space-separated stems of added/modified tests/conformance/*.ball.json

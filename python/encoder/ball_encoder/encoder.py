@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import ast
 
+from . import ballrt_calls as rt
 from . import builders as b
 
 # Operators handled directly as universal-`std` base functions.
@@ -601,8 +602,14 @@ class _Encoder:
             self.fail("keyword arguments are not supported")
         func = node.func
         if isinstance(func, ast.Attribute):
-            # A method / qualified call (`obj.method(...)`, `fmt.Println(...)`).
-            # Only single-argument prints and free functions are in scope; other
+            # A Ball Python runtime helper (`ballrt.add(...)`) — `python/compiler`
+            # emits every base call as one of these, so recognizing them is what
+            # lets the encoder read the compiler's own output back (issue #642,
+            # see ballrt_calls.py).
+            if isinstance(func.value, ast.Name) and func.value.id == rt.RUNTIME_MODULE:
+                return self.encode_ballrt_call(func.attr, node.args)
+            # Any other method / qualified call (`obj.method(...)`). Only
+            # single-argument prints and free functions are in scope; other
             # method calls need receiver types the syntactic encoder lacks.
             self.fail(f"method call .{func.attr}(...) is not supported")
             return b.null_lit()
@@ -621,6 +628,105 @@ class _Encoder:
                 return b.null_lit()
             return b.std_unary(_BUILTIN_UNARY[name], self.encode_expr(node.args[0]))
         return self.encode_user_call(name, node.args)
+
+    def encode_ballrt_call(self, name: str, args: list[ast.expr]) -> dict:
+        """Encode a ``ballrt.<name>(args…)`` call.
+
+        Most are one universal ``std`` base call, per ``ballrt_calls.HELPERS``.
+        The shapes that are not — a ``fieldAccess`` node, an assignment l-value,
+        a bare type-NAME operand, an adapter with no Ball spelling — are named
+        constants in that module and handled explicitly first."""
+        if name in rt.PASSTHROUGH:
+            # An adapter whose Ball semantics are implicit in the consuming node
+            # (condition truthiness, `for_in`/`spread` iteration).
+            if len(args) != 1:
+                self.fail(f"ballrt.{name}() expects exactly one argument")
+                return b.null_lit()
+            return self.encode_expr(args[0])
+        if name == rt.FIELD_GET:
+            return self.encode_field_get(args)
+        if name == rt.FIELD_SET:
+            return self.encode_field_set(args)
+        if name == rt.INDEX_SET:
+            return self.encode_index_set(args)
+        if name in rt.TYPE_OPS:
+            return self.encode_type_op(name, args)
+        if name == rt.ENTRY_WRAPPER:
+            self.fail(f"ballrt.{name}() is the compiled entry-point wrapper and is "
+                      "encodable only inside an `if __name__ == \"__main__\":` guard "
+                      "alongside the entry function it names")
+            return b.null_lit()
+        entry = rt.HELPERS.get(name)
+        if entry is None:
+            self.fail(f"unsupported runtime helper ballrt.{name}() (ball_encoder/"
+                      "ballrt_calls.py lists the helpers that have a universal std inverse)")
+            return b.null_lit()
+        fn, fields = entry
+        if len(args) != len(fields):
+            self.fail(f"ballrt.{name}() expects {len(fields)} argument(s), got {len(args)}")
+            return b.null_lit()
+        return b.std_call(fn, b.args_message(
+            *((field, self.encode_expr(arg)) for field, arg in zip(fields, args))))
+
+    def _name_operand(self, helper: str, arg: ast.expr, what: str) -> str | None:
+        """The bare string literal a non-expression operand must be.
+
+        ``getfield``/``setfield`` take a field NAME and ``is_type``/``as_type`` a
+        TYPE NAME; the compiler always emits those as string literals. A computed
+        operand is a shape this encoder cannot represent — it fails loud rather
+        than guessing at a name (issue #55 doctrine)."""
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            return arg.value
+        self.fail(f"ballrt.{helper}() needs a literal {what}, not a computed one")
+        return None
+
+    def encode_field_get(self, args: list[ast.expr]) -> dict:
+        """``ballrt.getfield(obj, "name")`` -> a ``fieldAccess`` expression."""
+        if len(args) != 2:
+            self.fail(f"ballrt.{rt.FIELD_GET}() expects 2 argument(s), got {len(args)}")
+            return b.null_lit()
+        field = self._name_operand(rt.FIELD_GET, args[1], "field name")
+        obj = self.encode_expr(args[0])
+        return b.field_access(obj, field) if field is not None else b.null_lit()
+
+    def encode_field_set(self, args: list[ast.expr]) -> dict:
+        """``ballrt.setfield(obj, "name", v)`` -> ``std.assign`` onto a
+        ``fieldAccess`` l-value — exactly what the compiler reads back as a
+        field set."""
+        if len(args) != 3:
+            self.fail(f"ballrt.{rt.FIELD_SET}() expects 3 argument(s), got {len(args)}")
+            return b.null_lit()
+        field = self._name_operand(rt.FIELD_SET, args[1], "field name")
+        obj = self.encode_expr(args[0])
+        value = self.encode_expr(args[2])
+        if field is None:
+            return b.null_lit()
+        return self.assign_to(b.field_access(obj, field), value)
+
+    def encode_index_set(self, args: list[ast.expr]) -> dict:
+        """``ballrt.index_set(target, key, v)`` -> ``std.assign`` onto the
+        ``std.index`` call that is Ball's index l-value."""
+        if len(args) != 3:
+            self.fail(f"ballrt.{rt.INDEX_SET}() expects 3 argument(s), got {len(args)}")
+            return b.null_lit()
+        target = b.std_call("index", b.args_message(
+            ("target", self.encode_expr(args[0])),
+            ("index", self.encode_expr(args[1])),
+        ))
+        return self.assign_to(target, self.encode_expr(args[2]))
+
+    def encode_type_op(self, helper: str, args: list[ast.expr]) -> dict:
+        """``ballrt.is_type(v, "T")`` / ``ballrt.as_type(v, "T")`` -> ``std.is`` /
+        ``std.as``, whose ``type`` field carries the type NAME as a string."""
+        if len(args) != 2:
+            self.fail(f"ballrt.{helper}() expects 2 argument(s), got {len(args)}")
+            return b.null_lit()
+        type_name = self._name_operand(helper, args[1], "type name")
+        value = self.encode_expr(args[0])
+        if type_name is None:
+            return b.null_lit()
+        return b.std_call(rt.TYPE_OPS[helper], b.args_message(
+            ("value", value), ("type", b.string_lit(type_name))))
 
     def encode_print(self, args: list[ast.expr]) -> dict:
         # print() → newline only; the runtime's print always appends "\n".

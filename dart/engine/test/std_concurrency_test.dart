@@ -1,7 +1,7 @@
 /// The FAIL-LOUD half of `std_concurrency`'s single-threaded model (issue #608).
 ///
 /// The happy path is pinned across every engine and every compiled target by
-/// conformance fixture `468_std_concurrency_handles`. What a fixture cannot
+/// conformance fixture `475_std_concurrency_handles`. What a fixture cannot
 /// pin is MISUSE: joining a thread twice, unlocking a mutex nobody locked,
 /// naming a handle that was never minted. Those raise a host
 /// [BallRuntimeError], and what a caught host error READS AS is a separate

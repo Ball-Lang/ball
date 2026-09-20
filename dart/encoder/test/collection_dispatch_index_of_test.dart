@@ -49,6 +49,14 @@ int stringTwoArg(String s) {
 int stringOneArg(String s) {
   return s.indexOf('b');
 }
+
+List<int> toListFixed(List<int> xs) {
+  return xs.toList(growable: false);
+}
+
+List<int> toListDefault(List<int> xs) {
+  return xs.toList();
+}
 ''';
 
 /// Every `module.function` the expression tree calls, flattened.
@@ -151,6 +159,37 @@ void main() {
       );
       expect(compiled, contains('xs.indexOf(3)'));
       expect(compiled, contains("s.indexOf('b')"));
+    });
+
+    // The last member of the same family. `std_collections.list_to_list`
+    // declares no `growable` operand and the compiler emits none
+    // (`'list_to_list' => '<list>.toList()'`), so a `(0, 1)` window could only
+    // DROP it — turning a fixed-length list into a growable one with no
+    // diagnostic. MEASURED on `collection/lib/src/wrappers.dart` @ 96afcc2:
+    // `MapKeySet with two elements .toList` asserts
+    // `set.toList(growable: false).add(…)` throws `UnsupportedError`, and after
+    // the drop it silently succeeded (its `MapValueSet` twin too).
+    test('toList(growable:) declines the route and keeps its operand', () {
+      expect(
+        _calledFunctions(bodyOf('toListFixed')),
+        isNot(contains('std_collections.list_to_list')),
+        reason:
+            'a route whose window is wider than the std function it stands '
+            'for can only drop the extra operand.',
+      );
+      expect(
+        compiled,
+        contains('xs.toList(growable: false)'),
+        reason: 'compiled output was:\n$compiled',
+      );
+    });
+
+    test('the no-argument toList still routes to list_to_list', () {
+      expect(
+        _calledFunctions(bodyOf('toListDefault')),
+        contains('std_collections.list_to_list'),
+      );
+      expect(compiled, contains('xs.toList()'));
     });
   });
 }

@@ -2,9 +2,9 @@
 # Truth-table test for the detect-changed-stacks composite action (issue #458).
 #
 # Sources ../detect.sh and drives its pure classifier with a synthetic changed-
-# file list per row, asserting EVERY one of the twelve outputs
+# file list per row, asserting EVERY one of the thirteen outputs
 # (dart/ts/cpp/rust/csharp/go/python/infra/self_host/corpus/dart_core/
-# changed_fixtures) — not
+# matrix_self/changed_fixtures) — not
 # just "the script exited 0". The last four rows drive the real entry point,
 # ball_detect_main, once per event that supplies no diff base, to pin the
 # fail-open path itself. Before #458 this test could not exist: the logic
@@ -68,7 +68,7 @@ expect() {
     esac
   done
   local k
-  for k in dart ts cpp rust csharp go python infra self_host corpus dart_core; do
+  for k in dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self; do
     if [ -n "${t[$k]:-}" ]; then echo "$k=true"; else echo "$k=false"; fi
   done
   echo "changed_fixtures=$fixtures"
@@ -113,13 +113,29 @@ row "self-host-cli-core" 'dart/shared/lib/cli_core.dart' '' \
 # every compiled program), so dart_core is true.
 row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' '' "$(expect dart dart_core)"
 
+# ── ball_protobuf: the OTHER dart/ edit that cross-compiles into a COMMITTED
+# C++ artifact (#708). cpp/shared/ball_protobuf_rt.h is regenerated and diffed
+# by the cpp job from dart/shared/ball_protobuf.json, itself encoded from
+# dart/ball_protobuf/lib/**; without this signal such a PR set only dart=true
+# and the freshness gate never ran. It must NOT flip self_host (nothing here
+# reaches the Rust/C#/Go/Python engines), and it must NOT flip rust/csharp/go/
+# python either — those four legs are the cost the narrow signal avoids.
+row "ball-protobuf-library-source" 'dart/ball_protobuf/lib/marshal.dart' ''   "$(expect dart cpp)"
+row "ball-protobuf-compiled-artifact" 'dart/shared/ball_protobuf.json' ''   "$(expect dart cpp dart_core)"
+# Negative control: the ball_protobuf package's OWN test suite is not a
+# compilation input, so it must not start the C++ job.
+row "ball-protobuf-test-is-not-cpp" 'dart/ball_protobuf/test/editions_test.dart' ''   "$(expect dart)"
+# Negative control: a sibling dart/shared artifact that feeds no C++ artifact
+# must not start the C++ job either.
+row "dart-shared-std-artifact-is-not-cpp" 'dart/shared/std.json' ''   "$(expect dart dart_core)"
+
 # ── corpus / dart_core: the conformance-matrix row selectors (#666) ──────────
 # conformance-matrix.yml's `pull_request:` trigger is `paths:`-filtered, and
 # since #666 each ROW is additionally conditioned on the stack it covers.
 # `corpus` and `dart_core` are the two signals that must switch EVERY row back
 # on: a fixture change, and a change to the Dart sources every self-hosted
 # engine is compiled from.
-row "corpus-fixture-source" 'tests/conformance/src/466_map_contains_value.dart' '' \
+row "corpus-fixture-source" 'tests/conformance/src/468_map_contains_value.dart' '' \
   "$(expect infra corpus)"
 # A tests/ file OUTSIDE the conformance corpus is infra (it forces every ci.yml
 # stack) but not corpus — it is no conformance row's input.
@@ -134,6 +150,21 @@ row "dart-core-self-host-dir" 'dart/self_host/lib/engine_rt.cpp' '' \
 row "dart-encoder-is-not-core" 'dart/encoder/lib/encoder.dart' '' "$(expect dart)"
 row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
 
+# ── matrix_self: the conformance matrix's OWN definition (#642) ──────────────
+# conformance-matrix.yml and tools/ci/roundtrip_floor.sh are in that workflow's
+# `paths:` filter, so a PR that only moves a row's floor re-runs the matrix —
+# and EVERY row ORs `matrix_self` in. Without the signal those two entries map
+# to `infra` alone, which no row reads: the workflow would start with every
+# row's `if:` false and its summary would print a table of SKIPs and exit 0.
+# tools/ci/check_matrix_paths.sh is the static half of the same invariant.
+row "matrix-workflow-is-matrix-self" '.github/workflows/conformance-matrix.yml' ''   "$(expect infra matrix_self)"
+row "roundtrip-floor-script-is-matrix-self" 'tools/ci/roundtrip_floor.sh' ''   "$(expect infra matrix_self)"
+# Negative controls: a NEIGHBOURING workflow and a NEIGHBOURING tools/ci script
+# are infra (every ci.yml stack runs) but must NOT re-enable every matrix row —
+# if they did, `matrix_self` would just be `infra` under another name.
+row "other-workflow-is-not-matrix-self" '.github/workflows/regression-gates.yml' ''   "$(expect infra)"
+row "other-ci-tool-is-not-matrix-self" 'tools/ci/apply_regenerated.sh' ''   "$(expect infra)"
+
 # An EMPTY changed-file list is the one input shape whose outputs would
 # otherwise be unpinned. It cannot arise from a real diff (a run with no changed
 # files still has a base), but it is what a mis-wired caller would pass, so pin
@@ -143,7 +174,7 @@ row "empty-file-list" '' '' "$(expect infra)"
 
 # ── Fail-open: no usable diff base => every stack true, fixtures=ALL ─────────
 expect_rows "fail-open-no-base" \
-  "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core fixtures=ALL)" \
+  "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
   "$(ball_fail_open)"
 
 # The same fail-open, driven END-TO-END through ball_detect_main for each event
@@ -166,7 +197,7 @@ event_fail_open_row() {
   actual="$(cat "$out_file")"
   rm -f "$out_file"
   expect_rows "$name" \
-    "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core fixtures=ALL)" \
+    "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
     "$actual"
 }
 

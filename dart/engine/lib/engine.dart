@@ -34,6 +34,18 @@ class BallEngine {
   /// Resolved type definitions by name.
   final Map<String, google.DescriptorProto> _types = {};
 
+  /// Per class, whether each declared instance field is `final`.
+  ///
+  /// Keyed by type name — both the ball-qualified `"module:Class"` and the bare
+  /// `"Class"`, mirroring [_types] — then by field name. Built from the
+  /// `fields` metadata the encoder records on every `TypeDefinition`
+  /// (`docs/METADATA_SPEC.md`), which [_buildLookupTables] otherwise drops.
+  ///
+  /// The write path needs it: a `final` field contributes a getter and nothing
+  /// else, so an explicit setter declared beside it is the only setter for that
+  /// name (#664). See [_trySetterDispatch].
+  final Map<String, Map<String, bool>> _declaredFieldIsFinal = {};
+
   /// Resolved functions by "module.function" key.
   final Map<String, FunctionDefinition> _functions = {};
 
@@ -371,6 +383,7 @@ class BallEngine {
           final tc = td.name.indexOf(':');
           if (tc >= 0) _types[td.name.substring(tc + 1)] = td.descriptor;
         }
+        _registerDeclaredFieldFinality(td);
       }
       for (final enumDesc in module.enums) {
         final enumName = enumDesc.name;
@@ -438,6 +451,39 @@ class BallEngine {
         _registerFunctionDispatchTables(module, func);
       }
     }
+  }
+
+  /// Record, for one class, whether each declared instance field is `final`.
+  ///
+  /// Reads `TypeDefinition.metadata['fields']` — the `[{name, type?, is_final?,
+  /// is_const?, is_late?, …}]` list the encoder writes for every class
+  /// (`docs/METADATA_SPEC.md`) — with the same portable Struct idiom
+  /// `_extractParams` uses, so the self-hosted engines read it identically.
+  ///
+  /// A class with no `fields` metadata records nothing at all, and a class that
+  /// declares no fields records an empty table; [_trySetterDispatch] treats
+  /// both as "not final", which is the behaviour that predates #664.
+  ///
+  /// Every branch here is one a real program takes: an entry with no `name` is
+  /// simply recorded under `''`, which no field write can ever look up, rather
+  /// than costing a defensive arm nothing exercises.
+  void _registerDeclaredFieldFinality(TypeDefinition td) {
+    if (!td.hasMetadata()) return;
+    final fieldsValue = td.metadata.fields['fields'];
+    if (fieldsValue == null ||
+        fieldsValue.whichKind() != structpb.Value_Kind.listValue) {
+      return;
+    }
+    final finality = <String, bool>{};
+    for (final entry in fieldsValue.listValue.values) {
+      final fieldMeta = entry.structValue.fields;
+      finality[fieldMeta['name']?.stringValue ?? ''] = _metadataBool(
+        fieldMeta['is_final'],
+      );
+    }
+    _declaredFieldIsFinal[td.name] = finality;
+    final tc = td.name.indexOf(':');
+    if (tc >= 0) _declaredFieldIsFinal[td.name.substring(tc + 1)] = finality;
   }
 
   static String _typeMethodKey(String typePrefix, String methodName) =>

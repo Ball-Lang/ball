@@ -45,6 +45,7 @@ ball_fail_open() {
   echo "self_host=true"
   echo "corpus=true"
   echo "dart_core=true"
+  echo "matrix_self=true"
   echo "changed_fixtures=ALL"
 }
 
@@ -103,6 +104,19 @@ ball_classify_stacks() {
   local self_host=false
   if m '^dart/engine/lib/|^dart/shared/lib/(cli_core|capability_analyzer|capability_table|termination_analyzer)\.dart$'; then self_host=true; fi
 
+  # The SECOND Dart->C++ cross-compilation input, and the one #708 found
+  # ungated: `cpp/shared/ball_protobuf_rt.h` is a COMMITTED artifact the C++
+  # job regenerates and diffs, compiled by `ball_cpp_compile --library` from
+  # `dart/shared/ball_protobuf.json` — which is itself encoded from
+  # `dart/ball_protobuf/lib/**` by `gen_ball_protobuf.dart`. Mapped by
+  # top-level dir alone those two paths set only `dart=true`, so a change to
+  # the portable protobuf engine would move the header's content with the C++
+  # job never running to notice. Kept OUT of `self_host` on purpose: nothing in
+  # dart/ball_protobuf reaches the Rust/C#/Go/Python self-hosted engines, so
+  # widening `self_host` would start four unrelated heavy jobs.
+  local ball_protobuf_src=false
+  if m '^dart/ball_protobuf/lib/|^dart/shared/ball_protobuf\.(json|bin)$'; then ball_protobuf_src=true; fi
+
   # New/changed conformance fixtures (never deleted) under
   # tests/conformance/*.ball.json, as bare fixture stems (no dir, no
   # extension), space-separated. Closes the escape class where a fixture
@@ -136,10 +150,10 @@ ball_classify_stacks() {
   # measured on PR #644, where 15 of 18 legs covered untouched languages. The
   # matrix can afford the narrower signal because its `pull_request:` trigger is
   # already `paths:`-filtered to exactly {tests/conformance, the four dart_core
-  # dirs, ts, cpp, rust, csharp, go, python} — NOT conformance-matrix.yml
-  # itself, which is why a PR changing only that workflow does not start it (the
-  # "known residual" in docs/TESTING_STRATEGY.md). Every file that CAN start it
-  # maps onto one of those signals.
+  # dirs, ts, cpp, rust, csharp, go, python} plus the matrix's own definition
+  # (conformance-matrix.yml and tools/ci/roundtrip_floor.sh -> `matrix_self`
+  # below, added by #642 so a PR that only moves a floor still re-runs the
+  # matrix). Every file that CAN start it maps onto one of those signals.
   #
   # That mapping is a correctness invariant, not a convention, and it is guarded
   # both ways since #666: tools/ci/check_matrix_paths.sh runs THIS classifier
@@ -153,6 +167,18 @@ ball_classify_stacks() {
   if m '^tests/conformance/'; then corpus=true; fi
   if m '^dart/(engine|shared|compiler|self_host)/'; then dart_core=true; fi
 
+  # matrix_self = the conformance matrix's OWN definition: the workflow file and
+  # the shared gate script its round-trip rows invoke. Both are in the workflow's
+  # `paths:` filter since #642 — a PR that only re-floors a row, or only edits
+  # tools/ci/roundtrip_floor.sh, MUST re-run the matrix, or the commit meant to
+  # prove a floor RED proves nothing (an absent check reads as green). They map
+  # onto `infra` alone, which no matrix row reads, so without this signal those
+  # two entries would start the workflow with every row's `if:` false — the
+  # silently-green shape tools/ci/check_matrix_paths.sh exists to catch. Every
+  # row ORs this in, because a change to the matrix definition can move ANY row.
+  local matrix_self=false
+  if m '^\.github/workflows/conformance-matrix\.yml$|^tools/ci/roundtrip_floor\.sh$'; then matrix_self=true; fi
+
   out dart '^dart/'
   out ts '^ts/'
   # cpp/rust/csharp/go/python run on their own dir changes OR any self-host
@@ -160,7 +186,10 @@ ball_classify_stacks() {
   # cross-compile into the C++/Rust/C#/Go/Python self-host artifacts even
   # though they live under dart/ (python's engine regen reads
   # dart/self_host/engine.ball.json, generated from dart/engine).
-  if m '^cpp/' || [ "$self_host" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
+  # cpp additionally runs on a ball_protobuf source change
+  # (ball_protobuf_src above — #708), the other Dart input that cross-compiles
+  # into a COMMITTED C++ artifact.
+  if m '^cpp/' || [ "$self_host" = true ] || [ "$ball_protobuf_src" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
   if m '^rust/' || [ "$self_host" = true ]; then echo "rust=true"; else echo "rust=false"; fi
   if m '^csharp/' || [ "$self_host" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
   if m '^go/' || [ "$self_host" = true ]; then echo "go=true"; else echo "go=false"; fi
@@ -169,6 +198,7 @@ ball_classify_stacks() {
   echo "self_host=$self_host"
   echo "corpus=$corpus"
   echo "dart_core=$dart_core"
+  echo "matrix_self=$matrix_self"
   echo "changed_fixtures=$changed_fixtures"
 }
 

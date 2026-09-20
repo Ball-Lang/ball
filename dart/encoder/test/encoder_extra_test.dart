@@ -107,7 +107,7 @@ void f(double x) {
       expect(j, contains('math_is_infinite'));
     });
 
-    test('isEmpty / isNotEmpty map to string_is_empty (+ not)', () {
+    test('isEmpty and isNotEmpty each map to their OWN std function', () {
       final j = jsonOf('''
 void f(String s) {
   final a = s.isEmpty;
@@ -115,6 +115,9 @@ void f(String s) {
 }
 ''');
       expect(j, contains('string_is_empty'));
+      // Never `not(string_is_empty(...))`: a delegating receiver sees WHICH
+      // member it is asked for (issue #674).
+      expect(j, contains('string_is_not_empty'));
     });
   });
 

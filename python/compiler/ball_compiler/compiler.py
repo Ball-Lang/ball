@@ -75,6 +75,21 @@ _UNIVERSAL_METHODS = frozenset({"toString", "hashCode", "noSuchMethod"})
 # never real constructor arguments.
 _SYNTH_FIELDS = frozenset({"__type_args__", "type_args", "__const__"})
 
+# A user program's own `throw StateError('boom')` / `FormatException('bad')` /
+# … constructs a Dart built-in that carries no `TypeDefinition`, so it never
+# reaches the user-class path. Map each to the ballrt factory for the REAL class
+# (issue #658). Before this only `StateError` had one and the other three fell
+# through to an anonymous dict, which printed as `{arg0: bad}` and answered
+# `null` for `.message`. Guard: conformance
+# `473_caught_user_thrown_builtin_error`, plus the cross-target rendering
+# contract in `tools/check_error_rendering_tables.py`.
+_BUILTIN_DART_ERROR_CTORS = {
+    "StateError": "ballrt.make_state_error",
+    "FormatException": "ballrt.make_format_exception",
+    "RangeError": "ballrt.make_range_error",
+    "ArgumentError": "ballrt.make_argument_error",
+}
+
 
 class CompileError(Exception):
     """A Ball construct the compiler does not support (fail-loud, issue #55)."""
@@ -794,12 +809,29 @@ class Compiler:
             with self.block():
                 self.line("pass")
             return
-        self.line("try:")
+        # The `except ballrt.BallReturn` wrapper is only reachable when the body
+        # can actually RAISE one — i.e. when something in it compiles to
+        # `ballrt.ret(...)`. Emitting it unconditionally put a dead `try`/`except`
+        # around every function the compiler produced, hello-world included, and
+        # `try` is exactly what the syntactic `ast` encoder refuses when it reads
+        # the compiler's own output back (issue #642). Compile the body first,
+        # then decide.
+        #
+        # The test is deliberately CONSERVATIVE and textual: any `ballrt.ret(` in
+        # the emitted body keeps the wrapper, even one inside a nested `def` that
+        # has a wrapper of its own. It can only ever keep a wrapper that is not
+        # needed, never drop one that is.
+        before = len(self.lines)
         with self.block():
-            before = len(self.lines)
             self.run(body, RETURN)
             if len(self.lines) == before:
                 self.line("pass")
+        emitted = self.lines[before:]
+        if not any("ballrt.ret(" in ln for ln in emitted):
+            # Un-indent the body back to function level: no wrapper needed.
+            self.lines[before:] = [ln[4:] if ln.startswith("    ") else ln for ln in emitted]
+            return
+        self.lines[before:before] = ["    " * self.ind + "try:"]
         self.line("except ballrt.BallReturn as _r:")
         with self.block():
             self.line("return _r.value")
@@ -1376,8 +1408,8 @@ class Compiler:
             return f"ballrt.make_regexp({fdict})"
         if short == "StringBuffer":
             return f"ballrt.make_string_buffer({first if args else ''})"
-        if short == "StateError":
-            return f"ballrt.make_state_error({first})"
+        if short in _BUILTIN_DART_ERROR_CTORS:
+            return f"{_BUILTIN_DART_ERROR_CTORS[short]}({first})"
         if short == "Duration":
             return f"ballrt.make_duration({fdict})"
         if short in ("LinkedHashMap", "Map"):
@@ -1707,6 +1739,7 @@ class Compiler:
             "string_to_upper": "string_to_upper", "string_to_lower": "string_to_lower",
             "string_trim": "string_trim", "string_trim_start": "string_trim_start",
             "string_trim_end": "string_trim_end", "string_is_empty": "string_is_empty",
+            "string_is_not_empty": "string_is_not_empty",
             "string_to_int": "string_to_int", "string_to_double": "string_to_double",
             # `String.fromCharCode(n)` / `fromCharCodes(list)`. The runtime
             # helpers have always existed (the self-hosted engine reaches them

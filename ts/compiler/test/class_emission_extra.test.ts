@@ -1103,6 +1103,191 @@ describe("compiler — buildSetter", () => {
   });
 });
 
+describe("compiler — a setter declared beside a same-named final field (#664)", () => {
+  // Dart allows `final int length;` next to `set length(v)`: a `final` field
+  // contributes a GETTER and nothing else, so the declared setter is the only
+  // setter for that name (`collection`'s `ListSlice`). JavaScript does not — a
+  // class field is installed on the INSTANCE and shadows the prototype
+  // accessor — so the storage moves to a private backing member and the field
+  // NAME is re-exposed as a getter.
+  //
+  // The assertion has to be BEHAVIOURAL. Before the fix the emitted class was
+  // `readonly length` + `set length(...)`, which node runs happily: the write
+  // lands on the own data property, the setter never runs, and the `final`
+  // field silently changes. A text assertion on the declaration pair would
+  // have passed on exactly that output.
+  function fixedSliceProgram(fieldIsFinal: boolean): Program {
+    return programWithClasses({
+      typeDefs: [
+        {
+          name: "main:FixedSlice",
+          metadata: {
+            kind: "class",
+            fields: [{ name: "length", type: "int", is_final: fieldIsFinal }],
+          },
+        },
+      ],
+      functions: [
+        {
+          name: "main:FixedSlice.new",
+          metadata: {
+            kind: "constructor",
+            params: [{ name: "end" }],
+            initializers: [{ kind: "field", name: "length", value: "end" }],
+          },
+        },
+        {
+          name: "main:FixedSlice.length",
+          metadata: { kind: "method", is_setter: true, params: [{ name: "v" }] },
+          body: {
+            call: {
+              module: "std",
+              function: "throw",
+              input: {
+                messageCreation: {
+                  fields: [
+                    { name: "value", value: { literal: { stringValue: "resize refused" } } },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
+          name: "main:report",
+          metadata: { params: [{ name: "slice" }] },
+          body: {
+            block: {
+              statements: [
+                {
+                  expression: {
+                    call: {
+                      module: "std",
+                      function: "print",
+                      input: {
+                        messageCreation: {
+                          fields: [
+                            {
+                              name: "message",
+                              value: { fieldAccess: { object: { reference: { name: "slice" } }, field: "length" } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  expression: {
+                    call: {
+                      module: "std",
+                      function: "assign",
+                      input: {
+                        messageCreation: {
+                          fields: [
+                            {
+                              name: "target",
+                              value: { fieldAccess: { object: { reference: { name: "slice" } }, field: "length" } },
+                            },
+                            { name: "value", value: { literal: { intValue: 5 } } },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+              result: {
+                call: {
+                  module: "std",
+                  function: "print",
+                  input: {
+                    messageCreation: {
+                      fields: [
+                        {
+                          name: "message",
+                          value: { fieldAccess: { object: { reference: { name: "slice" } }, field: "length" } },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+  }
+
+  test("the write runs the DECLARED setter and leaves the final field alone", () => {
+    const program = fixedSliceProgram(true);
+    // Route the entry through the helper so the read/write/read all happen on
+    // a real instance.
+    program.modules[0].functions[0] = {
+      name: "main",
+      body: {
+        block: {
+          statements: [
+            {
+              let: {
+                name: "slice",
+                value: {
+                  messageCreation: {
+                    typeName: "main:FixedSlice",
+                    fields: [{ name: "arg0", value: { literal: { intValue: 3 } } }],
+                  },
+                },
+              },
+            },
+          ],
+          result: {
+            call: {
+              function: "report",
+              input: {
+                messageCreation: {
+                  fields: [{ name: "slice", value: { reference: { name: "slice" } } }],
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const ts = compile(program, { includePreamble: false });
+    // Storage renamed, name re-exposed as a getter, declared setter kept.
+    assert.match(ts, /readonly __ball_field_length/);
+    assert.match(ts, /get length\(\)/);
+    assert.match(ts, /set length\(v: any\)/);
+    // The constructor's initializer-list write targets the BACKING member, so
+    // construction does not run the throwing setter.
+    assert.match(ts, /this\.__ball_field_length = end;/);
+
+    let thrown = "";
+    try {
+      runCompiled(program);
+    } catch (e) {
+      thrown = String((e as { stdout?: string }).stdout ?? "") + String(e);
+    }
+    // `3` printed, then the setter threw — the second read never happens, and
+    // the field was never overwritten. Before the fix this ran to completion
+    // and printed `3` then `5`.
+    assert.match(thrown, /\b3\b/);
+    assert.match(thrown, /resize refused/);
+    assert.doesNotMatch(thrown, /\b5\b/);
+  });
+
+  test("a NON-final field of the same name keeps its plain data member", () => {
+    // The other direction: a non-final field DOES contribute a setter, so no
+    // backing rename happens and nothing re-exposes the name as a getter.
+    // (Dart rejects this declaration pair; the guard exists so the rename is
+    // keyed on the setter, never applied to every field.)
+    const ts = compile(fixedSliceProgram(false), { includePreamble: false });
+    assert.doesNotMatch(ts, /__ball_field_length/);
+    assert.doesNotMatch(ts, /get length\(\)/);
+  });
+});
+
 describe("compiler — self->this substitution for a class with NO declared fields (#253)", () => {
   test("a constructor that only does self.x = x (no prior field declaration) compiles to this.x, not a leaked `self`", () => {
     // typeDefs carries NO `fields` metadata at all — currentClassFields is

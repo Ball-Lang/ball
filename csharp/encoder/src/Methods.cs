@@ -171,8 +171,155 @@ internal sealed partial class Encoder
             return EncodeMethodCallOnReceiver(Builders.ReferenceExpr("self"), name, argExprs, instanceParams);
         }
 
+        // A `BallValue` literal factory (`Str("x")`, `Int(1)`, …), reached unqualified through
+        // the compiler's `using static Ball.Shared.BallValue;`. LAST, so a local, a source
+        // symbol, a same-file static and a same-file instance method all win first — the
+        // shadowing order C# itself uses.
+        if (RuntimeHelpers.ValueFactoryFunction(name) is not null && argExprs.Count == 1)
+        {
+            return EncodeExpr(argExprs[0]);
+        }
+
         return Builders.UserCall(name, PackArgs(argExprs, null));
     }
+
+    /// <summary>
+    /// Encode a <c>BallRuntime.&lt;name&gt;(args…)</c> call — one universal <c>std</c> base call
+    /// each, per <see cref="RuntimeHelpers.Table"/>.
+    /// </summary>
+    private Expression EncodeRuntimeHelperCall(string name, List<ExpressionSyntax> argExprs)
+    {
+        if (name == RuntimeHelpers.Truthy)
+        {
+            if (argExprs.Count != 1)
+            {
+                throw new EncoderException(
+                    $"ball-encoder: BallRuntime.{name}(...) expects exactly one argument, " +
+                    $"got {argExprs.Count}");
+            }
+
+            // Truthiness coercion is implicit at every Ball condition site.
+            return EncodeExpr(argExprs[0]);
+        }
+
+        if (name == RuntimeHelpers.FieldGet)
+        {
+            return EncodeFieldGetHelper(argExprs);
+        }
+
+        if (name == RuntimeHelpers.ArgGet)
+        {
+            return EncodeArgGetHelper(argExprs);
+        }
+
+        if (!RuntimeHelpers.Table.TryGetValue(name, out var helper))
+        {
+            throw new EncoderException(
+                $"ball-encoder: unsupported runtime helper `BallRuntime.{name}(...)` " +
+                "(encoder/src/RuntimeHelpers.cs lists the helpers that have a universal std inverse)");
+        }
+
+        if (argExprs.Count != helper.Fields.Length)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{name}(...) expects {helper.Fields.Length} " +
+                $"argument(s), got {argExprs.Count}");
+        }
+
+        var fields = helper.Fields
+            .Select((field, i) => (field, EncodeExpr(argExprs[i])))
+            .ToArray();
+        return Builders.StdCall(helper.Function, Builders.ArgsMessage(fields));
+    }
+
+    /// <summary>
+    /// <c>BallRuntime.FieldGet(target, "name")</c> → the <c>field_access</c> NODE it is the
+    /// emission of (issue #689). Not a <see cref="RuntimeHelpers.Table"/> row: the inverse is a
+    /// different <c>Expression</c> kind than a base <c>call</c>, and its second operand is a
+    /// NAME rather than an encodable expression.
+    /// </summary>
+    private Expression EncodeFieldGetHelper(List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != 2)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.FieldGet}(...) expects 2 argument(s), " +
+                $"got {argExprs.Count}");
+        }
+
+        var field = RuntimeHelpers.StringLiteralText(argExprs[1])
+            ?? throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.FieldGet}(...) needs a string-literal " +
+                $"field name, got `{argExprs[1]}` (a Ball field_access names a field, it does not " +
+                "compute one)");
+
+        return Builders.FieldAccessExpr(EncodeExpr(argExprs[0]), field);
+    }
+
+    /// <summary>
+    /// <c>BallRuntime.ArgGet(input, "name", "argN")</c> → the named-then-positional read it is the
+    /// emission of (issue #689):
+    /// <c>std.null_coalesce(map_get(input, "name"), map_get(input, "argN"))</c>.
+    ///
+    /// <para>That IS <c>BallMethods.ArgGet</c>'s own body — <c>Get(namedKey) ?? Get(positionalKey)
+    /// ?? Null</c> — written in Ball, and it needs no knowledge of the
+    /// enclosing function's arity: the compiler emits this prologue only for a 2+-parameter
+    /// callee, whose Ball input is always the message the two reads address. A one-parameter
+    /// callee is bound directly to the input and never reaches here.</para>
+    ///
+    /// <para><b>Both operands are a TOLERANT keyed read (<c>std_collections.map_get</c>), never a
+    /// <c>field_access</c> node.</b> Exactly one of the two keys is present in every input the
+    /// compiler packs — a call site that knows the callee's parameter names packs
+    /// <c>{name: …}</c>, a first-class <c>invoke</c> of a function value packs
+    /// <c>{arg0, arg1, …}</c> (<c>CSharpCompiler.ParamPrologue</c>) — and
+    /// <c>std.null_coalesce</c> is EAGER on the reference engine (it is not one of
+    /// <c>_evalCall</c>'s lazily-evaluated base functions), so both operands are evaluated
+    /// whichever key won. A <c>field_access</c> on the absent key is a hard
+    /// <c>BallRuntimeError: Field "argN" not found</c> there
+    /// (<c>dart/engine/lib/engine_eval.dart</c>), which would make this arm throw on every real
+    /// input rather than answer; <c>map_get</c> is a plain <c>map[key]</c> that answers
+    /// <c>null</c>, which is what <c>BallMethods.ArgGet</c>'s <c>??</c> chain needs and what its
+    /// <c>_ => Null</c> arm does for a non-map input. <c>map_get</c> is also universally
+    /// implemented, unlike <c>std.null_aware_access</c> (Dart + TS only).</para>
+    /// </summary>
+    private Expression EncodeArgGetHelper(List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != 3)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.ArgGet}(...) expects 3 argument(s), " +
+                $"got {argExprs.Count}");
+        }
+
+        var namedKey = RuntimeHelpers.StringLiteralText(argExprs[1]);
+        var positionalKey = RuntimeHelpers.StringLiteralText(argExprs[2]);
+        if (namedKey is null || positionalKey is null)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.ArgGet}(...) needs string-literal " +
+                $"key names, got `{argExprs[1]}` / `{argExprs[2]}` (this prologue names the two " +
+                "keys it reads, it does not compute them)");
+        }
+
+        var input = EncodeExpr(argExprs[0]);
+        MarkCollectionsUsed();
+        return Builders.StdCall(
+            "null_coalesce",
+            Builders.ArgsMessage(
+                ("left", TolerantKeyRead(input, namedKey)),
+                ("right", TolerantKeyRead(input.Clone(), positionalKey))));
+    }
+
+    /// <summary>
+    /// <c>std_collections.map_get(map: target, key: "name")</c> — the tolerant keyed read
+    /// <see cref="EncodeArgGetHelper"/>'s two operands need (a missing key is <c>null</c>, not a
+    /// reference-engine <c>BallRuntimeError</c>). Callers must have called
+    /// <c>MarkCollectionsUsed()</c>.
+    /// </summary>
+    private static Expression TolerantKeyRead(Expression target, string key) =>
+        Builders.CollectionsCall(
+            "map_get",
+            Builders.ArgsMessage(("map", target), ("key", Builders.StringLiteral(key))));
 
     private Expression EncodeMemberInvocation(
         InvocationExpressionSyntax invocation,
@@ -211,6 +358,15 @@ internal sealed partial class Encoder
                     return EncodeConsoleCall(methodName, argExprs);
                 case "Math":
                     return EncodeMathCall(methodName, argExprs);
+
+                // The Ball C# runtime's own dispatch helpers. `Ball.Compiler`
+                // emits every base call as one of these, so recognizing them is
+                // what lets this encoder read the compiler's own output back
+                // (issue #642, see RuntimeHelpers.cs). Guarded on the same-file
+                // class table like `Debug`/`ArgumentNullException`: a class this
+                // encoder is itself encoding always wins over a built-in route.
+                case RuntimeHelpers.RuntimeClass when !DeclaresSameFileStatic(receiverName, methodName):
+                    return EncodeRuntimeHelperCall(methodName, argExprs);
 
                 // The BCL static GUARD receivers (issue #492, bucket i). Unlike
                 // `Console`/`Math` these two are guarded on the same-file class
@@ -841,6 +997,17 @@ internal sealed partial class Encoder
     private Expression EncodeMemberAccess(MemberAccessExpressionSyntax member)
     {
         var memberName = member.Name.Identifier.Text;
+
+        // `BallValue.Null` — the compiler's spelling of a Ball null literal (issue #642).
+        // Guarded the same way every other bare type receiver is: a local or field named
+        // `BallValue` wins.
+        if (memberName == "Null" &&
+            RuntimeHelpers.IsClassReference(member.Expression, RuntimeHelpers.ValueClass) &&
+            !IsKnownLocal(RuntimeHelpers.ValueClass) &&
+            !IsKnownField(RuntimeHelpers.ValueClass))
+        {
+            return Builders.NullLiteral();
+        }
 
         // `Color.Green` — a member access whose receiver names an enum THIS FILE declares
         // (issue #492, slice C). Encoded as `field_access(reference("Color"), "Green")`, the

@@ -227,6 +227,27 @@ def test_a_computed_field_name_fails_loud() -> None:
     assert "needs a literal field name" in str(excinfo.value)
 
 
+def test_string_is_not_empty_is_its_own_base_function() -> None:
+    """`ballrt.string_is_not_empty(v)` reads back as `std.string_is_not_empty`,
+    never as `std.not` over `std.string_is_empty`.
+
+    The two are distinct base functions on purpose (issue #674): a delegating
+    receiver sees WHICH member it was asked for, so re-encoding the negation
+    would be a different program that happens to agree on `String`. The closed
+    set in `test_same_spelled_unary_helpers_all_have_an_inverse` proves the
+    mapping EXISTS; this proves it lands on the right function.
+    """
+    body = _encode_body('    ballrt.print_(ballrt.string_is_not_empty(_input))\n')
+    printed = _statements(body)[-1]["expression"]["call"]["input"]
+    message = next(f for f in printed["messageCreation"]["fields"]
+                   if f["name"] == "message")["value"]
+    call = message["call"]
+    assert (call["module"], call["function"]) == ("std", "string_is_not_empty"), call
+    operand = next(f for f in call["input"]["messageCreation"]["fields"]
+                   if f["name"] == "value")["value"]
+    assert operand["reference"]["name"] == "_input", operand
+
+
 def test_the_non_table_shapes_are_not_also_in_helpers() -> None:
     """One shape, one home: a helper handled explicitly must not also sit in
     HELPERS, where the generic arm would encode it as a plain std call."""

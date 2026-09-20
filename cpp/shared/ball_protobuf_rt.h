@@ -8123,7 +8123,7 @@ BallDyn toSnakeCase(std::string camelCase) {
     for (auto i = static_cast<int64_t>(0); (i < ball_length(camelCase)); (i++)) {
         auto ch = BallDyn(static_cast<BallDyn>(camelCase)[i]);
         if (((ch == [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(ch)) && (ch != [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(ch)))) {
-            if ((!ball_sink_to_string(BallDyn(buffer)).empty())) {
+            if (!(ball_sink_to_string(BallDyn(buffer))).empty()) {
                 ball_sink_write(BallDyn(buffer), BallDyn("_"s));
             }
             ball_sink_write(BallDyn(buffer), BallDyn(ball_to_string([](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(ch))));

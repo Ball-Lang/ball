@@ -1139,7 +1139,7 @@ Future<void> main() async {
   // -- 475_std_concurrency_handles: the FIRST executed fixture for the
   // `std_concurrency` base module (issues #606/#607/#608). Every one of its
   // nine declared functions had `"coveredByFixtures": []` in
-  // tests/conformance/std_coverage.json, so the 350/350 parity number said
+  // tests/conformance/std_coverage.json, so the whole-corpus parity number said
   // nothing at all about threads, mutexes or atomics -- and the Dart reference
   // engine's "single-threaded simulation" was free to fabricate answers:
   // `atomic_store` discarded the write, `atomic_load` echoed its own input,

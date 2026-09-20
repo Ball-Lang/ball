@@ -79,6 +79,13 @@ Module buildStdConcurrencyModule() {
     _fn('mutex_create', 'MutexInput', 'int', 'Create a mutex, return handle'),
     _fn('mutex_lock', 'UnaryInput', 'void', 'Acquire mutex'),
     _fn('mutex_unlock', 'UnaryInput', 'void', 'Release mutex'),
+    // "release on exit" means release when the body RETURNS: every
+    // implementation (the Dart engine, and the Dart/TS/C++ compiler preambles)
+    // unlocks with a plain statement after the body call, so a body that THROWS
+    // propagates with the mutex still held and the next lock on that handle
+    // fails loud. Consistent across all four, never a silent wrong answer, and
+    // tracked by issue #769 — which is what will make the declaration and the
+    // implementations agree, with a fixture pinning whichever answer wins.
     _fn(
       'scoped_lock',
       'LockInput',

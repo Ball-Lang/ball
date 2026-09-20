@@ -520,6 +520,18 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   an eagerly-run body touch no host resource — but it means the ONLY way to
   withhold the module is to leave it out of `StdModuleHandler.subset(...)`,
   which is a Dart-embedder knob and has no equivalent on the compiled targets.
+  **`scoped_lock` releases when the body RETURNS, not when it throws.** All four
+  implementations (this file, and the Dart/TS/C++ compiler preambles) unlock
+  with a plain statement after the body call, so a throwing body propagates with
+  the mutex still held and the next lock on that handle fails loud — consistent
+  everywhere, never a silent wrong answer, but the declaration still says
+  "release on exit". Issue #769 tracks making the two agree with a fixture; do
+  not "fix" one implementation alone, or the targets stop agreeing.
+  **An ASYNCHRONOUS body is awaited by this engine and refused by the compiled
+  targets.** `_concurrencyPreamble` (Dart) and `BALL_CONCURRENCY_RUNTIME` (TS)
+  both throw when the body answers a `Future`/thenable, while `engine_std.dart`
+  awaits it — deliberate and fail-loud on every side, but a real
+  interpreted-versus-compiled split that fixture 475 does not reach. Issue #770.
 - **A field write asks whether the field's own DECLARATION contributes a setter,
   not whether the instance carries that key (#501 + #664).**
   `_trySetterDispatch`'s guard used to be a bare

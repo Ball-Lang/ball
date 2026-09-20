@@ -659,6 +659,188 @@ pub fn dash(f: &mut fmt::Formatter) -> fmt::Result {
 }
 
 // ════════════════════════════════════════════════════════════
+// PATTERN bindings — a for-loop variable, a `match` arm, an `if let`
+// ════════════════════════════════════════════════════════════
+//
+// A pattern binding introduces a name the same way a `let` does, but it is not
+// a `let`: `record_local` is never reached for one. Without a frame of its
+// own, that absence made the classifier fall through to whatever ENCLOSING
+// binding wore the same name — and an enclosing local `String` is the one kind
+// that does not fail loud, so a shadowed write was re-assigned to a variable
+// the Rust never touches. Silent, and the only silent hole left in the rule.
+//
+// `Encoder::with_pattern_binding` makes a pattern binding shadow, and classify
+// as a SINK — the arm every non-`let` destination takes
+// (`docs/SINK_DESIGN.md` §5). Not a loud refusal, because
+// `for w in writers.iter_mut() { write!(w, ..) }` over real sinks is an
+// ordinary, working shape; when the element is a plain `String` instead, the
+// write lands in the same documented boundary a `String` field does and fails
+// LOUD at run time, naming the function
+// (`rust/shared/src/runtime.rs::sink_backing`).
+
+#[test]
+fn a_for_loop_variable_shadows_an_enclosing_local_string() {
+    // The shadowing trap in its silent direction: the `s` a `write!` inside
+    // the loop names is the LOOP VARIABLE, never the enclosing
+    // `let mut s = String::new()`. Falling through to the enclosing local
+    // re-assigns a binding the Rust does not write to at all — the writes are
+    // lost and nothing anywhere reports it.
+    const SOURCE: &str = r#"
+pub fn render(writers: &mut Vec<String>) -> String {
+    let mut s = String::new();
+    for s in writers.iter_mut() {
+        write!(s, "x").unwrap();
+    }
+    s
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "render", "sink_write");
+    assert_eq!(
+        field(call, "sink").expr,
+        reference_to("s"),
+        "the destination is the loop variable"
+    );
+    assert_eq!(
+        count_std_calls(&program, "render", "assign"),
+        0,
+        "the enclosing local `String` is NOT re-assigned — the Rust never writes to it"
+    );
+}
+
+#[test]
+fn an_if_let_binding_shadows_an_enclosing_local_string() {
+    // The same rule for the other two pattern-binding constructs, which reach
+    // it through different call sites in `control_flow.rs`.
+    const SOURCE: &str = r#"
+pub fn render(slot: Option<&mut String>) -> String {
+    let mut s = String::new();
+    if let Some(s) = slot {
+        write!(s, "x").unwrap();
+    }
+    s
+}
+"#;
+    let program = encode_library(SOURCE);
+    assert_eq!(
+        count_std_calls(&program, "render", "sink_write"),
+        1,
+        "the `if let` binding is its own binding, and a sink"
+    );
+    assert_eq!(count_std_calls(&program, "render", "assign"), 0);
+}
+
+#[test]
+fn a_match_arm_binding_shadows_an_enclosing_local_string() {
+    const SOURCE: &str = r#"
+pub fn render(slot: Option<&mut String>) -> String {
+    let mut s = String::new();
+    match slot {
+        Some(s) => {
+            write!(s, "x").unwrap();
+        }
+        None => {}
+    }
+    s
+}
+"#;
+    let program = encode_library(SOURCE);
+    assert_eq!(
+        count_std_calls(&program, "render", "sink_write"),
+        1,
+        "the `match` arm binding is its own binding, and a sink"
+    );
+    assert_eq!(count_std_calls(&program, "render", "assign"), 0);
+}
+
+#[test]
+fn a_for_loop_variable_shadows_a_mut_alias_binding() {
+    // A pattern binding shadows a `&mut` ALIAS of the same name exactly as a
+    // `let` of that name does (`block.rs::encode_local` drops the entry). The
+    // alias table is consulted for every READ, so leaving `slot` in it makes
+    // the loop body's own `slot` resolve to `result` — in this `write!`
+    // destination and in any other read of it alike.
+    const SOURCE: &str = r#"
+pub fn render(writers: &mut Vec<String>) -> String {
+    let mut result = String::new();
+    let slot = &mut result;
+    for slot in writers.iter_mut() {
+        write!(slot, "x").unwrap();
+    }
+    result
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "render", "sink_write");
+    assert_eq!(
+        field(call, "sink").expr,
+        reference_to("slot"),
+        "inside the loop, `slot` is the loop variable — not the place the alias borrows"
+    );
+    assert_eq!(
+        count_std_calls(&program, "render", "assign"),
+        0,
+        "the borrowed `result` is not re-assigned by a write the Rust aims at the element"
+    );
+}
+
+#[test]
+fn a_for_loop_variable_that_shadows_nothing_is_still_a_sink() {
+    // The positive half of the same rule, and the reason a pattern binding is
+    // classified as a SINK rather than refused: iterating real sinks and
+    // writing into each is an ordinary shape, and it must keep encoding.
+    const SOURCE: &str = r#"
+pub fn render(writers: &mut Vec<String>) -> String {
+    let mut out = String::new();
+    for w in writers.iter_mut() {
+        write!(w, "x").unwrap();
+    }
+    out
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "render", "sink_write");
+    assert_eq!(field(call, "sink").expr, reference_to("w"));
+    assert_eq!(count_std_calls(&program, "render", "assign"), 0);
+}
+
+// ════════════════════════════════════════════════════════════
+// the shape issue #630 names: `write!` inside an `impl Display`
+// ════════════════════════════════════════════════════════════
+
+#[test]
+fn write_inside_an_impl_display_targets_the_formatter() {
+    // Six of the seven Tier A files this rule exists for are `fmt::Display`
+    // impls, and #630's body names the shape outright ("inside `impl Display`
+    // targets the formatter"). An `impl` method pushes no fn scope — only the
+    // binding frame `types.rs::encode_item_impl` opens — so this is the case
+    // that proves that frame carries the parameter, and that a `let` inside
+    // the method does not turn it into a local.
+    const SOURCE: &str = r#"
+pub struct Kebab;
+
+impl fmt::Display for Kebab {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let joined = String::from("a-b");
+        write!(f, "{}", joined)
+    }
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "main:Kebab.fmt", "sink_write");
+    assert_eq!(
+        field(call, "sink").expr,
+        reference_to("f"),
+        "the formatter parameter is the sink"
+    );
+    assert_eq!(
+        count_std_calls(&program, "main:Kebab.fmt", "assign"),
+        0,
+        "the method's own local `String` is not the destination"
+    );
+}
+
+// ════════════════════════════════════════════════════════════
 // (v) a local of some OTHER type — a loud panic, never a guess
 // ════════════════════════════════════════════════════════════
 

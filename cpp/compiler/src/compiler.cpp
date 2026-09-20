@@ -9127,7 +9127,7 @@ inline void ball_object_set_field(BallDyn obj, const std::string& field,
 // A handle is an OPAQUE 1-based index into one of these tables; a portable
 // program may compare handles, never depend on their numbering. The semantics
 // mirror dart/engine/lib/engine_std.dart exactly, so an interpreted and a
-// compiled program answer identically (conformance 468). Before #607 this
+// compiled program answer identically (conformance 475). Before #607 this
 // module compiled to DECLARATION STATEMENTS (`std::thread _thread(...)`,
 // `std::mutex _mtx`) spliced where a value was expected, so the declared
 // `-> int` of thread_spawn/mutex_create could not be honoured at all.
@@ -13192,7 +13192,7 @@ std::string CppCompiler::compile_concurrency_call(const std::string& fn,
     // Every arm lowers to a helper over the single-threaded handle tables the
     // emitted preamble installs (`_ball_threads` / `_ball_mutexes` /
     // `_ball_atomics`), mirroring dart/engine/lib/engine_std.dart exactly, so a
-    // program means the same thing interpreted and compiled (conformance 468).
+    // program means the same thing interpreted and compiled (conformance 475).
     //
     // Issue #607 replaced the previous emission wholesale. It produced
     // DECLARATION STATEMENTS where a value was expected (`std::thread

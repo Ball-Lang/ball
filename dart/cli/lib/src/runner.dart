@@ -588,7 +588,12 @@ BallCapabilityReport _capabilityReportMapToProto(Map report) {
           ..module = (s['module'] as String? ?? '')
           ..function = (s['function'] as String? ?? '')
           ..calleeModule = (s['calleeModule'] as String? ?? '')
-          ..calleeFunction = (s['calleeFunction'] as String? ?? ''),
+          ..calleeFunction = (s['calleeFunction'] as String? ?? '')
+          // #609: the module that DECLARES the callee, when the call site named
+          // a different one (or none). Without it the machine-readable report
+          // is weaker than the text one — an unqualified custom base call would
+          // serialize as `main.exec_shell` with nothing naming `mymodule`.
+          ..resolvedModule = (s['resolvedModule'] as String? ?? ''),
       );
     }
     proto.capabilities.add(capEntry);

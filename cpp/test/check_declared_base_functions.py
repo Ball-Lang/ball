@@ -79,9 +79,12 @@ DISPATCHER_MODULES = {
 }
 
 # Positive floor: the total number of implemented names the extraction must find
-# across the mapped dispatchers. MEASURED, not guessed: it stands at 357 on the
-# tree that carries this line. The floor is set well below that so ordinary
-# churn never trips it, but a regex that stops matching does.
+# across the mapped dispatchers. The measurement is deliberately NOT frozen in
+# this comment — a number in prose rots (it has been wrong twice already), while
+# a number the gate itself prints cannot. Every successful run ends with
+# `... (extracted N implemented names across 7 dispatchers, floor M)`, so the
+# current measurement is always one run away. The floor sits well below it so
+# ordinary churn never trips it, but a regex that stops matching does.
 MIN_TOTAL_NAMES = 200
 
 _DEF_RE = re.compile(r"^std::string CppCompiler::(compile_\w+_call)\(")
@@ -112,6 +115,18 @@ def implemented_names(compiler_src: str) -> dict[str, set[str]]:
             continue
         out[current].update(_FN_RE.findall(line))
     return out
+
+
+def total_implemented(
+    implemented: dict[str, set[str]], dispatchers: dict[str, str]
+) -> int:
+    """How many base-function names the extraction found across [dispatchers].
+
+    The value the positive floor is checked against, and the value a successful
+    run reports — one function so the gate and its own report can never
+    disagree.
+    """
+    return sum(len(implemented.get(d, set())) for d in dispatchers)
 
 
 def declared_names(coverage_path: str) -> dict[str, set[str]]:
@@ -152,18 +167,15 @@ def check(
 
     # -- 3. Positive floor, FIRST: a vacuous extraction must never read as a
     # clean bill of health.
-    total = 0
-    for dispatcher, module in sorted(dispatchers.items()):
-        names = implemented.get(dispatcher)
-        if not names:
+    for dispatcher in sorted(dispatchers):
+        if not implemented.get(dispatcher):
             errors.append(
                 "dispatcher %s yielded NO base-function names - it was renamed, "
                 "removed, or the extraction stopped matching. Fix the "
                 "extraction (or this table) rather than deleting the gate."
                 % dispatcher
             )
-            continue
-        total += len(names)
+    total = total_implemented(implemented, dispatchers)
     if total < min_total:
         errors.append(
             "extracted only %d implemented base-function names across the "
@@ -332,11 +344,12 @@ def _run_self_test() -> int:
 def main(argv: list[str]) -> int:
     if "--self-test" in argv:
         return _run_self_test()
+    compiler_path = os.environ.get(
+        "BALL_CPP_COMPILER_SRC",
+        os.path.join(ROOT, "cpp", "compiler", "src", "compiler.cpp"),
+    )
     errors = check(
-        os.environ.get(
-            "BALL_CPP_COMPILER_SRC",
-            os.path.join(ROOT, "cpp", "compiler", "src", "compiler.cpp"),
-        ),
+        compiler_path,
         os.environ.get(
             "BALL_STD_COVERAGE",
             os.path.join(ROOT, "tests", "conformance", "std_coverage.json"),
@@ -350,10 +363,14 @@ def main(argv: list[str]) -> int:
         for e in errors:
             sys.stderr.write("ERROR: %s\n" % e)
         return 1
+    with open(compiler_path, encoding="utf-8") as f:
+        measured = total_implemented(implemented_names(f.read()), DISPATCHER_MODULES)
     print(
         "check_declared_base_functions.py: every base function the C++ "
         "compiler dispatches is declared by the canonical builders (or is a "
-        "frozen, still-live known gap)."
+        "frozen, still-live known gap) (extracted %d implemented names across "
+        "%d dispatchers, floor %d)."
+        % (measured, len(DISPATCHER_MODULES), MIN_TOTAL_NAMES)
     )
     return 0
 

@@ -37,6 +37,7 @@ private static final long serialVersionUID = 0L;
     function_ = "";
     calleeModule_ = "";
     calleeFunction_ = "";
+    resolvedModule_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -245,6 +246,71 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int RESOLVED_MODULE_FIELD_NUMBER = 5;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object resolvedModule_ = "";
+  /**
+   * <pre>
+   * The module that DECLARES the callee, when it differs from callee_module.
+   *
+   * The engine dispatches a base call by function identity, not by the
+   * call-site module string: an unqualified call (empty module) or one naming a
+   * benign-looking module still reaches the declaring module's base function.
+   * callee_module keeps what the program wrote; this field names where that
+   * call actually lands, so a machine-readable report cannot be misled by the
+   * call-site spelling (issue #609). Empty when the call site named the
+   * declaring module itself, and for every std capability (whose #402 bare-name
+   * resolution is already unambiguous by function name alone).
+   * </pre>
+   *
+   * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+   * @return The resolvedModule.
+   */
+  @java.lang.Override
+  public java.lang.String getResolvedModule() {
+    java.lang.Object ref = resolvedModule_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      resolvedModule_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * The module that DECLARES the callee, when it differs from callee_module.
+   *
+   * The engine dispatches a base call by function identity, not by the
+   * call-site module string: an unqualified call (empty module) or one naming a
+   * benign-looking module still reaches the declaring module's base function.
+   * callee_module keeps what the program wrote; this field names where that
+   * call actually lands, so a machine-readable report cannot be misled by the
+   * call-site spelling (issue #609). Empty when the call site named the
+   * declaring module itself, and for every std capability (whose #402 bare-name
+   * resolution is already unambiguous by function name alone).
+   * </pre>
+   *
+   * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+   * @return The bytes for resolvedModule.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getResolvedModuleBytes() {
+    java.lang.Object ref = resolvedModule_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      resolvedModule_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -271,6 +337,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(calleeFunction_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, calleeFunction_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(resolvedModule_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 5, resolvedModule_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -286,6 +355,9 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(calleeFunction_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(4, calleeFunction_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(resolvedModule_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, resolvedModule_);
     }
     return size;
   }
@@ -319,6 +391,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getCalleeModule())) return false;
     if (!getCalleeFunction()
         .equals(other.getCalleeFunction())) return false;
+    if (!getResolvedModule()
+        .equals(other.getResolvedModule())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -338,6 +412,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getCalleeModule().hashCode();
     hash = (37 * hash) + CALLEE_FUNCTION_FIELD_NUMBER;
     hash = (53 * hash) + getCalleeFunction().hashCode();
+    hash = (37 * hash) + RESOLVED_MODULE_FIELD_NUMBER;
+    hash = (53 * hash) + getResolvedModule().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -478,6 +554,7 @@ private static final long serialVersionUID = 0L;
       function_ = "";
       calleeModule_ = "";
       calleeFunction_ = "";
+      resolvedModule_ = "";
       return this;
     }
 
@@ -523,6 +600,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.calleeFunction_ = calleeFunction_;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.resolvedModule_ = resolvedModule_;
+      }
     }
 
     @java.lang.Override
@@ -555,6 +635,11 @@ private static final long serialVersionUID = 0L;
       if (!other.getCalleeFunction().isEmpty()) {
         calleeFunction_ = other.calleeFunction_;
         bitField0_ |= 0x00000008;
+        onChanged();
+      }
+      if (!other.getResolvedModule().isEmpty()) {
+        resolvedModule_ = other.resolvedModule_;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -603,6 +688,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
+            case 42: {
+              resolvedModule_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -984,6 +1074,143 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       calleeFunction_ = value;
       bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object resolvedModule_ = "";
+    /**
+     * <pre>
+     * The module that DECLARES the callee, when it differs from callee_module.
+     *
+     * The engine dispatches a base call by function identity, not by the
+     * call-site module string: an unqualified call (empty module) or one naming a
+     * benign-looking module still reaches the declaring module's base function.
+     * callee_module keeps what the program wrote; this field names where that
+     * call actually lands, so a machine-readable report cannot be misled by the
+     * call-site spelling (issue #609). Empty when the call site named the
+     * declaring module itself, and for every std capability (whose #402 bare-name
+     * resolution is already unambiguous by function name alone).
+     * </pre>
+     *
+     * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+     * @return The resolvedModule.
+     */
+    public java.lang.String getResolvedModule() {
+      java.lang.Object ref = resolvedModule_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        resolvedModule_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * The module that DECLARES the callee, when it differs from callee_module.
+     *
+     * The engine dispatches a base call by function identity, not by the
+     * call-site module string: an unqualified call (empty module) or one naming a
+     * benign-looking module still reaches the declaring module's base function.
+     * callee_module keeps what the program wrote; this field names where that
+     * call actually lands, so a machine-readable report cannot be misled by the
+     * call-site spelling (issue #609). Empty when the call site named the
+     * declaring module itself, and for every std capability (whose #402 bare-name
+     * resolution is already unambiguous by function name alone).
+     * </pre>
+     *
+     * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+     * @return The bytes for resolvedModule.
+     */
+    public com.google.protobuf.ByteString
+        getResolvedModuleBytes() {
+      java.lang.Object ref = resolvedModule_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        resolvedModule_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * The module that DECLARES the callee, when it differs from callee_module.
+     *
+     * The engine dispatches a base call by function identity, not by the
+     * call-site module string: an unqualified call (empty module) or one naming a
+     * benign-looking module still reaches the declaring module's base function.
+     * callee_module keeps what the program wrote; this field names where that
+     * call actually lands, so a machine-readable report cannot be misled by the
+     * call-site spelling (issue #609). Empty when the call site named the
+     * declaring module itself, and for every std capability (whose #402 bare-name
+     * resolution is already unambiguous by function name alone).
+     * </pre>
+     *
+     * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+     * @param value The resolvedModule to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResolvedModule(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      resolvedModule_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The module that DECLARES the callee, when it differs from callee_module.
+     *
+     * The engine dispatches a base call by function identity, not by the
+     * call-site module string: an unqualified call (empty module) or one naming a
+     * benign-looking module still reaches the declaring module's base function.
+     * callee_module keeps what the program wrote; this field names where that
+     * call actually lands, so a machine-readable report cannot be misled by the
+     * call-site spelling (issue #609). Empty when the call site named the
+     * declaring module itself, and for every std capability (whose #402 bare-name
+     * resolution is already unambiguous by function name alone).
+     * </pre>
+     *
+     * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearResolvedModule() {
+      resolvedModule_ = getDefaultInstance().getResolvedModule();
+      bitField0_ = (bitField0_ & ~0x00000010);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The module that DECLARES the callee, when it differs from callee_module.
+     *
+     * The engine dispatches a base call by function identity, not by the
+     * call-site module string: an unqualified call (empty module) or one naming a
+     * benign-looking module still reaches the declaring module's base function.
+     * callee_module keeps what the program wrote; this field names where that
+     * call actually lands, so a machine-readable report cannot be misled by the
+     * call-site spelling (issue #609). Empty when the call site named the
+     * declaring module itself, and for every std capability (whose #402 bare-name
+     * resolution is already unambiguous by function name alone).
+     * </pre>
+     *
+     * <code>string resolved_module = 5 [json_name = "resolvedModule"];</code>
+     * @param value The bytes for resolvedModule to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResolvedModuleBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      resolvedModule_ = value;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }

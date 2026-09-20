@@ -1134,6 +1134,7 @@ const CallSite$json = {
     {'1': 'function', '3': 2, '4': 1, '5': 9, '10': 'function'},
     {'1': 'callee_module', '3': 3, '4': 1, '5': 9, '10': 'calleeModule'},
     {'1': 'callee_function', '3': 4, '4': 1, '5': 9, '10': 'calleeFunction'},
+    {'1': 'resolved_module', '3': 5, '4': 1, '5': 9, '10': 'resolvedModule'},
   ],
 };
 
@@ -1141,7 +1142,8 @@ const CallSite$json = {
 final $typed_data.Uint8List callSiteDescriptor = $convert.base64Decode(
     'CghDYWxsU2l0ZRIWCgZtb2R1bGUYASABKAlSBm1vZHVsZRIaCghmdW5jdGlvbhgCIAEoCVIIZn'
     'VuY3Rpb24SIwoNY2FsbGVlX21vZHVsZRgDIAEoCVIMY2FsbGVlTW9kdWxlEicKD2NhbGxlZV9m'
-    'dW5jdGlvbhgEIAEoCVIOY2FsbGVlRnVuY3Rpb24=');
+    'dW5jdGlvbhgEIAEoCVIOY2FsbGVlRnVuY3Rpb24SJwoPcmVzb2x2ZWRfbW9kdWxlGAUgASgJUg'
+    '5yZXNvbHZlZE1vZHVsZQ==');
 
 @$core.Deprecated('Use functionCapabilityDescriptor instead')
 const FunctionCapability$json = {

@@ -22,16 +22,25 @@ outputs:
     description: "true when the diff touches cpp/ or a self-host Dart source"
     value: ${{ steps.detect.outputs.cpp }}
   rust:
-    description: "true when the diff touches rust/ or a self-host Dart source"
+    description: >-
+      true when the diff touches rust/, a self-host Dart source, or the canonical
+      std inventory (dart/shared/lib/std*.dart, dart/shared/std.{json,bin}) that
+      this stack's tests read as their source of truth
     value: ${{ steps.detect.outputs.rust }}
   csharp:
-    description: "true when the diff touches csharp/ or a self-host Dart source"
+    description: >-
+      true when the diff touches csharp/, a self-host Dart source, or the canonical
+      std inventory (dart/shared/lib/std*.dart, dart/shared/std.{json,bin}) that
+      this stack's tests read as their source of truth
     value: ${{ steps.detect.outputs.csharp }}
   go:
     description: "true when the diff touches go/ or a self-host Dart source"
     value: ${{ steps.detect.outputs.go }}
   python:
-    description: "true when the diff touches python/ or a self-host Dart source"
+    description: >-
+      true when the diff touches python/, a self-host Dart source, or the canonical
+      std inventory (dart/shared/lib/std*.dart, dart/shared/std.{json,bin}) that
+      this stack's tests read as their source of truth
     value: ${{ steps.detect.outputs.python }}
   infra:
     description: >-

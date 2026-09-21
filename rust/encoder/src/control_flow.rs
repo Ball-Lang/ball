@@ -1,8 +1,17 @@
 //! Control-flow encoding (issue #42): `if`/`if let` -> `std.if`, `match` ->
-//! `std.switch` (or an if/else-chain — see below), `while`/`loop` ->
-//! `std.while`, `for` -> `std.for`/`std.for_in`, `break`/`continue`/
+//! `std.switch` (or an if/else-chain — see below), `while`/`while let`/`loop`
+//! -> `std.while`, `for` -> `std.for`/`std.for_in`, `break`/`continue`/
 //! `return`, loop labels, and the `?` try-operator's error-propagation
 //! desugaring.
+//!
+//! ## `while let` (issue #778)
+//!
+//! Ball's `std.while` takes a plain boolean `condition` with no
+//! pattern-binding slot, so `while let` uses Rust's OWN reference desugaring
+//! — `loop { match EXPR { PAT => BODY, _ => break } }` — over an
+//! unconditional `std.while(true, ..)`. See [`Encoder::encode_while_let`] for
+//! the shape and for why the subject binding lives inside the loop body
+//! rather than in front of it.
 //!
 //! **Laziness (invariant #4):** every branch here is built as a Ball
 //! **sub-expression** operand of the relevant `std` control-flow call
@@ -34,7 +43,8 @@ use crate::{
 
 /// For a pattern like `Some(x)`/`Ok(x)`/`None`/`Err(e)` matched against the
 /// unified Option/Result "outcome" representation, returns `(is_err_when_matched,
-/// binding_name)`. Fails loud on any other pattern shape (destructuring
+/// binding_name)`. Shared by `if let`, `while let` (issue #778) and `match`.
+/// Fails loud on any other pattern shape (destructuring
 /// beyond a single identifier binding, or a variant other than
 /// Some/Ok/Err/None — real enum-variant matching needs #43's
 /// `TypeDefinition`-aware resolution).
@@ -52,8 +62,9 @@ fn pattern_outcome_shape(pat: &syn::Pat) -> (bool, Option<String>) {
                 "Some" | "Ok" => false,
                 "Err" => true,
                 other => panic!(
-                    "ball-lang-encoder: unsupported if-let/match pattern `{other}(...)` (only \
-                     Some/Ok/Err are supported — real enum-variant patterns need #43)"
+                    "ball-lang-encoder: unsupported if-let/while-let/match pattern \
+                     `{other}(...)` (only Some/Ok/Err are supported — real enum-variant patterns \
+                     need #43)"
                 ),
             };
             if ts.elems.len() != 1 {
@@ -90,14 +101,14 @@ fn pattern_outcome_shape(pat: &syn::Pat) -> (bool, Option<String>) {
                 (true, None)
             } else {
                 panic!(
-                    "ball-lang-encoder: unsupported if-let/match pattern `{last}` (only `None` is \
-                     supported as a bare path pattern)"
+                    "ball-lang-encoder: unsupported if-let/while-let/match pattern `{last}` \
+                     (only `None` is supported as a bare path pattern)"
                 );
             }
         }
         other => panic!(
-            "ball-lang-encoder: unsupported if-let/match pattern (only Some(x)/Ok(x)/Err(e)/None are \
-             supported): {}",
+            "ball-lang-encoder: unsupported if-let/while-let/match pattern (only \
+             Some(x)/Ok(x)/Err(e)/None are supported): {}",
             quote::quote!(#other)
         ),
     }
@@ -358,6 +369,9 @@ impl Encoder {
     // ════════════════════════════════════════════════════════════
 
     pub(crate) fn encode_while(&mut self, e: &syn::ExprWhile) -> Expression {
+        if let syn::Expr::Let(let_expr) = e.cond.as_ref() {
+            return self.encode_while_let(let_expr, &e.body, &e.label);
+        }
         let condition = self.encode_expr(&e.cond);
         let body = self.encode_block(&e.body);
         let call = std_call(
@@ -365,6 +379,83 @@ impl Encoder {
             Some(args_message(vec![("condition", condition), ("body", body)])),
         );
         self.wrap_label(&e.label, call)
+    }
+
+    /// `while let PAT = EXPR { BODY }` (issue #778) — Rust's own reference
+    /// desugaring, `loop { match EXPR { PAT => BODY, _ => break } }`, written
+    /// in the primitives Ball already has. `std.while`'s `condition` is a
+    /// plain boolean with no pattern-binding slot, so the loop runs on an
+    /// unconditional `true` and its real exit is a synthetic `std.break`:
+    ///
+    /// ```text
+    /// std.while(
+    ///   condition: true,
+    ///   body: block {
+    ///     let __ball_while_let = <EXPR>;                  // re-evaluated per iteration
+    ///     std.if(
+    ///       condition: std.not(__ball_while_let.is_err),  // matched?
+    ///       then:  block { let <bind> = __ball_while_let.value; <BODY> },
+    ///       else:  std.break(),
+    ///     )
+    ///   }
+    /// )
+    /// ```
+    ///
+    /// The subject binding lives INSIDE the loop body, so it is re-evaluated
+    /// on every iteration — hoisting it would turn a drain loop into an
+    /// infinite one. The synthetic `break` is deliberately UNLABELED: it must
+    /// exit this loop, never a labelled enclosing one, even when the source
+    /// `while let` carries a label of its own (which [`Self::wrap_label`]
+    /// still wraps around the `std.while`, exactly as for a plain `while`).
+    ///
+    /// Everything else is shared with [`Self::encode_if_let`]:
+    /// [`pattern_outcome_shape`] + [`outcome_condition`] over
+    /// `lib.rs::option_result_message`'s unified Option/Result "outcome"
+    /// shape (so `Some`/`Ok` and `None`/`Err` both fall out with no extra
+    /// branch, and every other pattern keeps its existing loud refusal), and
+    /// [`Encoder::with_pattern_binding`] (issue #630) so the binding shadows
+    /// a same-named enclosing local for the BODY only.
+    ///
+    /// `loop { .. }` needs no counterpart: it has no condition, so no
+    /// `syn::Expr::Let` can reach [`Self::encode_loop`].
+    fn encode_while_let(
+        &mut self,
+        let_expr: &syn::ExprLet,
+        body: &syn::Block,
+        label: &Option<syn::Label>,
+    ) -> Expression {
+        let (is_err_when_matched, bind_name) = pattern_outcome_shape(&let_expr.pat);
+        let subject = self.encode_expr(&let_expr.expr);
+        let tmp = "__ball_while_let";
+        let condition = outcome_condition(reference(tmp), is_err_when_matched);
+
+        let matched_inner = match &bind_name {
+            Some(name) => {
+                let name = name.clone();
+                self.with_pattern_binding(&name, |enc| enc.encode_block(body))
+            }
+            None => self.encode_block(body),
+        };
+        let matched = match bind_name {
+            Some(name) => block_expr(
+                vec![let_stmt(name, field_access(reference(tmp), "value"))],
+                matched_inner,
+            ),
+            None => matched_inner,
+        };
+
+        let loop_body = block_expr(
+            vec![let_stmt(tmp, subject)],
+            if_call(condition, matched, std_call("break", None)),
+        );
+        let call = std_call(
+            "while",
+            Some(args_message(vec![
+                ("condition", bool_literal(true)),
+                ("body", loop_body),
+            ])),
+        );
+        self.wrap_label(label, call)
     }
 
     /// `loop { body }` -> `std.while(true, body)` (the issue's own

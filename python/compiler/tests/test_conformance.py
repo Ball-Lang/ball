@@ -79,6 +79,13 @@ PROVEN = [
     # `except ballrt.BallThrow` never saw it and the program died instead of
     # catching.
     "465_state_error_message",
+    # A `final` field a BODYLESS constructor's own initializer list assigns,
+    # next to a user-written setter of the same name (#706). The compiler
+    # REFUSED it loudly ("setter without matching getter: FixedSlice.windowSize")
+    # because a lone `@x.setter` has no property object to decorate — but that
+    # pair is legal Dart precisely because a plain `final` field contributes a
+    # getter and NOTHING else, so the field itself IS the missing getter.
+    "472_initializer_list_field_with_setter",
 ]
 
 

@@ -93,9 +93,13 @@ type Compiler struct {
 	// emitted.
 	usedOneofs map[string]bool
 
-	// bodyCtorImpl maps a class short name to the impl func of its body-carrying
-	// UNNAMED constructor (if any) — the target CompileMessageCreation invokes.
-	bodyCtorImpl map[string]string
+	// unnamedCtorImpl maps a class short name to the impl func of its UNNAMED
+	// constructor, when that constructor needs one — the target
+	// CompileMessageCreation invokes. It needs one when it carries a BODY (the
+	// body must run) or an INITIALIZER LIST (only the impl applies it; the
+	// inline-field-map path reads `metadata.params` and nothing else, so a
+	// bodyless `Foo(this.a, int b) : c = b;` silently lost `c` — issue #706).
+	unnamedCtorImpl map[string]string
 
 	// ctorImpl maps "<ClassShort>.<ctorShort>" to that constructor's impl func —
 	// the target a `Class.name(args)` call resolves to (issue #527).
@@ -159,7 +163,7 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
 		enumShortNames:  map[string]bool{},
 		usedOneofs:      map[string]bool{},
-		bodyCtorImpl:    map[string]string{},
+		unnamedCtorImpl: map[string]string{},
 		ctorImpl:        map[string]string{},
 		volatileByOwner: map[string]map[string]bool{},
 		volatileFields:  map[string]bool{},

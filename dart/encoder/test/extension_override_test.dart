@@ -1313,13 +1313,24 @@ void main() {
       });
 
       test('an override the parse-only encoder cannot name is REFUSED', () {
-        // Explicit type arguments ON the extension have nowhere sound to go
-        // (the call's `type_args` channel renders on the MEMBER), and a bare
-        // `Ext(x)` in no member-access position cannot be carried at all.
-        // Falling through would construct the extension type, in silence.
+        // Every shape the parse-only branch cannot carry, each for its own
+        // reason. Falling through would construct the extension type, in
+        // silence — the defect this whole path exists to prevent.
+        //
+        //  * explicit type arguments ON the extension have nowhere sound to go
+        //    (the call's `type_args` channel renders on the MEMBER);
+        //  * a bare `Ext(x)` sits in no member-access position at all;
+        //  * a NULL-AWARE override's `?` decides whether the member runs, and
+        //    this branch runs before the null-aware lowering, so encoding the
+        //    call here would drop the guard — both the method and the getter
+        //    spelling;
+        //  * a NAMED argument is not the single positional receiver an
+        //    override takes.
         const refused = r'''
 extension Boxed<T> on List<T> {
   String tag() => 'Boxed';
+
+  String get head => 'BoxedHead';
 }
 
 String explicitExtensionTypeArgs(List<int> xs) => Boxed<int>(xs).tag();
@@ -1327,6 +1338,12 @@ String explicitExtensionTypeArgs(List<int> xs) => Boxed<int>(xs).tag();
 void bareOverride(List<int> xs) {
   Boxed(xs);
 }
+
+String? nullAwareMethod(List<int>? xs) => Boxed(xs)?.tag();
+
+String? nullAwareGetter(List<int>? xs) => Boxed(xs)?.head;
+
+String namedArgument(List<int> xs) => Boxed(value: xs).tag();
 ''';
         final refusingEncoder = DartEncoder();
         final refusedProgram = refusingEncoder.encode(refused);
@@ -1340,19 +1357,22 @@ void bareOverride(List<int> xs) {
           refusingEncoder.warnings.where(
             (w) => w.contains('Extension-override syntax is not encodable'),
           ),
-          hasLength(2),
+          hasLength(5),
           reason:
-              'both refused shapes must warn by name. Warnings were: '
+              'every refused shape must warn by name. Warnings were: '
               '${refusingEncoder.warnings}',
         );
-        // The member DECLARATION still exists (`"name":"main:Boxed.tag"`);
-        // what must not exist is a CALL naming it, which would mean the
+        // The member DECLARATIONS still exist (`"name":"main:Boxed.tag"`);
+        // what must not exist is a CALL naming one, which would mean the
         // encoder selected an extension it just said it could not name.
-        expect(
-          json,
-          isNot(contains('"function":"main:Boxed.tag"')),
-          reason: 'a refused override must not name a member it cannot select',
-        );
+        for (final member in const ['tag', 'head']) {
+          expect(
+            json,
+            isNot(contains('"function":"main:Boxed.$member"')),
+            reason:
+                'a refused override must not name a member it cannot select',
+          );
+        }
       });
     },
   );

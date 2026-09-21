@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Ball.Compiler;
 using Ball.Encoder;
@@ -36,6 +35,10 @@ internal static class RoundTripLeg
 
         try
         {
+            // Prepared ONCE for the whole sweep; every fixture below then costs a
+            // single process spawn (issue #784).
+            var dartCli = DartCli.Prepare(dartExecutable, tempDir.FullName);
+
             foreach (var name in names)
             {
                 if (onlyFixture is not null && name != onlyFixture)
@@ -50,7 +53,7 @@ internal static class RoundTripLeg
                 }
 
                 var expected = Fixtures.GoldenLines(name);
-                var result = RunOne(name, expected, dartExecutable, tempDir.FullName);
+                var result = RunOne(name, expected, dartCli, tempDir.FullName);
                 results.Add(result);
 
                 if (onlyFixture is not null)
@@ -74,7 +77,7 @@ internal static class RoundTripLeg
         return Summary.Print("Round-Trip (compile -> encode -> Dart engine)", results, skipped);
     }
 
-    private static FixtureResult RunOne(string name, IReadOnlyList<string> expected, string dartExecutable, string tempDir)
+    private static FixtureResult RunOne(string name, IReadOnlyList<string> expected, DartCli dartCli, string tempDir)
     {
         string csharpSource;
         try
@@ -107,10 +110,10 @@ internal static class RoundTripLeg
             return new FixtureResult(name, FixtureStatus.Error, $"serialize: {ex.Message}");
         }
 
-        RunResult dartResult;
+        DartRunResult dartResult;
         try
         {
-            dartResult = RunDart(dartExecutable, ballJsonPath);
+            dartResult = dartCli.Run(ballJsonPath, DartCli.FixtureTimeout);
         }
         catch (Exception ex)
         {
@@ -151,75 +154,5 @@ internal static class RoundTripLeg
         File.WriteAllText(path, envelope.ToJsonString());
     }
 
-    private static readonly TimeSpan DartTimeout = TimeSpan.FromSeconds(30);
-
-    private static RunResult RunDart(string dartExecutable, string ballJsonPath)
-    {
-        var scriptPath = Path.Combine(Fixtures.RepoRoot, "dart", "cli", "bin", "ball.dart");
-
-        // On Windows, the `dart` on PATH is typically a `.bat` shim (the SDK's
-        // real dart.exe lives a few directories deeper) — .NET's Process.Start
-        // resolves a bare command via CreateProcess, which (unlike a shell)
-        // does not apply PATHEXT to find a batch script, so launching "dart"
-        // directly throws Win32Exception "cannot find the file specified"
-        // even though `dart` resolves fine in an interactive/CI shell. Route
-        // through `cmd.exe /c` on Windows only; every other platform (CI runs
-        // ubuntu-latest per the conformance-matrix precedent) invokes the
-        // executable directly.
-        ProcessStartInfo psi;
-        if (OperatingSystem.IsWindows())
-        {
-            psi = new ProcessStartInfo("cmd.exe")
-            {
-                WorkingDirectory = Fixtures.RepoRoot,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            psi.ArgumentList.Add("/c");
-            psi.ArgumentList.Add(dartExecutable);
-            psi.ArgumentList.Add("run");
-            psi.ArgumentList.Add(scriptPath);
-            psi.ArgumentList.Add("run");
-            psi.ArgumentList.Add(ballJsonPath);
-        }
-        else
-        {
-            psi = new ProcessStartInfo(dartExecutable)
-            {
-                WorkingDirectory = Fixtures.RepoRoot,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            psi.ArgumentList.Add("run");
-            psi.ArgumentList.Add(scriptPath);
-            psi.ArgumentList.Add("run");
-            psi.ArgumentList.Add(ballJsonPath);
-        }
-
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException($"failed to start '{dartExecutable}'");
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-        var exited = process.WaitForExit((int)DartTimeout.TotalMilliseconds);
-        if (!exited)
-        {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // Already exited between the timeout check and Kill.
-            }
-
-            return new RunResult(string.Empty, string.Empty, -1, TimedOut: true);
-        }
-
-        return new RunResult(stdoutTask.GetAwaiter().GetResult(), stderrTask.GetAwaiter().GetResult(), process.ExitCode, TimedOut: false);
-    }
-
     private static string Head(string s) => s.Length <= 200 ? s : s[..200] + "…";
-
-    private sealed record RunResult(string Stdout, string Stderr, int ExitCode, bool TimedOut);
 }

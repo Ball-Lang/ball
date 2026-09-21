@@ -174,13 +174,30 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_directGetterRoutes` / `builtinAccessorGetters` (that is #697's family), so
   all six encode as plain `fieldAccess` nodes every engine resolves
   own-key-first. The gate is
-  `479_user_member_named_like_collection_accessor`, which declares all six as
+  `479_user_member_named_like_collection_accessor`, which declares the names as
   plain data members AND as getters, reads each back externally, through `this.`
   and off an instance-creation receiver, and pins the list / map / string / int
   controls whose emulation must survive; the fast gates are
   `collection_accessor_on_a_class_that_declares_it_is_the_field`,
   `collection_accessor_getter_on_a_class_is_the_accessor_call` and
-  `collection_accessor_on_a_class_without_it_keeps_its_shortcut`.
+  `collection_accessor_on_a_class_without_it_keeps_its_shortcut`. The three fast
+  gates carry the FULL six-name matrix in both shapes; the cross-target fixture
+  carries two documented carve-outs, each a DIFFERENT target's defect of this
+  same family, surfaced by writing it:
+  * **#860** — a class declaring a field named `entries` that ALSO carries a
+    method takes EVERY self-hosted engine down (`engine_invocation.dart` binds
+    an instance's fields into a method scope with
+    `for (final entry in selfMap.entries)`, and on a self-hosted target that
+    `.entries` resolves by NAME, own-key-first, so it reads the user's list and
+    takes `.key` off an integer). So the fixture's `Collected` carries NO
+    methods and a sibling `Counted` carries the `this.`-readers.
+  * **#863** — a class declaring a field named `runtimeType` throws on the TS
+    engine at CONSTRUCTION (`ts/compiler/src/preamble.ts` installs
+    `Object.prototype.runtimeType` as a getter with no setter, unlike its
+    `defDartGetter` siblings), so only the GETTER shape of that one name is in
+    the fixture.
+  Both issue bodies carry the removed lines verbatim. Do not re-add them to the
+  fixture until those land — the same rule #800 carries for `476_…`.
   **`.values` takes a NARROWER predicate than the other five**, and that
   asymmetry is deliberate. Its shortcut emits a CALL (`obj.values()`), which
   already names the accessor `emit_struct` generates for a user GETTER — only a

@@ -1203,6 +1203,19 @@ compiler's fall-through resolves them through different paths — and `.values`
 is served correctly for a getter and wrongly for a field, so a fixture with only
 one shape would have pinned the wrong half of it.
 
+**Writing the enumeration is itself the instrument.** Two of the six names
+turned out to be broken on OTHER targets, in ways nothing in the corpus had ever
+asked about: a field named `entries` on a class with a method takes every
+self-hosted engine down (#860 — the engine binds an instance's fields into a
+method scope by iterating `selfMap.entries`, a name a user program may also
+declare), and a field named `runtimeType` throws on the TS engine at
+construction (#863 — `Object.prototype.runtimeType` is installed as a getter
+with no setter). Neither is reachable from the guard this fixture was written
+for; both were invisible until a fixture named the shapes. Each is carved out of
+the fixture with its issue number and its removed lines carried verbatim in the
+issue body — the same discipline #800 established for `476_…` — so the carve-out
+is a tracked reproduction rather than a silently narrowed test.
+
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
 `std_concurrency` shipped nine declared base functions, a dispatch arm in the

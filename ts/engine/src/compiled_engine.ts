@@ -5929,6 +5929,39 @@ export class BallEngine {
     return ((('std.assign' + __ball_to_string(opLabel)) + ': ') + __ball_to_string(detail));
   }
 
+  _resolveAccessorCall(target: any, wantSetter: any): any {
+    let module = ((target.module.length === 0) ? this._currentModule : target.module);
+    let key = ((__ball_to_string(module) + '.') + __ball_to_string(target.function));
+    let func = (wantSetter ? (__ball_index(this._setters, key) ?? __ball_index(this._setters, (__ball_to_string(key) + '='))) : __ball_index(this._getters, key));
+    if (__ball_eq(func, null)) {
+      return null;
+    }
+    return { module: module, func: func };
+  }
+
+  async _assignThroughAccessorCall(targetCall: any, op: any, val: any, scope: any): Promise<any> {
+    let setter = this._resolveAccessorCall(targetCall, true);
+    if (__ball_eq(setter, null)) {
+      return _sentinel;
+    }
+    let selfExpr = __ball_index(this._lazyFields(targetCall), 'self');
+    if (__ball_eq(selfExpr, null)) {
+      throw new BallRuntimeError(this._assignErrorMessage(op, ((('accessor target \'' + __ball_to_string(targetCall.function)) + '\' is missing its \'self\' ') + 'receiver')));
+    }
+    let receiver = await this._evalExpression(selfExpr, scope);
+    let computed = val;
+    if (((!__ball_eq(op, null) && (op.length !== 0)) && !__ball_eq(op, '='))) {
+      let getter = this._resolveAccessorCall(targetCall, false);
+      if (__ball_eq(getter, null)) {
+        throw new BallRuntimeError(this._assignErrorMessage(op, ((('accessor \'' + __ball_to_string(targetCall.function)) + '\' declares a setter but no ') + 'getter, so a compound assignment has nothing to read')));
+      }
+      let current = await this._callFunction(getter.module, getter.func, { ['self']: receiver });
+      computed = this._applyCompoundOp(op, current, val);
+    }
+    await this._callFunction(setter.module, setter.func, { ['self']: receiver, ['value']: computed });
+    return computed;
+  }
+
   async _evalAssign(call: any, scope: any): Promise<any> {
     let fields = this._lazyFields(call);
     let target = __ball_index(fields, 'target');
@@ -6063,7 +6096,13 @@ export class BallEngine {
       }
       throw new BallRuntimeError(this._assignErrorMessage(op, ((('cannot index-assign into a value of type ' + __ball_to_string(this._typeNameOf(list))) + ' ') + ('with an index of type ' + __ball_to_string(this._typeNameOf(idx))))));
     }
-    throw new BallRuntimeError(this._assignErrorMessage(op, (('unsupported assignment target shape ' + (__ball_to_string(this._assignTargetShapeName(target)) + ': expected a reference, a field ')) + 'access, or a std.index call')));
+    if (__ball_eq(whichExpr(target), Expression_Expr.call)) {
+      let written = await this._assignThroughAccessorCall(target.call, op, val, scope);
+      if (!__ball_eq(written, _sentinel)) {
+        return written;
+      }
+    }
+    throw new BallRuntimeError(this._assignErrorMessage(op, (('unsupported assignment target shape ' + (__ball_to_string(this._assignTargetShapeName(target)) + ': expected a reference, a field ')) + 'access, a std.index call, or an accessor call')));
   }
 
   async _evalNullAwareAssign(target: any, value: any, scope: any): Promise<any> {
@@ -6139,7 +6178,28 @@ export class BallEngine {
       }
       throw new BallRuntimeError(this._assignErrorMessage('??=', ((('cannot index-assign into a value of type ' + __ball_to_string(this._typeNameOf(list))) + ' ') + ('with an index of type ' + __ball_to_string(this._typeNameOf(idx))))));
     }
-    throw new BallRuntimeError(this._assignErrorMessage('??=', (('unsupported assignment target shape ' + (__ball_to_string(this._assignTargetShapeName(target)) + ': expected a reference, a field ')) + 'access, or a std.index call')));
+    if (__ball_eq(whichExpr(target), Expression_Expr.call)) {
+      let setter = this._resolveAccessorCall(target.call, true);
+      if (!__ball_eq(setter, null)) {
+        let getter = this._resolveAccessorCall(target.call, false);
+        if (__ball_eq(getter, null)) {
+          throw new BallRuntimeError(this._assignErrorMessage('??=', ((('accessor \'' + __ball_to_string(target.call.function)) + '\' declares a setter but no ') + 'getter, so `??=` has nothing to read')));
+        }
+        let selfExpr = __ball_index(this._lazyFields(target.call), 'self');
+        if (__ball_eq(selfExpr, null)) {
+          throw new BallRuntimeError(this._assignErrorMessage('??=', ((('accessor target \'' + __ball_to_string(target.call.function)) + '\' is missing its ') + '\'self\' receiver')));
+        }
+        let receiver = await this._evalExpression(selfExpr, scope);
+        let current = await this._callFunction(getter.module, getter.func, { ['self']: receiver });
+        if (!__ball_eq(current, null)) {
+          return current;
+        }
+        let val = await this._evalExpression(value, scope);
+        await this._callFunction(setter.module, setter.func, { ['self']: receiver, ['value']: val });
+        return val;
+      }
+    }
+    throw new BallRuntimeError(this._assignErrorMessage('??=', (('unsupported assignment target shape ' + (__ball_to_string(this._assignTargetShapeName(target)) + ': expected a reference, a field ')) + 'access, a std.index call, or an accessor call')));
   }
 
   async _evalIncDec(call: any, scope: any): Promise<any> {
@@ -6206,6 +6266,26 @@ export class BallEngine {
         let current = this._toNum(__ball_index(map, fieldName));
         let updated = (isInc ? __ball_add(current, 1) : __ball_sub(current, 1));
         map[fieldName] = updated;
+        return (isPre ? updated : current);
+      }
+    }
+    if (__ball_eq(whichExpr(valueExpr), Expression_Expr.call)) {
+      let setter = this._resolveAccessorCall(valueExpr.call, true);
+      if (!__ball_eq(setter, null)) {
+        let getter = this._resolveAccessorCall(valueExpr.call, false);
+        let isInc = call.function.includes('increment');
+        let isPre = call.function.startsWith('pre');
+        if (__ball_eq(getter, null)) {
+          throw new BallRuntimeError((((('std.' + __ball_to_string(call.function)) + ': accessor ') + (('\'' + __ball_to_string(valueExpr.call.function)) + '\' declares a setter but no getter, so ')) + 'there is nothing to read'));
+        }
+        let selfExpr = __ball_index(this._lazyFields(valueExpr.call), 'self');
+        if (__ball_eq(selfExpr, null)) {
+          throw new BallRuntimeError(((('std.' + __ball_to_string(call.function)) + ': accessor target ') + (('\'' + __ball_to_string(valueExpr.call.function)) + '\' is missing its \'self\' receiver')));
+        }
+        let receiver = await this._evalExpression(selfExpr, scope);
+        let current = this._toNum(await this._callFunction(getter.module, getter.func, { ['self']: receiver }));
+        let updated = (isInc ? __ball_add(current, 1) : __ball_sub(current, 1));
+        await this._callFunction(setter.module, setter.func, { ['self']: receiver, ['value']: updated });
         return (isPre ? updated : current);
       }
     }

@@ -139,6 +139,13 @@ pub struct Compiler<'a> {
     /// to an *inherited* field binds like an own field (issue #39, gap #5 —
     /// class-hierarchy field inheritance).
     type_defs_by_short_name: HashMap<String, &'a TypeDefinition>,
+
+    /// The associated-fn path each member of a `kind: "extension"` typeDef is
+    /// emitted under (`main:AlphaTag.tag` → `main_AlphaTag::tag`) — the
+    /// extension-override representation (issue #670). See the construction
+    /// site in [`Compiler::new`] for why a receiver-matching dispatcher cannot
+    /// answer for these.
+    extension_member_fns: HashMap<String, String>,
     /// Every **sanitized** name that compiles to a callable Rust item — a
     /// standalone user function (`pub fn <name>`) or a polymorphic method
     /// dispatcher / short method name (`pub fn <short>`, see
@@ -389,6 +396,42 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // Every member of a `kind: "extension"` typeDef, keyed by its QUALIFIED
+        // Ball function name (`main:AlphaTag.tag`) and valued with the
+        // associated-fn path this compiler emits for it
+        // (`main_AlphaTag::tag`) — the extension-override representation
+        // (issue #670).
+        //
+        // An override (`Ext(receiver).member`) is encoded as a call NAMING the
+        // extension's own member and carrying the receiver in `self`, because
+        // the selection is the whole meaning of the node: two extensions can
+        // declare the SAME member on the SAME type, so the short-named
+        // dispatcher `compile_method_dispatchers` emits (it matches on the
+        // RECEIVER's message type, and an extension receiver is an ordinary
+        // list/string/map) cannot pick between them. Calling the associated fn
+        // directly is the only faithful emission — and the qualified name does
+        // not even sanitize to a Rust item that exists, so leaving it to the
+        // generic path emitted an undefined `main_AlphaTag_tag`.
+        let mut extension_member_fns: HashMap<String, String> = HashMap::new();
+        for (owner, members) in &class_members_by_owner {
+            let Some(td) = type_defs_by_short_name.get(type_emit::type_short_name(owner)) else {
+                continue;
+            };
+            if type_emit::type_meta_kind(td).as_deref() != Some("extension") {
+                continue;
+            }
+            for func in members {
+                extension_member_fns.insert(
+                    func.name.clone(),
+                    format!(
+                        "{}::{}",
+                        sanitize_ident(&td.name),
+                        sanitize_ident(&type_emit::member_short_name(&func.name))
+                    ),
+                );
+            }
+        }
+
         // Every instance-method short name — the receiver-reading dispatch
         // targets for implicit-`this` injection (issue #298). A method-call
         // node from inside an instance method body that names one of these must
@@ -431,6 +474,7 @@ impl<'a> Compiler<'a> {
             user_module_names,
             class_members_by_owner,
             type_defs_by_short_name,
+            extension_member_fns,
             callable_names,
             local_scopes: RefCell::new(Vec::new()),
             instance_method_names,

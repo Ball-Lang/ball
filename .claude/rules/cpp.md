@@ -436,6 +436,33 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   This target needed only the `ArgumentError` row: #640's `arg0` -> `message`
   rename in the throw lowering already had it ahead of every sibling.
 
+- **An EXTENSION member is LOWERED to a free function taking the receiver as
+  parameter 0 (#670).** `Ext(receiver).member` is encoded as a call NAMING the
+  extension's own member (`<module>:<Ext>.<member>`) with the receiver in
+  `self`, because the selection is the whole meaning of the node — two
+  extensions can declare the SAME member on the SAME type. C++ has no
+  extensions, and an extension typeDef carries **no `descriptor`**, so
+  `compile()`'s struct emission skipped it and its members — partitioned as
+  methods of that never-emitted struct — vanished from the output entirely: the
+  call site was already right (`sanitize_name` maps `main:AlphaTag.tag` to
+  `AlphaTag_tag`), the definition simply did not exist and the program did not
+  link. `lower_extension_members`, run from the constructor BEFORE
+  `build_lookup_tables`, renames each member to that same `sanitize_name`
+  result, retags it `kind: "function"` and prepends a `self` parameter, so
+  every downstream path (forward decls, partitioning, emission) treats it as an
+  ordinary free function. **`compile_call_arguments` then needs the positional
+  SHIFT**: with `self` a declared parameter, the call's `arg0` field names slot
+  1, and without `extension_free_functions_` the two collided at index 0 and the
+  RECEIVER was silently dropped from the argument list while the remaining count
+  still matched an arity the callee accepts. The self-hosted engine is provably
+  untouched — `parts_resolver.dart` merges an `extension X on Class` whose class
+  the library declares INTO that class before encoding, so
+  `dart/self_host/engine.ball.json` carries no extension typeDef at all.
+  Guards: `tests/conformance/479_extension_override_selection` (the
+  `C++ Compiled` row, wired into `cpp/test/e2e_fixture_list.h`) and
+  `extension_members_lower_to_free_functions_taking_self` in
+  `cpp/test/test_compiler.cpp`.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

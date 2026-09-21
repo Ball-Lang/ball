@@ -1016,7 +1016,20 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "281"
+      # 282 after #670: `479_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member through its impl method
+      # rather than `BallRuntime.CallMethod`. Measured by this very row (PR
+      # #829, job 106251801199: `Results: 282 passed, 81 failed, 363 total`),
+      # never predicted.
+      # 283 once #670's branch merged with `origin/main`: the extra 1 is NOT
+      # this issue's — it is #834's `478_setter_backing_store_disambiguation`,
+      # which this compiler already emits correctly, joining the corpus on the
+      # merged tree. A floor is about the tree that merges, not about whose
+      # commit earned the gain, so leaving it at 282 would give that one back
+      # silently. Measured by this very row (PR #829, job 106311674886:
+      # `Results: 283 passed, 81 failed, 364 total (floor: 282)` plus its own
+      # `IMPROVED` notice), never predicted.
+      CSHARP_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1532,7 +1545,14 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "282"
+      # 283 after #670: `479_extension_override_selection` joined the corpus and
+      # `compile_module_types` stopped skipping the descriptor-less extension
+      # typeDef, so the `impl` its members live in is emitted and both the direct
+      # call and the short-name dispatcher resolve. Measured by this very row (PR
+      # #829, job 106262486121: `Results: 283 passed, 80 failed, 363 total`), never
+      # predicted — the commit before it measured 282 with the call site already
+      # right and the definition missing (E0433).
+      RUST_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1641,7 +1661,12 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "298"
+      # 299 after #670: `479_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member through its impl func
+      # rather than the receiver-asking `ballrt.CallMethod`. Measured by this
+      # very row (PR #829, job 106251801272: `Results: 299 passed, 64 failed,
+      # 363 total`), never predicted.
+      GO_COMPILER_FLOOR: "299"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1738,7 +1763,20 @@ jobs:
       # inside the failures — the #615 lesson repeating: a ratchet is green over
       # the regression it already tolerates. Measured before and after, locally
       # and on CI, never predicted.
-      PYTHON_COMPILER_FLOOR: "265"
+      # 266 after #670: `479_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member unbound on its class
+      # rather than through `ballrt.call_method`. Measured by this very row
+      # (PR #829, job 106251801278: `Results: 266 passed, 97 failed, 363
+      # total`), never predicted.
+      # 269 once #670's branch was merged with `origin/main`: the extra 3 are
+      # NOT this issue's — they come from main's own Python slices that the
+      # 266 measurement above predates. Leaving the floor at 266 would have
+      # given those back silently, which is exactly what a ratchet exists to
+      # prevent, and the row's own `IMPROVED` notice said so on two
+      # consecutive runs before anyone read it. Measured by this very row
+      # (PR #829, jobs 106269065646 and 106283796079, both `Results: 269
+      # passed, 94 failed, 363 total (floor: 266)`), never predicted.
+      PYTHON_COMPILER_FLOOR: "269"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

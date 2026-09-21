@@ -109,6 +109,20 @@ public sealed partial class CSharpCompiler
     private readonly Dictionary<string, TypeDefinition> _typeDefsByShortName = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// The impl method of each member of a <c>kind: "extension"</c> typeDef,
+    /// keyed by its QUALIFIED Ball function name (<c>main:AlphaTag.tag</c>) —
+    /// the extension-override representation (issue #670).
+    /// <para>An override (<c>Ext(receiver).member</c>) is encoded as a call
+    /// NAMING the extension's own member and carrying the receiver in
+    /// <c>self</c>, because the selection is the whole meaning of the node: two
+    /// extensions can declare the same member on the same type, so
+    /// <c>BallRuntime.CallMethod</c> — which asks the RECEIVER — cannot pick
+    /// between them. Calling the impl directly is the only faithful
+    /// emission.</para>
+    /// </summary>
+    private readonly Dictionary<string, string> _extensionMemberImpl = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Every user enum's sanitized short name → the fully-qualified emitted
     /// static that holds its namespace message (e.g. <c>Color</c> →
     /// <c>BallProgram.Color</c>). <see cref="CompileEnum"/> emits the static into
@@ -234,6 +248,39 @@ public sealed partial class CSharpCompiler
 
         IndexConstructors();
         IndexAccessors();
+        IndexExtensionMembers();
+    }
+
+    /// <summary>
+    /// Fill <see cref="_extensionMemberImpl"/>. A separate pass over the whole
+    /// program, not a branch of the collection loop above: an extension declared
+    /// in a LATER module than the one whose body names it would not yet be in
+    /// <see cref="_typeDefsByShortName"/> there.
+    /// </summary>
+    private void IndexExtensionMembers()
+    {
+        foreach (var (owner, members) in _classMembersByOwner)
+        {
+            var ownerShort = Naming.TypeShortName(owner);
+            if (!_typeDefsByShortName.TryGetValue(ownerShort, out var td)
+                || MetaString(td.Metadata, "kind") != "extension"
+                || !_moduleByTypeShortName.TryGetValue(ownerShort, out var ownerModule))
+            {
+                continue;
+            }
+
+            foreach (var member in members)
+            {
+                if (Naming.SplitMemberName(member.Name) is not { } split)
+                {
+                    continue;
+                }
+
+                _extensionMemberImpl[member.Name] =
+                    ModuleQualifier(ownerModule)
+                    + MemberImplName(ownerShort, split.Member, MetaBool(member.Metadata, "is_setter"));
+            }
+        }
     }
 
     /// <summary>Compile <paramref name="program"/> into a complete C# source file.</summary>
@@ -1018,6 +1065,19 @@ public sealed partial class CSharpCompiler
         var input = call.Input is null ? "BallValue.Null" : CompileExpression(call.Input);
         var name = Naming.Sanitize(call.Function);
         var prefix = ResolveUserCallPrefix(call.Module);
+
+        // Extension override (issue #670). A call NAMING an extension's member
+        // selected that extension explicitly, and no name-based route below may
+        // see it: `BallRuntime.CallMethod` asks the RECEIVER, and an extension
+        // receiver is an ordinary list/string/map, so it cannot pick between two
+        // extensions declaring the same member on the same type. The impl takes
+        // the call's own input message (`self` plus the arguments), which is
+        // exactly the shape already compiled above.
+        if (CallInputHasExplicitSelf(call)
+            && _extensionMemberImpl.TryGetValue(call.Function, out var extImpl))
+        {
+            return $"{extImpl}({input})";
+        }
 
         if (prefix.Length == 0 && LocalName(call.Function) is { } localCallee)
         {

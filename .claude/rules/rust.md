@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 363 passed, 0 failed, 363 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 364 passed, 0 failed, 364 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -221,6 +221,33 @@ cargo fmt --check && cargo clippy --workspace
   SHAPE: the `rust-compiler` matrix row is a PR gate since #619, but it is a
   RATCHET on a passing count, and 146's failure sat inside its floor from day
   one.
+
+- **An EXTENSION-OVERRIDE call reaches the member's associated fn (#670).**
+  `Ext(receiver).member` is encoded as a call NAMING the extension's own member
+  (`<module>:<Ext>.<member>`) with the receiver in `self`, because the selection
+  is the whole meaning of the node — two extensions can declare the SAME member
+  on the SAME type, and the short-named dispatcher
+  `compile_method_dispatchers` emits matches on the RECEIVER's message type,
+  which for an extension receiver is an ordinary list/string/map. Left to the
+  generic path the qualified name sanitized to `main_AlphaTag_tag`, an item no
+  emitted program declares, so the output did not compile.
+  `Compiler::extension_member_fns` (built in `Compiler::new` from the
+  `kind: "extension"` typeDefs, via `type_emit::type_meta_kind`) maps it to
+  `main_AlphaTag::tag`, and `compile_call` invokes that with the call's own
+  input message.
+  **`compile_module_types` had to stop skipping the typeDef.** Its guard is
+  `td.descriptor.is_none()`, written for the cosmetic `kind: "enum"` companion
+  of a `Module.enums[]` entry — and an extension typeDef is descriptor-less
+  too, so nothing emitted the `impl` its MEMBERS live in and both the call above
+  and the short-name dispatcher referenced an item nothing declared
+  (`error[E0433]: cannot find module or crate `main_AlphaTag``). An extension is
+  now the one exception; it has no fields, so `compile_struct_def` emits an
+  empty struct plus that `impl`. Guards:
+  `tests/conformance/479_extension_override_selection` (cross-target) and
+  `rust/compiler/tests/extension_override.rs`, whose second case BUILDS AND RUNS
+  the compiled output against the golden — the shape assertion beside it passed
+  for a program that did not compile at all, and only CI's `Rust Compiler Leg`
+  saw that.
 
 ### Encoder
 
@@ -847,7 +874,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 363 passed, 0 failed, 363 total` (the 4
+  whole corpus with Dart-identical output: `Results: 364 passed, 0 failed, 364 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

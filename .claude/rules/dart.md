@@ -347,11 +347,26 @@ avoid constructs that need receiver-type info:
     typeDef — no schema change, because the NAME carries the selection (the
     design record is in `docs/METADATA_SPEC.md`, "Extension overrides ride the
     function NAME"). Whether `()` is emitted comes from the member's own
-    `is_getter`, the same accessor-shape family as #501/#664. It is a
-    RESOLVED-AST-only path (`parseString` reads `Ext(x).m()` as a call on a
-    constructor invocation), so `encode(String)`,
-    `dart/self_host/engine.ball.json` and the conformance corpus never reach
-    it. `<module>` is the DECLARING module, resolved from the override's own
+    `is_getter`, the same accessor-shape family as #501/#664.
+    **The PARSE-ONLY spelling reaches the same IR (#670's last encoder slice).**
+    `parseString` has no element model, so `Ext(x).m()` arrives as an ordinary
+    `ast.MethodInvocation` `Ext(x)` in target position — and that is the path
+    `generate_conformance.dart` / `ball encode` / `/ball:convert` take, i.e. how
+    an override reaches the CORPUS and every non-Dart target. It used to fall
+    through to the generic encoding, where `Ext` ALSO names a declared typeDef,
+    so the override became a CONSTRUCTION of the extension type with the
+    receiver buried as `arg0`: no warning, and measured on the reference engine
+    as `alpha(4)` where `dart run` says `alpha(3)`. `_parseOnlyOverride` +
+    `_tryEncodeParseOnlyOverride` recognise it and emit the identical call —
+    sound without resolution because `_localExtensionNames` is collected before
+    any body is encoded and **Dart cannot construct an extension**. An extension
+    declared in another LIBRARY is deliberately NOT recognised there (the parser
+    cannot see it); the resolved path below is what names those.
+    `dart/self_host/engine.ball.json` is still untouched — `parts_resolver.dart`
+    merges an `extension X on Class` whose class the library declares INTO that
+    class, so the self-host source carries no extension declaration at all
+    (verified by regenerating all four committed artifacts: zero diff).
+    `<module>` is the DECLARING module, resolved from the override's own
     element (`_extensionOwnerModule`) against the `library URI → module` map
     `PackageEncoder.prepareStaticTypes()` records — so an extension in ANOTHER
     file of the package works, and so does an import PREFIX (a prefix is a
@@ -366,11 +381,13 @@ avoid constructs that need receiver-type info:
     warning naming the construct plus the `/* unsupported: … */` placeholder).
     The ENGINES already dispatch the qualified name by ordinary module-function
     lookup (pinned by running the cross-module program on the reference engine
-    in `test/extension_override_test.dart`); the non-Dart COMPILERS still strip
-    everything before the last `:` and in fact read `kind: 'extension'` nowhere
-    at all, so extension DECLARATIONS have to come first there — that
-    remainder, and the conformance fixture that depends on it, is the rest of
-    #670. Two neighbouring shapes are NOT refusals and each had its own silent
+    in `test/extension_override_test.dart`), and since #670's last slice every
+    non-Dart COMPILER honours it too — each reaching the member by whatever
+    shape it already emits that member under (the table is in
+    `docs/METADATA_SPEC.md`). `tests/conformance/479_extension_override_selection`
+    is the cross-target proof: two extensions on the same type declaring the
+    same members, so the override is the only thing that selects which one runs.
+    Two neighbouring shapes are NOT refusals and each had its own silent
     failure: type arguments on the MEMBER (`Ext(x).m<int>()`) ride
     `FunctionCall.typeArgs` like any other instance call — dropping them
     reified `List<dynamic>` — and a WRITE (`Ext(x).m = v`, `+= 1`, `++`)
@@ -783,9 +800,10 @@ falls back to it would call itself in every compiled self-hosted engine. Use
 
 - **An assignment the engine cannot perform is an ERROR, never a dropped write
   (#742).** `engine_control_flow.dart`'s `_evalAssign` and
-  `_evalNullAwareAssign` write through exactly three `std.assign` target shapes
-  — a bare `reference`, a `fieldAccess` whose object reads as a map, and a
-  `std.index` call over a list/map. Every other shape fell out of all three
+  `_evalNullAwareAssign` write through four `std.assign` target shapes
+  — a bare `reference`, a `fieldAccess` whose object reads as a map, a
+  `std.index` call over a list/map, and (since #670, see the extension-override
+  bullet below) an ACCESSOR CALL naming a setter. Every other shape fell out of all
   branches into a bare `return val;`, so the write was never performed and the
   RHS was handed back as if it had been: a caller could not tell a dropped write
   from a successful one, on ANY target (this is engine source, so all seven
@@ -807,6 +825,35 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   i.e. a coverage test had PINNED the bug. No conformance fixture can reach
   these paths: no encoder emits such a target, which is why the corpus never
   saw it.
+
+- **An extension override in a WRITE position dispatches the extension's SETTER
+  (#670).** `Ext(receiver).member = v` encodes exactly like the READ does — a
+  call NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  receiver in `self` — wrapped by `std.assign`, so #670's "the engines need to
+  dispatch the qualified name" covers it. The read half worked by ordinary
+  module-function lookup; the WRITE half reached the #742 refusal above, because
+  an override write is a `call` target and `_evalAssign` knew only `std.index`
+  calls, so NO engine could run a program containing one. `_resolveAccessorCall`
+  answers from the `_getters`/`_setters` tables `_buildLookupTables` fills out of
+  each function's `is_getter`/`is_setter` metadata — never from `_functions`,
+  which keeps the GETTER when a getter and a setter share one function name (the
+  accessor-shape family of #501/#664/#651). `_assignThroughAccessorCall` serves
+  `=` and every compound operator, `_evalNullAwareAssign` serves `??=` (getter
+  first, so the RHS still short-circuits) and `_evalIncDec` serves `++`/`--`;
+  all three evaluate the receiver ONCE, so a compound write cannot run a
+  side-effecting receiver twice. Failures stay loud (a setter with no getter, an
+  accessor target with no `self`), and a call target naming no setter at all
+  falls through to #742's refusal rather than silently writing a map key.
+  Guard: `engine: an extension override writes through its setter (#670)` in
+  `dart/engine/test/engine_test.dart`, plus the write-position group in
+  `dart/encoder/test/extension_override_test.dart`, which now RUNS its encoded
+  program on the reference engine — every assertion it had read the COMPILED
+  DART, which is why the whole group was green while no engine could write.
+  **The COMPILERS' write half is still open (#865)**: only `dart/compiler` re-emits
+  `Ext(x).m = v` (the Go compiler emits `ballrt.UnsupportedBaseCall("std",
+  "assign")` and gives an extension getter/setter pair two identically-named Go
+  funcs; the Python compiler reports `assign: unsupported lvalue`), so
+  `tests/conformance/479_extension_override_selection` carries no setter arm yet.
 
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw

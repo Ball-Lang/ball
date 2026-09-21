@@ -26,7 +26,10 @@
 //! `every_built_in_method_arm_is_classified` unit test. Every other built-in
 //! arm produces a NEW value from the receiver, so it is a read, and a read of a
 //! borrow and a read of a copy give the same answer — those keep encoding,
-//! exactly as `mut_borrow_writes.rs`'s read-only control requires.
+//! exactly as `mut_borrow_writes.rs`'s read-only control requires. A method
+//! that is neither (no arm at all) is refused rather than assumed safe: it
+//! could not be encoded either way today, and refusing it is what keeps the
+//! guard closed through an arm someone adds later without classifying it.
 //!
 //! A USER-DECLARED instance method is deliberately not covered here: the
 //! receiver is packed as a `"self"` field and `rust/compiler`'s
@@ -123,7 +126,57 @@ fn a_mutating_method_call_through_an_inherited_opaque_alias_is_refused() {
     assert_names_the_place(&message, "b", "p . items", "push");
 }
 
+/// A method with NO arm at all, called through an unmodellable borrow, is
+/// refused here rather than a few lines later at `encode_method_call`'s
+/// catch-all. It could not be encoded either way — but a future arm added
+/// without being classified would otherwise walk straight past the guard, so
+/// "not provably a read" is refused, not assumed safe.
+#[test]
+fn an_unclassified_method_call_through_an_unmodellable_borrow_is_refused_too() {
+    let message = refusal_message(
+        "fn main() { let mut p = make(); let s = &mut p.items; s.next(); \
+         println!(\"{}\", p); } \
+         fn make() -> i64 { 1 }",
+    );
+    assert_names_the_place(&message, "s", "p . items", "next");
+}
+
 // ── The controls: the refusal must stay NARROW ──────────────────────────────
+
+/// The same unsupported method on an ORDINARY receiver keeps the catch-all
+/// "unsupported method call" diagnostic — the guard must not take over
+/// refusals it has nothing to say about.
+#[test]
+fn an_unclassified_method_call_on_an_ordinary_binding_keeps_the_catch_all_message() {
+    let message = refusal_message(
+        "fn main() { let mut v = make(); v.next(); println!(\"{}\", v); } \
+         fn make() -> i64 { 1 }",
+    );
+    assert!(
+        message.contains("unsupported method call"),
+        "a non-aliased receiver must still get `encode_method_call`'s own refusal, got: {message}"
+    );
+}
+
+/// A USER-DECLARED instance method through the same borrow still encodes: no
+/// instance method observably mutates its receiver on any receiver (the
+/// compiler extracts `self` from `input.clone()`), so refusing it here would
+/// reject working code for a gap that lives elsewhere — issue #692.
+#[test]
+fn a_user_declared_method_call_through_an_unmodellable_borrow_still_encodes() {
+    let program = ball_lang_encoder::encode(
+        "struct Counter { n: i64 } \
+         impl Counter { fn bump(&mut self, by: i64) -> i64 { by } } \
+         fn main() { let mut p = make(); let s = &mut p.items; let r = s.bump(1i64); \
+         println!(\"{}\", r); } \
+         fn make() -> i64 { 1 }",
+    );
+    let names = declared_let_names(&program);
+    assert!(
+        names.iter().any(|n| n == "r"),
+        "a user-declared method call through a `&mut <field>` binding must still encode: {names:?}"
+    );
+}
 
 /// A READ-ONLY method call through an unmodellable `&mut` borrow still
 /// encodes. `.len()` produces a new value from the receiver, and a read of a

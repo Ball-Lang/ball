@@ -33,10 +33,17 @@ import (
 //     with a `ballrt.Value(nil)` placeholder for an omitted optional argument
 //     (`Substring`, `ToStringAsExponential`, `Assert`, `Return`) are left out
 //     rather than guessed at;
-//   - a base function the module's own builder actually declares —
+//   - a base function the module's own builder actually declares, with the
+//     fields the compiler's first-alias rule produces —
 //     `dart/shared/std.json` for `std`, `dart/shared/lib/std_collections.dart`
-//     for `std_collections`. `print_error`/`invoke` are not in std.json, so they
-//     are not here either;
+//     for `std_collections`. `print_error` is in no builder at all, and
+//     `std.invoke`'s InvokeInput declares only `callee` (never the
+//     `function`/`argument` the compiler emits), so neither is here;
+//   - not ANOTHER universal module's function. The std switch is reached for
+//     every module except `ball_proto` and `std_collections`, so it also lowers
+//     std_convert's `json_*`/`utf8_*`/`base64_*`; those invert to
+//     `std_convert.<fn>`, which this file has no table for, and are excluded
+//     rather than mis-filed under `std`;
 //   - no type-name string operands (`IsType`/`AsType` take a quoted Go string,
 //     not an encodable expression);
 //   - ONE module. A helper the compiler emits from two switches at once (today
@@ -195,31 +202,37 @@ var stdHelpers = map[string]ballrtHelper{
 	// ── Logic ───────────────────────────────────────────────────────────────
 	"Not": {fn: "not", fields: unary},
 
+	// ── Text sink (#630) ────────────────────────────────────────────────────
+	"SinkCreate":   {fn: "sink_create", fields: []string{"initial"}},
+	"SinkWrite":    {fn: "sink_write", fields: []string{"sink", "text"}},
+	"SinkToString": {fn: "sink_to_string", fields: []string{"sink"}},
+
 	// ── Strings ─────────────────────────────────────────────────────────────
-	"Concat":         {fn: "concat", fields: binary},
-	"ToStr":          {fn: "to_string", fields: unary},
-	"Length":         {fn: "length", fields: unary},
-	"StrToInt":       {fn: "string_to_int", fields: unary},
-	"StrToDouble":    {fn: "string_to_double", fields: unary},
-	"StrUpper":       {fn: "string_to_upper", fields: unary},
-	"StrLower":       {fn: "string_to_lower", fields: unary},
-	"StrTrim":        {fn: "string_trim", fields: unary},
-	"StrTrimStart":   {fn: "string_trim_start", fields: unary},
-	"StrTrimEnd":     {fn: "string_trim_end", fields: unary},
-	"StrRunes":       {fn: "string_runes", fields: unary},
-	"StrIsEmpty":     {fn: "string_is_empty", fields: unary},
-	"StrIsNotEmpty":  {fn: "string_is_not_empty", fields: unary},
-	"StrContains":    {fn: "string_contains", fields: []string{"value", "search"}},
-	"StrStartsWith":  {fn: "string_starts_with", fields: []string{"value", "prefix"}},
-	"StrEndsWith":    {fn: "string_ends_with", fields: []string{"value", "suffix"}},
-	"StrIndexOf":     {fn: "string_index_of", fields: []string{"value", "search"}},
-	"StrLastIndexOf": {fn: "string_last_index_of", fields: []string{"value", "search"}},
-	"StrSplit":       {fn: "string_split", fields: []string{"value", "separator"}},
-	"StrCodeUnitAt":  {fn: "string_code_unit_at", fields: []string{"value", "index"}},
-	"StrReplace":     {fn: "string_replace", fields: []string{"value", "from", "to"}},
-	"StrReplaceAll":  {fn: "string_replace_all", fields: []string{"value", "from", "to"}},
-	"StrPadLeft":     {fn: "string_pad_left", fields: []string{"value", "width", "padding"}},
-	"StrPadRight":    {fn: "string_pad_right", fields: []string{"value", "width", "padding"}},
+	"Concat":          {fn: "concat", fields: binary},
+	"ToStr":           {fn: "to_string", fields: unary},
+	"Length":          {fn: "length", fields: unary},
+	"StrToInt":        {fn: "string_to_int", fields: unary},
+	"StrToDouble":     {fn: "string_to_double", fields: unary},
+	"StrUpper":        {fn: "string_to_upper", fields: unary},
+	"StrLower":        {fn: "string_to_lower", fields: unary},
+	"StrFromCharCode": {fn: "string_from_char_code", fields: unary},
+	"StrTrim":         {fn: "string_trim", fields: unary},
+	"StrTrimStart":    {fn: "string_trim_start", fields: unary},
+	"StrTrimEnd":      {fn: "string_trim_end", fields: unary},
+	"StrRunes":        {fn: "string_runes", fields: unary},
+	"StrIsEmpty":      {fn: "string_is_empty", fields: unary},
+	"StrIsNotEmpty":   {fn: "string_is_not_empty", fields: unary},
+	"StrContains":     {fn: "string_contains", fields: []string{"value", "search"}},
+	"StrStartsWith":   {fn: "string_starts_with", fields: []string{"value", "prefix"}},
+	"StrEndsWith":     {fn: "string_ends_with", fields: []string{"value", "suffix"}},
+	"StrIndexOf":      {fn: "string_index_of", fields: []string{"value", "search"}},
+	"StrLastIndexOf":  {fn: "string_last_index_of", fields: []string{"value", "search"}},
+	"StrSplit":        {fn: "string_split", fields: []string{"value", "separator"}},
+	"StrCodeUnitAt":   {fn: "string_code_unit_at", fields: []string{"value", "index"}},
+	"StrReplace":      {fn: "string_replace", fields: []string{"value", "from", "to"}},
+	"StrReplaceAll":   {fn: "string_replace_all", fields: []string{"value", "from", "to"}},
+	"StrPadLeft":      {fn: "string_pad_left", fields: []string{"value", "width", "padding"}},
+	"StrPadRight":     {fn: "string_pad_right", fields: []string{"value", "width", "padding"}},
 
 	// ── Numeric conversion + formatting ─────────────────────────────────────
 	"NullCheck":           {fn: "null_check", fields: unary},
@@ -244,9 +257,26 @@ var stdHelpers = map[string]ballrtHelper{
 	"MathClamp":      {fn: "math_clamp", fields: []string{"value", "min", "max"}},
 	"MathGcd":        {fn: "math_gcd", fields: []string{"value", "other"}},
 
+	// Dart's `num.roundToDouble()` family — the compiler's own group, kept in
+	// its switch order.
+	"RoundToDouble":    {fn: "round_to_double", fields: unary},
+	"FloorToDouble":    {fn: "floor_to_double", fields: unary},
+	"CeilToDouble":     {fn: "ceil_to_double", fields: unary},
+	"TruncateToDouble": {fn: "truncate_to_double", fields: unary},
+
 	// ── Indexing ────────────────────────────────────────────────────────────
 	"IndexGet": {fn: "index", fields: []string{"target", "index"}},
 	"TypeOf":   {fn: "type_of", fields: unary},
+
+	// ── Flow ────────────────────────────────────────────────────────────────
+	// `std.throw` is an ordinary one-input base call (UnaryInput `value`); the
+	// compiler emits it as an expression, and the encoder reads a Go `panic`
+	// back through the same base function. Its siblings are NOT here:
+	// `ballrt.Return`/`Assert` carry a `ballrt.Value(nil)` placeholder for an
+	// omitted optional argument and `ballrt.Rethrow()` carries no argument at
+	// all, so none of the three has a shape the inverse can assert (see
+	// documentedStdExclusions in ballrt_table_test.go).
+	"Throw": {fn: "throw", fields: unary},
 }
 
 // collectionsHelpers is the inverse of `compileCollectionsCall` — the second

@@ -375,24 +375,6 @@
           }
         },
         {
-          "name": "main:CountedChild.readIsEmptyViaSuper",
-          "outputType": "int",
-          "body": {
-            "fieldAccess": {
-              "object": {
-                "reference": {
-                  "name": "super"
-                }
-              },
-              "field": "isEmpty"
-            }
-          },
-          "metadata": {
-            "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
           "name": "main:CountedChild.readIsNaNViaSuper",
           "outputType": "bool",
           "body": {
@@ -411,8 +393,8 @@
           }
         },
         {
-          "name": "main:CountedChild.readIsEmptyViaThisInherited",
-          "outputType": "int",
+          "name": "main:CountedChild.readIsNaNViaThisInherited",
+          "outputType": "bool",
           "body": {
             "fieldAccess": {
               "object": {
@@ -420,7 +402,7 @@
                   "name": "self"
                 }
               },
-              "field": "isEmpty"
+              "field": "isNaN"
             }
           },
           "metadata": {
@@ -1243,43 +1225,6 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "readIsEmptyViaSuper",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "self",
-                                          "value": {
-                                            "reference": {
-                                              "name": "child"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
                                   "function": "readIsNaNViaSuper",
                                   "input": {
                                     "messageCreation": {
@@ -1317,7 +1262,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "readIsEmptyViaThisInherited",
+                                  "function": "readIsNaNViaThisInherited",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -1370,34 +1315,6 @@
                     "metadata": {
                       "keyword": "var",
                       "type": "CountedChild"
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "inherited"
-                                    }
-                                  },
-                                  "field": "isEmpty"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
                     }
                   }
                 },

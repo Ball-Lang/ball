@@ -152,6 +152,17 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   ones. Every one of those fast gates asserts what the emit must CONTAIN
   (`(*this).isNaN`) alongside what it must not — a refusal-only test also passes
   for an emit that dropped the access entirely.
+  **The cross-target fixture's inherited reads use the NUMERIC family on
+  purpose.** An INHERITED field of the COLLECTION family (`isEmpty` /
+  `isNotEmpty` / `length`) still reads back `null` from a subclass receiver on
+  this target — **issue #800**, a THIRD defect, separate from both #697 halves
+  and from the chain walk above: the emitted access correctly names the member
+  (`compiler_tests` proves that), so the loss happens after emission, at
+  construction or member resolution. It is `C++ Compiled` only; every engine row
+  answers the same program correctly, because they resolve a plain `fieldAccess`
+  own-key-first through `__super__`. Do not re-add those lines to fixture `476_…`
+  until #800 lands — the issue body carries them verbatim, and restoring them is
+  the whole reproduction.
   The guard covers those SEVEN names. The sibling shortcuts further down in
   `compile_field_access` — `.entries`, `.keys`, `.values`, `.first`, `.last`,
   `.runtimeType` — are still unconditional, so a class declaring one of those

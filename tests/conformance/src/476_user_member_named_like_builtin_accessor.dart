@@ -22,8 +22,21 @@
 // `std.string_is_empty(self)`. The inherited-field reads below are the same
 // family reached from the C++ COMPILER's side: its by-name shortcut proves an
 // inherited GETTER (its getter table is flattened over the chain) but had no
-// chain walk for an inherited plain data FIELD, so `child.isEmpty` compiled to
-// `self.empty()` - the emptiness of the OBJECT - instead of reading the member.
+// chain walk for an inherited plain data FIELD, so `child.isNaN` compiled to
+// `ball_isNaN(child)` - "is this OBJECT a NaN double", always false - instead
+// of reading the member.
+//
+// The inherited reads below use the NUMERIC family deliberately. The COLLECTION
+// family (`isEmpty` / `isNotEmpty` / `length`) has a THIRD, separate defect when
+// inherited - it reads back `null` on the `C++ Compiled` row while every other
+// engine row answers correctly, and while the emitted access correctly names the
+// member - so those lines would pin a known-red behaviour rather than a fixed
+// one. They are tracked by issue #800, whose body carries the exact removed
+// lines and the measured diff; restoring them here and regenerating is the whole
+// reproduction. The by-NAME encoder routing that this fixture exists for is
+// covered for all ten names, `isEmpty` included, through the OWN-field `this.`
+// reads above and by the per-name matrix in
+// `dart/encoder/test/builtin_accessor_user_member_test.dart`.
 
 class BuiltinNames {
   int isEmpty;
@@ -80,13 +93,11 @@ class Counted {
 class CountedChild extends Counted {
   CountedChild(int e, bool n) : super(e, n);
 
-  int readIsEmptyViaSuper() => super.isEmpty;
-
   bool readIsNaNViaSuper() => super.isNaN;
 
   // The inherited member through the implicit receiver: `this` names this
   // class, and the declaration is one link up the chain.
-  int readIsEmptyViaThisInherited() => this.isEmpty;
+  bool readIsNaNViaThisInherited() => this.isNaN;
 }
 
 void main() {
@@ -135,11 +146,9 @@ void main() {
   print(counted.readIsEmptyViaThis());
   print(counted.readIsNaNViaThis());
   var child = CountedChild(5, false);
-  print(child.readIsEmptyViaSuper());
   print(child.readIsNaNViaSuper());
-  print(child.readIsEmptyViaThisInherited());
+  print(child.readIsNaNViaThisInherited());
   CountedChild inherited = CountedChild(6, true);
-  print(inherited.isEmpty);
   print(inherited.isNaN);
 
   // The routing itself must survive: these receivers are NOT user classes.

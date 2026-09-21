@@ -320,6 +320,21 @@ fn field_initializer_text(ctor: &FunctionDefinition, field: &str) -> Option<Stri
     None
 }
 
+/// Whether `ctor` carries a Dart initializer list — a `metadata.initializers`
+/// entry of kind `"field"` (issue #706).
+fn ctor_has_field_initializers(ctor: &FunctionDefinition) -> bool {
+    let Some(meta) = ctor.metadata.as_ref() else {
+        return false;
+    };
+    let Some(initializers) = meta_list_value(meta, "initializers") else {
+        return false;
+    };
+    initializers.iter().any(|init| {
+        matches!(&init.kind, Some(Kind::StructValue(init_struct))
+            if meta_string_value(init_struct, "kind").as_deref() == Some("field"))
+    })
+}
+
 /// The member short name the encoders give Dart's unnamed constructor
 /// (`main:Point.new`).
 pub(crate) const UNNAMED_CTOR_MEMBER: &str = "new";
@@ -1079,8 +1094,19 @@ impl Compiler<'_> {
     /// shape doesn't need.
     fn compile_constructor(&self, owner_td: &TypeDefinition, ctor: &FunctionDefinition) -> String {
         let short = member_short_name(&ctor.name);
-        if let Some(body) = &ctor.body {
-            return self.compile_constructor_with_body(owner_td, ctor, body, &short);
+        // A BODY, or an INITIALIZER LIST: either one needs the full path, which
+        // binds the declared parameters and then seeds every instance field
+        // through `constructor_self_init`. The `this.`-formal-only shape below
+        // cannot express `Foo(this.a, int b) : c = b;` — it reads
+        // `metadata.params` and nothing else — so the initializer list was
+        // dropped whole and `c` stayed absent (issue #706).
+        if ctor.body.is_some() || ctor_has_field_initializers(ctor) {
+            return self.compile_constructor_with_body(
+                owner_td,
+                ctor,
+                ctor.body.as_deref(),
+                &short,
+            );
         }
         let params = self.constructor_field_names(&owner_td.name);
         let mut inserts = String::new();
@@ -1129,7 +1155,7 @@ impl Compiler<'_> {
         &self,
         owner_td: &TypeDefinition,
         ctor: &FunctionDefinition,
-        body: &Expression,
+        body: Option<&Expression>,
         short: &str,
     ) -> String {
         self.push_scope();
@@ -1140,14 +1166,21 @@ impl Compiler<'_> {
         // Stable receiver clone for implicit-`this` injection (see
         // [`Compiler::method_prologue`] for why this is a dedicated local).
         self.bind_local("__self_recv");
-        let field_aliases = self.field_alias_prologue(owner_td, Some(body), "");
+        let field_aliases = self.field_alias_prologue(owner_td, body, "");
         // A body-carrying constructor has a bound `self_`, so implicit-`this`
         // calls in its body (`this._buildLookupTables()`, …) inject the
-        // receiver (issue #298).
-        let body_code = self.with_instance_method(true, || self.compile_expression(body));
+        // receiver (issue #298). A constructor that carries only an initializer
+        // list has no body to run — its whole effect is already in `self_init`.
+        let body_invocation = match body {
+            Some(body) => format!(
+                "(|| -> BallValue {{\n{}\n}})();\n",
+                self.with_instance_method(true, || self.compile_expression(body))
+            ),
+            None => String::new(),
+        };
         let mut writeback = String::new();
         for field_name in self.all_instance_field_names(owner_td) {
-            if self.expr_mutates_var(body, &field_name) {
+            if body.is_some_and(|body| self.expr_mutates_var(body, &field_name)) {
                 // Reference-semantic message field write-back (issue #298):
                 // `self_`'s fields live behind a shared `Arc<Mutex>`, so
                 // `ball_field_set` persists the body-mutated field alias into
@@ -1167,7 +1200,7 @@ impl Compiler<'_> {
              let mut self_ = {self_init};\n\
              let __self_recv = self_.clone();\n\
              {field_aliases}\
-             (|| -> BallValue {{\n{body_code}\n}})();\n\
+             {body_invocation}\
              {writeback}\
              self_\n\
              }}\n"
@@ -1194,19 +1227,21 @@ impl Compiler<'_> {
     }
 
     /// The Rust associated-fn path (`main_BallObject::new`) of `type_name`'s
-    /// **body-carrying constructor**, if it has one — the constructor whose
-    /// body must actually *run* on construction (issue #300). Returns `None`
-    /// for a type with only an init-formal (bodyless) constructor or no
-    /// constructor (both build correctly as an inline field map).
-    pub(crate) fn body_constructor_fn(&self, type_name: &str) -> Option<String> {
+    /// unnamed constructor, when that constructor needs one — i.e. when it
+    /// carries a BODY that must actually *run* on construction (issue #300) or
+    /// an INITIALIZER LIST that only the associated fn applies (issue #706).
+    /// Returns `None` for a type whose unnamed constructor is a bare
+    /// init-formal shape, or that has no constructor at all (both build
+    /// correctly as an inline field map).
+    pub(crate) fn unnamed_constructor_fn(&self, type_name: &str) -> Option<String> {
         let members = self.class_members_by_owner.get(type_name)?;
         // The UNNAMED constructor only (`main:Point.new`): a `messageCreation`
         // builds the class's *default* instance, so picking whichever
-        // body-carrying constructor happened to come first would run a NAMED
-        // constructor's body for `Point(3, 4)` (issue #527).
+        // constructor happened to come first would run a NAMED constructor's
+        // body for `Point(3, 4)` (issue #527).
         let ctor = members.iter().copied().find(|member| {
             func_meta_kind(member).as_deref() == Some("constructor")
-                && member.body.is_some()
+                && (member.body.is_some() || ctor_has_field_initializers(member))
                 && member_short_name(&member.name) == UNNAMED_CTOR_MEMBER
         })?;
         Some(format!(

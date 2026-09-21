@@ -52,14 +52,26 @@
 // C++ compiled leg. Do not rename or reshape this class to dodge a future target
 // gap either: the field and its same-named setter ARE the point.
 //
-// Four COMPILER targets still do not handle this shape, with at least three
-// different mechanisms, and that is #706: Rust and Go build and RUN
-// the program and then read `windowSize` back as `null` (the emitted setter
-// shadows the field read — a silent wrong answer, strictly worse than C++'s
-// build failure); Python rejects it loudly at compile time ("setter without
-// matching getter"); C# fails too. All four legs are RATCHETED — they fail only
-// on a DROP — so they are green with this fixture failing, and they will stay
-// green when it is fixed. Read the per-fixture line, never the leg's colour.
+// Four COMPILER targets did not handle this shape either, and that was #706 —
+// CLOSED, with the measured mechanism NOT the one the issue guessed. Rust, Go
+// and C# built and RAN the program and then read `windowSize` back as `null`,
+// and the issue put that down to "the emitted setter shadows the field read".
+// It does not: all three emit the setter into a namespace the read never
+// consults (a free function / an associated fn / `BallAccessors.Set__…`, versus
+// a plain field read). What they actually dropped was the CONSTRUCTOR'S
+// INITIALIZER LIST. Each one invoked the constructor's own impl only when that
+// constructor carried a BODY, and this one is bodyless, so construction took an
+// inline field map that reads `metadata.params` and nothing else — the instance
+// carried the plain parameter `end` as a bogus field and never carried
+// `windowSize` at all. That bites every bodyless constructor with an
+// initializer list, setter or no setter. Python was the one genuinely different
+// target: it refused the program loudly ("setter without matching getter"),
+// because Python has ONE namespace for a field and a property, and it now takes
+// the same private-backing-attribute lowering C++ took for #695.
+//
+// All four legs are RATCHETED — they fail only on a DROP — so they were green
+// with this fixture failing and they stay green now that it passes. Read the
+// per-fixture line, never the leg's colour.
 //
 // `elementAt` keeps the second, initializing-formal-assigned field live, so
 // both "definitely assigned" shapes the compiler now recognises are exercised

@@ -1191,13 +1191,16 @@ impl<'a> Compiler<'a> {
         if let Some(collection) = self.sdk_collection_creation(message_creation) {
             return collection;
         }
-        // A type with a **body-carrying constructor** (`BallObject.new` runs
-        // `_refreshEntries()`; `BallEngine.new` builds its lookup tables) must
-        // be built by *invoking that constructor*, not by an inline field map —
-        // otherwise the body never runs and the instance is half-built (issue
-        // #300). The constructor's own associated fn binds the args, seeds field
+        // A type whose unnamed constructor carries a **body** (`BallObject.new`
+        // runs `_refreshEntries()`; `BallEngine.new` builds its lookup tables)
+        // or an **initializer list** (`FixedSlice(this.source, int end) :
+        // windowSize = end;`) must be built by *invoking that constructor*, not
+        // by an inline field map — otherwise the body never runs and the
+        // instance is half-built (issue #300), or the initializer list is
+        // dropped whole and the field it seeds reads back `null` (issue #706).
+        // The constructor's own associated fn binds the args, seeds field
         // defaults, runs the body, and writes mutated fields back.
-        if let Some(ctor_fn) = self.body_constructor_fn(&message_creation.type_name) {
+        if let Some(ctor_fn) = self.unnamed_constructor_fn(&message_creation.type_name) {
             let mut args = String::new();
             for field in &message_creation.fields {
                 let value = match &field.value {

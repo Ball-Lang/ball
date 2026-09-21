@@ -196,6 +196,8 @@ class Compiler:
         self.constructors: dict[str, dict] = {}
         self.named_ctors: dict[str, list[dict]] = {}
         self.instance_fields: dict[str, list[str]] = {}
+        # class short name -> {final field with a same-named setter: backing attr}
+        self._setter_backed: dict[str, dict[str, str]] = {}
 
         for m in self.prog.get("modules", []):
             fns = m.get("functions", [])
@@ -466,6 +468,11 @@ class Compiler:
         members = self.class_members.get(short, [])
         getter_names = {sanitize(_member_short(m.get("name", "")))
                         for m in members if (m.get("metadata", {}) or {}).get("is_getter")}
+        # A `final` field whose class declares a same-named SETTER supplies the
+        # getter half itself (see _setter_backed_fields), so the declared setter
+        # has a property to decorate.
+        setter_backed = self._setter_backed_fields(short)
+        getter_names |= {sanitize(f) for f in setter_backed}
         has_tostring = any(_member_short(m.get("name", "")) == "toString" for m in members)
         # Emit real Python inheritance only when the superclass is another user
         # class we emit; a runtime base type (BallValue/BallMap …) is not a
@@ -481,6 +488,14 @@ class Compiler:
         self.line(f"class {sanitize(short)}{base}:")
         with self.block():
             self.emit_constructor(short)  # always emits __init__ (class never empty)
+            # The synthesized getter halves come FIRST: a `@x.setter` needs the
+            # property object `x` to already be bound in the class body.
+            for fld, backing in setter_backed.items():
+                self.line("@property")
+                self.line(f"def {sanitize(fld)}(self):")
+                with self.block():
+                    self.line(f"return self.{backing}")
+                self.line("")
             for m in members:
                 meta = m.get("metadata", {}) or {}
                 if meta.get("kind") == "constructor":
@@ -519,6 +534,55 @@ class Compiler:
                 out[fm.get("name", "")] = fm.get("initializer")
         return out
 
+    def _setter_backed_fields(self, short: str) -> dict[str, str]:
+        """Declared ``final`` fields of ``short`` that its own class body also
+        declares a same-named SETTER for, mapped to their backing attribute.
+
+        That pair is legal Dart exactly because a plain ``final`` field
+        contributes a getter and NOTHING else, so the declared setter is the
+        only setter for the name (``collection``'s ``ListSlice`` — ``final int
+        length`` next to ``set length(...) => throw`` — is the real-world shape;
+        issues #651/#706). Python has ONE namespace for a field and a property:
+        a bare ``@length.setter`` has no property object to decorate, which is
+        why this compiler refused the shape outright. The lowering is the C++
+        compiler's answer to the same one-namespace collision (#695, closed by
+        #680): the field moves to a private backing attribute and a synthesized
+        ``@property`` reads it, so every read still resolves to the field and
+        the declared setter keeps the write side.
+
+        Scoped to ``final`` fields on purpose. A NON-final field contributes a
+        setter of its own, so a same-named declared setter is a duplicate
+        definition Dart rejects — there is no such legal program, and silently
+        backing one would hide a malformed IR. Anything else with a setter and
+        no getter keeps failing loud in :meth:`emit_class`.
+        """
+        cached = self._setter_backed.get(short)
+        if cached is not None:
+            return cached
+        members = self.class_members.get(short, [])
+        setter_names = {_member_short(m.get("name", ""))
+                        for m in members if (m.get("metadata", {}) or {}).get("is_setter")}
+        getter_names = {_member_short(m.get("name", ""))
+                        for m in members if (m.get("metadata", {}) or {}).get("is_getter")}
+        final_fields = {fm.get("name", "")
+                        for fm in ((self.type_defs.get(short, {}).get("metadata", {}) or {})
+                                   .get("fields", []) or [])
+                        if fm.get("is_final")}
+        out = {f: f"_ball_backing_{sanitize(f)}"
+               for f in self._all_field_names(short)
+               if f in setter_names and f not in getter_names and f in final_fields}
+        self._setter_backed[short] = out
+        return out
+
+    def _field_target(self, short: str, field: str) -> str:
+        """The attribute an ``__init__``/factory assignment for ``field`` writes.
+
+        A setter-backed field must be seeded through its BACKING attribute:
+        ``self.windowSize = end`` would run the declared setter, which for the
+        ``ListSlice`` shape throws.
+        """
+        return f"self.{self._setter_backed_fields(short).get(field, field)}"
+
     def _all_field_names(self, short: str) -> list[str]:
         """Every declared field of a class (descriptor + metadata + this-params)."""
         names = list(self.instance_fields.get(short, []))
@@ -546,9 +610,10 @@ class Compiler:
             with self.block():
                 for fld in fields:
                     if fld in field_inits:
-                        self.line(f"self.{fld} = {self._lower_init(field_inits[fld])}")
+                        self.line(f"{self._field_target(short, fld)} = "
+                                  f"{self._lower_init(field_inits[fld])}")
                     else:
-                        self.line(f"self.{fld} = {sanitize(fld)}")
+                        self.line(f"{self._field_target(short, fld)} = {sanitize(fld)}")
                 if not fields:
                     self.line("pass")
             self.line("")
@@ -570,11 +635,12 @@ class Compiler:
             for p in param_meta:
                 pn = p.get("name", "")
                 if p.get("is_this"):
-                    self.line(f"self.{pn} = {sanitize(pn)}")
+                    self.line(f"{self._field_target(short, pn)} = {sanitize(pn)}")
             # Constructor initializer-list field bindings (`fields = fields ?? {}`).
             for init in initializers:
                 if init.get("kind") == "field":
-                    self.line(f"self.{init.get('name')} = {self._lower_init(init.get('value'))}")
+                    self.line(f"{self._field_target(short, init.get('name'))} = "
+                              f"{self._lower_init(init.get('value'))}")
             # Any remaining declared field: its field-level default, else None.
             for fld in fields:
                 if fld in init_fields:
@@ -582,9 +648,10 @@ class Compiler:
                 if any(p.get("name") == fld and p.get("is_this") for p in param_meta):
                     continue
                 if fld in field_inits:
-                    self.line(f"self.{fld} = {self._lower_init(field_inits[fld])}")
+                    self.line(f"{self._field_target(short, fld)} = "
+                              f"{self._lower_init(field_inits[fld])}")
                 else:
-                    self.line(f"self.{fld} = None")
+                    self.line(f"{self._field_target(short, fld)} = None")
             self.emit_body(ctor, DISCARD_BODY=True)
         self.line("")
         self.exit_method_ctx()
@@ -677,19 +744,22 @@ class Compiler:
             self.emit_param_prologue(params)
             for p in param_meta:
                 if p.get("is_this"):
-                    self.line(f"self.{p.get('name')} = {sanitize(p.get('name'))}")
+                    self.line(f"{self._field_target(short, p.get('name'))} = "
+                              f"{sanitize(p.get('name'))}")
             for init in initializers:
                 if init.get("kind") == "field":
-                    self.line(f"self.{init.get('name')} = {self._lower_init(init.get('value'))}")
+                    self.line(f"{self._field_target(short, init.get('name'))} = "
+                              f"{self._lower_init(init.get('value'))}")
             for fld in fields:
                 if fld in init_fields:
                     continue
                 if any(p.get("name") == fld and p.get("is_this") for p in param_meta):
                     continue
                 if fld in field_inits:
-                    self.line(f"self.{fld} = {self._lower_init(field_inits[fld])}")
+                    self.line(f"{self._field_target(short, fld)} = "
+                              f"{self._lower_init(field_inits[fld])}")
                 else:
-                    self.line(f"self.{fld} = None")
+                    self.line(f"{self._field_target(short, fld)} = None")
             self.emit_body(ctor, DISCARD_BODY=True)
             self.line("return self")
         self.line("")

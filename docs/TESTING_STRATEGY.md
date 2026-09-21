@@ -187,6 +187,27 @@ too, without a colour-forced CI leg.
 > back — so the suite states what the program DOES, and the refusal is left
 > covering only the cases where those three cannot be made to agree.
 
+> **A front end with TWO parse modes needs a gate on each; a suite built on one
+> cannot see the other.** `dart/encoder` reads Dart two ways: a RESOLVED
+> analyzer AST (`PackageEncoder.prepareStaticTypes()`, which has an element
+> model) and a bare `parseString` (`DartEncoder().encode(String)`, which does
+> not). They are not two spellings of one reader — the analyzer hands them
+> DIFFERENT node types for the same source. `Ext(receiver).member` is an
+> `ast.ExtensionOverride` in the first and an ordinary `ast.MethodInvocation`
+> with `Ext(receiver)` in target position in the second. #670's first two slices
+> fixed the resolved path and pinned it with a suite that was
+> `PackageEncoder`-based BY CONSTRUCTION (an `ast.ExtensionOverride` node exists
+> nowhere else), so every one of those tests was green while the parse-only path
+> silently encoded the same source as a CONSTRUCTION of the extension type with
+> the receiver buried in `arg0`. That path is the one
+> `generate_conformance.dart`, `ball encode` and `/ball:convert` take — i.e. how
+> a construct reaches the corpus and every non-Dart target — so the mis-encoded
+> program RAN on every engine and answered differently on each. When a reader
+> has more than one mode, a construct is only covered when a test drives it
+> through EACH mode and asserts the two produce the same IR: the modes
+> disagreeing about what a program means is itself the defect, and no
+> single-mode suite can state it.
+
 > **An assertion that cannot fail documents an intent; it does not enforce it.**
 > Before adding an assertion, name the concrete change that would make it red. A
 > loop that appends one result per entry of a static table and then asserts

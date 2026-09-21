@@ -66,7 +66,10 @@ const _notBaseFunctions = <String>{};
 /// module, which is a protobuf ACCESS-PATTERN surface, not a std base-function
 /// one, and its names are not part of the std inventory this gate measures.
 const _routeTables = <String, int>{
-  'getterRoutes': 0,
+  // `_directGetterRoutes` was two identical function-local `getterRoutes`
+  // consts until #697 hoisted them into one class-level table (the source of
+  // truth `DartEncoder.builtinAccessorGetters` and its closed-set gate read).
+  '_directGetterRoutes': 0,
   'convertTopLevelRoutes': 0,
   'unaryRoutes': 0,
   'collectionRoutes': 1,

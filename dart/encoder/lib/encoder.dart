@@ -3244,16 +3244,12 @@ class DartEncoder {
 
       // Well-known getter properties on a simple identifier receiver
       // (e.g. `x.sign`, `nan.isNaN`). Same routes as the PropertyAccess path.
-      const getterRoutes = <String, String>{
-        'sign': 'math_sign',
-        'isNaN': 'math_is_nan',
-        'isFinite': 'math_is_finite',
-        'isInfinite': 'math_is_infinite',
-        'isEmpty': 'string_is_empty',
-        'isNotEmpty': 'string_is_not_empty',
-        'runes': 'string_runes',
-      };
-      final getterFn = getterRoutes[member];
+      //
+      // A member the RECEIVER'S OWN TYPE declares always wins (issue #697):
+      // `b.isEmpty` on a user class that declares an `isEmpty` field/getter is
+      // that member, not `std.string_is_empty`.
+      final shadowed = _userMemberShadowsBuiltinAccessor(expr.prefix, member);
+      final getterFn = shadowed ? null : _directGetterRoutes[member];
       if (getterFn != null) {
         _usedBaseFunctions.add(getterFn);
         return _buildUnaryStdCall(
@@ -3262,7 +3258,7 @@ class DartEncoder {
         );
       }
       // isEven / isOdd → parity check (no std getter; compose modulo+equals).
-      if (member == 'isEven' || member == 'isOdd') {
+      if ((member == 'isEven' || member == 'isOdd') && !shadowed) {
         return _parityCheck(
           Expression()..reference = (Reference()..name = prefixName),
           even: member == 'isEven',
@@ -3273,7 +3269,7 @@ class DartEncoder {
       // below, but the analyzer parses a plain `identifier.identifier` as
       // PrefixedIdentifier rather than PropertyAccess, so it needs its own
       // copy of the route here.
-      if (member == 'reversed') {
+      if (member == 'reversed' && !shadowed) {
         _usedBaseFunctions.add('list_reverse');
         _usedCollectionsFunctions.add('list_reverse');
         return Expression()
@@ -3353,30 +3349,26 @@ class DartEncoder {
       // coverage:ignore-end
 
       // Well-known getter properties → std base function calls. Without type
-      // resolution, route by name (same risk as the method routes above).
-      const getterRoutes = <String, String>{
-        'sign': 'math_sign',
-        'isNaN': 'math_is_nan',
-        'isFinite': 'math_is_finite',
-        'isInfinite': 'math_is_infinite',
-        'isEmpty': 'string_is_empty',
-        'isNotEmpty': 'string_is_not_empty',
-        'runes': 'string_runes',
-      };
-      final getterFn = getterRoutes[field];
+      // resolution, route by name (same risk as the method routes above) —
+      // EXCEPT where the receiver's own type provably declares that member,
+      // which always wins (issue #697).
+      final shadowed = _userMemberShadowsBuiltinAccessor(target, field);
+      final getterFn = shadowed ? null : _directGetterRoutes[field];
       if (getterFn != null && target != null) {
         _usedBaseFunctions.add(getterFn);
         return _buildUnaryStdCall(getterFn, targetExpr);
       }
       // isEven / isOdd → parity check (no std getter; compose modulo+equals).
-      if ((field == 'isEven' || field == 'isOdd') && target != null) {
+      if ((field == 'isEven' || field == 'isOdd') &&
+          target != null &&
+          !shadowed) {
         return _parityCheck(targetExpr, even: field == 'isEven');
       }
       // `.reversed` (a getter, not a method call — unlike `getterRoutes`
       // above, its std_collections target takes a `list` field, not
       // `value`, so it needs its own MessageCreation rather than
       // `_buildUnaryStdCall`).
-      if (field == 'reversed' && target != null) {
+      if (field == 'reversed' && target != null && !shadowed) {
         _usedBaseFunctions.add('list_reverse');
         _usedCollectionsFunctions.add('list_reverse');
         return Expression()
@@ -4605,6 +4597,254 @@ class DartEncoder {
     bool isMatch(InterfaceType t) =>
         t.element.name == name && t.element.library.isDartCore;
     return isMatch(type) || type.allSupertypes.any(isMatch);
+  }
+
+  // ── Built-in accessor getters (issue #697) ─────────────────────────
+  //
+  // The encoder routes a small, fixed set of Dart getter names onto `std` /
+  // `std_collections` base calls BY NAME, because without type resolution the
+  // name is all it has.
+
+  /// Getter names routed straight onto one `std` base function.
+  ///
+  /// `isEven`, `isOdd` and `reversed` are routed too, but as composites (parity,
+  /// `std_collections.list_reverse`), so they are handled at their own call
+  /// sites rather than through this table.
+  static const _directGetterRoutes = <String, String>{
+    'sign': 'math_sign',
+    'isNaN': 'math_is_nan',
+    'isFinite': 'math_is_finite',
+    'isInfinite': 'math_is_infinite',
+    'isEmpty': 'string_is_empty',
+    'isNotEmpty': 'string_is_not_empty',
+    'runes': 'string_runes',
+  };
+
+  /// Every getter name the encoder routes away from a plain `fieldAccess`.
+  ///
+  /// The single source of truth for that routing — and the closed set
+  /// `dart/encoder/test/builtin_accessor_user_member_test.dart` derives one
+  /// case per entry from, so a route added here without a matching
+  /// user-member guard fails that gate (issue #697).
+  static final Set<String> builtinAccessorGetters = Set<String>.unmodifiable({
+    ..._directGetterRoutes.keys,
+    // The composite routes, each handled at its own call site.
+    'isEven', // equals(modulo(x, 2), 0)
+    'isOdd', // not_equals(modulo(x, 2), 0)
+    'reversed', // std_collections.list_reverse(x)
+  });
+
+  /// Whether the receiver's own type declares [member], so the member the USER
+  /// wrote must win over the built-in accessor route of the same name.
+  ///
+  /// Routing by name alone is right for `''.isEmpty` and wrong for a user class
+  /// that declares its own `isEmpty` — before #697 the encoded program carried
+  /// no `fieldAccess` for the user's member at all, so every engine faithfully
+  /// ran the wrong program and agreed on the wrong answer.
+  ///
+  /// Two independent proofs, because the encoder runs in two modes:
+  ///
+  ///  * RESOLVED (`PackageEncoder.prepareStaticTypes()`) — the receiver's
+  ///    static type resolves [member] to a declaration outside the SDK.
+  ///  * SYNTACTIC (`encode(String)` / `encodeModule`, which is what
+  ///    `generate_conformance.dart` and every self-host regeneration use —
+  ///    `parseString` leaves `staticType` null) — the receiver's declared type
+  ///    name is a class/mixin/enum THIS unit declares, and that declaration (or
+  ///    a supertype of it in the same unit) declares [member].
+  ///
+  /// Neither proof available ⇒ `false`, i.e. the route stands exactly as
+  /// before. That is what keeps the change a pure refinement.
+  static bool _userMemberShadowsBuiltinAccessor(
+    ast.Expression? receiver,
+    String member,
+  ) {
+    if (receiver == null) return false;
+    if (!builtinAccessorGetters.contains(member)) return false;
+    if (_resolvedMemberIsUserDeclared(receiver, member)) return true;
+    final typeName = _syntacticReceiverTypeName(receiver);
+    if (typeName == null) return false;
+    return _unitTypeDeclaresMember(receiver, typeName, member, <String>{});
+  }
+
+  /// RESOLVED proof: [member] resolves on [receiver]'s static type to a
+  /// declaration that is not part of the Dart SDK.
+  static bool _resolvedMemberIsUserDeclared(
+    ast.Expression receiver,
+    String member,
+  ) {
+    final type = receiver.staticType;
+    if (type is! InterfaceType) return false;
+    final getter = type.lookUpGetter(member, type.element.library);
+    if (getter == null) return false;
+    return !getter.library.isInSdk;
+  }
+
+  /// SYNTACTIC proof, step 1: the type name [receiver] is provably an instance
+  /// of, or null when the source does not say.
+  static String? _syntacticReceiverTypeName(ast.Expression receiver) {
+    if (receiver is ast.InstanceCreationExpression) {
+      return _constructedTypeName(receiver.constructorName);
+    }
+    // `Foo(1)` with no `new` parses as a MethodInvocation on an unresolved
+    // AST; an upper-case-initial callee with no target is a constructor call.
+    if (receiver is ast.MethodInvocation &&
+        receiver.target == null &&
+        _startsUpperCase(receiver.methodName.name)) {
+      return receiver.methodName.name;
+    }
+    if (receiver is ast.SimpleIdentifier) {
+      return _declaredTypeNameOfLocal(receiver);
+    }
+    return null;
+  }
+
+  /// The class name a `ConstructorName` names, unwrapping the
+  /// `ClassName.namedCtor` shape that an unresolved AST reports as an import
+  /// prefix (the same misparse `_encodeInstanceCreation` compensates for).
+  static String? _constructedTypeName(ast.ConstructorName ctorName) {
+    final namedType = ctorName.type;
+    final prefix = namedType.importPrefix?.name.lexeme;
+    if (prefix != null && _startsUpperCase(prefix)) return prefix;
+    if (prefix != null) return null; // a real import prefix — another library
+    return namedType.name.lexeme;
+  }
+
+  static bool _startsUpperCase(String name) =>
+      name.isNotEmpty &&
+      name[0] == name[0].toUpperCase() &&
+      name[0] != name[0].toLowerCase();
+
+  /// SYNTACTIC proof, step 1b: the declared type name of the nearest binding of
+  /// [target]'s name — a local variable, a formal parameter, a field of an
+  /// enclosing class, or a top-level variable.
+  static String? _declaredTypeNameOfLocal(ast.SimpleIdentifier target) {
+    final name = target.name;
+
+    String? fromVariable(
+      ast.TypeAnnotation? type,
+      ast.Expression? initializer,
+    ) {
+      final annotated = _bareTypeName(type);
+      if (annotated != null) return annotated;
+      if (initializer == null) return null;
+      return _syntacticReceiverTypeName(initializer);
+    }
+
+    ast.AstNode? node = target.parent;
+    while (node != null) {
+      if (node is ast.Block) {
+        for (final s in node.statements) {
+          if (s is! ast.VariableDeclarationStatement) continue;
+          for (final v in s.variables.variables) {
+            if (v.name.lexeme != name) continue;
+            return fromVariable(s.variables.type, v.initializer);
+          }
+        }
+      }
+      final params = _formalParametersOf(node);
+      if (params != null) {
+        for (final p in params.parameters) {
+          if (p.name?.lexeme != name) continue;
+          return p is ast.RegularFormalParameter ? _bareTypeName(p.type) : null;
+        }
+      }
+      if (node is ast.ClassDeclaration) {
+        final body = node.body;
+        if (body is ast.BlockClassBody) {
+          for (final m in body.members) {
+            if (m is! ast.FieldDeclaration) continue;
+            for (final v in m.fields.variables) {
+              if (v.name.lexeme != name) continue;
+              return fromVariable(m.fields.type, v.initializer);
+            }
+          }
+        }
+      }
+      if (node is ast.CompilationUnit) {
+        for (final decl in node.declarations) {
+          if (decl is! ast.TopLevelVariableDeclaration) continue;
+          for (final v in decl.variables.variables) {
+            if (v.name.lexeme != name) continue;
+            return fromVariable(decl.variables.type, v.initializer);
+          }
+        }
+      }
+      node = node.parent;
+    }
+    return null;
+  }
+
+  /// The bare (type-argument-free, nullability-free) name of [type], or null
+  /// when it is not a plain named type this unit could be declaring.
+  static String? _bareTypeName(ast.TypeAnnotation? type) {
+    if (type is! ast.NamedType) return null;
+    if (type.importPrefix != null) return null; // another library
+    return type.name.lexeme;
+  }
+
+  /// SYNTACTIC proof, step 2: does the type named [typeName], as declared in
+  /// [from]'s compilation unit, declare [member]?
+  ///
+  /// Walks `extends`/`with`/`implements`/`on` supertypes declared in the same
+  /// unit; [seen] breaks a malformed cycle.
+  static bool _unitTypeDeclaresMember(
+    ast.AstNode from,
+    String typeName,
+    String member,
+    Set<String> seen,
+  ) {
+    if (!seen.add(typeName)) return false;
+    ast.AstNode? node = from;
+    while (node != null && node is! ast.CompilationUnit) {
+      node = node.parent;
+    }
+    if (node is! ast.CompilationUnit) return false;
+    final unit = node;
+
+    for (final decl in unit.declarations) {
+      final List<ast.ClassMember> members;
+      final List<String> supertypes;
+      if (decl is ast.ClassDeclaration) {
+        if (decl.namePart.typeName.lexeme != typeName) continue;
+        final body = decl.body;
+        members = body is ast.BlockClassBody
+            ? body.members
+            : const <ast.ClassMember>[];
+        supertypes = [
+          ?_bareTypeName(decl.extendsClause?.superclass),
+          ...?decl.withClause?.mixinTypes.map(_bareTypeName).nonNulls,
+          ...?decl.implementsClause?.interfaces.map(_bareTypeName).nonNulls,
+        ];
+      } else if (decl is ast.MixinDeclaration) {
+        if (decl.name.lexeme != typeName) continue;
+        members = decl.body.members;
+        supertypes = [
+          ...?decl.onClause?.superclassConstraints.map(_bareTypeName).nonNulls,
+          ...?decl.implementsClause?.interfaces.map(_bareTypeName).nonNulls,
+        ];
+      } else if (decl is ast.EnumDeclaration) {
+        if (decl.namePart.typeName.lexeme != typeName) continue;
+        members = decl.body.members;
+        supertypes = const [];
+      } else {
+        continue;
+      }
+
+      for (final m in members) {
+        if (m is ast.FieldDeclaration) {
+          for (final v in m.fields.variables) {
+            if (v.name.lexeme == member) return true;
+          }
+        } else if (m is ast.MethodDeclaration) {
+          if (m.name.lexeme == member && !m.isSetter) return true;
+        }
+      }
+      for (final superName in supertypes) {
+        if (_unitTypeDeclaresMember(unit, superName, member, seen)) return true;
+      }
+      return false;
+    }
+    return false;
   }
 
   // ── Text sink (issue #630) ──────────────────────────────────────────

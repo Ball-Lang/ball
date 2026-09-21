@@ -31,6 +31,22 @@
 /// Note the receiver-type seam cannot fix this one: in `wrappers.dart` the
 /// delegate's static type IS a `dart:core` `Iterable`. The member itself has
 /// to round-trip, which is why `std.string_is_not_empty` exists.
+///
+/// So the property — "the receiver is asked for the member the source named" —
+/// is kept by TWO different encodings, and this suite pins each on the receiver
+/// kind that produces it:
+///
+///  * a `dart:core` delegate (`CoreWrapper`, the real `wrappers.dart` shape)
+///    keeps the by-name route, and `.isNotEmpty` must reach
+///    `std.string_is_not_empty` rather than `std.not(std.string_is_empty(...))`;
+///  * a delegate whose own type DECLARES the member (`Wrapper` over `Probe`)
+///    encodes as a plain `fieldAccess` naming that member, because #697's
+///    receiver seam suppresses the route on proof — which asks the receiver for
+///    the member even more directly, and is the only encoding that answers
+///    `Probe`'s getter at all.
+///
+/// Both directions must hold at once; a change that collapsed either one back
+/// onto `std.string_is_empty` is #674 returning.
 @TestOn('vm')
 library;
 
@@ -61,11 +77,26 @@ class Probe {
 }
 
 /// The `collection/lib/src/wrappers.dart` shape: a wrapper that FORWARDS the
-/// member to its base instead of computing it.
+/// member to its base instead of computing it. This delegate's type is a class
+/// THIS unit declares, and that class declares the member, so #697's receiver
+/// seam suppresses the by-name route and the forward encodes as a plain member
+/// access — the only encoding that reaches `Probe`'s getter.
 class Wrapper {
   Wrapper(this._base);
 
   final Probe _base;
+
+  bool get isEmpty => _base.isEmpty;
+  bool get isNotEmpty => _base.isNotEmpty;
+}
+
+/// The same forward over a `dart:core` delegate — literally `wrappers.dart`'s
+/// `Iterable<E> _base`. Nothing is provable about that receiver, so the by-name
+/// route stands and the member has to survive AS a base function.
+class CoreWrapper {
+  CoreWrapper(this._base);
+
+  final Iterable<String> _base;
 
   bool get isEmpty => _base.isEmpty;
   bool get isNotEmpty => _base.isNotEmpty;
@@ -76,6 +107,9 @@ void main() {
   final wrapper = Wrapper(probe);
   print(wrapper.isNotEmpty);
   print(probe.seen.join(','));
+  final core = CoreWrapper(<String>['x']);
+  print(core.isNotEmpty);
+  print(core.isEmpty);
 }
 ''';
 
@@ -146,6 +180,37 @@ Set<String> _calledFunctions(Expression e) {
   return out;
 }
 
+/// Every field name the expression tree reads, flattened.
+Set<String> _fieldAccessNames(Expression e) {
+  final out = <String>{};
+  void walk(Expression x) {
+    switch (x.whichExpr()) {
+      case Expression_Expr.call:
+        if (x.call.hasInput()) walk(x.call.input);
+      case Expression_Expr.block:
+        for (final s in x.block.statements) {
+          if (s.hasExpression()) walk(s.expression);
+          if (s.hasLet() && s.let.hasValue()) walk(s.let.value);
+        }
+        if (x.block.hasResult()) walk(x.block.result);
+      case Expression_Expr.messageCreation:
+        for (final f in x.messageCreation.fields) {
+          walk(f.value);
+        }
+      case Expression_Expr.fieldAccess:
+        out.add(x.fieldAccess.field_2);
+        if (x.fieldAccess.hasObject()) walk(x.fieldAccess.object);
+      case Expression_Expr.lambda:
+        if (x.lambda.hasBody()) walk(x.lambda.body);
+      case _:
+        break;
+    }
+  }
+
+  walk(e);
+  return out;
+}
+
 void main() {
   group(
     'isNotEmpty keeps its own member identity (#674)',
@@ -186,14 +251,14 @@ void main() {
             .body;
       }
 
-      test('the forwarding getter encodes as its OWN std function', () {
-        final called = _calledFunctions(bodyOf(':Wrapper.isNotEmpty'));
+      test('a dart:core delegate forwards through its OWN std function', () {
+        final called = _calledFunctions(bodyOf(':CoreWrapper.isNotEmpty'));
         expect(
           called,
           contains('std.string_is_not_empty'),
           reason:
-              '`_base.isNotEmpty` must round-trip as itself. Calls were: '
-              '$called',
+              '`_base.isNotEmpty` on a `dart:core` receiver must round-trip as '
+              'itself. Calls were: $called',
         );
         expect(
           called,
@@ -205,8 +270,49 @@ void main() {
       });
 
       test('isEmpty is untouched by the fix (no over-correction)', () {
-        final called = _calledFunctions(bodyOf(':Wrapper.isEmpty'));
+        final called = _calledFunctions(bodyOf(':CoreWrapper.isEmpty'));
         expect(called, contains('std.string_is_empty'));
+        expect(called, isNot(contains('std.string_is_not_empty')));
+      });
+
+      // #697's receiver seam and #674's route meet here: when the delegate's
+      // own type declares the member, the route is suppressed on proof and the
+      // forward encodes as a plain member access. That keeps #674's property —
+      // the receiver is asked for the member the source named — by the more
+      // direct means, and it is the ONLY encoding that reaches `Probe`'s
+      // getter: `std.string_is_not_empty` would ask the runtime's polymorphic
+      // emptiness predicate about an instance it knows nothing about.
+      test('a delegate that DECLARES the member keeps the member (#697)', () {
+        final body = bodyOf(':Wrapper.isNotEmpty');
+        final called = _calledFunctions(body);
+        final fields = _fieldAccessNames(body);
+        expect(
+          fields,
+          contains('isNotEmpty'),
+          reason:
+              '`Probe` declares `isNotEmpty`, so the forward must read that '
+              'member. Calls were: $called, fields were: $fields',
+        );
+        expect(
+          called,
+          isNot(contains('std.string_is_empty')),
+          reason: '#674: never the negation. Calls were: $called',
+        );
+        expect(
+          called,
+          isNot(contains('std.string_is_not_empty')),
+          reason:
+              '#697: a user-declared member must not be answered by the '
+              'built-in predicate. Calls were: $called',
+        );
+      });
+
+      test('the same holds for isEmpty on a declaring delegate (#697)', () {
+        final body = bodyOf(':Wrapper.isEmpty');
+        final called = _calledFunctions(body);
+        final fields = _fieldAccessNames(body);
+        expect(fields, contains('isEmpty'), reason: 'calls were: $called');
+        expect(called, isNot(contains('std.string_is_empty')));
         expect(called, isNot(contains('std.string_is_not_empty')));
       });
 
@@ -239,7 +345,7 @@ void main() {
         );
         expect(
           original,
-          equals('true\nisNotEmpty'),
+          equals('true\nisNotEmpty\ntrue\nfalse'),
           reason:
               'the probe must actually record a member; if this changes the '
               'suite is no longer measuring what it claims to.',

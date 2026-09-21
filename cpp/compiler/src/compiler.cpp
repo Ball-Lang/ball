@@ -2228,25 +2228,36 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // side — a plain mutable data member `int length;`, no getter and no
     // shadowing field in sight — and `class_has_own_field` is what answers it;
     // `tests/conformance/475_instance_field_named_length` is its gate.
-    if (field == "length" || field == "isEmpty" || field == "isNotEmpty") {
+    //
+    // #697 extends that SAME predicate to the numeric predicates below, which
+    // is why it is a named lambda rather than an inline `bool`: a class
+    // declaring `bool isNaN` compiled `b.isNaN` to `ball_isNaN(b)`, i.e. "is
+    // this OBJECT a NaN double" — always false — instead of reading the field,
+    // with nothing reporting it. Conformance
+    // 476_user_member_named_like_builtin_accessor is the cross-target guard.
+    const auto declared_by_receiver = [&](const std::string& name) {
         const std::string vprop_cls = receiver_class_of(*access.object);
-        const std::string vprop_field = sanitize_name(field);
-        const bool declared_by_receiver =
-            !vprop_cls.empty() &&
-            (class_has_getter(vprop_cls, vprop_field) ||
-             class_field_shadows_getter(vprop_cls, vprop_field) ||
-             class_has_own_field(vprop_cls, vprop_field));
-        if (!declared_by_receiver) {
-            if (field == "length") return "ball_length(" + obj + ")";
-            if (field == "isEmpty") return obj + ".empty()";
-            return "!" + obj + ".empty()";
-        }
+        if (vprop_cls.empty()) return false;
+        const std::string vprop_field = sanitize_name(name);
+        return class_has_getter(vprop_cls, vprop_field) ||
+               class_field_shadows_getter(vprop_cls, vprop_field) ||
+               class_has_own_field(vprop_cls, vprop_field);
+    };
+    if ((field == "length" || field == "isEmpty" || field == "isNotEmpty") &&
+        !declared_by_receiver(field)) {
+        if (field == "length") return "ball_length(" + obj + ")";
+        if (field == "isEmpty") return obj + ".empty()";
+        return "!" + obj + ".empty()";
     }
     // Dart double properties: .isNaN, .isInfinite, .isFinite, .isNegative
-    if (field == "isNaN") return "ball_isNaN(" + obj + ")";
-    if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";
-    if (field == "isFinite") return "ball_isFinite(" + obj + ")";
-    if (field == "isNegative") return "ball_isNegative(" + obj + ")";
+    if ((field == "isNaN" || field == "isInfinite" || field == "isFinite" ||
+         field == "isNegative") &&
+        !declared_by_receiver(field)) {
+        if (field == "isNaN") return "ball_isNaN(" + obj + ")";
+        if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";
+        if (field == "isFinite") return "ball_isFinite(" + obj + ")";
+        return "ball_isNegative(" + obj + ")";
+    }
     // NOTE: `.kind`, `.value`, and `.fields` are NOT special-cased to member
     // function calls. They fall through to the bracket-notation default
     // (`obj["value"s]`) so user objects with these field names (e.g. Box.value,

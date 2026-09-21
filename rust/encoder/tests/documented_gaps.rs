@@ -604,9 +604,11 @@ impl Point {
 ///
 /// **The gap is one construct wide here, and much wider in general.** The table
 /// maps the universal-`std` subset only; `rust/compiler/src` emits many more
-/// `ball_*` helpers than it maps (the collection family, `ball_iterate`,
+/// `ball_*` helpers than it maps (`ball_map_create` — pinned above —
 /// `ball_with_self`, `ball_call_function`, …), so a compiled library naming any
-/// of them stops at the first one. Sweep it, never quote it from memory:
+/// of them stops at the first one. `ball_iterate` and `ball_spread_iter` left
+/// this list in #712, which owed them inverses. Sweep it, never quote it from
+/// memory:
 /// `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the
 /// quoted names in `rust/encoder/src/runtime_helpers.rs`.
 ///

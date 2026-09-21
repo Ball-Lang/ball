@@ -80,11 +80,9 @@
 //! with `matches!(__sp, BallValue::Null)`.
 //!
 //! `panic!` and `unreachable!` are mapped, and gated here. The list-literal
-//! pair is not, and must not be: `matches!` is a pattern match over a
-//! runtime-crate enum variant and `Vec::new()` an associated function on a
-//! foreign type, so an encoder arm for either would encode a compiler-internal
-//! spelling while still refusing every real-world occurrence. Its fix is
-//! compiler-side (issue #712), and the gates it has to satisfy are
+//! pair was fixed on the COMPILER side instead (issue #712) — an encoder arm
+//! for either would encode a compiler-internal spelling while still refusing
+//! every real-world occurrence — and is gated here too, by
 //! `spliced_collection_literal_compiler_output_re_encodes` and its run-proof
 //! `a_spliced_collection_literal_still_splices_after_the_lowering_change`.
 //! Re-run that sweep when you add a compiler emission shape — everything past

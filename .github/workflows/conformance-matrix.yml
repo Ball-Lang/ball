@@ -1532,7 +1532,14 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "282"
+      # 283 after #670: `478_extension_override_selection` joined the corpus and
+      # `compile_module_types` stopped skipping the descriptor-less extension
+      # typeDef, so the `impl` its members live in is emitted and both the direct
+      # call and the short-name dispatcher resolve. Measured by this very row (PR
+      # #829, job 106262486121: `Results: 283 passed, 80 failed, 363 total`), never
+      # predicted — the commit before it measured 282 with the call site already
+      # right and the definition missing (E0433).
+      RUST_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

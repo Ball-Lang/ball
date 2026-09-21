@@ -1734,6 +1734,7 @@ export class BallEngine {
   readonly _setters: any = {};
   readonly _getters: Map<string, FunctionDefinition> = {};
   readonly _setters: Map<string, FunctionDefinition> = {};
+  readonly _setterBackingStores: Map<string, string> = {};
   readonly _globalScope: _Scope = new _Scope();
   stdout: any;
   _currentModule: string = '';
@@ -4427,7 +4428,7 @@ export class BallEngine {
     let setterFunc = ((__ball_index(this._setters, setterKey) ?? __ball_index(this._setters, setterKeyNoEq)) ?? __ball_index(this._functions, setterKey));
     if ((!__ball_eq(setterFunc, null) && this._isSetter(setterFunc))) {
       let result = await this._callFunction(modPart, setterFunc, { ['self']: object, ['value']: value });
-      this._writeBackingField(object, fieldName, result);
+      this._writeBackingField(object, fieldName, result, setterFunc);
       return result;
     }
     let superObj = __ball_index(object, '__super__');
@@ -4443,7 +4444,7 @@ export class BallEngine {
         let superSetterFunc = ((__ball_index(this._setters, superSetterKey) ?? __ball_index(this._setters, superSetterKeyNoEq)) ?? __ball_index(this._functions, superSetterKey));
         if ((!__ball_eq(superSetterFunc, null) && this._isSetter(superSetterFunc))) {
           let result = await this._callFunction(sModPart, superSetterFunc, { ['self']: object, ['value']: value });
-          this._writeBackingField(object, fieldName, result);
+          this._writeBackingField(object, fieldName, result, superSetterFunc);
           return result;
         }
       }
@@ -4453,17 +4454,112 @@ export class BallEngine {
     return _sentinel;
   }
 
-  _writeBackingField(object: any, fieldName: any, assignedValue: any): any {
+  _writeBackingField(object: any, fieldName: any, assignedValue: any, setterFunc: any): any {
     if (__ball_eq(assignedValue, null)) {
+      return;
+    }
+    let written = this._setterBackingStore(setterFunc);
+    if ((!__ball_eq(written, null) && __ball_map_has(object, 'map_contains_key', written))) {
+      ballObjectSetField(object, written, assignedValue);
       return;
     }
     let backing = ('_' + __ball_to_string(fieldName));
     if (__ball_map_has(object, 'map_contains_key', backing)) {
       ballObjectSetField(object, backing, assignedValue);
+    }
+  }
+
+  _setterBackingStore(func: any): any {
+    const input = func;
+    let cached = __ball_index(this._setterBackingStores, func.name);
+    if (!__ball_eq(cached, null)) {
+      return ((cached.length === 0) ? null : cached);
+    }
+    let found = [];
+    if (hasBody(func)) {
+      this._collectBackingStoreWrites(func.body, found);
+    }
+    let resolved = (__ball_eq(found.length, 1) ? __ball_index(found, 0) : '');
+    this._setterBackingStores[func.name] = resolved;
+    return ((resolved.length === 0) ? null : resolved);
+  }
+
+  _collectBackingStoreWrites(expr: any, out: any): any {
+    let kind = whichExpr(expr);
+    if (__ball_eq(kind, Expression_Expr.call)) {
+      let call = expr.call;
+      if ((__ball_eq(call.function, 'assign') && (__ball_eq(call.module, 'std') || (call.module.length === 0)))) {
+        let target = __ball_index(this._lazyFields(call), 'target');
+        if (!__ball_eq(target, null)) {
+          let name = this._backingStoreTargetName(target);
+          if ((!__ball_eq(name, null) && !out.includes(name))) {
+            out = (out.push(name), out);
+          }
+        }
+      }
+      if (hasInput(call)) {
+        this._collectBackingStoreWrites(call.input, out);
+      }
       return;
     }
-    if (__ball_map_has(object, 'map_contains_key', '_celsius')) {
-      ballObjectSetField(object, '_celsius', assignedValue);
+    if (__ball_eq(kind, Expression_Expr.messageCreation)) {
+      for (const f of expr.messageCreation.fields) {
+        this._collectBackingStoreWrites(f.value, out);
+      }
+      return;
+    }
+    if (__ball_eq(kind, Expression_Expr.block)) {
+      for (const stmt of expr.block.statements) {
+        if (__ball_eq(whichStmt(stmt), Statement_Stmt.let)) {
+          this._collectBackingStoreWrites(stmt.let.value, out);
+        } else {
+          if (__ball_eq(whichStmt(stmt), Statement_Stmt.expression)) {
+            this._collectBackingStoreWrites(stmt.expression, out);
+          }
+        }
+      }
+      if (hasResult(expr.block)) {
+        this._collectBackingStoreWrites(expr.block.result, out);
+      }
+      return;
+    }
+    if (__ball_eq(kind, Expression_Expr.literal)) {
+      if (__ball_eq(whichValue(expr.literal), Literal_Value.listValue)) {
+        for (const element of expr.literal.listValue.elements) {
+          this._collectBackingStoreWrites(element, out);
+        }
+      }
+      return;
+    }
+    if (__ball_eq(kind, Expression_Expr.fieldAccess)) {
+      if (hasObject(expr.fieldAccess)) {
+        this._collectBackingStoreWrites(expr.fieldAccess.object, out);
+      }
+      return;
+    }
+  }
+
+  _backingStoreTargetName(target: any): any {
+    const input = target;
+    let kind = whichExpr(target);
+    if (__ball_eq(kind, Expression_Expr.reference)) {
+      let name = target.reference.name;
+      return (name.startsWith('_') ? name : null);
+    }
+    if (__ball_eq(kind, Expression_Expr.fieldAccess)) {
+      let field = target.fieldAccess.field_2;
+      if (!field.startsWith('_')) {
+        return null;
+      }
+      let object = target.fieldAccess.object;
+      if (!__ball_eq(whichExpr(object), Expression_Expr.reference)) {
+        return null;
+      }
+      let receiver = object.reference.name;
+      if ((__ball_eq(receiver, 'self') || __ball_eq(receiver, 'this'))) {
+        return field;
+      }
+      return null;
     }
   }
 

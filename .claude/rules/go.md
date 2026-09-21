@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 363 passed,
-0 failed, 363 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 364 passed,
+0 failed, 364 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -342,7 +342,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   extension declared in a later module is not yet in `typeDefsByShort` inside
   the collection loop) maps the qualified name to `Ext__member`, and
   `compileCall` calls it with the call's own input message. Guards:
-  `tests/conformance/478_extension_override_selection` (cross-target) and
+  `tests/conformance/479_extension_override_selection` (cross-target) and
   `go/compiler/extension_override_test.go`, which compiles the fixture and RUNS
   it against the golden.
 
@@ -376,7 +376,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 363 passed, 0 failed, 363 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 364 passed, 0 failed, 364 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the

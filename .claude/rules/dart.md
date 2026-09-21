@@ -384,7 +384,7 @@ avoid constructs that need receiver-type info:
     in `test/extension_override_test.dart`), and since #670's last slice every
     non-Dart COMPILER honours it too — each reaching the member by whatever
     shape it already emits that member under (the table is in
-    `docs/METADATA_SPEC.md`). `tests/conformance/478_extension_override_selection`
+    `docs/METADATA_SPEC.md`). `tests/conformance/479_extension_override_selection`
     is the cross-target proof: two extensions on the same type declaring the
     same members, so the override is the only thing that selects which one runs.
     Two neighbouring shapes are NOT refusals and each had its own silent

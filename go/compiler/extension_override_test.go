@@ -1,7 +1,7 @@
 package compiler_test
 
 // Extension-override dispatch (issue #670, fixture
-// `478_extension_override_selection`).
+// `479_extension_override_selection`).
 //
 // `Ext(receiver).member` is encoded as a call NAMING the extension's own
 // member (`<module>:<Ext>.<member>`) with the receiver in `self`, because the
@@ -28,7 +28,7 @@ import (
 )
 
 func TestExtensionOverrideCallsTheNamedMemberImpl(t *testing.T) {
-	prog := load(t, conformancePath("478_extension_override_selection.ball.json"))
+	prog := load(t, conformancePath("479_extension_override_selection.ball.json"))
 	src := compileFmt(t, prog)
 
 	// Each of the six overrides must reach the extension's own impl.
@@ -48,7 +48,7 @@ func TestExtensionOverrideCallsTheNamedMemberImpl(t *testing.T) {
 	}
 
 	got := goRun(t, src)
-	if want := readGolden(t, "478_extension_override_selection.expected_output.txt"); got != want {
+	if want := readGolden(t, "479_extension_override_selection.expected_output.txt"); got != want {
 		t.Errorf("478: got %q, want %q", got, want)
 	}
 }

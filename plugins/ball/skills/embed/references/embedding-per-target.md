@@ -553,7 +553,7 @@ This abbreviated snippet doesn't set them, but `sandbox`/`timeoutMs`/`maxMemoryB
 
 ## C# — trusted only, and only in a `-p:SelfHost=true` build
 
-`csharp/engine/src/CompiledEngine.cs` is generated only under `-p:SelfHost=true`. In the **default** build, `BallEngine.Run()` unconditionally throws `SelfHostPendingException` (`BallEngine.cs:80-87`), because the compiled engine it drives is a gitignored artifact that only that flag generates. Built WITH the flag, the self-hosted engine runs at Dart parity (`csharp/AGENTS.md`, `Results: 363 passed, 0 failed, 363 total`), but `Run()` still takes **zero parameters**:
+`csharp/engine/src/CompiledEngine.cs` is generated only under `-p:SelfHost=true`. In the **default** build, `BallEngine.Run()` unconditionally throws `SelfHostPendingException` (`BallEngine.cs:80-87`), because the compiled engine it drives is a gitignored artifact that only that flag generates. Built WITH the flag, the self-hosted engine runs at Dart parity (`csharp/AGENTS.md`, `Results: 364 passed, 0 failed, 364 total`), but `Run()` still takes **zero parameters**:
 
 ```csharp
 using Ball.Engine;
@@ -567,7 +567,7 @@ var lines = engine.Run();                  // IReadOnlyList<string>; SelfHostPen
 
 ## Go — `go/engine` (module `github.com/ball-lang/ball/go/engine`)
 
-Runs at Dart parity (`Results: 363 passed, 0 failed, 363 total`; committed compiled artifact, no build tags — see `go/AGENTS.md`):
+Runs at Dart parity (`Results: 364 passed, 0 failed, 364 total`; committed compiled artifact, no build tags — see `go/AGENTS.md`):
 
 ```go
 import ballengine "github.com/ball-lang/ball/go/engine"
@@ -585,7 +585,7 @@ lines, err := eng.Run()                  // []string, captured stdout
 
 ## Python — `ball-lang` wheel (PyPI, package `ball_engine`)
 
-Runs at Dart parity (`python/AGENTS.md`, `Results: 363 passed, 0 failed, 363 total`); the wheel ships the engine's Ball SOURCE and compiles it into a per-user cache on first use:
+Runs at Dart parity (`python/AGENTS.md`, `Results: 364 passed, 0 failed, 364 total`); the wheel ships the engine's Ball SOURCE and compiles it into a per-user cache on first use:
 
 ```python
 from ball_engine.driver import run_program_view

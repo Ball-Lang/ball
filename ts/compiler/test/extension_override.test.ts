@@ -1,6 +1,6 @@
 /**
  * Extension-override dispatch (issue #670, fixture
- * `478_extension_override_selection`).
+ * `479_extension_override_selection`).
  *
  * `Ext(receiver).member` is encoded as a call NAMING the extension's own member
  * (`<module>:<Ext>.<member>`) with the receiver in `self`, because the
@@ -40,7 +40,7 @@ function findRepoRoot(): string {
 }
 
 const conformanceDir = resolve(findRepoRoot(), "tests/conformance");
-const FIXTURE = "478_extension_override_selection";
+const FIXTURE = "479_extension_override_selection";
 
 function compileFixture(name: string): string {
   const program: Program = unwrapBallFile(

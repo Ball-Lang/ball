@@ -4,7 +4,7 @@ namespace Ball.Compiler.Tests;
 
 /// <summary>
 /// Extension-override dispatch (issue #670, fixture
-/// <c>478_extension_override_selection</c>).
+/// <c>479_extension_override_selection</c>).
 ///
 /// <para><c>Ext(receiver).member</c> is encoded as a call NAMING the
 /// extension's own member (<c>&lt;module&gt;:&lt;Ext&gt;.&lt;member&gt;</c>)
@@ -27,7 +27,7 @@ namespace Ball.Compiler.Tests;
 /// </summary>
 public class ExtensionOverrideTests
 {
-    private const string Fixture = "478_extension_override_selection";
+    private const string Fixture = "479_extension_override_selection";
 
     /// <summary>Reads a golden as BYTES, normalising only CRLF pairs (a lone <c>\r</c> can be semantic).</summary>
     private static string Golden(string expectedFile) =>

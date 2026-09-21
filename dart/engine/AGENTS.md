@@ -67,6 +67,33 @@ The target compilers have to lower the same shape into languages that have no
 `final`-field/setter split — see `.claude/rules/ts.md` and `.claude/rules/cpp.md`
 for the backing-member lowering each uses.
 
+### Which backing store the setter mirror writes (issue #768)
+
+Once a setter has run, `_writeBackingField` mirrors the setter's RETURN value
+onto the instance's backing store, because a target that value-copies `self`
+never observes the body's own write. WHICH store is the whole question, and it
+is answered from the setter's own body, not from its name:
+
+* `_setterBackingStore(func)` walks the setter body for `std.assign` targets
+  that name a **private store on the receiver** — a bare `_name` (the encoder's
+  implicit-`this` shape) or an explicit `self._name` / `this._name`. Exactly one
+  distinct target is an answer; zero or several is `null`. A nested `lambda`
+  body is NOT walked: a closure's write happens only if something invokes it.
+  The result is cached per setter function name in `_setterBackingStores`.
+* Only if the body names no single store does the mirror fall back to Dart's
+  `_<property>` convention (`set celsius` → `_celsius`) — a guess about the
+  PROPERTY, bounded to the field that property would own.
+
+Before #768 the fallback was the **literal name `_celsius`**, so a class that
+declared a `_celsius` field had it silently overwritten by any unrelated
+computed setter (`set fahrenheit(v) => _kelvin = …` left `_celsius` holding the
+Kelvin value). A wrong answer with no diagnostic, invisible to the whole corpus
+because the only fixture family that reached the branch happened to name its own
+store `_celsius`. Pinned by `478_setter_backing_store_disambiguation` and by
+`engine_test.dart`'s "setter backing-store mirror (#768)" group. The six
+self-hosted engines compile THIS source, so they inherit the fix with their
+regenerated artifacts — none of them carries a hardcoded fallback of its own.
+
 ### Dart's `StateError`: typed AND readable (issue #616)
 
 #597/#604 settled that `std_collections.list_find`'s no-match THROWS and that the throw is

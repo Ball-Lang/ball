@@ -1138,7 +1138,7 @@ void _parseOnlyOverrideTests() {
     () {
       // Two extensions on the SAME type declaring the SAME members, so the
       // override is the only thing selecting which one runs — the shape of
-      // `tests/conformance/src/478_extension_override_selection.dart`.
+      // `tests/conformance/src/479_extension_override_selection.dart`.
       const source = r'''
 extension AlphaTag on List<int> {
   String tag() => 'alpha(${this.length})';

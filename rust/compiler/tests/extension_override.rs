@@ -1,5 +1,5 @@
 //! Extension-override dispatch (issue #670, fixture
-//! `478_extension_override_selection`) — **emitted-source** assertions, so
+//! `479_extension_override_selection`) — **emitted-source** assertions, so
 //! this suite is part of the default `cargo test --workspace` and runs on
 //! EVERY PR (unlike the whole-corpus `rust-compiler` leg, which lives only in
 //! conformance-matrix.yml — a workflow with no `pull_request:` trigger that
@@ -61,7 +61,7 @@ fn extension_override_calls_the_named_associated_fn() {
     let source = Compiler::new(&load_program(
         &repo_root()
             .join("tests/conformance")
-            .join("478_extension_override_selection.ball.json"),
+            .join("479_extension_override_selection.ball.json"),
     ))
     .compile();
 
@@ -186,11 +186,11 @@ fn the_compiled_program_selects_the_extension_the_source_named() {
     let source = Compiler::new(&load_program(
         &repo_root()
             .join("tests/conformance")
-            .join("478_extension_override_selection.ball.json"),
+            .join("479_extension_override_selection.ball.json"),
     ))
     .compile();
     assert_eq!(
-        build_and_run("478_extension_override_selection", &source),
-        golden("478_extension_override_selection.expected_output.txt"),
+        build_and_run("479_extension_override_selection", &source),
+        golden("479_extension_override_selection.expected_output.txt"),
     );
 }

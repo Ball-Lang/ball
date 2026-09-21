@@ -458,7 +458,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   untouched — `parts_resolver.dart` merges an `extension X on Class` whose class
   the library declares INTO that class before encoding, so
   `dart/self_host/engine.ball.json` carries no extension typeDef at all.
-  Guards: `tests/conformance/478_extension_override_selection` (the
+  Guards: `tests/conformance/479_extension_override_selection` (the
   `C++ Compiled` row, wired into `cpp/test/e2e_fixture_list.h`) and
   `extension_members_lower_to_free_functions_taking_self` in
   `cpp/test/test_compiler.cpp`.

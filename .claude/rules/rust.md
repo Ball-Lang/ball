@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 363 passed, 0 failed, 363 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 364 passed, 0 failed, 364 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -243,7 +243,7 @@ cargo fmt --check && cargo clippy --workspace
   (`error[E0433]: cannot find module or crate `main_AlphaTag``). An extension is
   now the one exception; it has no fields, so `compile_struct_def` emits an
   empty struct plus that `impl`. Guards:
-  `tests/conformance/478_extension_override_selection` (cross-target) and
+  `tests/conformance/479_extension_override_selection` (cross-target) and
   `rust/compiler/tests/extension_override.rs`, whose second case BUILDS AND RUNS
   the compiled output against the golden — the shape assertion beside it passed
   for a program that did not compile at all, and only CI's `Rust Compiler Leg`
@@ -796,7 +796,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 363 passed, 0 failed, 363 total` (the 4
+  whole corpus with Dart-identical output: `Results: 364 passed, 0 failed, 364 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

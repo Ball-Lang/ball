@@ -125,6 +125,25 @@ jobs:
       - name: Changed-stacks truth table (#458)
         run: bash .github/actions/detect-changed-stacks/test/truth_table.sh
 
+      # The truth table above pins the classifier against files that ALREADY
+      # exist; it cannot notice that the `std_inventory` signal's match set is
+      # a hand-written shape regex (`std(_[a-z_]+)?\.dart`) plus a
+      # hand-reasoned exclusion of ts/go/cpp. Both are closed-set assumptions
+      # about source, and #774 is the pair of ways they rot silently: a ninth
+      # builder named outside that shape never trips the signal, and a new
+      # off-disk reader in ts/go/cpp never joins the OR-list. This derives the
+      # match set from the `Module buildStd*Module(` declarations themselves,
+      # diffs it against the generated block in detect.sh, scans every stack
+      # that is NOT already in the OR-list for a code (not comment) reference
+      # to the inventory, and proves the signal really reaches
+      # rust/csharp/python. `--self-test` first: a guard that stopped deriving
+      # must not pass. `--min-builders` is the MEASURED count, so a derivation
+      # regex that stops matching cannot read as a clean bill of health.
+      - name: "Std inventory signal derived-from-source guard (#774)"
+        run: |
+          bash tools/ci/check_std_inventory_signal.sh --self-test
+          bash tools/ci/check_std_inventory_signal.sh --min-builders 8
+
       - name: C++ coverage-floor parser test (#63)
         run: bash cpp/test/test_build_cov_floor_parsing.sh
 
@@ -2849,7 +2868,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 363 passed, 0 failed, 363 total (4 skipped carve-outs)" — the
+      # "Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -3044,7 +3063,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 363 passed, 0 failed, 363 total (4 skipped carve-outs)" — the 4
+      # "Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3199,7 +3218,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 363 passed, 0 failed, 363 total (4 skipped carve-outs)" — the 4
+      # "Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

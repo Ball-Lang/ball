@@ -219,7 +219,7 @@ const json = toJson(ProgramSchema, program);
   too) routes it to `(Ext.prototype as any).member.call(recv, …)`, and to
   `Reflect.get(Ext.prototype, 'member', recv)` for a getter — `Reflect.get`
   invokes the accessor with the receiver as `this`, which a plain property read
-  cannot. Guards: `tests/conformance/478_extension_override_selection`
+  cannot. Guards: `tests/conformance/479_extension_override_selection`
   (cross-target, incl. the `TS Compiled (Direct)` row) and
   `ts/compiler/test/extension_override.test.ts`, which compiles the fixture and
   RUNS it against the golden.

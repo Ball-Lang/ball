@@ -138,10 +138,30 @@ row "dart-shared-std-artifact-is-not-cpp" 'dart/shared/std.json' ''   "$(expect 
 # or dart/shared/std.json off disk as their source of truth. Each of those gates
 # exists to notice the DART side moving, and a dart-only inventory edit used to
 # be exactly the commit on which their jobs skipped. It must NOT flip self_host
-# (nothing here re-compiles a self-hosted engine) and must NOT flip cpp/ts/go
-# (they reference these files only in prose).
+# (nothing here re-compiles a self-hosted engine) and must NOT flip cpp/ts/go —
+# those three reference these files only in PROSE, an exclusion which is no
+# longer a one-time grep: tools/ci/check_std_inventory_signal.sh scans every
+# stack outside the OR-list for a code (not comment) reference on every PR, so
+# a new off-disk reader is forced to join the OR-list instead of silently
+# running stale (#774).
+#
+# These rows are the BEHAVIOURAL half and they pin the whole derived set, one
+# row per builder — not a three-of-eight sample, which is what let #774's first
+# gap (a builder named outside the `std(_[a-z_]+)?\.dart` shape) look covered.
+# They still cannot see a builder that does not yet exist, so the CLOSED-SET
+# half lives in tools/ci/check_std_inventory_signal.sh (always-on `proto` job):
+# it derives the match set from the `Module buildStd*Module(` declarations
+# under dart/shared/lib/ and the artifacts gen_std.dart writes, and fails when
+# detect.sh's generated block has drifted from it. Keep both — this file proves
+# the signal DOES what it claims for the files that exist; that script proves
+# the claim is still derived from source.
 row "std-inventory-collections-source" 'dart/shared/lib/std_collections.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-concurrency-source" 'dart/shared/lib/std_concurrency.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-convert-source" 'dart/shared/lib/std_convert.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-fs-source" 'dart/shared/lib/std_fs.dart' ''   "$(expect dart dart_core rust csharp python)"
 row "std-inventory-io-source" 'dart/shared/lib/std_io.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-memory-source" 'dart/shared/lib/std_memory.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-time-source" 'dart/shared/lib/std_time.dart' ''   "$(expect dart dart_core rust csharp python)"
 row "std-inventory-binary-artifact" 'dart/shared/std.bin' ''   "$(expect dart dart_core rust csharp python)"
 # Negative controls: a dart/shared/lib file that is NOT a std module builder, and
 # a dart/shared artifact that is NOT the std inventory, must leave rust/csharp/

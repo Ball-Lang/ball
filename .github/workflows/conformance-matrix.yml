@@ -1016,7 +1016,7 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      # 282 after #670: `478_extension_override_selection` joined the corpus
+      # 282 after #670: `479_extension_override_selection` joined the corpus
       # and this compiler reaches an extension member through its impl method
       # rather than `BallRuntime.CallMethod`. Measured by this very row (PR
       # #829, job 106251801199: `Results: 282 passed, 81 failed, 363 total`),
@@ -1535,7 +1535,7 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      # 283 after #670: `478_extension_override_selection` joined the corpus and
+      # 283 after #670: `479_extension_override_selection` joined the corpus and
       # `compile_module_types` stopped skipping the descriptor-less extension
       # typeDef, so the `impl` its members live in is emitted and both the direct
       # call and the short-name dispatcher resolve. Measured by this very row (PR
@@ -1651,7 +1651,7 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      # 299 after #670: `478_extension_override_selection` joined the corpus
+      # 299 after #670: `479_extension_override_selection` joined the corpus
       # and this compiler reaches an extension member through its impl func
       # rather than the receiver-asking `ballrt.CallMethod`. Measured by this
       # very row (PR #829, job 106251801272: `Results: 299 passed, 64 failed,
@@ -1753,7 +1753,7 @@ jobs:
       # inside the failures — the #615 lesson repeating: a ratchet is green over
       # the regression it already tolerates. Measured before and after, locally
       # and on CI, never predicted.
-      # 266 after #670: `478_extension_override_selection` joined the corpus
+      # 266 after #670: `479_extension_override_selection` joined the corpus
       # and this compiler reaches an extension member unbound on its class
       # rather than through `ballrt.call_method`. Measured by this very row
       # (PR #829, job 106251801278: `Results: 266 passed, 97 failed, 363

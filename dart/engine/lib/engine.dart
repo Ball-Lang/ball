@@ -56,6 +56,12 @@ class BallEngine {
   /// Separate setter function map.
   final Map<String, FunctionDefinition> _setters = {};
 
+  /// Per-setter cache of the backing store its body writes, keyed by the
+  /// setter's Ball function name. `''` records "no single unambiguous store"
+  /// so a body that writes none (or several) is not re-walked on every
+  /// assignment. Filled by [_setterBackingStore] (#768).
+  final Map<String, String> _setterBackingStores = {};
+
   /// Global scope with top-level variable bindings.
   final _Scope _globalScope = _Scope();
 

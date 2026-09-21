@@ -1,5 +1,5 @@
 """Extension-override dispatch (issue #670, fixture
-``478_extension_override_selection``).
+``479_extension_override_selection``).
 
 ``Ext(receiver).member`` is encoded as a call NAMING the extension's own member
 (``<module>:<Ext>.<member>``) with the receiver in ``self``, because the
@@ -30,7 +30,7 @@ from conftest import run_source
 
 def test_extension_override_calls_the_named_member(conformance_dir):
     src = compile_program(
-        load_program(conformance_dir / "478_extension_override_selection.ball.json"))
+        load_program(conformance_dir / "479_extension_override_selection.ball.json"))
 
     # Each of the six overrides must reach the extension's own member, unbound.
     for call in (
@@ -45,5 +45,5 @@ def test_extension_override_calls_the_named_member(conformance_dir):
     assert 'call_method(xs, "main:' not in src, (
         f"an extension override still dispatches dynamically\n---\n{src}")
 
-    golden = (conformance_dir / "478_extension_override_selection.expected_output.txt")
+    golden = (conformance_dir / "479_extension_override_selection.expected_output.txt")
     assert run_source(src) == golden.read_bytes().decode("utf-8").replace("\r\n", "\n")

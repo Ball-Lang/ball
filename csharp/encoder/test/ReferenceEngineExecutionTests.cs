@@ -141,6 +141,20 @@ public class ReferenceEngineExecutionTests
     /// <para>The dispatcher is what makes <c>MessageTypeName</c> → <c>std.type_of</c> testable at
     /// all: the probe's value is never printed, only compared, so only a run can show that the
     /// comparison the compiler emitted still selects the right arm.</para>
+    ///
+    /// <para><b>The one deliberate deviation from a verbatim emission</b> is that the resolved arm
+    /// is INLINE rather than a call to a separate <c>Point__describe(BallValue __in0)</c> impl.
+    /// That is the pre-existing parameter-binding mismatch this repo already documents (see
+    /// <c>.claude/rules/csharp.md</c>, "a positionally-packed input does not survive the
+    /// re-encode"), in its <c>self</c>-keyed form: the compiler's single declared parameter IS the
+    /// whole input message, but the reference engine binds a 1-parameter callee's parameter by
+    /// NAME out of an input map that carries <c>self</c>
+    /// (<c>dart/engine/lib/engine_invocation.dart</c>) — so an impl named <c>__in0</c> is left
+    /// unbound and the body fails loud with <c>Undefined variable: "__in0"</c>. A DISPATCHER's own
+    /// parameter is spelled <c>input</c>, which the engine binds unconditionally, so every
+    /// construct this slice adds is exercised exactly as emitted. Inlining the arm keeps the guard
+    /// on THIS slice rather than on a gap it does not close, and is why the
+    /// <c>csharp-roundtrip</c> row stays a ratchet rather than a parity gate.</para>
     /// </summary>
     private const string ObjectModelSource = """
         using Ball.Shared;
@@ -158,14 +172,12 @@ public class ReferenceEngineExecutionTests
             {
                 var __self = BallRuntime.FieldGet(input, "self");
                 var __t = BallRuntime.MessageTypeName(__self);
-                if (__t == "main:Point" || __t == "Point") return Point__describe(input);
-                return BallRuntime.ToStringValue(__self);
-            }
+                if (__t == "main:Point" || __t == "Point")
+                {
+                    return BallRuntime.Add(BallRuntime.ToStringValue(BallRuntime.FieldGet(__self, "x")), Str("!"));
+                }
 
-            private static BallValue Point__describe(BallValue __in0)
-            {
-                var self__L0 = BallRuntime.FieldGet(__in0, "self");
-                return BallRuntime.Add(BallRuntime.ToStringValue(BallRuntime.FieldGet(self__L0, "x")), Str("!"));
+                return BallRuntime.ToStringValue(__self);
             }
 
             public static void Main(string[] args)

@@ -458,6 +458,52 @@ compile items so the sibling projects never double-compile each other's files.
   the bare `arg0` VALUE instead of the message. That is independent of the `ArgGet` arm — it
   applies to any re-encoded compiler output — and is one of the reasons the `csharp-roundtrip` row
   is a ratchet rather than a parity gate. Do not "fix" the `ArgGet` arm for it.
+  **The same mismatch has a `self`-keyed form**, reproduced while writing #689's object-model
+  guard: a 1-parameter callee whose input map carries `self` also takes the by-NAME extraction
+  path (`params.length == 1 && !inputMap.containsKey('self')` is the gate), so the compiler's
+  `Point__describe(BallValue __in0)` impl is left with `__in0` UNBOUND and fails loud with
+  `Undefined variable: "__in0"`. Only a DISPATCHER survives, because the compiler spells its
+  parameter `input` and the engine binds that name unconditionally. It is the same convention
+  clash, not a new one, and no encoder arm can resolve it: `{self: p}` is genuinely ambiguous
+  between "the whole message is the parameter" and "an instance method whose parameter is a key of
+  this map".
+- **The compiler's OBJECT MODEL is five more node-shaped inverses (#689, after `FieldGet`/
+  `ArgGet`).** They block TOGETHER — compiling `tests/conformance/101_simple_class.ball.json`
+  emits all of them in one 60-line program — and each is the exact inverse of one named compiler
+  line:
+  `BallRuntime.FieldSet(obj, "x", v)` (the emission of `obj.x = v`) →
+  `std.assign(target: field_access(obj, "x"), value: v)`, the shape `_evalAssign` routes through
+  `_trySetterDispatch` before writing, and evaluating to the written value just as `FieldSet`
+  does;
+  `new BallMessage("T", new BallMap { … })` (`CSharpCompiler.CompileMessageCreation`) → a TYPED
+  `message_creation`;
+  `new BallMap { ["k"] = v }` / `new BallMap()` (the same method's `TypeName.Length == 0` arm) →
+  an UNTYPED one — a base call's named arguments and every method call site's `{self, …}` input;
+  `new BallList(new BallValue[] { … })` / `new BallList()` (`CompileListLiteral`) → a
+  `literal.list`.
+  A genuine Ball map LITERAL is a different emission (`BallRuntime.MapCreate`), so `new BallMap`
+  is unambiguous. All three `new` arms sit AFTER the `ClassNames` lookup in
+  `EncodeObjectCreation`, so a same-file `class BallMap` still wins — the shadowing order C#
+  itself uses, and the one the `*Exception` fallback beside them already follows. Fail-loud
+  boundaries, unchanged in kind: a Ball `message_creation` NAMES its type and NAMES each field, so
+  a computed type name, a computed key, or a runtime map operand (the enum-namespace emission's
+  `__ns` accumulator) is an `EncoderException`.
+- **`MessageTypeName` → `std.type_of` is an APPROXIMATION, and the divergence is written down
+  (#689).** `MessageTypeName(v)` answers a `BallMessage`'s declared `type_name` and `""` for
+  everything else; `std.type_of(v)` answers the canonical base type name with the module prefix
+  stripped (`dart/shared/std.json`) — the SHORT type name for a message, `int`/`String`/`Map`/…
+  for a non-message. Every dispatcher the compiler emits compares the probe against BOTH the full
+  `module:Type` name and the short one (`TypeEmit.CompileDispatcher`, `Accessors.TypeNameTest`),
+  so the short name selects the same arm, and a non-message misses every arm under either
+  spelling. They disagree only when a non-message receiver's base type name is itself a user type
+  name the same dispatcher tests — a user class literally named `int`/`String`/`List`/`Map`/`Set`/
+  `Function`/`Null`/`bool`/`double`. The exact alternative, reading the engine-internal
+  `__type__` tag, is right on the Dart reference engine and meaningless on the five targets that
+  do not represent a message as a tagged map, so `type_of` is the portable choice. Guards:
+  `encoder/test/CompilerObjectModelTests.cs` (every shape + every boundary) and
+  `CompilerObjectModelRunsOnTheReferenceEngine` in `encoder/test/ReferenceEngineExecutionTests.cs`,
+  which RUNS a dispatcher-shaped program and asserts a positive result (`3!` then `9!` — the
+  second line is what proves the `FieldSet` write landed on the same shared instance).
 - **Round-trip proof, not encode-only.** A bucket flip is proven by compiling the ENCODED fixture
   back to C# and RUNNING it (`encoder/test/PredefinedTypeCallTests.cs` asserts exactly `43\n`).
   That is what caught the compiler's callback-field bug below — an encode-only assertion would

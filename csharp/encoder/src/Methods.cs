@@ -212,6 +212,16 @@ internal sealed partial class Encoder
             return EncodeArgGetHelper(argExprs);
         }
 
+        if (name == RuntimeHelpers.FieldSet)
+        {
+            return EncodeFieldSetHelper(argExprs);
+        }
+
+        if (name == RuntimeHelpers.MessageTypeName)
+        {
+            return EncodeMessageTypeNameHelper(argExprs);
+        }
+
         if (!RuntimeHelpers.Table.TryGetValue(name, out var helper))
         {
             throw new EncoderException(
@@ -254,6 +264,55 @@ internal sealed partial class Encoder
                 "compute one)");
 
         return Builders.FieldAccessExpr(EncodeExpr(argExprs[0]), field);
+    }
+
+    /// <summary>
+    /// <c>BallRuntime.FieldSet(obj, "name", value)</c> → <c>std.assign</c> over the
+    /// <c>field_access</c> node <see cref="EncodeFieldGetHelper"/> produces for the matching read
+    /// (issue #689). Not a <see cref="RuntimeHelpers.Table"/> row for the same reason
+    /// <c>FieldGet</c> is not: the field is a NAME, not an encodable expression.
+    ///
+    /// <para><c>std.assign</c> carries no <c>op</c> field here — a bare <c>=</c>, which is what
+    /// <c>_evalAssign</c> treats an absent/empty <c>op</c> as — and it evaluates to the written
+    /// value, matching <c>BallRuntime.FieldSet</c>'s own return.</para>
+    /// </summary>
+    private Expression EncodeFieldSetHelper(List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != 3)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.FieldSet}(...) expects 3 argument(s), " +
+                $"got {argExprs.Count}");
+        }
+
+        var field = RuntimeHelpers.StringLiteralText(argExprs[1])
+            ?? throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.FieldSet}(...) needs a string-literal " +
+                $"field name, got `{argExprs[1]}` (a Ball field_access names a field, it does not " +
+                "compute one)");
+
+        return Builders.StdCall(
+            "assign",
+            Builders.ArgsMessage(
+                ("target", Builders.FieldAccessExpr(EncodeExpr(argExprs[0]), field)),
+                ("value", EncodeExpr(argExprs[2]))));
+    }
+
+    /// <summary>
+    /// <c>BallRuntime.MessageTypeName(obj)</c> → <c>std.type_of(value: obj)</c>, the portable
+    /// receiver-type probe — see <see cref="RuntimeHelpers.MessageTypeName"/> for why that is the
+    /// right counterpart and exactly where the two disagree.
+    /// </summary>
+    private Expression EncodeMessageTypeNameHelper(List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != 1)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{RuntimeHelpers.MessageTypeName}(...) expects 1 " +
+                $"argument(s), got {argExprs.Count}");
+        }
+
+        return Builders.UnaryStd("type_of", EncodeExpr(argExprs[0]));
     }
 
     /// <summary>

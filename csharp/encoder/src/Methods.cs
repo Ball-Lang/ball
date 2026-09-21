@@ -184,8 +184,11 @@ internal sealed partial class Encoder
     }
 
     /// <summary>
-    /// Encode a <c>BallRuntime.&lt;name&gt;(args…)</c> call — one universal <c>std</c> base call
-    /// each, per <see cref="RuntimeHelpers.Table"/>.
+    /// Encode a <c>BallRuntime.&lt;name&gt;(args…)</c> call — one universal base call each, per
+    /// <see cref="RuntimeHelpers.Table"/> (<c>std</c>) or
+    /// <see cref="RuntimeHelpers.CollectionsTable"/> (<c>std_collections</c>), plus the named
+    /// node-shaped arms above that neither table can express. A name in neither is a loud
+    /// refusal, never a guess (issue #55 doctrine).
     /// </summary>
     private Expression EncodeRuntimeHelperCall(string name, List<ExpressionSyntax> argExprs)
     {
@@ -222,24 +225,51 @@ internal sealed partial class Encoder
             return EncodeMessageTypeNameHelper(argExprs);
         }
 
-        if (!RuntimeHelpers.Table.TryGetValue(name, out var helper))
+        if (RuntimeHelpers.Table.TryGetValue(name, out var helper))
         {
-            throw new EncoderException(
-                $"ball-encoder: unsupported runtime helper `BallRuntime.{name}(...)` " +
-                "(encoder/src/RuntimeHelpers.cs lists the helpers that have a universal std inverse)");
+            return Builders.StdCall(
+                helper.Function,
+                Builders.ArgsMessage(TableArguments(name, helper.Fields, argExprs)));
         }
 
-        if (argExprs.Count != helper.Fields.Length)
+        // The same row shape, for `std_collections` (issue #689). Separate from the table above
+        // only because a row names a function and not a MODULE — see
+        // RuntimeHelpers.CollectionsTable. The encoded program must DECLARE the module it reads
+        // through, so this arm marks it used, exactly like every other std_collections route
+        // in this encoder.
+        if (RuntimeHelpers.CollectionsTable.TryGetValue(name, out var collectionsHelper))
+        {
+            MarkCollectionsUsed();
+            return Builders.CollectionsCall(
+                collectionsHelper.Function,
+                Builders.ArgsMessage(TableArguments(name, collectionsHelper.Fields, argExprs)));
+        }
+
+        throw new EncoderException(
+            $"ball-encoder: unsupported runtime helper `BallRuntime.{name}(...)` " +
+            "(encoder/src/RuntimeHelpers.cs lists the helpers that have a universal std inverse)");
+    }
+
+    /// <summary>
+    /// Pair each of a helper's positional arguments with the base function's input field it
+    /// fills. The arity is FIXED — the compiler emits a <c>BallValue.Null</c> placeholder rather
+    /// than omitting an operand — so a mismatch is an encoder-level error, never a shorter call.
+    /// </summary>
+    private (string Name, Expression Value)[] TableArguments(
+        string name,
+        string[] fields,
+        List<ExpressionSyntax> argExprs)
+    {
+        if (argExprs.Count != fields.Length)
         {
             throw new EncoderException(
-                $"ball-encoder: BallRuntime.{name}(...) expects {helper.Fields.Length} " +
+                $"ball-encoder: BallRuntime.{name}(...) expects {fields.Length} " +
                 $"argument(s), got {argExprs.Count}");
         }
 
-        var fields = helper.Fields
+        return fields
             .Select((field, i) => (field, EncodeExpr(argExprs[i])))
             .ToArray();
-        return Builders.StdCall(helper.Function, Builders.ArgsMessage(fields));
     }
 
     /// <summary>

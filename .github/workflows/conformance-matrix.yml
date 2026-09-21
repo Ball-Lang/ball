@@ -1250,7 +1250,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
       # engine. NEVER lower this to turn a red build green; raise it in the SAME
       # PR as the fix that earned it (the job prints the exact new value).
-      PYTHON_ROUNDTRIP_FLOOR: "132"
+      PYTHON_ROUNDTRIP_FLOOR: "157"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1293,10 +1293,16 @@ jobs:
             echo "\`python/encoder/tests/test_ballrt_inverse.py\`), and so are all four"
             echo "of the compiler's \`try:\` lowerings — the loop break/continue trap, the"
             echo "\`BallReturn\` body wrapper and its constructor form, and a real"
-            echo "\`std.try\` (\`encoder.encode_try\`/\`encode_while\`). #690 carries what is"
-            echo "left, in descending order of the fixtures each heads: method calls on a"
-            echo "receiver (the same problem as top-level classes), dict literals, and the"
-            echo "\`arg\` parameter prologue."
+            echo "\`std.try\` (\`encoder.encode_try\`/\`encode_while\`) — and so are the"
+            echo "NAMESPACED helpers \`ballrt.col\`/\`cvt\`/\`proto\` (std_collections /"
+            echo "std_convert / ball_proto), closed by"
+            echo "\`python/encoder/tests/test_ballrt_namespaced.py\`. #690 carries what is"
+            echo "left, in descending order of the fixtures each is the SOLE blocker of:"
+            echo "dict literals, top-level classes (with the method calls on their"
+            echo "instances), and the \`std.yield\`/\`super\`/switch-pattern families the"
+            echo "COMPILER still refuses. The \`arg\` parameter prologue heads more failure"
+            echo "text than any of them but is the sole blocker of none, so fixing it"
+            echo "alone moves the row by zero."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"

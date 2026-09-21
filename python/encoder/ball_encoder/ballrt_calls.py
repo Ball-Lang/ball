@@ -239,3 +239,153 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "math_is_finite": ("math_is_finite", _UNARY),
     "math_is_infinite": ("math_is_infinite", _UNARY),
 }
+
+# ── Namespaced helpers: `ballrt.<ns>.<name>(...)` (issue #690) ───────────────
+# Not every base call is a flat `ballrt.<name>`. Three of the compiler's modules
+# dispatch through a namespace object that `python/runtime/ballrt/__init__.py`
+# re-exports, and `encode_call` reads the receiver to tell them apart:
+#
+#   ballrt.col.<name>    -> std_collections  (compiler.collections_expr)
+#   ballrt.cvt.<name>    -> std_convert      (compiler.convert_expr)
+#   ballrt.proto.<name>  -> ball_proto       (compiler.base_expr)
+#
+# Unlike `HELPERS`, the base function is ALWAYS spelled the same as the helper
+# (the compiler emits `ballrt.col.{rt}` where `rt` is the Ball function's own
+# name), so an entry records only the input FIELD per positional argument.
+#
+# Those field names are read from each module's OWN Ball declaration, never from
+# the aliases `python/compiler` happens to accept on the way in. That matters:
+# `value_field(f, 'value', 'callback')` takes either spelling, but `list_find`'s
+# declared input is `ListCallbackInput{list, callback}` — encoding its predicate
+# back under `value` hands the engine a call whose callback field is simply
+# absent. This is #690's `math_clamp` lesson on the namespaced half, and
+# `python/encoder/tests/test_ballrt_namespaced.py` closes it against
+# `dart/shared/lib/std_collections.dart` / `std_convert.dart` (which declare
+# both the functions and their input types) and `dart/shared/ball_proto.json`.
+
+_LIST = ("list",)
+_LIST_INDEX = ("list", "index")
+_LIST_VALUE = ("list", "value")
+_LIST_CALLBACK = ("list", "callback")
+_MAP = ("map",)
+_MAP_KEY = ("map", "key")
+_SET = ("set",)
+_SET_VALUE = ("set", "value")
+
+#: ``ballrt.col.<name>`` -> the ``std_collections`` input fields, in order.
+#: ``ListInput{list, index, value}``, ``ListCallbackInput{list, callback}``,
+#: ``ListSliceInput{list, start, end}``, ``MapInput{map, key, value}``,
+#: ``StringJoinInput{list, separator}``, ``SetInput{set, value}`` and
+#: ``SetBinaryInput{left, right}`` are the declared shapes.
+COLLECTION_HELPERS: dict[str, tuple[str, ...]] = {
+    # ── Lists ────────────────────────────────────────────────────────────────
+    "list_get": _LIST_INDEX,
+    "list_length": _LIST,
+    "list_is_empty": _LIST,
+    "list_first": _LIST,
+    "list_last": _LIST,
+    "list_contains": _LIST_VALUE,
+    "list_index_of": _LIST_VALUE,
+    "list_reverse": _LIST,
+    "list_concat": _LIST_VALUE,
+    "list_slice": ("list", "start", "end"),
+    # `list_take`/`list_drop` carry a COUNT, and `ListInput` declares no field of
+    # that name; `value` is the one the Dart reference engine reads first
+    # (`m['value'] ?? m['index']`).
+    "list_take": _LIST_VALUE,
+    "list_drop": _LIST_VALUE,
+    "list_push": _LIST_VALUE,
+    "list_pop": _LIST,
+    "list_insert": ("list", "index", "value"),
+    "list_remove_at": _LIST_INDEX,
+    "list_set": ("list", "index", "value"),
+    "list_clear": _LIST,
+    "list_map": _LIST_CALLBACK,
+    "list_filter": _LIST_CALLBACK,
+    "list_all": _LIST_CALLBACK,
+    "list_any": _LIST_CALLBACK,
+    "list_find": _LIST_CALLBACK,
+    # A comparator-less sort compiles to `ballrt.col.list_sort(xs, None)` (the
+    # compiler's absent-field placeholder), which reads back as a null
+    # `callback` — exactly what the engine's `cb == null` natural-sort arm
+    # expects.
+    "list_sort": _LIST_CALLBACK,
+    "list_join": ("list", "separator"),
+    "list_to_list": _LIST,
+    # ── Maps ─────────────────────────────────────────────────────────────────
+    "map_get": _MAP_KEY,
+    "map_set": ("map", "key", "value"),
+    "map_delete": _MAP_KEY,
+    "map_contains_key": _MAP_KEY,
+    "map_contains_value": ("map", "value"),
+    "map_keys": _MAP,
+    "map_values": _MAP,
+    "map_length": _MAP,
+    "map_is_empty": _MAP,
+    "map_put_if_absent": ("map", "key", "value"),
+    # ── Sets ─────────────────────────────────────────────────────────────────
+    "set_add": _SET_VALUE,
+    "set_remove": _SET_VALUE,
+    "set_contains": _SET_VALUE,
+    "set_length": _SET,
+    "set_is_empty": _SET,
+    "set_to_list": _SET,
+    "set_union": _BINARY,
+    "set_intersection": _BINARY,
+    "set_difference": _BINARY,
+}
+
+#: ``ballrt.cvt.<name>`` -> the ``std_convert`` input fields. Every one of the
+#: six declares a single ``value``.
+CONVERT_HELPERS: dict[str, tuple[str, ...]] = {
+    "json_encode": _UNARY,
+    "json_decode": _UNARY,
+    "utf8_encode": _UNARY,
+    "utf8_decode": _UNARY,
+    "base64_encode": _UNARY,
+    "base64_decode": _UNARY,
+}
+
+#: ``ballrt.proto.<name>`` — the ``ball_proto`` access patterns the runtime
+#: exposes. Every one is declared unary over ``obj`` in
+#: ``dart/shared/ball_proto.json``, so the table is a set plus that one field.
+PROTO_INPUT = ("obj",)
+PROTO_HELPERS: frozenset[str] = frozenset({
+    "hasBody", "hasBoolValue", "hasCall", "hasDescriptor", "hasInput",
+    "hasListValue", "hasMetadata", "hasNumberValue", "hasObject", "hasResult",
+    "hasStringValue", "hasStructValue",
+    "whichExpr", "whichKind", "whichSource", "whichStmt", "whichValue",
+})
+
+#: ``ballrt.<ns>`` -> ``(Ball module, that namespace's inverse table)``.
+NAMESPACES: dict[str, tuple[str, dict[str, tuple[str, ...]]]] = {
+    "col": ("std_collections", COLLECTION_HELPERS),
+    "cvt": ("std_convert", CONVERT_HELPERS),
+    "proto": ("ball_proto", {name: PROTO_INPUT for name in sorted(PROTO_HELPERS)}),
+}
+
+#: The namespace `set_create` is reached through, and its helper name.
+#:
+#: `set_create` is the ONE namespaced helper whose inverse leaves its
+#: namespace's module. `python/compiler` emits `ballrt.col.set_create` from BOTH
+#: `std.set_create` (`base_expr`) and `std_collections.set_create`
+#: (`collections_expr`) — identical text from two preimages. `std` is the one
+#: chosen: it is what `dart/encoder` produces for a set literal (all 34 of the
+#: conformance corpus's `set_create` calls are `std.set_create {elements}`) and
+#: therefore the spelling the Dart reference engine is proven to run.
+#: Its argument shape is special too — the compiler writes the literal token
+#: `None` when the literal has no elements at all, so that form's inverse is an
+#: INPUT-LESS call rather than one carrying a null `elements`.
+COLLECTIONS_NAMESPACE = "col"
+SET_CREATE = "set_create"
+SET_CREATE_MODULE = "std"
+SET_CREATE_ELEMENTS = "elements"
+
+#: Per namespace, the helpers handled EXPLICITLY in
+#: ``encoder.encode_ballrt_namespaced_call`` rather than through that
+#: namespace's table — the namespaced analogue of ``FIELD_GET`` & co. One shape,
+#: one home: a name here must not also appear in the table, where the generic
+#: arm would encode it as a plain call into the namespace's own module.
+EXPLICIT_NAMESPACED: dict[str, frozenset[str]] = {
+    COLLECTIONS_NAMESPACE: frozenset({SET_CREATE}),
+}

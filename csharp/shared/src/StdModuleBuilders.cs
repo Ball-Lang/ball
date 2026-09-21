@@ -312,7 +312,10 @@ public static class StdModuleBuilders
         {
             TypeDef("ListInput", ExprField("list", 1), ExprField("index", 2), ExprField("value", 3)),
             TypeDef("ListCallbackInput", ExprField("list", 1), ExprField("callback", 2)),
-            TypeDef("ListReduceInput", ExprField("list", 1), ExprField("callback", 2), ExprField("initial", 3)),
+            // NO seed field — `list_reduce` is Dart's `Iterable.reduce`, not `fold`.
+            // The `initial` this carried until #771 was read by no engine, compiler or
+            // encoder on any target.
+            TypeDef("ListReduceInput", ExprField("list", 1), ExprField("callback", 2)),
             TypeDef("ListSliceInput", ExprField("list", 1), ExprField("start", 2), ExprField("end", 3)),
             TypeDef("MapInput", ExprField("map", 1), ExprField("key", 2), ExprField("value", 3)),
             TypeDef("MapCallbackInput", ExprField("map", 1), ExprField("callback", 2)),
@@ -320,6 +323,9 @@ public static class StdModuleBuilders
             TypeDef("SetInput", ExprField("set", 1), ExprField("value", 2)),
             TypeDef("SetCallbackInput", ExprField("set", 1), ExprField("callback", 2)),
             TypeDef("SetBinaryInput", ExprField("left", 1), ExprField("right", 2)),
+            // `set_create` declared `ListInput` until #771, while every encoder writes
+            // `{type_args?, elements}` and every engine reads `elements`.
+            TypeDef("SetCreateInput", StringField("type_args", 1), ExprField("elements", 2)),
         });
 
         module.Functions.AddRange(new[]
@@ -340,7 +346,7 @@ public static class StdModuleBuilders
             BaseFn("list_index_of", "ListInput", "", "Index of element: list.indexOf(value)"),
             BaseFn("list_map", "ListCallbackInput", "", "Map: list.map(callback)"),
             BaseFn("list_filter", "ListCallbackInput", "", "Filter: list.where(callback)"),
-            BaseFn("list_reduce", "ListReduceInput", "", "Reduce: list.fold(initial, callback)"),
+            BaseFn("list_reduce", "ListReduceInput", "", "Reduce: list.reduce(callback) — the accumulator starts at the first element, so an empty list is an error. Engines also accept `function` or `value` for `callback`."),
             BaseFn("list_find", "ListCallbackInput", "", "Find first: list.firstWhere(callback)"),
             BaseFn("list_any", "ListCallbackInput", "", "Any match: list.any(callback)"),
             BaseFn("list_all", "ListCallbackInput", "", "All match: list.every(callback)"),
@@ -377,7 +383,7 @@ public static class StdModuleBuilders
             // String <-> collection bridge
             BaseFn("string_join", "StringJoinInput", "", "Join list of strings: list.join(separator)"),
             // Set — unordered, unique elements
-            BaseFn("set_create", "ListInput", "", "Create set from list: Set.from(list)"),
+            BaseFn("set_create", "SetCreateInput", "", "Set literal: <type_args>{elements}. `elements` is one expression holding the element list; `type_args` is the literal's explicit type arguments, if written."),
             // "bool", not "" — issue #545 made set_add/set_remove Dart-exact on
             // every target (mutate the receiver in place, answer true only on a
             // fresh insert / an actual removal) and declared that in

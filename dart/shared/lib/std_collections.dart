@@ -34,10 +34,15 @@ Module buildStdCollectionsModule() {
         _exprField('list', 1),
         _exprField('callback', 2),
       ]),
+      // NO seed field. `list_reduce` is Dart's `Iterable.reduce`: the
+      // accumulator starts at the FIRST element and the combine runs from the
+      // second, so an empty list is an error rather than a seeded answer. The
+      // declaration carried an `initial` until #771 — describing
+      // `list.fold(initial, callback)`, which is a DIFFERENT function — and no
+      // engine, compiler or encoder in the repository has ever read it.
       _type('ListReduceInput', [
         _exprField('list', 1),
         _exprField('callback', 2),
-        _exprField('initial', 3),
       ]),
       _type('ListSliceInput', [
         _exprField('list', 1),
@@ -63,6 +68,14 @@ Module buildStdCollectionsModule() {
         _exprField('callback', 2),
       ]),
       _type('SetBinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
+      // `set_create` declared `ListInput` (list/index/value) until #771, while
+      // every encoder writes `{type_args?, elements}` and the engine reads
+      // `elements` — so the declared shape described a call no one makes and
+      // omitted the only field the handler looks up.
+      _type('SetCreateInput', [
+        _stringField('type_args', 1),
+        _exprField('elements', 2),
+      ]),
     ].map(
       (d) => TypeDefinition()
         ..name = d.name
@@ -109,29 +122,64 @@ Module buildStdCollectionsModule() {
       '',
       'Index of element: list.indexOf(value)',
     ),
-    _fn('list_map', 'ListCallbackInput', '', 'Map: list.map(callback)'),
-    _fn('list_filter', 'ListCallbackInput', '', 'Filter: list.where(callback)'),
+    _fn(
+      'list_map',
+      'ListCallbackInput',
+      '',
+      'Map: list.map(callback). Engines also accept `function` or `value` for '
+          '`callback`.',
+    ),
+    _fn(
+      'list_filter',
+      'ListCallbackInput',
+      '',
+      'Filter: list.where(callback). Engines also accept `function` or '
+          '`value` for `callback`.',
+    ),
     _fn(
       'list_reduce',
       'ListReduceInput',
       '',
-      'Reduce: list.fold(initial, callback)',
+      'Reduce: list.reduce(callback) — the accumulator starts at the first '
+          'element, so an empty list is an error. Engines also accept '
+          '`function` or `value` for `callback`.',
     ),
     _fn(
       'list_find',
       'ListCallbackInput',
       '',
-      'Find first: list.firstWhere(callback)',
+      'Find first: list.firstWhere(callback). Engines also accept `function` '
+          'or `value` for `callback`.',
     ),
-    _fn('list_any', 'ListCallbackInput', '', 'Any match: list.any(callback)'),
-    _fn('list_all', 'ListCallbackInput', '', 'All match: list.every(callback)'),
+    _fn(
+      'list_any',
+      'ListCallbackInput',
+      '',
+      'Any match: list.any(callback). Engines also accept `function` or '
+          '`value` for `callback`.',
+    ),
+    _fn(
+      'list_all',
+      'ListCallbackInput',
+      '',
+      'All match: list.every(callback). Engines also accept `function` or '
+          '`value` for `callback`.',
+    ),
     _fn(
       'list_none',
       'ListCallbackInput',
       '',
-      'None match: !list.any(callback)',
+      'None match: !list.any(callback). Engines also accept `function` or '
+          '`value` for `callback`.',
     ),
-    _fn('list_sort', 'ListCallbackInput', '', 'Sort: list.sort(compare)'),
+    _fn(
+      'list_sort',
+      'ListCallbackInput',
+      '',
+      'Sort: list.sort(callback) — natural order when no comparator is '
+          'supplied. Engines also accept `comparator`, `compare` or `value` '
+          'for `callback`.',
+    ),
     _fn(
       'list_sort_by',
       'ListCallbackInput',
@@ -144,7 +192,8 @@ Module buildStdCollectionsModule() {
       'list_flat_map',
       'ListCallbackInput',
       '',
-      'Flat map: list.expand(callback)',
+      'Flat map: list.expand(callback). Engines also accept `function` or '
+          '`value` for `callback`.',
     ),
     _fn('list_zip', 'ListInput', '', 'Zip two lists: zip(list, other)'),
     _fn('list_take', 'ListInput', '', 'Take N: list.take(n)'),
@@ -156,7 +205,8 @@ Module buildStdCollectionsModule() {
       'list_foreach',
       'ListCallbackInput',
       '',
-      'Iterate: list.forEach(callback)',
+      'Iterate: list.forEach(callback). Engines also accept `function` or '
+          '`value` for `callback`.',
     ),
     _fn(
       'list_join',
@@ -216,7 +266,14 @@ Module buildStdCollectionsModule() {
     ),
 
     // Set — unordered, unique elements
-    _fn('set_create', 'ListInput', '', 'Create set from list: Set.from(list)'),
+    _fn(
+      'set_create',
+      'SetCreateInput',
+      '',
+      'Set literal: <type_args>{elements}. `elements` is one expression '
+          'holding the element list; `type_args` carries the explicit type '
+          'arguments the literal was written with, if any.',
+    ),
     // `set_add`/`set_remove` are the ONLY base functions that declare an
     // `outputType` (issue #545). Everything else here leaves it `''` — a
     // deliberately unstated return shape — but these two MUTATE their receiver
@@ -286,6 +343,13 @@ google.DescriptorProto _type(
 ) => google.DescriptorProto()
   ..name = name
   ..field.addAll(fields);
+
+google.FieldDescriptorProto _stringField(String name, int number) =>
+    google.FieldDescriptorProto()
+      ..name = name
+      ..number = number
+      ..type = google.FieldDescriptorProto_Type.TYPE_STRING
+      ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL;
 
 google.FieldDescriptorProto _exprField(String name, int number) =>
     google.FieldDescriptorProto()

@@ -352,13 +352,16 @@ Module buildStdModule() {
       'to_string_as_fixed',
       'NumFormatInput',
       '',
-      'Fixed-point string: value.toStringAsFixed(digits)',
+      'Fixed-point string: value.toStringAsFixed(digits). Engines also '
+          'accept `fractionDigits` for `digits`.',
     ),
     _fn(
       'to_string_as_exponential',
       'NumFormatInput',
       '',
-      'Exponential string: value.toStringAsExponential([digits])',
+      'Exponential string: value.toStringAsExponential([digits]). Engines '
+          'also accept `fractionDigits` for `digits`; omitting both prints as '
+          'many digits as the value needs.',
     ),
     _fn(
       'to_string_as_precision',
@@ -581,21 +584,25 @@ Module buildStdModule() {
       'MapCreateInput',
       '',
       'Map literal: {k: v, …}. Each plain pair is one `entry` field; a '
-          'comprehension element is spliced through `element`.',
+          'comprehension element is spliced through `element`. Engines also '
+          'accept `entries` for `entry`, and a pair may name its key `name` '
+          'instead of `key`.',
     ),
     _fn(
       'list_filled',
       'ListFilledInput',
       '',
       'Fixed-size list of one repeated value: List.filled(length, value). '
-          'Engines also accept `count` for `length`.',
+          'Engines also accept `count` or `arg0` for `length` and `arg1` for '
+          '`value`.',
     ),
     _fn(
       'list_generate',
       'ListGenerateInput',
       '',
       'List built by index: List.generate(length, generator). Engines also '
-          'accept `count` for `length` and `callback` for `generator`.',
+          'accept `count` or `arg0` for `length` and `callback`, `function` '
+          'or `arg1` for `generator`.',
     ),
     // Dart-flavoured aliases of the two above (same engine handler); a
     // `List.filled(...)` / `List.generate(...)` written as a CONSTRUCTOR call
@@ -605,13 +612,18 @@ Module buildStdModule() {
       'dart_list_filled',
       'ListFilledInput',
       '',
-      'List.filled(length, value) reached as a constructor call',
+      'List.filled(length, value) reached as a constructor call. Same handler '
+          'as `list_filled`, so engines also accept `count` or `arg0` for '
+          '`length` and `arg1` for `value`.',
     ),
     _fn(
       'dart_list_generate',
       'ListGenerateInput',
       '',
-      'List.generate(length, generator) reached as a constructor call',
+      'List.generate(length, generator) reached as a constructor call. Same '
+          'handler as `list_generate`, so engines also accept `count` or '
+          '`arg0` for `length` and `callback`, `function` or `arg1` for '
+          '`generator`.',
     ),
 
     // --- Collection elements (issue #702) ---
@@ -715,7 +727,8 @@ Module buildStdModule() {
       'string_char_code_at',
       'IndexInput',
       '',
-      'Char code at index: target.codeUnitAt(index)',
+      'Char code at index: target.codeUnitAt(index). Engines also accept '
+          '`value` or `string` for `target`.',
     ),
     // Dart-flavoured alias of string_char_code_at (same engine handler); the
     // encoder routes `String.codeUnitAt(i)` here.
@@ -723,7 +736,9 @@ Module buildStdModule() {
       'string_code_unit_at',
       'IndexInput',
       '',
-      'Code unit at index: target.codeUnitAt(index)',
+      'Code unit at index: target.codeUnitAt(index). Same handler as '
+          '`string_char_code_at`, so engines also accept `value` or `string` '
+          'for `target`.',
     ),
     _fn(
       'string_from_char_code',
@@ -758,7 +773,13 @@ Module buildStdModule() {
       '',
       'Replace all: value.replaceAll(from, to)',
     ),
-    _fn('string_split', 'BinaryInput', '', 'Split string: left.split(right)'),
+    _fn(
+      'string_split',
+      'BinaryInput',
+      '',
+      'Split string: left.split(right). Engines also accept `string` or '
+          '`value` for `left` and `delimiter` or `separator` for `right`.',
+    ),
     _fn(
       'string_runes',
       'UnaryInput',

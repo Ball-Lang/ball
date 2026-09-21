@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Drift guard for three engine-row docs (issues #610, #613, #709).
+# Drift guard for the nine docs that state an engine verdict (issues #610, #613,
+# #709, #765).
 #
 # WHY THIS EXISTS: three prose surfaces claim to enumerate "every engine that
 # actually runs a Ball program end-to-end", and each had drifted independently
@@ -22,6 +23,18 @@
 #     hand-corrected it, and until #709 nothing stopped it drifting again: this
 #     file carries no markdown table, so rules 1-4 could not reach it even if it
 #     had been passed in.
+#   * SIX MORE docs (#765) make the same claim in running prose, and PR #652 had
+#     to hand-correct every one of them for it — `CLAUDE.md`, `tests/AGENTS.md`,
+#     `dart/encoder/AGENTS.md`, `dart/self_host/AGENTS.md`,
+#     `docs/SELF_HOST_STATUS.md` and `dart/ball_protobuf/README.md` all said
+#     "all three engines" / "Dart, C++, and TS engines" when seven engine rows
+#     run the corpus. They carry neither a table nor a per-language section, so
+#     rules 3-5 cannot reach them either, and nothing gated them: by the time
+#     #765 was filed `CLAUDE.md` had ALREADY drifted back twice — "Re-run
+#     conformance on ALL THREE engines" in step 7 of the Typical Feature
+#     Workflow, and a frozen "all seven engines" tally in the std-modules
+#     section — four commits after #652 swept the identical sentence out of
+#     `dart/self_host/AGENTS.md`.
 #
 # A hard-coded number is a lie waiting to happen (the corpus only ever grows);
 # a hand-kept "every engine" list is a lie waiting to happen the moment a new
@@ -64,10 +77,20 @@
 #      actually reported ("**No.** Engine does not execute to golden output
 #      yet"). A language in the parity table runs the whole corpus to a
 #      byte-exact golden on every run, so that claim contradicts the same
-#      source of truth rules 2-3 derive from. Deliberately narrow: only
-#      execution claims, so "Trusted only", "no public constructor" and "no
-#      NuGet package yet" (all currently true, and all about embeddability
-#      rather than execution) keep passing.
+#      source of truth rules 2-3 derive from.
+#
+#      The rule is a NEGATION vocabulary crossed with an EXECUTION vocabulary
+#      (`execute`, `run a program`, `run the corpus`, `reach golden output`,
+#      `produce output`) plus four standalone idioms, NOT a list of phrasings
+#      (#765): a five-string allowlist reads "the engine is non-functional" and
+#      "still cannot produce output" — the same defect, differently worded — as
+#      a clean pass. It stays deliberately narrow on the OTHER axis instead:
+#      the execution vocabulary contains no `compile`, `publish`, `construct`
+#      or `sandbox` verb, so "Trusted only", "no public constructor", "no NuGet
+#      package yet" and "does not compile for Flutter web" (all currently true,
+#      and all about embeddability or packaging rather than execution) keep
+#      passing, and every one of them ships in a clean fixture so a future
+#      widening that eats one goes red.
 #   5. Applies the SAME two questions to `embedding-per-target.md`, whose
 #      per-language unit is a `## <Language> — …` SECTION rather than a table
 #      row (#709): every derived language must have a section, that section must
@@ -79,6 +102,48 @@
 #      at all. The prose (not the file) is the unit for the same reason rule 3
 #      scopes to table rows: every engine's name survives in this file's
 #      snippets and caveats long after its section is gone.
+#   6. Fails any of the SIX SWEPT DOCS (#765) that freezes an ENGINE-SET claim:
+#      a count qualifying `engine(s)` ("all three engines", "seven engines"), or
+#      an EXHAUSTIVE enumeration ("every full-corpus engine (Dart, TypeScript,
+#      C++)") that omits a language the parity table defines. The second half is
+#      what keeps the currently CORRECT hand-copied seven-language lists in
+#      `docs/SELF_HOST_STATUS.md` and `dart/ball_protobuf/README.md` honest:
+#      they go red on the eighth engine row instead of quietly going stale.
+#
+#      A PARTIAL enumeration with no exhaustiveness marker is deliberately OUT
+#      of scope: "the TS/C#/Go/Python engine regeneration commands" (CLAUDE.md)
+#      is a true, ordinary reference to four of seven, nothing in the text
+#      distinguishes it from a stale claim, and a rule that ate it would be
+#      permanently red. It ships as a negative control. Rule 1's generic
+#      "all <N> …" quantifier shape likewise stays portability-doc-only —
+#      `CLAUDE.md` legitimately writes "all four verbs".
+#   7. Fails any SENTENCE of those six docs that names a derived language AND
+#      tells a reader that language cannot execute a Ball program — rule 4's
+#      question, asked of prose. The unit is the sentence of the UNFOLDED
+#      PARAGRAPH, not the physical line. Five of the six swept docs hard-wrap
+#      at ~95 columns, and a wrap is a typesetting artifact, not a claim
+#      boundary, so a line-sized unit read this — #613's defect verbatim —
+#      as a clean pass:
+#
+#          A binary installed from the old Go module tags
+#          cannot run a program at all.
+#
+#      The sentence (or independent clause: `;` ends one too) is the widest
+#      unit that still keeps the claim's SUBJECT inside what is judged, which
+#      is the property rule 3 gets from a table row and rule 5 from a section.
+#      The physical LINE is judged as well, as a strict addition, so a line
+#      packing a language and a verdict into two sentences stays caught.
+#
+#      DISCLOSED LIMIT: a verdict whose subject is only a pronoun resolving
+#      into an ADJACENT sentence ("The C# engine is gated. It cannot execute a
+#      program.") is out of reach of every unit above, and widening to the
+#      whole paragraph to reach it would fire on CLAUDE.md's TRUE clause pair
+#      "...cannot run a program; Go tags are immutable once fetched...", which
+#      is about a stale module tag rather than about the Go engine. The guard
+#      states the limit instead of papering over it; the self-test's
+#      `swept_wrapped_ok` fixture is the negative control pinning both
+#      boundaries (an unfolded caveat passes; an adjacent sentence is not a
+#      verdict).
 #
 # The per-language PROSE is gated rather than generated because only two things
 # in that file are derivable — which languages it must cover, and whether a
@@ -89,15 +154,19 @@
 # POSITIVE FLOOR: deriving zero engines, finding the `summary` job absent,
 # finding its parity table absent, finding a doc's engine section absent,
 # finding that section carrying no table at all, finding the per-target doc with
-# no `## ` sections at all, and finding a per-language section with an empty
-# body are ALL hard errors — never silent agreement.
+# no `## ` sections at all, finding a per-language section with an empty body,
+# being handed ZERO swept docs, and being handed a swept doc that is not there
+# are ALL hard errors — never silent agreement. Each swept doc also contributes
+# exactly two `OK` lines to the `Results:` tally, so a silently skipped file
+# changes the count.
 #
 # Usage:
 #   bash tools/ci/check_engine_row_docs.sh                       # gate the repo
 #   bash tools/ci/check_engine_row_docs.sh --self-test            # drive the cases
 #   bash tools/ci/check_engine_row_docs.sh --workflow F --portability F --embed F --per-target F
+#   bash tools/ci/check_engine_row_docs.sh --swept F [--swept F …]  # replace the swept set
 #
-# Exits 0 when all three docs pass; 1 otherwise. Needs bash + python3 (no PyYAML
+# Exits 0 when all nine docs pass; 1 otherwise. Needs bash + python3 (no PyYAML
 # required — the workflow is small enough to parse with a tiny hand-rolled
 # `jobs:`/`needs:`/`print_row` scanner, so this has no third-party dependency
 # at all).
@@ -110,7 +179,26 @@ WORKFLOW="$ROOT/.github/workflows/conformance-matrix.yml"
 PORTABILITY="$ROOT/tests/editions/portability_matrix.md"
 EMBED="$ROOT/plugins/ball/skills/embed/SKILL.md"
 PER_TARGET="$ROOT/plugins/ball/skills/embed/references/embedding-per-target.md"
+# The six docs PR #652 hand-corrected for the stale three-engine claim and then
+# left ungated (#765). They carry no engine table and no per-language section,
+# so they are gated by rules 6-7 (prose) rather than rules 1-5.
+SWEPT_DEFAULT=(
+  "$ROOT/CLAUDE.md"
+  "$ROOT/tests/AGENTS.md"
+  "$ROOT/dart/encoder/AGENTS.md"
+  "$ROOT/dart/self_host/AGENTS.md"
+  "$ROOT/docs/SELF_HOST_STATUS.md"
+  "$ROOT/dart/ball_protobuf/README.md"
+)
+SWEPT=()
 SELF_TEST=0
+# How many cases `--self-test` drives. Declared ONCE: the floor below asserts
+# the run executed EXACTLY this many (not merely at least), and the last case
+# asserts the row documenting this guard in docs/TESTING_STRATEGY.md states
+# this same number — so a case added without updating that row reds, instead
+# of leaving a frozen tally in the row that documents the anti-frozen-tally
+# guard (which is exactly what it did between commits 2 and 3 of PR #826).
+SELF_TEST_CASES=34
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -146,6 +234,14 @@ while [ $# -gt 0 ]; do
     PER_TARGET="${1#--per-target=}"
     shift
     ;;
+  --swept)
+    SWEPT+=("$2")
+    shift 2
+    ;;
+  --swept=*)
+    SWEPT+=("${1#--swept=}")
+    shift
+    ;;
   --self-test)
     SELF_TEST=1
     shift
@@ -166,11 +262,17 @@ done
 # ── the check itself ────────────────────────────────────────────────────────
 check_files() {
   local workflow="$1" portability="$2" embed="$3" per_target="$4"
-  python3 - "$workflow" "$portability" "$embed" "$per_target" <<'PY'
+  shift 4
+  # Everything after the four table/section docs is a SWEPT prose doc (#765).
+  python3 - "$workflow" "$portability" "$embed" "$per_target" "$@" <<'PY'
 import re
 import sys
 
 workflow_path, portability_path, embed_path, per_target_path = sys.argv[1:5]
+# The SWEPT prose docs (#765). Zero of them is a hard error, never a quiet pass:
+# a guard handed nothing to check is the exact failure mode this file exists to
+# prevent.
+swept_paths = sys.argv[5:]
 
 failures = []
 passed = 0
@@ -199,6 +301,14 @@ workflow_text = read(workflow_path, "workflow")
 portability_text = read(portability_path, "portability doc")
 embed_text = read(embed_path, "embed skill doc")
 per_target_text = read(per_target_path, "embed per-target reference doc")
+
+if not swept_paths:
+    fail(
+        "refusing to gate ZERO swept docs — the six prose docs of issue #765 are the "
+        "half of this guard that has no table to fall back on"
+    )
+    sys.exit(1)
+swept_texts = [(p, read(p, "swept doc")) for p in swept_paths]
 
 # ── Step 1: derive the current engine-row set from conformance-matrix.yml ──
 # Deliberately NOT a full YAML parse (no PyYAML dependency), and deliberately
@@ -401,22 +511,51 @@ def gate_engine_table(path, text, heading_pattern, heading_label):
 # not execute to golden output yet (`SelfHostPendingException`)" — seven rows,
 # seven names, a flatly false verdict.
 #
-# Deliberately narrow: only claims that the engine cannot EXECUTE A PROGRAM.
-# "Trusted only", "no public constructor", "no NuGet package yet", "does not
-# compile for Flutter web" are all legitimate (and currently true) statements
-# about embeddability and packaging, and must keep passing.
+# NOT a list of phrasings (#765). The rule shipped as five hand-picked strings,
+# which is an allowlist wearing a regex: "the engine is non-functional" and
+# "still cannot produce output" are the SAME defect and both read as a clean
+# pass. It is a NEGATION vocabulary crossed with an EXECUTION vocabulary
+# instead, plus the standalone idioms that carry their own negation.
+#
+# Narrowness lives on the OTHER axis: the execution vocabulary names only what a
+# parity row actually asserts (executing, running a program or the corpus,
+# reaching golden output, producing output) and contains no `compile`, `publish`,
+# `construct` or `sandbox` verb — so "Trusted only", "no public constructor",
+# "no NuGet package yet" and "does not compile for Flutter web" are all
+# legitimate (and currently true) statements about embeddability and packaging
+# that must, and do, keep passing. Each of them ships in a clean self-test
+# fixture, so a future widening that eats one goes red.
+_NEGATION = (
+    r"(?:(?:does|do|did|is|are|was|were|has|have|can|could|will|would)\s+not"
+    r"|(?:doesn|don|didn|isn|aren|wasn|weren|hasn|haven|can|couldn|won|wouldn)['’]t"
+    r"|cannot|never|unable\s+to|fails?\s+to|failed\s+to)"
+    r"\s+(?:yet\s+|still\s+|currently\s+)?"
+)
+_EXECUTION = (
+    r"(?:execute(?:s)?"
+    r"|run(?:s)?\s+(?:a\s+|an\s+|any\s+|the\s+|one\s+)?(?:Ball\s+)?programs?"
+    r"|run(?:s)?\s+(?:a\s+|the\s+|any\s+)?(?:Ball\s+)?(?:conformance\s+)?corpus"
+    r"|run(?:s)?\s+(?:a\s+|the\s+|any\s+)?(?:conformance\s+)?fixtures?"
+    r"|reach(?:es)?\s+(?:the\s+)?golden\s+output"
+    r"|produce(?:s)?\s+(?:the\s+)?(?:golden\s+|any\s+)?output)"
+)
 CANNOT_EXECUTE_RES = (
-    re.compile(r"(?:does|do)\s+not\s+execute", re.IGNORECASE),
-    re.compile(r"can(?:not|'t|’t)\s+execute", re.IGNORECASE),
-    re.compile(r"(?:does|do)\s+not\s+(?:yet\s+)?run\s+(?:a\s+|any\s+)?(?:Ball\s+)?programs?", re.IGNORECASE),
-    re.compile(r"can(?:not|'t|’t)\s+(?:yet\s+)?run\s+(?:a\s+|any\s+)?(?:Ball\s+)?programs?", re.IGNORECASE),
-    re.compile(r"no\s+working\s+engine", re.IGNORECASE),
-    # The pre-#652 wording of this file's C# section. "Reaches golden output"
-    # is precisely what a parity row asserts on every run, so its negation is
-    # an execution claim however it is phrased (verified: zero hits across all
-    # three docs today).
-    re.compile(r"(?:does|do)\s+not\s+(?:yet\s+)?reach\s+golden\s+output", re.IGNORECASE),
-    re.compile(r"never\s+reach(?:es)?\s+golden\s+output", re.IGNORECASE),
+    # Every one of the seven regexes this replaced is subsumed by construction:
+    # "does not execute", "cannot execute", "does not run a program", "cannot
+    # run a program", "does not reach golden output" and "never reaches golden
+    # output" are all (negation x execution) pairs.
+    re.compile(_NEGATION + _EXECUTION, re.IGNORECASE),
+    # "no working engine", and the pre-#652 C# wording of embedding-per-target.md,
+    # "There is no working `.Run()` today" — MEASURED: the engine-only spelling
+    # this replaced missed the second, which is the same claim about the same
+    # thing, so `no working <entry point>` is the shape, not `no working engine`.
+    re.compile(r"no\s+working\s+[^\n]{0,20}?(?:engine\b|run\(\))", re.IGNORECASE),
+    # Idioms whose negation is carried by an adjective or a noun rather than by
+    # a verb phrase, so the cross product above cannot reach them.
+    re.compile(r"(?:engine|it)\s+is\s+(?:currently\s+|still\s+)?non-?functional", re.IGNORECASE),
+    re.compile(r"non-?functional\s+engine", re.IGNORECASE),
+    re.compile(r"(?:engine\s+)?execution\s+is\s+(?:not\s+supported|unsupported)", re.IGNORECASE),
+    re.compile(r"(?:does|do)\s+not\s+support\s+(?:program\s+)?execution", re.IGNORECASE),
 )
 
 
@@ -477,11 +616,20 @@ else:
 #   A. a count qualifying the noun `engine(s)` ("7 engines", "seven engine rows");
 #   B. a count introduced by an exhaustive quantifier ("all 7 …", "All seven
 #      …", "each of the 7 …") — which is a tally whatever noun follows.
+#
+# Shape A is reused verbatim by rule 6 (the swept prose docs); shape B is
+# portability-doc-only ON PURPOSE. "all 7 …" is a tally whatever noun follows
+# only in a file whose every quantified noun IS an engine row — CLAUDE.md
+# legitimately writes "all four verbs" and "all three legs" (#765).
 NUM = r"\d+|two|three|four|five|six|seven|eight|nine|ten"
-ENGINE_TALLY_RES = (
-    re.compile(r"(?<![A-Za-z0-9_])(?:" + NUM + r")\s+(?:[A-Za-z][A-Za-z-]*\s+){0,2}engines?\b", re.IGNORECASE),
-    re.compile(r"(?<![A-Za-z0-9_])(?:all|each\s+of\s+the|every\s+one\s+of\s+the|any\s+of\s+the)\s+(?:the\s+)?(?:" + NUM + r")\b", re.IGNORECASE),
+ENGINE_NOUN_TALLY_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:" + NUM + r")\s+(?:[A-Za-z][A-Za-z-]*\s+){0,2}engines?\b", re.IGNORECASE
 )
+EXHAUSTIVE_TALLY_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:all|each\s+of\s+the|every\s+one\s+of\s+the|any\s+of\s+the)\s+(?:the\s+)?(?:" + NUM + r")\b",
+    re.IGNORECASE,
+)
+ENGINE_TALLY_RES = (ENGINE_NOUN_TALLY_RE, EXHAUSTIVE_TALLY_RE)
 tally_hits = [m.group(0) for rx in ENGINE_TALLY_RES for m in rx.finditer(portability_text)]
 if tally_hits:
     for hit in tally_hits:
@@ -584,6 +732,227 @@ else:
             )
     elif not missing and not empty:
         ok(f"{per_target_path}: no per-language section claims a parity-table engine cannot execute a program (OK)")
+
+# ── Step 5: the six SWEPT prose docs (issue #765) ──────────────────────────
+# PR #652 hand-corrected the same stale three-engine claim in CLAUDE.md,
+# tests/AGENTS.md, dart/encoder/AGENTS.md, dart/self_host/AGENTS.md,
+# docs/SELF_HOST_STATUS.md and dart/ball_protobuf/README.md, and then gated none
+# of them. They carry no engine TABLE and no per-language SECTION, so rules 3-5
+# cannot reach them even when they are passed in; what they carry is the same
+# two claims in running prose.
+#
+# Rule 6 — no FROZEN ENGINE-SET claim. Two shapes, both anchored on the engine
+# noun so an ordinary count elsewhere in the file is untouched:
+#   A. a count qualifying `engine(s)` ("all three engines", "seven engines");
+#   B. an EXHAUSTIVE enumeration ("every full-corpus engine (Dart, TypeScript,
+#      C++)") that omits a language the parity table defines. This is what keeps
+#      the currently CORRECT hand-copied seven-language lists in
+#      docs/SELF_HOST_STATUS.md and dart/ball_protobuf/README.md honest: they go
+#      red on the eighth engine row instead of quietly going stale.
+#
+# A PARTIAL enumeration with NO exhaustiveness marker is deliberately out of
+# scope — "the TS/C#/Go/Python engine regeneration commands" (CLAUDE.md) is a
+# true, ordinary reference to four of seven, nothing in the text distinguishes
+# it from a stale claim, and a rule that ate it would be permanently red. It
+# ships as a negative control in the self-test's clean swept fixture.
+_LANG_ALT = "|".join(
+    sorted({re.escape(sp) for t in languages for sp in aliases(t)}, key=len, reverse=True)
+)
+_LANG_RE = r"(?<![A-Za-z0-9_])(?:" + _LANG_ALT + r")(?![A-Za-z0-9_])"
+_LIST_SEP = r"\s*(?:,|/|&|,?\s+and|,?\s+or)\s*"
+_LANG_LIST = r"(?:" + _LANG_RE + _LIST_SEP + r")+" + _LANG_RE
+_EXHAUSTIVE = r"(?:all|every|each\s+of\s+the|both)"
+EXHAUSTIVE_ENGINE_LIST_RES = (
+    # "every full-corpus Ball engine (Dart, TypeScript, C++, …)" — the list
+    # follows the noun, after an opening bracket, dash or colon.
+    re.compile(
+        _EXHAUSTIVE + r"\s+(?:[^\s]+\s+){0,4}engines?\b[^A-Za-z0-9]{0,4}(?:[^\s]+\s+){0,3}?[(\u2014:-]\s*(" + _LANG_LIST + r")",
+        re.IGNORECASE,
+    ),
+    # "all the Dart/TS/C++ engines" — the list precedes the noun.
+    re.compile(
+        _EXHAUSTIVE + r"\s+(?:of\s+)?(?:the\s+)?(" + _LANG_LIST + r")\s+(?:[A-Za-z][\w-]*\s+){0,2}engines?\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def line_of(text, offset):
+    """1-based line number of `offset` in `text`."""
+    return text.count("\n", 0, offset) + 1
+
+
+def gate_swept_engine_set(path, text):
+    """Rule 6: no frozen tally, and no exhaustive enumeration that omits a
+    language the parity table defines."""
+    hits = []
+    for m in ENGINE_NOUN_TALLY_RE.finditer(text):
+        hits.append(
+            f"{path}:{line_of(text, m.start())}: hard-coded engine count \"{m.group(0).strip()}\" — "
+            f"how many engine rows there are is conformance-matrix.yml's to state, not this file's (issue #765)"
+        )
+    for rx in EXHAUSTIVE_ENGINE_LIST_RES:
+        for m in rx.finditer(text):
+            named = [t for t in languages if bounded_present(m.group(1), t)]
+            missing = [t for t in languages if t not in named]
+            if missing:
+                claim = " ".join(m.group(0).split())
+                hits.append(
+                    f"{path}:{line_of(text, m.start())}: the exhaustive engine claim \"{claim}\" omits "
+                    f"{', '.join(missing)} — an exhaustive list must name every engine in "
+                    f"conformance-matrix.yml's `summary` parity table, or say \"every engine row\" and name none (issue #765)"
+                )
+    if hits:
+        failures.extend(hits)
+    else:
+        ok(f"{path}: no frozen engine-set claim (OK)")
+
+
+# Rule 7's UNIT. A markdown hard wrap is a typesetting artifact, not a claim
+# boundary: five of the six swept docs wrap at ~95 columns, so judging a
+# verdict per PHYSICAL LINE let the exact #613/#765 defect — a claim that is
+# present, correctly subjected and flatly wrong — read as a clean pass whenever
+# the wrap happened to fall between the language token and the verdict:
+#
+#     A binary installed from the old Go module tags
+#     cannot run a program at all.
+#
+# So the unit is the SENTENCE of the UNFOLDED paragraph. Unfolding restores the
+# author's claim; the sentence (or independent clause — `;` separates one too)
+# keeps the subject inside the judged unit, which is the property rule 3 gets
+# from a table row and rule 5 from a section, and is why the unit is not simply
+# the whole paragraph: "…so a binary installed from them cannot run a program;
+# Go tags are immutable once fetched…" (CLAUDE.md) is two claims about two
+# different things, and only a clause-sized unit can tell them apart.
+#
+# The physical LINE is still judged as well, as a strict addition: a line that
+# happens to pack a language token and a verdict into two different sentences
+# stays caught. So the rule is the UNION of the two units, deduplicated.
+#
+# DISCLOSED LIMIT: a verdict whose subject is only a pronoun resolving into an
+# ADJACENT sentence ("The C# engine is gated. It cannot execute a program.") is
+# out of reach of every unit above, and widening to the paragraph to reach it
+# would make the guard fire on the CLAUDE.md clause pair quoted above — a true
+# statement about a stale module tag, not a verdict about the Go engine. The
+# guard states the limit rather than papering over it; `swept_wrapped_ok`
+# in the self-test is the negative control that pins the paragraph boundary.
+_FENCE_RE = re.compile(r"^[ \t]{0,3}(?:```|~~~)")
+# A line that OPENS a markdown block: nothing may be folded onto it from above.
+_BLOCK_START_RE = re.compile(r"^[ \t]*(?:#{1,6}[ \t]|[-*+][ \t]|\d+[.)][ \t]|>|\||(?:[-*_][ \t]*){3,}$)")
+# …and of those, the ones a lazy continuation line MAY be folded onto (a
+# paragraph inside a list item or a blockquote keeps wrapping; a heading, a
+# table row and a thematic break do not).
+_JOINABLE_BLOCK_RE = re.compile(r"^[ \t]*(?:[-*+][ \t]|\d+[.)][ \t]|>)")
+
+
+def unfolded_units(text):
+    """[(unit_text, lineno)] — every physical line, plus every SENTENCE of the
+    paragraphs those lines fold into, each tagged with the 1-based physical
+    line the unit STARTS on. Fenced code is never folded (its contents are
+    literal, not prose)."""
+    physical = text.splitlines()
+    units = [(line, i) for i, line in enumerate(physical, start=1)]
+
+    # 1. Fold hard wraps back into logical lines, tracking where each physical
+    #    piece landed so a sentence can still name the line it starts on.
+    folded = []  # [[text, [(offset, lineno), …]], …]
+    in_fence = False
+    joinable = False
+    for i, raw in enumerate(physical, start=1):
+        if _FENCE_RE.match(raw):
+            in_fence = not in_fence
+            folded.append([raw, [(0, i)]])
+            joinable = False
+            continue
+        if in_fence or not raw.strip():
+            folded.append([raw, [(0, i)]])
+            joinable = False
+            continue
+        if _BLOCK_START_RE.match(raw):
+            folded.append([raw, [(0, i)]])
+            joinable = bool(_JOINABLE_BLOCK_RE.match(raw))
+            continue
+        if joinable and folded:
+            head = folded[-1][0].rstrip()
+            folded[-1][1].append((len(head) + 1, i))
+            folded[-1][0] = head + " " + raw.strip()
+        else:
+            folded.append([raw, [(0, i)]])
+            joinable = True
+
+    # 2. Split each logical line into sentences / independent clauses.
+    for unit_text, spans in folded:
+        if len(spans) == 1:
+            continue  # identical to the physical line already in `units`
+        for offset, sentence in split_sentences(unit_text):
+            units.append((sentence, lineno_at(spans, offset)))
+    return units
+
+
+# A boundary is whitespace immediately after `.`, `!`, `?` or `;` (plus any
+# closing quote/bracket). Requiring the whitespace keeps `v0.2.0` and
+# `proxy.golang.org/sum.golang.org` intact; the abbreviation tail below keeps
+# "e.g. Dart" from becoming two units.
+_SENT_BOUNDARY_RE = re.compile(r"(?<=[.!?;])[\"'’)\]]*\s+")
+_ABBREV_TAIL_RE = re.compile(
+    r"(?:^|[\s(\[])(?:e\.g|i\.e|etc|vs|cf|resp|approx|no|fig|al|ch|pp|Mr|Ms|Dr|St)\.$",
+    re.IGNORECASE,
+)
+
+
+def split_sentences(unit_text):
+    """[(offset, sentence)] for `unit_text`, split on sentence / clause ends."""
+    out = []
+    start = 0
+    for m in _SENT_BOUNDARY_RE.finditer(unit_text):
+        head = unit_text[start : m.start()]
+        if _ABBREV_TAIL_RE.search(head.rstrip()):
+            continue
+        out.append((start, head))
+        start = m.end()
+    out.append((start, unit_text[start:]))
+    return out
+
+
+def lineno_at(spans, offset):
+    """The physical line number `offset` falls on, given a folded line's
+    [(offset, lineno)] pieces."""
+    lineno = spans[0][1]
+    for piece_offset, piece_lineno in spans:
+        if piece_offset <= offset:
+            lineno = piece_lineno
+        else:
+            break
+    return lineno
+
+
+def gate_swept_verdict(path, text):
+    """Rule 7: no SENTENCE (of the unfolded paragraph) and no physical LINE
+    naming a derived language may claim that language cannot execute a Ball
+    program. See the note above `unfolded_units` for why the unit is the
+    sentence rather than the line or the paragraph."""
+    bad = {}
+    for unit, lineno in unfolded_units(text):
+        hit = cannot_execute_hit(unit)
+        if not hit:
+            continue
+        unit_langs = [t for t in languages if bounded_present(unit, t)]
+        if unit_langs:
+            bad.setdefault((lineno, ", ".join(unit_langs), hit), None)
+    if bad:
+        for lineno, langs, hit in sorted(bad, key=lambda k: (k[0], k[1], k[2])):
+            failures.append(
+                f"{path}:{lineno}: a claim naming {langs} says \"{hit}\" — that language has a row in "
+                f"conformance-matrix.yml's `summary` parity table, i.e. its engine runs the WHOLE corpus to a "
+                f"byte-exact golden on every run (issue #765)"
+            )
+    else:
+        ok(f"{path}: no sentence claims a parity-table engine cannot execute a program (OK)")
+
+
+for swept_path, swept_text in swept_texts:
+    gate_swept_engine_set(swept_path, swept_text)
+    gate_swept_verdict(swept_path, swept_text)
 
 if failures:
     for f in failures:
@@ -963,12 +1332,156 @@ MD
     -e 's|^still takes zero parameters\.$|does not reach golden output. There is no working `.Run()` today.|' \
     "$good_per_target" >"$stale_per_target"
 
+  # The SECOND half of that same retired verdict, on its own. The fixture above
+  # carries both sentences, so it keeps failing on the first one and cannot tell
+  # anyone whether "There is no working `.Run()` today" is seen at all — and
+  # measured against the engine-only spelling of the idiom, it was NOT.
+  local no_run_per_target="$SCRATCH/per_target_no_run.md"
+  sed -e 's|^still takes zero parameters\.$|There is no working `.Run()` today.|' \
+    "$good_per_target" >"$no_run_per_target"
+
   # A doc with no `## ` sections at all must fail loud, never pass trivially.
   local no_sections_per_target="$SCRATCH/per_target_no_sections.md"
   cat >"$no_sections_per_target" <<'MD'
 # Embedding the Ball engine, per target
 
 Dart, TypeScript, C++, Rust, C#, Go and Python are all covered below.
+MD
+
+  # ── the SWEPT prose docs (issue #765) ─────────────────────────────────────
+  # The six docs PR #652 hand-corrected for the same stale-engine claim but
+  # left ungated: CLAUDE.md, tests/AGENTS.md, dart/encoder/AGENTS.md,
+  # dart/self_host/AGENTS.md, docs/SELF_HOST_STATUS.md and
+  # dart/ball_protobuf/README.md. They carry no engine TABLE and no per-language
+  # SECTION, so rules 3-5 cannot reach them; what they carry is the same two
+  # claims in running prose.
+  #
+  # This fixture is the NEGATIVE-CONTROL half: every legitimate shape that must
+  # keep passing lives here — the four documented embeddability caveats
+  # ("Trusted only", "no public constructor", "no NuGet package yet", "does not
+  # compile for Flutter web"), a PARTIAL language reference that is not an
+  # exhaustive claim ("the TS/C#/Go/Python engine regeneration commands"), a
+  # COMPLETE exhaustive enumeration, and two tallies that are not engine
+  # tallies ("all four verbs", "three legs").
+  local good_swept="$SCRATCH/swept_good.md"
+  cat >"$good_swept" <<'MD'
+# Notes
+
+- Encoder changes hit user programs AND the self-hosted engine — verify every engine row of
+  `conformance-matrix.yml`'s `summary` parity table, not Dart-only.
+- The runtime behaves identically across every full-corpus Ball engine (Dart, TypeScript,
+  C++, Rust, C#, Go, Python) — see the portability matrix.
+- Regenerate via the TS/C#/Go/Python engine regeneration commands above; a partial reference
+  to four of them is not a claim about the whole set.
+- `ball` exposes all four verbs, and the C# conformance harness has three legs.
+- Rust is Trusted only, C++ has no public constructor, Go has no NuGet package yet, and the
+  Dart engine does not compile for Flutter web.
+MD
+
+  # The exact text PR #652 reverted out of dart/encoder/AGENTS.md and
+  # dart/self_host/AGENTS.md. A frozen engine tally is a lie waiting to happen
+  # (the set only ever grows), and this one is already wrong by four languages.
+  local stale_tally_swept="$SCRATCH/swept_stale_tally.md"
+  cat >"$stale_tally_swept" <<'MD'
+# Notes
+
+- A Dart-only engine fix is half a fix — re-run conformance on all three engines.
+MD
+
+  # An exhaustive claim that ENUMERATES, but omits languages the parity table
+  # defines. "every full-corpus engine (Dart, TypeScript, C++)" is the shape
+  # docs/SELF_HOST_STATUS.md and dart/ball_protobuf/README.md carry today with a
+  # complete list — the moment an 8th engine row lands, theirs look like this.
+  local stale_subset_swept="$SCRATCH/swept_stale_subset.md"
+  cat >"$stale_subset_swept" <<'MD'
+# Notes
+
+The resolver behaves identically across every full-corpus Ball engine (Dart, TypeScript,
+C++) — see the portability matrix.
+MD
+
+  # A stale EXECUTION verdict in prose, worded outside the five regexes the
+  # guard shipped with (issue #765, bullet 1).
+  local stale_verdict_swept="$SCRATCH/swept_stale_verdict.md"
+  cat >"$stale_verdict_swept" <<'MD'
+# Notes
+
+For Go, engine execution is unsupported until the module tags move.
+MD
+
+  # The same stale EXECUTION verdict, HARD-WRAPPED away from its subject — the
+  # shape five of the six swept docs are typeset in (~95 columns). Judged per
+  # physical line this read as a clean pass; the unit is the sentence of the
+  # unfolded paragraph, so it does not.
+  local wrapped_verdict_swept="$SCRATCH/swept_wrapped_verdict.md"
+  cat >"$wrapped_verdict_swept" <<'MD'
+# Notes
+
+A binary installed from the old Go module tags
+cannot run a program at all.
+MD
+
+  # The two negative controls unfolding must NOT cost, and the reason the unit
+  # is the SENTENCE rather than the paragraph:
+  #   A. a legitimate packaging/embeddability caveat that happens to wrap
+  #      mid-clause must still pass once unfolded;
+  #   B. a language named in one sentence and an execution negation about
+  #      something else in the NEXT sentence of the SAME paragraph must not be
+  #      read as a verdict about that language. A paragraph-sized unit fails
+  #      this fixture; the sentence-sized one passes it.
+  local wrapped_ok_swept="$SCRATCH/swept_wrapped_ok.md"
+  cat >"$wrapped_ok_swept" <<'MD'
+# Notes
+
+Go has no NuGet package yet, and the Dart engine does not
+compile for Flutter web — both are packaging facts, not
+execution verdicts.
+
+The Python engine runs the whole corpus on every matrix run.
+A stale `.ball.pb` does not execute until it is regenerated.
+MD
+
+  # ── differently-worded stale verdicts in a CURRENTLY guarded doc (#765) ────
+  # Both fixtures are the #613 defect — a row that is present, correctly named
+  # and flatly wrong — phrased outside the five regexes the guard shipped with.
+  local nonfunctional_embed="$SCRATCH/embed_nonfunctional.md"
+  cat >"$nonfunctional_embed" <<'MD'
+# Ball Embed
+
+## Per-target honest status
+
+| Target | Embeddable for untrusted input? |
+|---|---|
+| **Dart** | Yes |
+| **TypeScript** | Partial |
+| **Rust** | Trusted only, and `pub fn run(&self)` takes no parameters. |
+| **C++** | Trusted only: no public constructor, and no `ball audit` for C++ at all. |
+| **C#** | **No.** The engine is non-functional for now (`SelfHostPendingException`). |
+| **Go** | Trusted only. No sandbox, no module-allowlist, no NuGet package yet. |
+| **Python** | Trusted only. No sandbox, no module-allowlist, no custom modules. |
+
+## Dangerous assumptions
+Not part of the table.
+MD
+
+  local no_output_embed="$SCRATCH/embed_no_output.md"
+  cat >"$no_output_embed" <<'MD'
+# Ball Embed
+
+## Per-target honest status
+
+| Target | Embeddable for untrusted input? |
+|---|---|
+| **Dart** | Yes |
+| **TypeScript** | Partial |
+| **Rust** | Trusted only, and `pub fn run(&self)` takes no parameters. |
+| **C++** | Trusted only: no public constructor, and no `ball audit` for C++ at all. |
+| **C#** | **No.** It still cannot produce output (`SelfHostPendingException`). |
+| **Go** | Trusted only. No sandbox, no module-allowlist, no NuGet package yet. |
+| **Python** | Trusted only. No sandbox, no module-allowlist, no custom modules. |
+
+## Dangerous assumptions
+Not part of the table.
 MD
 
   # name, wanted exit code, required substring of the output, then the 3 files.
@@ -994,46 +1507,46 @@ MD
   # Doubles as the negative control for the two frozen-tally rules: this
   # fixture carries "the 2023 row above" and "the 65 KB … budget", neither of
   # which may be mistaken for an engine tally.
-  expect "all three docs clean pass" 0 "Results: 10 passed, 0 failed, 10 total" \
-    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+  expect "all four doc surfaces clean pass" 0 "Results: 12 passed, 0 failed, 12 total" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "hard-coded fixture count fails" 1 "hard-coded fixture count \"293 fixtures\"" \
-    "$wf" "$counted_portability" "$good_embed" "$good_per_target"
+    "$wf" "$counted_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "hard-coded engine tally fails" 1 "hard-coded engine count \"7 engines\"" \
-    "$wf" "$tallied_portability" "$good_embed" "$good_per_target"
+    "$wf" "$tallied_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "quantified tally (\"Each of the 7 rows\") fails, edition years do not" 1 \
     "hard-coded engine count \"Each of the 7\"" \
-    "$wf" "$quantified_portability" "$good_embed" "$good_per_target"
+    "$wf" "$quantified_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "short portability table fails" 1 "table is missing row(s) for Rust, C#, Go, Python" \
-    "$wf" "$partial_portability" "$good_embed" "$good_per_target"
+    "$wf" "$partial_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "portability table missing ONE engine its prose still names fails" 1 \
     "table is missing row(s) for Go" \
-    "$wf" "$prose_only_portability" "$good_embed" "$good_per_target"
+    "$wf" "$prose_only_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "portability table deleted entirely fails" 1 "carries NO markdown table" \
-    "$wf" "$no_table_portability" "$good_embed" "$good_per_target"
+    "$wf" "$no_table_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "short embed table fails on the row floor" 1 \
     "table has 5 data row(s) but the workflow defines 7 engine(s)" \
-    "$wf" "$good_portability" "$short_embed" "$good_per_target"
+    "$wf" "$good_portability" "$short_embed" "$good_per_target" "$good_swept"
   expect "embed table missing engines its prose still names fails" 1 \
     "table is missing row(s) for Go, Python" \
-    "$wf" "$good_portability" "$short_embed" "$good_per_target"
+    "$wf" "$good_portability" "$short_embed" "$good_per_target" "$good_swept"
 
   expect "a substring of an engine name does not count as its row" 1 \
     "table is missing row(s) for Go" \
-    "$wf" "$good_portability" "$substring_embed" "$good_per_target"
+    "$wf" "$good_portability" "$substring_embed" "$good_per_target" "$good_swept"
 
   # The verdict rule. The row COUNT and the row NAMES are both fine here, so
   # every other rule passes this fixture — which is exactly why #613's first
   # bullet had no test before.
   expect "embed row claiming a parity engine cannot execute fails" 1 \
     "row claims \"does not execute\"" \
-    "$wf" "$good_portability" "$stale_embed" "$good_per_target"
+    "$wf" "$good_portability" "$stale_embed" "$good_per_target" "$good_swept"
 
   # The legitimate vocabulary the verdict rule must NOT eat: "Trusted only",
   # "no public constructor", "no NuGet package yet" all survive in the clean
   # fixture above, whose rows carry each of them.
   expect "embeddability caveats are not execution claims" 0 \
     "no '## Per-target honest status' row claims a parity-table engine cannot execute a program (OK)" \
-    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A workflow with an empty summary.needs must fail loud, not pass trivially.
   local empty_wf="$SCRATCH/wf_empty.yml"
@@ -1044,7 +1557,7 @@ jobs:
     needs: []
 YAML
   expect "empty summary.needs fails loud" 1 "the \`summary\` job's \`needs:\` list is empty" \
-    "$empty_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$empty_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A parity row reporting a job the summary does NOT depend on can never make
   # the matrix fail — deriving an engine from it would be a fake green.
@@ -1068,7 +1581,7 @@ jobs:
 YAML
   expect "parity row outside summary.needs fails loud" 1 \
     "which is NOT in the \`summary\` job's \`needs:\`" \
-    "$orphan_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$orphan_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A summary job whose parity table is gone must fail loud, never derive zero
   # engines and pass both docs trivially.
@@ -1087,7 +1600,7 @@ jobs:
 YAML
   expect "summary job with no parity table fails loud" 1 \
     "could not find the \`summary\` job's parity table" \
-    "$no_table_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$no_table_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A workflow with no summary job at all must fail loud too.
   local no_summary_wf="$SCRATCH/wf_no_summary.yml"
@@ -1097,7 +1610,7 @@ jobs:
     name: Dart Engine
 YAML
   expect "missing summary job fails loud" 1 "could not find the \`summary\` job" \
-    "$no_summary_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$no_summary_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # ── embedding-per-target.md (issue #709) ───────────────────────────────────
   # Rules 1-4 gate two TABLES. This file repeats the same per-language verdict
@@ -1105,19 +1618,19 @@ YAML
   # verdict in place, reds both tables and says nothing about this file.
   expect "per-target doc missing a section for a derived engine fails" 1 \
     "no '## ' section for Go" \
-    "$wf" "$good_portability" "$good_embed" "$missing_per_target"
+    "$wf" "$good_portability" "$good_embed" "$missing_per_target" "$good_swept"
   expect "per-target section with no prose fails" 1 \
     "'## Go' section carries no prose" \
-    "$wf" "$good_portability" "$good_embed" "$empty_section_per_target"
+    "$wf" "$good_portability" "$good_embed" "$empty_section_per_target" "$good_swept"
   expect "per-target section claiming a parity engine cannot execute fails" 1 \
     "does not reach golden output" \
-    "$wf" "$good_portability" "$good_embed" "$stale_per_target"
+    "$wf" "$good_portability" "$good_embed" "$stale_per_target" "$good_swept"
   expect "per-target doc with no sections at all fails loud" 1 \
     "carries no '## ' sections at all" \
-    "$wf" "$good_portability" "$good_embed" "$no_sections_per_target"
+    "$wf" "$good_portability" "$good_embed" "$no_sections_per_target" "$good_swept"
   expect "per-target embeddability caveats are not execution claims" 0 \
     "names all 7 derived engine(s) in per-language sections (OK)" \
-    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # The mutation issue #709 names outright: an 8th engine row added to the
   # workflow. All three docs here are the CLEAN, real-shaped fixtures --
@@ -1131,11 +1644,101 @@ YAML
     "$wf" >"$eighth_wf"
   expect "an 8th engine row reds the per-target doc, not just the two tables" 1 \
     "no '## ' section for Zig" \
-    "$eighth_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$eighth_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
+
+  # ── issue #765, bullet 1: the verdict rule may not be a five-phrase allowlist ──
+  # Both fixtures are #613's defect verbatim in SHAPE — a row that is present,
+  # correctly named, and flatly wrong — worded outside the five hand-picked
+  # phrasings the guard shipped with. A reader of either row is told the C#
+  # engine cannot run a program, which the parity table contradicts on every run.
+  expect "embed row calling a parity engine non-functional fails" 1 \
+    "row claims \"engine is non-functional\"" \
+    "$wf" "$good_portability" "$nonfunctional_embed" "$good_per_target" "$good_swept"
+  expect "embed row saying a parity engine produces no output fails" 1 \
+    "row claims \"cannot produce output\"" \
+    "$wf" "$good_portability" "$no_output_embed" "$good_per_target" "$good_swept"
+
+  # ── issue #765, bullet 2: the five other docs #652 swept, then left ungated ──
+  expect "per-target section saying there is no working entry point fails" 1 \
+    "claims \"no working \`.Run()\"" \
+    "$wf" "$good_portability" "$good_embed" "$no_run_per_target" "$good_swept"
+
+  expect "swept doc freezing an engine tally fails" 1 \
+    "hard-coded engine count \"three engines\"" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_tally_swept"
+  expect "swept doc enumerating only some engines as if exhaustive fails" 1 \
+    "omits Rust, C#, Go, Python" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_subset_swept"
+  expect "swept doc claiming a parity engine cannot execute fails" 1 \
+    "says \"engine execution is unsupported\"" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_verdict_swept"
+
+  # The rule-7 UNIT. A hard wrap is a typesetting artifact, not a claim
+  # boundary: before the unit became the sentence of the unfolded paragraph,
+  # the first fixture here — #613's defect verbatim, merely re-wrapped — was a
+  # clean pass. The second pins the two boundaries unfolding must not cross.
+  expect "swept doc whose verdict is hard-wrapped away from its language fails" 1 \
+    "says \"cannot run a program\"" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$wrapped_verdict_swept"
+  expect "hard-wrapped caveats pass, and an adjacent sentence is not a verdict" 0 \
+    "no sentence claims a parity-table engine cannot execute a program (OK)" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$wrapped_ok_swept"
+
+  # The negative controls the broadened verdict rule must NOT eat, plus the two
+  # shapes the engine-set rule must NOT eat: a PARTIAL language reference that
+  # makes no exhaustive claim, and a tally of something that is not an engine.
+  expect "swept-doc caveats, partial references and non-engine tallies all pass" 0 \
+    "no frozen engine-set claim (OK)" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
+
+  # POSITIVE FLOOR. Gating zero swept docs, or one that is not there, must fail
+  # loud — a guard that silently checked nothing is the failure mode this whole
+  # file exists to prevent.
+  expect "zero swept docs fails loud" 1 \
+    "refusing to gate ZERO swept docs" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+  expect "a swept doc that is not there fails loud" 1 \
+    "swept doc not found" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$SCRATCH/does_not_exist.md"
+
+  # The row in docs/TESTING_STRATEGY.md that documents this guard may not
+  # freeze a stale case count. PR #826 shipped exactly that defect — commit 2
+  # wrote "30 cases", commit 3 moved the real count to 31 and did not carry it
+  # into the doc — in the row describing the guard against frozen tallies. The
+  # number is DERIVED here rather than asserted: the doc must state
+  # $SELF_TEST_CASES, and the floor below makes $SELF_TEST_CASES be the number
+  # of cases this function actually executed.
+  local strategy="$ROOT/docs/TESTING_STRATEGY.md"
+  local doc_case_name="docs/TESTING_STRATEGY.md states this self-test's real case count"
+  local doc_nums doc_why=""
+  if [ ! -f "$strategy" ]; then
+    doc_why="not found: $strategy"
+  else
+    # Scoped to the row(s) naming this script, so a `--self-test` count
+    # belonging to one of the other guards documented in that table can never
+    # be read as this one's. `sort -u` collapses the row's claim to a SET: an
+    # empty set is a hard error (the positive floor), and a set of more than
+    # one is a row disagreeing with itself.
+    doc_nums="$(grep -F 'tools/ci/check_engine_row_docs.sh' "$strategy" |
+      grep -oE '`--self-test` drives [0-9]+ cases' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')"
+    doc_nums="${doc_nums% }"
+    if [ -z "$doc_nums" ]; then
+      doc_why="no row naming this script states a '\`--self-test\` drives N cases' count at all"
+    elif [ "$doc_nums" != "$SELF_TEST_CASES" ]; then
+      doc_why="that row says [$doc_nums], this script declares $SELF_TEST_CASES"
+    fi
+  fi
+  if [ -z "$doc_why" ]; then
+    pass=$((pass + 1))
+    echo "PASS $doc_case_name"
+  else
+    fail=$((fail + 1))
+    echo "FAIL $doc_case_name — $doc_why"
+  fi
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 22 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 22) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -ne "$SELF_TEST_CASES" ]; then
+    echo "::error::self-test executed $pass case(s), not the declared $SELF_TEST_CASES — a self-test that ran nothing is not a passing self-test, and a case added without moving SELF_TEST_CASES leaves the docs/TESTING_STRATEGY.md row stale."
     return 1
   fi
   [ "$fail" -eq 0 ]
@@ -1146,5 +1749,8 @@ if [ "$SELF_TEST" -eq 1 ]; then
   exit $?
 fi
 
-check_files "$WORKFLOW" "$PORTABILITY" "$EMBED" "$PER_TARGET"
+if [ ${#SWEPT[@]} -eq 0 ]; then
+  SWEPT=("${SWEPT_DEFAULT[@]}")
+fi
+check_files "$WORKFLOW" "$PORTABILITY" "$EMBED" "$PER_TARGET" "${SWEPT[@]}"
 exit $?

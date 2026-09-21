@@ -329,6 +329,14 @@ void main() {
       );
     });
 
+    test('std.string_interpolation falls back to the bare input', () {
+      // A field-less message input: neither `parts` nor `value` is present,
+      // but the call DOES carry an input, which the engine stringifies.
+      final out = _compileProbe('std', 'string_interpolation', const []);
+      expect(out, contains('.toString()'));
+      expect(out, isNot(contains('unsupported:')));
+    });
+
     test('std.string_interpolation with nothing to interpolate fails loud', () {
       // `_probeProgram` always supplies a MessageCreation input, so reaching
       // the "no parts, no value, no input" arm needs an input-less call.

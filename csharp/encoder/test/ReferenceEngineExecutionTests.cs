@@ -198,6 +198,62 @@ public class ReferenceEngineExecutionTests
         Assert.Equal(new[] { "3!", "9!" }, output);
     }
 
+    /// <summary>
+    /// The <c>std_collections</c> table rows (issue #689), RUN rather than asserted. Every line
+    /// is the compiler's own emission shape for a Ball collections base call
+    /// (<c>compiler/src/BaseCall.cs</c>'s <c>CompileCollectionsCall</c>), and every assertion is
+    /// a positive result:
+    /// <list type="bullet">
+    ///   <item><c>3,1,2,9</c> — <c>ListPush</c> mutated the SAME list the literal created (a
+    ///   by-value inverse would print <c>3,1,2</c>), and <c>StringJoin</c>'s operands did not get
+    ///   swapped: <c>StringJoinInput</c> orders <c>list</c> before <c>separator</c> while the C#
+    ///   helper takes them in that same order, so an inverted row would join on the wrong
+    ///   value;</item>
+    ///   <item><c>1-2</c> — <c>ListSlice</c>'s three operands reached <c>list</c>/<c>start</c>/
+    ///   <c>end</c> rather than <c>list</c>/<c>index</c>/<c>value</c>;</item>
+    ///   <item><c>2</c> then <c>2</c> — a <c>MapSet</c> write read back through <c>MapGet</c>
+    ///   (the map's key and value operands are distinguishable only by the answer), and
+    ///   <c>SetCreate</c> really de-duplicated its input list.</item>
+    /// </list>
+    ///
+    /// <para>Higher-order rows (<c>ListMap</c>, <c>ListSort</c>, …) are deliberately NOT here:
+    /// the compiler emits a Ball lambda as <c>new BallFunction("label", (BallValue __inN) =&gt;
+    /// …)</c> (<c>CSharpCompiler.CompileLambda</c>), an object-model <c>new</c> this encoder does
+    /// not yet invert, so such a call cannot be re-encoded at all yet — its table row is still
+    /// exact, and <see cref="CollectionsRuntimeHelperTests"/> proves that shape without needing a
+    /// callback value.</para>
+    /// </summary>
+    private const string CollectionsSource = """
+        using Ball.Shared;
+        using static Ball.Shared.BallValue;
+
+        internal static class BallProgram
+        {
+            public static void Main(string[] args)
+            {
+                var xs__L1 = (BallValue)new BallList(new BallValue[] { Int(3L), Int(1L), Int(2L) });
+                BallRuntime.ListPush(xs__L1, Int(9L));
+                BallRuntime.Print(BallRuntime.StringJoin(xs__L1, Str(",")));
+                BallRuntime.Print(BallRuntime.StringJoin(BallRuntime.ListSlice(xs__L1, Int(1L), Int(3L)), Str("-")));
+
+                var m__L2 = (BallValue)new BallMap { ["a"] = Int(1L) };
+                BallRuntime.MapSet(m__L2, Str("b"), Int(2L));
+                BallRuntime.Print(BallRuntime.MapGet(m__L2, Str("b")));
+
+                var s__L3 = BallRuntime.SetCreate((BallValue)new BallList(new BallValue[] { Int(1L), Int(1L), Int(2L) }));
+                BallRuntime.Print(BallRuntime.SetLength(s__L3));
+            }
+        }
+        """;
+
+    [Fact]
+    public void CollectionsHelpersRunOnTheReferenceEngine()
+    {
+        var output = EncodeAndRun(CollectionsSource);
+
+        Assert.Equal(new[] { "3,1,2,9", "1-2", "2", "2" }, output);
+    }
+
     // ── harness ───────────────────────────────────────────────────────────
 
     private static readonly JsonFormatter JsonFormat = new(JsonFormatter.Settings.Default);

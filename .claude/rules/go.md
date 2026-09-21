@@ -456,8 +456,8 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   Each collections field is the compiler's FIRST alias for that argument (`c.arg(f, "value",
   "callback")` -> `value`), so a re-encode compiles back to the same call.
   `go/encoder/ballrt_table_test.go` is the drift guard and it derives the closed set from the source
-  of truth — it PARSES `go/compiler/base_call.go`'s `compileCollectionsCall` and compares every
-  emission — with negative controls that prove it catches each way the two files can part. The four
+  of truth — it PARSES `go/compiler/base_call.go` and compares every emission — with negative
+  controls that prove it catches each way the two files can part. The four
   shapes: `ballrt.FieldGet(x, "n")` is a Ball `field_access` (a computed name is `std.index` and
   stays refused); `ballrt.NewList(a, b)` is a Ball list LITERAL; `if ballrt.RunLoopBody("",
   func(){…}) { break }` is a loop BODY, not an `if`; and every non-entry compiled function carries
@@ -466,6 +466,27 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   engine, since `__ret` is not a Ball variable. `SetCreate` is a documented exclusion: both
   `std.set_create` and `std_collections.set_create` lower to it, and the Dart engine reads a set's
   members from an `elements` field neither input descriptor declares.
+- **BOTH tables are derived now, not just the collections one (#793).** The guard above shipped
+  with exactly ONE `(dispatcher, table)` pair; `stdHelpers` — the ~80-entry sibling half — was
+  checked only for non-overlap with `collectionsHelpers`, so a `compileBaseCall` case that grew
+  with no inverse, or an entry that stopped matching its emission, had no failing test. It is now
+  an `inverseSpec` per pair, so `compileBaseCall`'s `std` switch drives the same parse and the same
+  comparison; its first run found NINE real gaps (`sink_create`/`sink_write`/`sink_to_string`,
+  `string_from_char_code`, `round_to_double`/`floor_to_double`/`ceil_to_double`/
+  `truncate_to_double`, and `throw`), all now mapped. Three shapes the collections switch does not
+  have are handled explicitly: a clause with SEVERAL labels (`case "lte", "less_than_or_equal":` —
+  the table must name the canonical first one), an emission whose arguments cannot be read
+  positionally (a non-`%s` verb, a `c.typeName(f)`/`strconv.Quote(…)` operand, or the
+  `ballrt.Value(nil)` placeholder the compiler substitutes for an omitted optional argument), and a
+  helper emitted as a bare string literal or nested in a larger format. An unreadable emission is
+  RECORDED as opaque and must be a documented exclusion — never silently skipped, which would let
+  the table assert a shape no test checks. `documentedStdExclusions` carries the reason for each of
+  the 15, including std_convert's six (`json_*`/`utf8_*`/`base64_*` reach this switch too, but
+  invert to `std_convert.<fn>`, which `ballrt.go` has no table for) and `Invoke` (`std.invoke`'s
+  InvokeInput declares only `callee`, never the `function`/`argument` the compiler emits). The
+  mutation battery is judged on the problems a mutation ADDS, not on a non-empty report: a
+  negative control needs its own positive floor, or a table that already has a finding makes every
+  case pass vacuously.
 - **The round-trip leg's per-fixture kill is bounded by `cmd.WaitDelay` (#691).**
   `roundTripOne` runs the Dart CLI out of process with `cmd.Stdout` set to an
   `io.Writer`, so `os/exec` pipes the child and copies in a goroutine — and

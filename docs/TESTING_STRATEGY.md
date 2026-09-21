@@ -635,6 +635,33 @@ repository has ever implemented) and nineteen alias spellings the Dart engine
 accepts that `std.json` never mentioned, so no other target could implement them
 and no encoder knew they were safe to emit.
 
+**A derived closed set covers the dispatcher it PARSES, and nothing else
+(#793).** `go/encoder/ballrt_table_test.go` was written for #691 and got the
+method right — it parses `go/compiler/base_call.go` and compares every emission
+against the encoder's inverse table, with negative controls proving it catches
+each way the two files can part. It parsed exactly ONE function,
+`compileCollectionsCall`, and checked exactly one of the two tables. The sibling
+`stdHelpers` (~80 entries, the other half of the same map) was covered only by
+`TestHelperTablesAreDisjoint`, a cross-table property that never reads the
+compiler at all, so the very drift the guard was written to close could still
+happen one `std` helper at a time — and had: the generalized guard's first run
+named NINE `std` base functions the compiler emits with no inverse
+(`sink_create`/`sink_write`/`sink_to_string`, `string_from_char_code`, the four
+`*_to_double`, and `throw`). Two rules follow. **Parameterize the guard over
+(source-of-truth function, table) pairs rather than hard-coding one**, so adding
+a dispatcher is a spec entry instead of a second copy of the instrument; the
+`go` guard is now one `inverseSpec` per pair driving the same parse and the same
+comparison. And **an emission the parser cannot read must be RECORDED, not
+skipped**: the std switch has shapes the collections one does not (a `%q` verb,
+a `c.typeName(f)` operand, the `ballrt.Value(nil)` placeholder for an omitted
+optional argument, a bare `"ballrt.Rethrow()"` literal), and a parser that
+quietly ignores what it cannot line up lets the table assert a shape no test
+checks — the same vacuous-pass shape a missing positive floor produces. Those
+are recorded as opaque and must carry a documented exclusion with a reason.
+The negative controls take a floor of their own here: with the live table
+already failing, a battery that accepts any non-empty report passes vacuously,
+so each mutation is judged on the problems it ADDS.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier

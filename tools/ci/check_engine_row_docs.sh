@@ -1710,22 +1710,22 @@ YAML
   # of cases this function actually executed.
   local strategy="$ROOT/docs/TESTING_STRATEGY.md"
   local doc_case_name="docs/TESTING_STRATEGY.md states this self-test's real case count"
-  local doc_row doc_nums doc_why=""
+  local doc_nums doc_why=""
   if [ ! -f "$strategy" ]; then
     doc_why="not found: $strategy"
   else
-    doc_row="$(grep -cF 'tools/ci/check_engine_row_docs.sh' "$strategy")"
-    if [ "$doc_row" != "1" ]; then
-      doc_why="expected exactly 1 row naming tools/ci/check_engine_row_docs.sh, found $doc_row"
-    else
-      doc_nums="$(grep -F 'tools/ci/check_engine_row_docs.sh' "$strategy" |
-        grep -oE '`--self-test` drives [0-9]+ cases' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')"
-      doc_nums="${doc_nums% }"
-      if [ -z "$doc_nums" ]; then
-        doc_why="that row states no '\`--self-test\` drives N cases' count at all"
-      elif [ "$doc_nums" != "$SELF_TEST_CASES" ]; then
-        doc_why="that row says [$doc_nums], this script declares $SELF_TEST_CASES"
-      fi
+    # Scoped to the row(s) naming this script, so a `--self-test` count
+    # belonging to one of the other guards documented in that table can never
+    # be read as this one's. `sort -u` collapses the row's claim to a SET: an
+    # empty set is a hard error (the positive floor), and a set of more than
+    # one is a row disagreeing with itself.
+    doc_nums="$(grep -F 'tools/ci/check_engine_row_docs.sh' "$strategy" |
+      grep -oE '`--self-test` drives [0-9]+ cases' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')"
+    doc_nums="${doc_nums% }"
+    if [ -z "$doc_nums" ]; then
+      doc_why="no row naming this script states a '\`--self-test\` drives N cases' count at all"
+    elif [ "$doc_nums" != "$SELF_TEST_CASES" ]; then
+      doc_why="that row says [$doc_nums], this script declares $SELF_TEST_CASES"
     fi
   fi
   if [ -z "$doc_why" ]; then

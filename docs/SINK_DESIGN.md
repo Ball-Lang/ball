@@ -203,8 +203,8 @@ Three supporting mechanisms ship with the rule:
   Every other `Type::assoc()` on a foreign type stays the documented gap it was.
 
   **This generalises to every other encoder, and is the rule to carry over.** A sizing/allocation
-  hint this record tells you to drop — `new StringBuilder(capacity)` in C#/Java,
-  `strings.Builder::Grow(n)` in Go, `String::with_capacity(n)` here — is a hint whose **value** is
+  hint this record tells you to drop — C#'s `new StringBuilder(capacity)`, Go's
+  `(*strings.Builder).Grow(n)`, Rust's `String::with_capacity(n)` — is a hint whose **value** is
   droppable, never an argument whose **evaluation** is. Drop the value; encode the argument for its
   effects (a `block` statement, with the construct's own result as the block's `result`) unless it
   is provably evaluation-free. Conflating the two is the exact silent degradation #777 fixed.

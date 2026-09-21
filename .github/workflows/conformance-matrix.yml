@@ -1607,7 +1607,15 @@ jobs:
       # inside the failures — the #615 lesson repeating: a ratchet is green over
       # the regression it already tolerates. Measured before and after, locally
       # and on CI, never predicted.
-      PYTHON_COMPILER_FLOOR: "265"
+      #
+      # 268 is the FIRST floor this repo raised because a gate made it: the
+      # enforcement half of #792 went in one commit earlier, and this row's very
+      # next run failed with `Results: 268 passed, 95 failed, 363 total (floor:
+      # 265)` — three fixtures of gain already on main, earned by other lanes
+      # and the corpus's own growth to 363, sitting unclaimed under the old
+      # advisory ::notice::. Measured by THIS row on run 35604595391 (job
+      # 106348942693), never predicted.
+      PYTHON_COMPILER_FLOOR: "268"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

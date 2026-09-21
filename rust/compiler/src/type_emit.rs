@@ -573,6 +573,14 @@ impl Compiler<'_> {
     /// `DartCompiler._buildLibrary`'s own `if (!td.hasDescriptor())
     /// continue;` guard, which skips the same redundant entry for the same
     /// reason.
+    ///
+    /// A `kind: "extension"` typeDef is descriptor-less too, and it is the one
+    /// exception (issue #670): skipping it emitted no `impl` for its MEMBERS,
+    /// so both the short-name dispatcher and a call NAMING the member
+    /// (`main_AlphaTag::tag`) referenced an item nothing declared —
+    /// `error[E0433]: cannot find module or crate `main_AlphaTag``. It has no
+    /// fields, so `compile_struct_def` emits an empty struct plus the `impl`
+    /// its members live in.
     pub(crate) fn compile_module_types(&self, module: &Module) -> String {
         let mut out = String::new();
         for enum_def in &module.enums {
@@ -580,7 +588,7 @@ impl Compiler<'_> {
             out.push('\n');
         }
         for td in &module.type_defs {
-            if td.descriptor.is_none() {
+            if td.descriptor.is_none() && type_meta_kind(td).as_deref() != Some("extension") {
                 continue;
             }
             out.push_str(&self.compile_type_def(td));

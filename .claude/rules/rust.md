@@ -234,9 +234,20 @@ cargo fmt --check && cargo clippy --workspace
   `Compiler::extension_member_fns` (built in `Compiler::new` from the
   `kind: "extension"` typeDefs, via `type_emit::type_meta_kind`) maps it to
   `main_AlphaTag::tag`, and `compile_call` invokes that with the call's own
-  input message. Guards:
+  input message.
+  **`compile_module_types` had to stop skipping the typeDef.** Its guard is
+  `td.descriptor.is_none()`, written for the cosmetic `kind: "enum"` companion
+  of a `Module.enums[]` entry — and an extension typeDef is descriptor-less
+  too, so nothing emitted the `impl` its MEMBERS live in and both the call above
+  and the short-name dispatcher referenced an item nothing declared
+  (`error[E0433]: cannot find module or crate `main_AlphaTag``). An extension is
+  now the one exception; it has no fields, so `compile_struct_def` emits an
+  empty struct plus that `impl`. Guards:
   `tests/conformance/478_extension_override_selection` (cross-target) and
-  `rust/compiler/tests/extension_override.rs`.
+  `rust/compiler/tests/extension_override.rs`, whose second case BUILDS AND RUNS
+  the compiled output against the golden — the shape assertion beside it passed
+  for a program that did not compile at all, and only CI's `Rust Compiler Leg`
+  saw that.
 
 ### Encoder
 

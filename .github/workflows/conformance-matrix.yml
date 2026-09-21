@@ -1016,7 +1016,12 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "281"
+      # 282 after #670: `478_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member through its impl method
+      # rather than `BallRuntime.CallMethod`. Measured by this very row (PR
+      # #829, job 106251801199: `Results: 282 passed, 81 failed, 363 total`),
+      # never predicted.
+      CSHARP_COMPILER_FLOOR: "282"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1630,7 +1635,12 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "298"
+      # 299 after #670: `478_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member through its impl func
+      # rather than the receiver-asking `ballrt.CallMethod`. Measured by this
+      # very row (PR #829, job 106251801272: `Results: 299 passed, 64 failed,
+      # 363 total`), never predicted.
+      GO_COMPILER_FLOOR: "299"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1727,7 +1737,12 @@ jobs:
       # inside the failures — the #615 lesson repeating: a ratchet is green over
       # the regression it already tolerates. Measured before and after, locally
       # and on CI, never predicted.
-      PYTHON_COMPILER_FLOOR: "265"
+      # 266 after #670: `478_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member unbound on its class
+      # rather than through `ballrt.call_method`. Measured by this very row
+      # (PR #829, job 106251801278: `Results: 266 passed, 97 failed, 363
+      # total`), never predicted.
+      PYTHON_COMPILER_FLOOR: "266"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

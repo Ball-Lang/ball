@@ -1182,6 +1182,40 @@ why the guard belongs in the shared conformance fixture rather than in a
 target-local test alone. When two tables answer one predicate, check they have
 the same REACH before treating either as proof.
 
+#### A guard applied to SOME of the shortcuts it should cover
+
+`declared_by_receiver` reached seven names after #664 and #697 (`length`,
+`isEmpty`, `isNotEmpty`, `isNaN`, `isFinite`, `isInfinite`, `isNegative`) — and
+`compile_field_access` carried **six more shortcuts of exactly the same shape**
+that it did not reach: `.first`, `.last`, `.runtimeType`, `.entries`, `.keys`,
+`.values` (#787). Nothing was red, because the seven that were guarded had
+fixtures and the six that were not had none. A guard is not proven by the names
+it covers; the measurable claim is about the SET the guard is applied to, and
+the only instrument that can see a missing member of that set is an enumeration
+of the set itself. The failure modes differed within the six, which is why
+per-name coverage mattered rather than one representative: `.entries` / `.keys`
+/ `.runtimeType` answered the wrong VALUE, while `.first` / `.last` lowered to
+`obj.front()` / `obj.back()` and the program did not COMPILE at all — a shape a
+"wrong output" expectation would not even have described.
+`tests/conformance/479_user_member_named_like_collection_accessor` is the gate,
+and it carries both declaration shapes (field and getter) because the
+compiler's fall-through resolves them through different paths — and `.values`
+is served correctly for a getter and wrongly for a field, so a fixture with only
+one shape would have pinned the wrong half of it.
+
+**Writing the enumeration is itself the instrument.** Two of the six names
+turned out to be broken on OTHER targets, in ways nothing in the corpus had ever
+asked about: a field named `entries` on a class with a method takes every
+self-hosted engine down (#860 — the engine binds an instance's fields into a
+method scope by iterating `selfMap.entries`, a name a user program may also
+declare), and a field named `runtimeType` throws on the TS engine at
+construction (#863 — `Object.prototype.runtimeType` is installed as a getter
+with no setter). Neither is reachable from the guard this fixture was written
+for; both were invisible until a fixture named the shapes. Each is carved out of
+the fixture with its issue number and its removed lines carried verbatim in the
+issue body — the same discipline #800 established for `476_…` — so the carve-out
+is a tracked reproduction rather than a silently narrowed test.
+
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
 `std_concurrency` shipped nine declared base functions, a dispatch arm in the

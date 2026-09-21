@@ -87,24 +87,68 @@ class DartCompiler {
   /// from shadowing a module-level variable also named `input`.
   Set<String> _topLevelNames = const {};
 
-  /// The generic type-parameter names in scope at the declaration being
+  /// The generic type-parameter NAMES in scope at the declaration being
   /// emitted: the enclosing class/mixin/enum/extension/extension-type's
   /// `metadata['type_params']` unioned with the method's or local function's
   /// own. `_asyncSafetyReturn` is the consumer — a declared result that is one
   /// of these names is a TYPE VARIABLE, whose nullability is decided by the
   /// caller's type argument and so cannot be read off the spelling (issue
   /// #766).
+  ///
+  /// Names, not spellings: `metadata['type_params']` holds each parameter's
+  /// full SOURCE text, so a bounded parameter reaches [_withTypeParams] as
+  /// `'T extends Object?'` and is stored here as `'T'` — see [_typeParamName].
   Set<String> _typeParamsInScope = const {};
 
-  /// Run [body] with [meta]'s `type_params` added to [_typeParamsInScope].
-  /// Restores the previous set even if [body] throws.
+  /// The NAME of the type parameter [spelling] declares.
+  ///
+  /// `metadata['type_params']` holds each parameter's full SOURCE SPELLING,
+  /// not its name — `dart/encoder/lib/encoder.dart` fills both the metadata
+  /// list and `TypeDefinition.typeParams[].name` with the analyzer's
+  /// `TypeParameter.toSource()`. So a BOUNDED parameter arrives as
+  /// `'T extends Object?'` and an ANNOTATED one as `'@meta T'`. Everything
+  /// that EMITS a declaration (`_typeParamsStr`, `_addTypeParams`) wants that
+  /// spelling verbatim — dropping the bound would change the emitted Dart — so
+  /// the name extraction lives here, at the one consumer that needs a NAME,
+  /// rather than in `_metaFromTd`.
+  ///
+  /// Reading only the leading identifier would be wrong for the annotated
+  /// form, so this reads the LAST identifier before the bound instead. Dart's
+  /// grammar for a type parameter is `metadata identifier ('extends' type)?`
+  /// (https://spec.dart.dev/DartLangSpecDraft.pdf, "Generics"), and a bound is
+  /// a type — which can never itself contain the word `extends` — so the LAST
+  /// whole-word `extends` is the real one even when an annotation argument
+  /// contains that word inside a string literal.
+  ///
+  /// An unparseable spelling falls back to the trimmed input: this decides
+  /// which safety-return shape `_asyncSafetyReturn` emits, and an
+  /// unrecognised name simply keeps the pre-#766 concrete shape rather than
+  /// crashing the compile.
+  static String _typeParamName(String spelling) {
+    var head = spelling.trim();
+    final bounds = _extendsKeyword.allMatches(head);
+    if (bounds.isNotEmpty) head = head.substring(0, bounds.last.start);
+    final name = _trailingIdentifier.firstMatch(head.trimRight());
+    return name?.group(0) ?? spelling.trim();
+  }
+
+  /// The `extends` keyword as a whole word — see [_typeParamName].
+  static final RegExp _extendsKeyword = RegExp(r'\bextends\b');
+
+  /// The identifier a string ENDS with — see [_typeParamName].
+  static final RegExp _trailingIdentifier = RegExp(
+    r'[A-Za-z_$][A-Za-z0-9_$]*$',
+  );
+
+  /// Run [body] with the NAMES of [meta]'s `type_params` added to
+  /// [_typeParamsInScope]. Restores the previous set even if [body] throws.
   T _withTypeParams<T>(Map<String, Object?> meta, T Function() body) {
     final declared = meta['type_params'];
     if (declared is! List || declared.isEmpty) return body();
     final saved = _typeParamsInScope;
     _typeParamsInScope = {
       ...saved,
-      for (final param in declared) param.toString(),
+      for (final param in declared) _typeParamName(param.toString()),
     };
     try {
       return body();
@@ -530,9 +574,10 @@ class DartCompiler {
   ///    and the conditional's static type is `T` — `UP(T, Never)` (issue
   ///    #766).
   ///
-  /// [typeParamsInScope] is the generic type-parameter names visible at the
-  /// declaration: a user class literally named `T` is NOT one of them, so it
-  /// keeps the concrete shape.
+  /// [typeParamsInScope] is the generic type-parameter NAMES visible at the
+  /// declaration — bounds already stripped by [_typeParamName], so a
+  /// `<T extends Object?>` is in here as `T`. A user class literally named `T`
+  /// is NOT one of them, so it keeps the concrete shape.
   static String _asyncSafetyReturn(
     String rawReturnType,
     Set<String> typeParamsInScope,
@@ -2141,6 +2186,14 @@ class DartCompiler {
   // TypeDefinition metadata helpers
   // ════════════════════════════════════════════════════════════
 
+  /// This declaration's metadata, with `type_params` filled in from
+  /// [TypeDefinition.typeParams] when the metadata bag does not carry it.
+  ///
+  /// Both sources hold each parameter's full SOURCE SPELLING — the encoder
+  /// fills `TypeParameter.name` with `TypeParameter.toSource()` too — and that
+  /// is deliberate: every consumer that EMITS a declaration (`_typeParamsStr`,
+  /// `_addTypeParams`) needs the bound. The one consumer that needs a bare
+  /// NAME, [_withTypeParams], extracts it with [_typeParamName].
   Map<String, Object?> _metaFromTd(TypeDefinition td) {
     final meta = td.hasMetadata()
         ? _structToMap(td.metadata)

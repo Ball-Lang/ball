@@ -517,11 +517,31 @@ avoid constructs that need receiver-type info:
   implicit `dynamic` → `T` conversion was #488's very error, and the
   conditional's static type is `T` (`UP(T, Never)`). Keying on the in-scope SET
   rather than on the spelling is what keeps a user class literally named `T` on
-  the concrete shape. `dart/compiler/test/generic_async_safety_return_test.dart`
+  the concrete shape.
+  **That set holds NAMES, and `metadata['type_params']` holds SPELLINGS.**
+  `dart/encoder/lib/encoder.dart` fills both the metadata list and
+  `TypeDefinition.typeParams[].name` with the analyzer's
+  `TypeParameter.toSource()`, so a BOUNDED parameter arrives as the whole
+  string `'T extends Object?'` — the commonest spelling in real Dart — and an
+  ANNOTATED one carries its metadata too. The first cut of the fix populated
+  `_typeParamsInScope` from those raw strings, so the set did not contain
+  `'T'` and every bounded generic reproduced #766 verbatim. `_typeParamName`
+  is the extraction, and it lives in `_withTypeParams` — the ONE consumer that
+  wants a name — never in `_metaFromTd`: `_typeParamsStr` and `_addTypeParams`
+  EMIT from the same list, and stripping the bound there would drop it from
+  the generated Dart declaration. It reads the LAST identifier before the last
+  whole-word `extends` (a bound is a type and can never contain that word, so
+  a `'extends'` inside an annotation's string literal cannot fool it), and an
+  unparseable spelling degrades to the concrete shape rather than crashing the
+  compile. `dart/compiler/test/generic_async_safety_return_test.dart`
   is the guard, and it measures BEHAVIOUR — it RUNS the emitted Dart at
   `T = int?` (must print `null`, exit 0) and at `T = int` (must still fail
   loud) — because the throwing and returning shapes are indistinguishable by
-  reading the source for a `throw`.
+  reading the source for a `throw`. It covers the bounded and annotated
+  spellings on BOTH paths into the set (the function's own metadata, and the
+  enclosing class's through `_metaFromTd` + `declMeta`), and it does not
+  assume the encoder's spelling: one case READS `type_params` back out of a
+  real `DartEncoder().encode()` and runs a program carrying those bytes.
 - **An arity window may never be WIDER than the std function it stands for.**
   A route whose `maxArgs` admits an argument the target function does not
   declare silently DROPS that argument — the compiler emits exactly the

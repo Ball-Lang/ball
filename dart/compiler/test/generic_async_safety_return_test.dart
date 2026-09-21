@@ -34,6 +34,7 @@ import 'dart:io';
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/gen/google/protobuf/descriptor.pb.dart' as google;
 import 'package:ball_compiler/compiler.dart';
+import 'package:ball_encoder/encoder.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:test/test.dart';
 
@@ -66,7 +67,13 @@ const _enterMarker = 'entered-generic-body';
 /// A program with one generic `async` function whose declared result is the
 /// bare type parameter `T` and whose body falls off the end, plus a `main`
 /// that prints `maybe<[typeArg]>()`.
-Program _program(TypeRef typeArg) {
+///
+/// [typeParams] is the function's `metadata['type_params']`, spelled the way
+/// `dart/encoder/lib/encoder.dart` spells it: each entry is the analyzer's
+/// `TypeParameter.toSource()`, so a BOUNDED parameter is the whole string
+/// `'T extends Object?'` and an ANNOTATED one carries its metadata too. The
+/// default is the unbounded `'T'`.
+Program _program(TypeRef typeArg, {List<String> typeParams = const ['T']}) {
   final maybe = FunctionDefinition()
     ..name = 'maybe'
     ..outputType = 'T'
@@ -79,10 +86,7 @@ Program _program(TypeRef typeArg) {
             ]),
         )));
   maybe.mergeFromProto3Json({
-    'metadata': {
-      'is_async': true,
-      'type_params': ['T'],
-    },
+    'metadata': {'is_async': true, 'type_params': typeParams},
   });
 
   final call = FunctionCall()
@@ -203,6 +207,61 @@ Program _userClassNamedTProgram() {
         ..name = 'main'
         ..typeDefs.add(userT)
         ..functions.addAll([returnsUserT, mainFn]),
+    ]);
+}
+
+/// A program whose type parameter is declared by the enclosing CLASS, not by
+/// the method — the compiler's second path into the in-scope set, through
+/// `_metaFromTd` + the `declMeta` argument of `_withClassContext`. The
+/// TypeDefinition's `typeParams[].name` carries the same full SOURCE SPELLING
+/// the metadata list does (`dart/encoder/lib/encoder.dart` fills both with
+/// `TypeParameter.toSource()`), so a bound must be stripped here too.
+Program _classTypeParamProgram(String typeParamSpelling) {
+  final method = FunctionDefinition()
+    ..name = 'main:Box.peek'
+    ..outputType = 'T'
+    ..body = (Expression()
+      ..block = (Block()
+        ..statements.add(
+          Statement()
+            ..expression = _stdCall('print', [
+              _field('message', _strLit(_enterMarker)),
+            ]),
+        )));
+  method.mergeFromProto3Json({
+    'metadata': {'is_async': true, 'kind': 'method'},
+  });
+
+  final mainFn = FunctionDefinition()
+    ..name = 'main'
+    ..body = _stdCall('print', [_field('message', _strLit('m'))]);
+
+  final std = Module()
+    ..name = 'std'
+    ..functions.add(
+      FunctionDefinition()
+        ..name = 'print'
+        ..isBase = true,
+    );
+
+  final box = TypeDefinition()..name = 'main:Box';
+  box.descriptor = google.DescriptorProto()..name = 'Box';
+  box.typeParams.add(TypeParameter()..name = typeParamSpelling);
+  box.mergeFromProto3Json({
+    'metadata': {'kind': 'class'},
+  });
+
+  return Program()
+    ..name = 'generic_async_safety_return_class_type_param'
+    ..version = '1.0.0'
+    ..entryModule = 'main'
+    ..entryFunction = 'main'
+    ..modules.addAll([
+      std,
+      Module()
+        ..name = 'main'
+        ..typeDefs.add(box)
+        ..functions.addAll([method, mainFn]),
     ]);
 }
 
@@ -377,6 +436,221 @@ void main() {
           );
         },
       );
+
+      // ── BOUNDED type parameters ────────────────────────────────────
+      //
+      // `metadata['type_params']` holds each parameter's full SOURCE
+      // SPELLING, never its bare name: `dart/encoder/lib/encoder.dart` fills
+      // the list (and `TypeDefinition.typeParams[].name`) with the analyzer's
+      // `TypeParameter.toSource()`. So a bounded parameter arrives as
+      // `'T extends Object?'`, and an in-scope set populated from the raw
+      // strings does not contain `'T'` — which reproduced #766 verbatim for
+      // every bounded generic, the commonest spelling in real Dart.
+      for (final spelling in const [
+        'T extends Object?',
+        'T extends num?',
+        '@Deprecated(\'x\') T extends Object?',
+      ]) {
+        test('a BOUNDED type parameter ($spelling) at a nullable argument '
+            'returns null, not a throw', () async {
+          final source = DartCompiler(
+            _program(
+              TypeRef()
+                ..name = 'int'
+                ..nullable = true,
+              typeParams: [spelling],
+            ),
+          ).compile();
+          final result = await _run(source);
+
+          expect(
+            result.stdout,
+            contains(_enterMarker),
+            reason:
+                'the compiled program never reached the generic body, so '
+                'this measurement says nothing about the synthetic trailing '
+                'statement. Compiled source was:\n$source',
+          );
+          expect(
+            result.exitCode,
+            0,
+            reason:
+                'a bound does not make `T` a different type variable — at '
+                '`T = int?` falling off the end still completes with null. '
+                'stderr was:\n${result.stderr}\n\nCompiled source was:\n'
+                '$source',
+          );
+          expect(
+            const LineSplitter().convert(result.stdout.trim()).last.trim(),
+            'null',
+            reason:
+                'expected the nullable instantiation of a bounded parameter '
+                'to complete with null, exactly as the unbounded one does. '
+                'stdout was:\n${result.stdout}\n\nCompiled source was:\n'
+                '$source',
+          );
+        });
+      }
+
+      test(
+        'a BOUNDED type parameter at a non-nullable argument still fails loud',
+        () async {
+          final source = DartCompiler(
+            _program(
+              TypeRef()..name = 'int',
+              typeParams: const ['T extends num?'],
+            ),
+          ).compile();
+          final result = await _run(source);
+
+          expect(
+            result.stdout,
+            contains(_enterMarker),
+            reason:
+                'the compiled program never reached the generic body. '
+                'Compiled source was:\n$source',
+          );
+          expect(
+            result.exitCode,
+            isNot(0),
+            reason:
+                '`null` is not a value of `Future<int>` whatever the bound '
+                'admits; the synthetic trailing statement must still fail '
+                'loud. stdout was:\n${result.stdout}\n\nCompiled source was:\n'
+                '$source',
+          );
+          expect(
+            result.stderr,
+            contains('unreachable: Ball async body already returned'),
+            reason:
+                'expected the #647 loud failure for a non-nullable '
+                'instantiation; stderr was:\n${result.stderr}',
+          );
+        },
+      );
+
+      test(
+        'a BOUNDED type parameter declared by the enclosing CLASS is in scope',
+        () {
+          final source = DartCompiler(
+            _classTypeParamProgram('T extends Object?'),
+          ).compile();
+          expect(
+            source,
+            contains('null is T'),
+            reason:
+                "the method's `Future<T>` result names the CLASS's type "
+                'parameter, whose spelling carries a bound; stripping the '
+                'bound is what puts `T` in scope on this path too (the '
+                '`_metaFromTd` + `declMeta` route). Compiled source was:\n'
+                '$source',
+          );
+          expect(
+            source,
+            contains('class Box<T extends Object?>'),
+            reason:
+                'the EMITTED declaration must keep the full spelling — only '
+                'the in-scope NAME set drops the bound. Compiled source was:\n'
+                '$source',
+          );
+        },
+      );
+
+      test(
+        'a type-parameter spelling with no identifier keeps the loud throw',
+        () {
+          // The fail-safe arm of the name extraction: a spelling it cannot
+          // parse falls back to the trimmed input, which matches no declared
+          // result, so the pre-#766 concrete shape stands. It must never crash
+          // the compile.
+          final source = DartCompiler(
+            _program(TypeRef()..name = 'int', typeParams: const ['???']),
+          ).compile();
+          expect(
+            source,
+            contains(
+              "throw StateError('unreachable: Ball async body already "
+              "returned')",
+            ),
+            reason:
+                'an unparseable type-parameter spelling must degrade to the '
+                'concrete shape, not throw during compilation. Compiled source '
+                'was:\n$source',
+          );
+        },
+      );
+
+      test('the spelling under test is the one the REAL encoder records, and a '
+          'program carrying it returns null at a nullable argument', () async {
+        // The cases above hand-write `'T extends Object?'`. This one does
+        // not assume that spelling — it reads what `DartEncoder` actually
+        // records for a real `<T extends Object?>`, then RUNS a program
+        // carrying exactly those bytes. Without both halves the suite would
+        // only prove the compiler handles a string the suite itself chose.
+        final program = DartEncoder().encode('''
+Future<T> maybe<T extends Object?>() async {
+  print('$_enterMarker');
+}
+
+void main() async {
+  print(await maybe<int?>());
+}
+''');
+        final encodedMaybe = program.modules
+            .firstWhere((m) => m.name == 'main')
+            .functions
+            .firstWhere((f) => f.name == 'maybe');
+        final spelled = encodedMaybe
+            .metadata
+            .fields['type_params']!
+            .listValue
+            .values
+            .map((v) => v.stringValue)
+            .toList();
+        expect(
+          spelled,
+          ['T extends Object?'],
+          reason:
+              'the encoder records each type parameter as its full '
+              '`TypeParameter.toSource()`, which is why the compiler has to '
+              'extract the NAME rather than read the entry verbatim. If '
+              'this ever becomes the bare name, delete the extraction — do '
+              'not leave both.',
+        );
+
+        final source = DartCompiler(
+          _program(
+            TypeRef()
+              ..name = 'int'
+              ..nullable = true,
+            typeParams: spelled,
+          ),
+        ).compile();
+        final result = await _run(source);
+
+        expect(
+          result.stdout,
+          contains(_enterMarker),
+          reason:
+              'the compiled program never reached the generic body. '
+              'Compiled source was:\n$source',
+        );
+        expect(
+          result.exitCode,
+          0,
+          reason:
+              'the encoder-recorded spelling must behave exactly as the '
+              'bare name does. stderr was:\n${result.stderr}\n\nCompiled '
+              'source was:\n$source',
+        );
+        expect(
+          const LineSplitter().convert(result.stdout.trim()).last.trim(),
+          'null',
+          reason:
+              'stdout was:\n${result.stdout}\n\nCompiled source was:\n'
+              '$source',
+        );
+      });
 
       test('a concrete non-nullable async result keeps the loud throw', () {
         final source = DartCompiler(_concreteProgram()).compile();

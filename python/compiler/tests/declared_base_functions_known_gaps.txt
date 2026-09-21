@@ -1,0 +1,56 @@
+# Base functions python/compiler/ball_compiler/compiler.py dispatches by hardcoded
+# name that NO dart/shared/lib/std*.dart builder declares for that module.
+#
+# python/compiler/tests/test_declared_base_functions.py (ci.yml's `python` job)
+# fails when a module-scoped dispatcher tests for a name that is neither declared
+# in tests/conformance/std_coverage.json nor listed here — so a NEW undeclared
+# name can never slip in again (issue #743, the Python sibling of issue #505's
+# dart/shared/test/std_routed_declarations_test.dart and issue #607's
+# cpp/test/check_declared_base_functions.py).
+#
+# This file freezes the drift that already exists, MEASURED by running the gate
+# with an empty list, never assumed. It found SEVEN undeclared names; the seventh,
+# `std.string_from_char_codes`, is the one #743 was filed about and it was
+# DELETED rather than frozen — no builder declares it, no encoder emits it, the
+# Dart reference engine does not dispatch it, and the Dart-SDK static
+# `String.fromCharCodes` is served by the compiler's own `_BUILTIN_STATIC` table,
+# which is not a base-function surface at all.
+#
+# It is a RATCHET, not a dumping ground. The gate also fails when an entry is now
+# declared, or names a function the compiler no longer dispatches, so the list can
+# only shrink. To close one: declare the function in the relevant
+# dart/shared/lib/std*.dart builder, regenerate the inventory
+# (`cd dart/shared && dart run bin/gen_std.dart` plus
+# `cd dart/encoder && dart run bin/gen_std_coverage.dart`), and delete its line.
+#
+# Deliberately NOT done in the same change as the gate: none of the six below is a
+# Python-local typo. Each is a spelling every other compiler accepts too, so
+# declaring one is a cross-target decision that ripples through every compiler,
+# every engine, the capability table and the coverage inventory — the same reason
+# cpp/test/declared_base_functions_known_gaps.txt froze its five.
+#
+#   std.for_each                 alternative spelling of the declared `for_in`;
+#                                cpp, csharp, go and ts compilers accept it too,
+#                                and root CLAUDE.md's invariant 4 names it, but no
+#                                builder declares it.
+#   std.greater_than_or_equal    long spelling of the declared `gte`; go/compiler
+#   std.less_than_or_equal       and `lte` likewise.
+#   std.null_aware_index         EMITTED by the Dart encoder (`encoder.dart`, the
+#                                `a?[i]` shape) and compiled by dart, cpp, csharp,
+#                                go, rust and python — declared by no builder.
+#                                Already frozen in the C++ list for the same
+#                                reason.
+#   std.parenthesized            long spelling of the declared `paren`; cpp,
+#                                csharp, go and dart compilers accept it too.
+#   std.set_create               declared under `std_collections`, served here
+#                                from the `std` fall-through as well. Already
+#                                frozen in the C++ list.
+#
+# One `<module>.<function>` per line; `#` starts a comment.
+
+std.for_each
+std.greater_than_or_equal
+std.less_than_or_equal
+std.null_aware_index
+std.parenthesized
+std.set_create

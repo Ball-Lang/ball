@@ -479,6 +479,11 @@ compile items so the sibling projects never double-compile each other's files.
   any re-encoded compiler output), so do not re-derive it there; the guard is
   `dart/engine/test/single_param_input_bag_test.dart`, and the fix propagates to every self-hosted
   engine through the regenerated compiled artifacts.
+  **Measured yield:** the `csharp-roundtrip` row moved **95 -> 115** of 362 — this PR's head run
+  35562887923 (job 106219337391) against main at `313aef1c`, which measures 95 in run 35563056170
+  (job 106219875519). `CSHARP_ROUNDTRIP_FLOOR` is raised to **115** in the same PR: a ratchet that
+  is not raised is a hole the size of the fix, since reverting `_isSinglePositionalArgBag` would
+  drop the leg back to 95 and still pass every gate.
   **The `self`-keyed form is still OPEN**, reproduced while writing #689's object-model
   guard: a 1-parameter callee whose input map carries `self` also takes the by-NAME extraction
   path (`params.length == 1 && !inputMap.containsKey('self')` is the gate), so the compiler's

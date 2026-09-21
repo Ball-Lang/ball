@@ -986,7 +986,8 @@ and its own encoder refuses caps that column no matter how good either half is o
   test in that target except the whole-corpus sweep is non-`#[ignore]`d — five of them as of
   #790 — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here
   may write the process environment** (`std::env::set_var` is `unsafe` for exactly that reason),
-  pass the value in as an argument instead. The remaining gap is named in the row's own step
+  and the target carries `#![forbid(unsafe_code)]` so that is a BUILD ERROR rather than a rule a
+  reader has to remember — pass the value in as an argument instead. The remaining gap is named in the row's own step
   summary with the issue tracking it, never as an "expected baseline". #692's own two buckets
   are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the

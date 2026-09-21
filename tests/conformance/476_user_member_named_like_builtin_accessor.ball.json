@@ -19,14 +19,6 @@
           "isBase": true
         },
         {
-          "name": "string_is_empty",
-          "isBase": true
-        },
-        {
-          "name": "math_is_nan",
-          "isBase": true
-        },
-        {
           "name": "typed_list",
           "isBase": true
         },
@@ -36,6 +28,10 @@
         },
         {
           "name": "negate",
+          "isBase": true
+        },
+        {
+          "name": "string_is_empty",
           "isBase": true
         },
         {
@@ -64,6 +60,10 @@
         },
         {
           "name": "math_sign",
+          "isBase": true
+        },
+        {
+          "name": "math_is_nan",
           "isBase": true
         },
         {
@@ -319,24 +319,13 @@
           "name": "main:Counted.readIsEmptyViaThis",
           "outputType": "int",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "string_is_empty",
-              "input": {
-                "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "reference": {
-                          "name": "self"
-                        }
-                      }
-                    }
-                  ]
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
                 }
-              }
+              },
+              "field": "isEmpty"
             }
           },
           "metadata": {
@@ -348,24 +337,13 @@
           "name": "main:Counted.readIsNaNViaThis",
           "outputType": "bool",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "math_is_nan",
-              "input": {
-                "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "reference": {
-                          "name": "self"
-                        }
-                      }
-                    }
-                  ]
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
                 }
-              }
+              },
+              "field": "isNaN"
             }
           },
           "metadata": {
@@ -400,24 +378,13 @@
           "name": "main:CountedChild.readIsEmptyViaSuper",
           "outputType": "int",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "string_is_empty",
-              "input": {
-                "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "reference": {
-                          "name": "super"
-                        }
-                      }
-                    }
-                  ]
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "super"
                 }
-              }
+              },
+              "field": "isEmpty"
             }
           },
           "metadata": {
@@ -429,24 +396,13 @@
           "name": "main:CountedChild.readIsNaNViaSuper",
           "outputType": "bool",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "math_is_nan",
-              "input": {
-                "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "reference": {
-                          "name": "super"
-                        }
-                      }
-                    }
-                  ]
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "super"
                 }
-              }
+              },
+              "field": "isNaN"
             }
           },
           "metadata": {
@@ -458,24 +414,13 @@
           "name": "main:CountedChild.readIsEmptyViaThisInherited",
           "outputType": "int",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "string_is_empty",
-              "input": {
-                "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "reference": {
-                          "name": "self"
-                        }
-                      }
-                    }
-                  ]
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
                 }
-              }
+              },
+              "field": "isEmpty"
             }
           },
           "metadata": {

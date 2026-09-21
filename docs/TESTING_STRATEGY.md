@@ -532,8 +532,9 @@ The rule this repo now follows on any measurement leg:
 Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
 its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
 loop fixtures re-encode clean and then hang (#693): Rust **99**, C# **76**,
-Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** of
-358 on PR #738's matrix (run 34802773565), when `go/encoder` gained the
+Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** on
+PR #738's matrix (run 35549906393 — `Results: 79 passed, 281 failed, 360
+total`), when `go/encoder` gained the
 `std_collections` inverses and the four shapes `go/compiler` emits for every
 program (#691). Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a

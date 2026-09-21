@@ -433,8 +433,9 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   PR as the fix that earned it**; the job prints the exact new value. The remaining gap is named in
   the row's own step summary with the issue tracking it (#691), never as an "expected baseline".
 - **The inverse tables carry the base MODULE, and four emitted SHAPES have inverses of their own
-  (#691 — the row went 31 -> 79 of 358, measured on PR #738's matrix, run 34802773565).** `ballrt.go` used to map every helper to a `std` call, so no `std_collections` helper
-  could be inverted at all and the leg stopped at the first list/map/set op in most of the corpus.
+  (#691 — the row went 31 -> 79, measured on PR #738's matrix, run 35549906393:
+  `Results: 79 passed, 281 failed, 360 total (floor: 79)`).** `ballrt.go` used to map every
+  helper to a `std` call, so no `std_collections` helper could be inverted at all and the leg stopped at the first list/map/set op in most of the corpus.
   It is now two module-scoped tables (`stdHelpers`, `collectionsHelpers`) merged at init, and
   `mergeHelperTables` PANICS on a name claimed by both rather than letting map order pick a module.
   Each collections field is the compiler's FIRST alias for that argument (`c.arg(f, "value",

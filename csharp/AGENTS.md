@@ -1451,11 +1451,17 @@ Three legs, one runner, selected via `--leg=`:
   (`BallRuntime.Truthy(x)` parsed as an unrecognized instance method call on an unknown receiver,
   `new BallList(...)` as an unknown-type construction, etc. — see the "Encoder" section's
   "Documented gaps" above). #642 taught the encoder that dispatch shape
-  (`encoder/src/RuntimeHelpers.cs`) and #689 added the two NODE-shaped arms that inverse table
+  (`encoder/src/RuntimeHelpers.cs`) and #689 added the NODE-shaped arms that inverse table
   cannot hold — `BallRuntime.FieldGet` (→ a `field_access` node) and `BallRuntime.ArgGet` (→
   `null_coalesce` over two **tolerant** `std_collections.map_get` reads, NOT two `field_access`
   nodes; see the "Encoder" section), respectively the first blocker for the class-shaped fixtures
-  and for `105_static_methods`. The
+  and for `105_static_methods`, and then the compiler's whole OBJECT MODEL —
+  `BallRuntime.FieldSet` (→ `std.assign` over a `field_access` target),
+  `BallRuntime.MessageTypeName` (→ `std.type_of`, the one stated approximation), and the three
+  `new` expressions over `Ball.Shared`'s own value types (`new BallMessage("T", new BallMap { … })`
+  → a TYPED `message_creation`, `new BallMap { ["k"] = v }` → an UNTYPED one,
+  `new BallList(new BallValue[] { … })` → a `literal.list`), which block together because the
+  compiler emits all of them for the simplest class fixture. The
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
   through the real `dart run` subprocess, so a future encoder improvement that closes this gap will

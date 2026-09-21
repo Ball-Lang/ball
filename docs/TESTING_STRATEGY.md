@@ -532,7 +532,11 @@ The rule this repo now follows on any measurement leg:
 Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
 its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
 loop fixtures re-encode clean and then hang (#693): Rust **99**, C# **76**,
-Python **41**, Go **31** of 352. Those are the floors. None of the four is a parity gate — most of
+Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** on
+PR #738's matrix (run 35549906393 — `Results: 79 passed, 281 failed, 360
+total`), when `go/encoder` gained the
+`std_collections` inverses and the four shapes `go/compiler` emits for every
+program (#691). Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 
@@ -558,6 +562,20 @@ drop is red.
    the kill against a **fabricated runaway** — a program built with `rustc` at
    test time that ignores its arguments and never exits — driven through the real
    production path, on every PR.
+
+   **Killing the process is not the same as ending the fixture (#691).** Every
+   one of these legs sets `cmd.Stdout` to an in-memory writer, so the runtime
+   pipes the child and copies in a goroutine — and the wait does not return until
+   that copy ends, which needs EVERY holder of the pipe's write end closed, the
+   killed process's own descendants included. Go's round-trip leg killed its
+   `dart` and then blocked forever on `cmd.Wait()`, so the sweep printed no
+   `Results:` line at all and the row would have died on the job's
+   `timeout-minutes` — reporting nothing, rather than reporting a timeout. The
+   bound is `cmd.WaitDelay` (`go/engine/conformance/roundtrip.go`), and
+   `roundtrip_timeout_test.go` is its negative control: a stand-in `dart` that
+   hands its stdout to a grandchild and blocks, measured at 5.6 s with the bound
+   and 30.1 s without. It stayed latent because only 31 fixtures ever reached the
+   engine; it surfaced the moment #691 raised that to 80.
 
 Python's floor is **63** since PR #733 (run 34800144249, the PR's own row), which
 mapped every `ballrt.*` helper with an exact universal-`std` inverse — the
@@ -954,6 +972,43 @@ in a different, correct place: C++ renames in its compiler's throw lowering
 source-pattern check would either demand one shape of all of them or rubber-stamp
 whatever each does; the fixture measures the observable instead.
 
+#### A by-NAME ROUTE is only bounded when a test derives its cases from the route table (#697)
+
+The Dart encoder diverts ten getter names — `isEmpty`, `isNotEmpty`, `sign`,
+`isNaN`, `isFinite`, `isInfinite`, `runes`, `isEven`, `isOdd`, `reversed` —
+onto `std` / `std_collections` base calls, because without type resolution the
+name is all it has. Routing by name is a claim about the receiver, and nothing
+checked it: a class declaring `int isEmpty` encoded `b.isEmpty` as
+`std.string_is_empty(b)`, so the program contained **no `fieldAccess` for the
+user's member anywhere**. `dart run` prints `44`; every engine printed `false`.
+
+No existing gate could see it, and each for its own reason — which is why the
+instrument had to be a new KIND:
+
+* `check_encoder_completeness.dart` asks "is every emittable base function
+  executed by some fixture". `string_is_empty` was executed — from the *right*
+  receiver. A completeness gate cannot see a route firing on the *wrong* one.
+* Tier A is structural: the pipeline round-trips this source syntactically
+  clean, so the row reads clean.
+* A cross-engine differential is blind by construction: the defect is in the
+  ENCODER, so every engine is faithfully running the same wrong program and
+  they all agree.
+
+The gate is `dart/encoder/test/builtin_accessor_user_member_test.dart`, and its
+cases are **derived from `DartEncoder.builtinAccessorGetters`** — the encoder's
+own route table, not a list retyped into the test. Per name it asserts both
+directions: a user field, a user getter, an instance-creation receiver and an
+inherited-in-unit member all resolve to the member, and a `dart:core` receiver
+still routes (a fix that merely deleted the route would pass half of that).
+Adding a route without teaching it the receiver seam fails the gate with **no
+test edit**, which is the property a hand-listed test set does not have.
+`tests/conformance/476_user_member_named_like_builtin_accessor` is the
+cross-target half, pinning every engine row against `dart run`.
+
+The same rule generalises: whenever a component decides something by NAME —
+a route table, a method-arity window, a rendering table (#641) — the test that
+bounds it must read the table, not a copy of it.
+
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
 `std_concurrency` shipped nine declared base functions, a dispatch arm in the
@@ -990,7 +1045,7 @@ Three rules generalise out of it:
    `std_coverage.json`.** A row of `coveredByFixtures: []` that is also
    `carvedOut: false` is an untested function, not a quiet one — and a whole
    MODULE of them is a hole no parity number can see.
-2. **Pin the failing case, not just the working one.** `476_std_concurrency_handles`
+2. **Pin the failing case, not just the working one.** `477_std_concurrency_handles`
    prints a CAS that must FAIL and the cell value after it; that is the line no
    placeholder can pass. A fixture that only exercised a matching CAS would have
    been green against the unconditional `true`.
@@ -1530,7 +1585,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **Implemented-but-undeclared base functions in the C++ compiler (#607)** — the C++ half of the #505/#702 declaration closure. `cpp/compiler/src/compiler.cpp` dispatches base functions by hardcoded `fn == "..."`, and nothing compared those names against the canonical builders, so `compile_concurrency_call` grew three (`thread_detach`, `unique_lock`, `atomic_fetch_add`) that no builder declares, no encoder can emit and no engine implements | `cpp/test/check_declared_base_functions.py` — every name a module-scoped `compile_*_call` implements must be declared for that module by `tests/conformance/std_coverage.json` (the ALL-module inventory) or be a still-live entry in the frozen, ratchet-only `cpp/test/declared_base_functions_known_gaps.txt`; a positive floor on the extracted name count is checked FIRST, and `--self-test` proves all six cases bite | every PR (the always-on `proto` job — BOTH inputs can move it, so a cpp-path-filtered job would let a declaration-only PR skip it; no toolchain) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — ONE `full_e2e.sh` call over the PR's changed fixtures **plus** a derived four-fixture slice. One call, not two steps: the harness's positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is per-invocation, so a PR whose every changed fixture is a tracked `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the wrong cause (#651/#695) | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
-| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED |
+| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED. Each row's floor moves only in the PR that earns it — the job prints the exact new value; e.g. `rust-roundtrip` went 0 → 68 (#642) → 99 (#693) → 109 (#692). A floor is on the PASSED count alone, never a ratio: the corpus grows under every row, so `109 of 358` and `109 of 360` are the same measurement two fixtures apart |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
 | **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |

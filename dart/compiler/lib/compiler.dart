@@ -630,7 +630,7 @@ class DartCompiler {
       // need state, so the state is a top-level table and each base call is a
       // helper over it. The semantics are the Dart reference engine's
       // (`engine_std.dart`), so an interpreted and a compiled program answer
-      // identically — `476_std_concurrency_handles` runs both.
+      // identically — `477_std_concurrency_handles` runs both.
       if (_baseModules.contains('std_concurrency')) {
         b.body.add(cb.Code(_concurrencyPreamble));
       }
@@ -3832,7 +3832,7 @@ bool _ballAtomicCompareExchange(
   /// `thread_spawn(...)` — an identifier the generated Dart never defines, with
   /// no diagnostic. The lowering mirrors `dart/engine/lib/engine_std.dart`'s
   /// semantics exactly, so a program means the same thing interpreted and
-  /// compiled (`tests/conformance/476_std_concurrency_handles` gates both).
+  /// compiled (`tests/conformance/477_std_concurrency_handles` gates both).
   String _compileConcurrencyCall(FunctionCall call) {
     final f = _extractFields(call);
     final fn = call.function;

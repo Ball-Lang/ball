@@ -1136,7 +1136,7 @@ Future<void> main() async {
     ),
   );
 
-  // -- 476_std_concurrency_handles: the FIRST executed fixture for the
+  // -- 477_std_concurrency_handles: the FIRST executed fixture for the
   // `std_concurrency` base module (issues #606/#607/#608). Every one of its
   // nine declared functions had `"coveredByFixtures": []` in
   // tests/conformance/std_coverage.json, so the whole-corpus parity number said
@@ -1176,7 +1176,7 @@ Future<void> main() async {
   // `tests/conformance/src/*.dart`. Hand-built here and listed in
   // tests/conformance/CARVEOUTS.md.
   await writeFixture(
-    '476_std_concurrency_handles',
+    '477_std_concurrency_handles',
     buildProgramJson(
       name: 'std_concurrency_handles',
       stdFunctions: [

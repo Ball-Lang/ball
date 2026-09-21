@@ -357,15 +357,70 @@ avoid constructs that need receiver-type info:
     receiver-type seam cannot fix this one: the delegate's static type IS a
     `dart:core` `Iterable`. So `std.string_is_not_empty` is declared alongside
     `string_is_empty` and implemented on every target (polymorphic over the same
-    receivers), and `getterRoutes` routes `isNotEmpty` straight to it. Guards:
+    receivers), and `_directGetterRoutes` routes `isNotEmpty` straight to it.
+    Guards:
     `tests/conformance/474_is_not_empty_receivers` (cross-target) and
     `dart/encoder/test/is_not_empty_member_identity_test.dart`, which RUNS a
     recording receiver through `dart run` before and after the round trip —
     member identity is behavioural, so only executing it can see a change.
-    Same root, other direction: the `.isEmpty` rewrite consults no receiver type
-    at all, so an instance FIELD named `isEmpty` is answered by
-    `std.string_is_empty` on every engine — **#697**, the last member of #488's
-    receiver-type family and the only one outside its 16-file table.
+    Same root, other direction: the `.isEmpty` rewrite consulted no receiver
+    type at all, so an instance FIELD named `isEmpty` was answered by
+    `std.string_is_empty` on every engine — **#697 half A**, the last member of
+    #488's receiver-type family and the only one outside its 16-file table; the
+    receiver-type seam that fixes it is the next bullet.
+
+- **A member the RECEIVER'S OWN TYPE declares beats the built-in accessor route
+  of the same name (#697 A).** The encoder diverts ten getter names onto `std` /
+  `std_collections` base calls BY NAME — `_directGetterRoutes` plus the three
+  composites, and `DartEncoder.builtinAccessorGetters` is the closed set of all
+  ten. Before #697 that route consulted nothing, so a class declaring
+  `int isEmpty` encoded `b.isEmpty` as `std.string_is_empty(b)` and the program
+  carried **no `fieldAccess` for the user's member at all**: every engine
+  faithfully ran the wrong program and agreed on the wrong answer (`false` where
+  `dart run` says `44`). It was the last member of #488's receiver-type family
+  and the only one outside its 16-file table.
+  `_userMemberShadowsBuiltinAccessor` is the seam, and it suppresses the route
+  only on PROOF, by either of two routes — RESOLVED (`lookUpGetter` on the
+  receiver's static type resolves the member outside the SDK) or SYNTACTIC (the
+  receiver's declared type name is a class/mixin/enum THIS unit declares that
+  declares the member, walking `extends`/`with`/`implements`/`on` within the
+  unit). No proof ⇒ the route stands exactly as before, which is what keeps it a
+  refinement: the SYNTACTIC half matters because `generate_conformance.dart` and
+  every self-host regeneration parse with `parseString`, where `staticType` is
+  null. Guards: `tests/conformance/476_user_member_named_like_builtin_accessor`
+  (cross-target, and it pins the `String`/`List`/`int`/`double` receivers whose
+  route must survive) and `dart/encoder/test/builtin_accessor_user_member_test.dart`,
+  which derives one case per name from `builtinAccessorGetters` — add a route
+  without the seam and that gate fails with no test edit. The SYNTACTIC proof is
+  unit-local by construction, so it cannot see a member declared in another FILE;
+  `dart/encoder/test/builtin_accessor_resolved_receiver_test.dart` is the gate
+  for the RESOLVED half alone (its subject file declares no type at all, so a
+  pass there can only come from `prepareStaticTypes()`).
+  **Where this meets #674**: a forwarding getter whose delegate's own type
+  DECLARES the member (`bool get isNotEmpty => _base.isNotEmpty;` over a class
+  that declares it) is exactly the proof this seam looks for, so it encodes as a
+  `fieldAccess` naming the member rather than `std.string_is_not_empty`. That
+  keeps #674's property — the receiver is asked for the member the source named —
+  by the MORE direct means, and it is the only encoding that reaches the
+  delegate's getter at all, since the polymorphic emptiness predicate knows
+  nothing about a user instance. The real `wrappers.dart` shape is unaffected:
+  its delegate is a `dart:core` `Iterable`, nothing is provable, and the route
+  stands. `is_not_empty_member_identity_test.dart` pins BOTH receiver kinds, so
+  neither direction can collapse onto `std.string_is_empty` unnoticed.
+  **#697's half B is still open**: a MAP key named like a built-in accessor
+  (`{'length': 99}.length` must be `2`, not `99`) shadows the map's own accessor
+  on every engine. The reference engine can be fixed at its one lookup-order site
+  — an instance carries `__type__`/`__methods__`/`__super__` and a map literal
+  does not — but the SELF-HOSTED engines cannot inherit that fix: the accessor
+  implementation itself reads `objectMap.length` / `.keys` / `.values`, which
+  each target runtime resolves key-first on a `Map`, and flipping that order at
+  the runtime layer is **not** correct either, because the same runtime resolves
+  the self-host's proto VIEW (`listValue.values`, `Struct.fields`) and its
+  instance maps (`_Scope.values`) through the identical path — measured: the flip
+  turns the Go sweep from 358/358 to 100+ failures. Closing B needs an
+  unambiguous map-accessor primitive for the self-host (the `ball_proto` family
+  already has the shape — `getStructFieldKeys` — but no encoder route), i.e. a
+  representation decision across six runtimes.
 
 - **The `async` safety return must type-check under `strict-casts`.** Every
   `async`, non-generator, non-`void` function gets a trailing statement so
@@ -524,7 +579,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   twice, locking a locked mutex, unlocking an unlocked one, naming an unminted
   handle) raises a `BallRuntimeError`. They are LISTS, not int-keyed maps, on
   purpose: this file is compiled into six other engines and a list index has one
-  representation on every target. `tests/conformance/476_std_concurrency_handles`
+  representation on every target. `tests/conformance/477_std_concurrency_handles`
   is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
   the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
   **`sandbox: true` gates none of it.** `_checkSandbox` is called from exactly
@@ -545,7 +600,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   targets.** `_concurrencyPreamble` (Dart) and `BALL_CONCURRENCY_RUNTIME` (TS)
   both throw when the body answers a `Future`/thenable, while `engine_std.dart`
   awaits it — deliberate and fail-loud on every side, but a real
-  interpreted-versus-compiled split that `476_std_concurrency_handles` does not
+  interpreted-versus-compiled split that `477_std_concurrency_handles` does not
   reach. Issue #770.
 - **A field write asks whether the field's own DECLARATION contributes a setter,
   not whether the instance carries that key (#501 + #664).**

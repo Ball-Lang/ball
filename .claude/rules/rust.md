@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 361 passed, 0 failed, 361 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 362 passed, 0 failed, 362 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -492,6 +492,50 @@ cargo fmt --check && cargo clippy --workspace
   `rust/encoder/tests/mut_borrow_writes.rs` — four refused write shapes and four controls (a
   read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing).
   A `&mut` handed to a CALLEE (`f(&mut x)`) is a different mechanism and stays with #692.
+- **The runtime's COLLECTION constructors and the compiler's CLASS PROLOGUE (#692).**
+  `runtime_ctors.rs` is the sibling of `runtime_helpers.rs` for the two shapes that are not base
+  CALLS at all. `BallValue::List(x)`/`BallValue::Map(x)` join the `BallValue::String(…)` identity
+  arm (a Ball value is dynamic, so the wrapper means nothing); `BallList::from(x)` is the same
+  identity; `BallList::new()` is an empty list literal and `BallMap::new()` is `std.map_create`
+  with no entries — the two nodes `dart/encoder` emits for `[]` and `{}`. Each arm defers to a
+  file that declares its own type by that name, like the `enum_names` guard on `BallValue`.
+  - **The message builder is matched as ONE BLOCK, not statement by statement.**
+    `compile_message_creation` emits `{ let mut __ball_map = BallMap::new();
+    __ball_map.insert("x".to_string(), …); BallValue::Message(BallMessage::new("main:Point",
+    __ball_map)) }` — an imperative builder, not a literal. Taking it apart would need an inverse
+    for `BallMap::insert` and would yield a *different* node (a block that mutates a map) from the
+    `message_creation` it compiled from, so `block.rs::encode_message_builder` matches the whole
+    idiom and gives the exact node back. The match is STRUCTURAL (a fresh `BallMap::new()`
+    binding, every intermediate statement an `insert` on it, a tail that consumes it), never keyed
+    on the compiler's `__ball_map` spelling; anything that is not the whole idiom falls through to
+    ordinary block encoding and still fails loud on its unmapped `.insert()`.
+  - **`pub fn __ball_register_types()` is the compiler's class prologue, and it is DROPPED.** Its
+    `ball_register_superclass(child, parent)` calls invert to the child `TypeDefinition`'s
+    `metadata.superclass` — where `dart/encoder` writes it and `type_emit::superclass_of` reads it
+    back — and `fn main()`'s leading call to it is dropped in `block.rs`. Resolving the
+    registration's SHORT `Dog` against a declared type has to undo `sanitize_ident`: the compiled
+    struct for Ball's `main:Dog` is `main_Dog`, so `apply_superclass_registrations` accepts the
+    short name itself or that name behind a `_`-joined qualifier, and fails loud on zero or
+    multiple matches rather than losing a class relationship silently. Any statement in that
+    function that is not a two-string-literal registration is a loud failure too, because the
+    whole function is dropped.
+  - Dropping the prologue is also what made the **whole-program fixpoint** reachable —
+    `compile_reencode_roundtrip.rs::re_compiling_the_re_encoded_program_still_computes_the_same_answer`
+    builds and RUNS both the first and the second compile. Before it, a second compile emitted
+    `__ball_register_types` twice (`error[E0428]`). That run-proof is the only assertion that can
+    tell the `message_creation` the builder compiles from apart from some other structurally valid
+    node; `rust/encoder/tests/compiled_collection_ctors.rs` holds the shape assertions beside it.
+  - **Known, stated gap:** the compiled `pub struct main_Dog` re-encodes as the `TypeDefinition`
+    `main:main_Dog`, while the instances the same program builds still carry
+    `BallMessage::new("main:Dog", …)`. That type-NAME infidelity predates #692 and is asserted
+    (not papered over) in `the_compiled_class_registry_re_encodes_as_superclass_metadata`.
+  - **Measured yield:** the `rust-roundtrip` row moved **100 -> 109** — of 358 when it was first
+    measured (run 34803611448) and of 360 after this branch merged `main` (run 35550645549),
+    because two fixtures joined the corpus and neither round-trips. Quote the PASSED count, not
+    the ratio: the denominator moves with the corpus and the floor is on the numerator alone.
+    Both buckets' fixtures now stop on their NEXT blocker — `101_simple_class`/
+    `102_inheritance` on `ball_message_type_name` (#718). A closed bucket moves the histogram; it
+    does not on its own make every fixture in it pass.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -513,10 +557,13 @@ and its own encoder refuses caps that column no matter how good either half is o
   failed stage 3 with ``unsupported macro invocation `panic!` ``. Neither crate's own tests could
   see it — `rust/compiler`'s assert on emitted Rust, `rust/encoder`'s start from hand-written
   Rust.
-- The gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`. Stage 3 is an **encode** gate and
-  says so: the compiler's output names runtime helpers (`ball_field_get`,
-  `ball_message_type_name`, …) that are not user functions, so **re-compiling stage 3's output is
-  not a fixpoint** — measured, and neither Tier A nor this test pretends otherwise. Since #646
+- The gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`. Stage 3 is an **encode** gate for
+  every program but one: the compiler's output names runtime helpers (`ball_message_type_name`, …)
+  that are not user functions, so **re-compiling stage 3's output is not a fixpoint at large** —
+  measured, and neither Tier A nor this test pretends otherwise. The single exception is #692's
+  `re_compiling_the_re_encoded_program_still_computes_the_same_answer`, which builds and runs BOTH
+  compiles of a program made of the constructs that slice taught the encoder; it became possible
+  only once the class prologue stopped coming back as a user function. Since #646
   reading them is fail-loud: `encoder/src/runtime_helpers.rs` maps the helpers with a
   universal-`std` inverse and an UNMAPPED `ball_*` aborts the file rather than becoming a
   same-file call to a function nobody declared. That table is the universal-`std` subset only, so
@@ -612,7 +659,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 361 passed, 0 failed, 361 total` (the 4
+  whole corpus with Dart-identical output: `Results: 362 passed, 0 failed, 362 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -734,11 +781,18 @@ and its own encoder refuses caps that column no matter how good either half is o
   `failed`: the per-fixture budget is `BALL_TIMEOUT_MS` (default 60 000, fail-loud on a
   non-integer) and `roundtrip_floor.sh` reds the row on any `FAILING [name] timeout` line (C#'s
   row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
-  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, the only
-  non-`#[ignore]`d test in that target, so it runs in `cargo test --workspace` on every PR. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
-  `BallMap::new()`/`BallList::new()` and the class-registry helpers), never as an "expected
-  baseline"; the method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A,
-  not this leg.
+  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, and
+  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
+  `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Those are
+  the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on every
+  PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
+  as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
+  (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
+  corpus) — and the measured leaders are now `ball_arg_get` (59 fixtures),
+  `BallFlow::Normal` (25) and `ball_message_type_name` (21, which is #718). The
+  method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
+  leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

@@ -168,6 +168,16 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	// Killing the process is NOT enough to make Wait return. `cmd.Stdout` is an
+	// io.Writer, so os/exec pipes the child and copies in a goroutine, and Wait
+	// blocks until that copy ends — which needs EVERY holder of the pipe's write
+	// end closed, the killed process's own descendants included. Without a bound
+	// the `<-done` after Kill below can block forever and wedge the whole sweep:
+	// the leg then produces no `Results:` line at all and its CI row dies on the
+	// job timeout instead of reporting a timeout, which is the failure mode
+	// docs/TESTING_STRATEGY.md §2c item 6 calls a defect in the harness itself.
+	// WaitDelay is exactly the bound os/exec provides for it.
+	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
 		return Result{name, "error", "dart exec: " + errorDetail(err.Error())}
 	}

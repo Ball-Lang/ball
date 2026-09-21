@@ -28,21 +28,26 @@ deliberately restricted to helpers whose shape is unambiguous:
   variadic (a call's arguments are the input's remaining fields), so it is not
   of this table's one-field-per-positional-argument shape.
 
-Four shapes ARE exact inverses without being one ``std`` call over expression
+Several shapes ARE exact inverses without being one ``std`` call over expression
 arguments, and live below as named constants (handled in
 ``encoder.encode_ballrt_call``): ``getfield`` lands on a ``fieldAccess`` NODE,
 ``setfield``/``index_set`` on a ``std.assign`` over the matching l-value,
 ``is_type``/``as_type`` on ``std.is``/``std.as`` whose ``type`` field is a bare
-type NAME, and ``truthy``/``iterate`` on their operand unchanged.
+type NAME, ``brk``/``cont`` on ``std.break``/``std.continue`` whose operand is a
+label STRING, ``rethrow`` on an input-less ``std.rethrow``, and
+``truthy``/``iterate`` on their operand unchanged.
 
 ``python/encoder/tests/test_ballrt_inverse.py`` is the drift guard: every
 ``UnaryInput`` base function in ``std.json`` whose ``ballrt`` helper carries the
 same spelling MUST appear here, derived from those two files rather than from a
 list kept beside this one (issue #690).
 
-Statement-shaped lowerings (``if``/``for``/``while``/``try``) are not here at
-all: the compiler emits them as native Python statements, which the encoder
-already reads back from that syntax.
+``if`` is not here at all: the compiler emits it as a native Python ``if``,
+which the encoder already reads back from that syntax. The loop and ``try``
+lowerings are *shaped*, not named — a ``while True:`` whose body carries the
+break/continue trap, or a ``try:`` whose handler names one of the flow
+exceptions below — so their recognisers live in ``encoder.encode_while`` /
+``encoder.encode_try``; only the names they match on are here (issue #690).
 """
 
 from __future__ import annotations
@@ -93,6 +98,44 @@ INDEX_SET = "index_set"
 #: back as `std.not` over `std.is` — the same test.)
 TYPE_OPS = {"is_type": "is", "as_type": "as"}
 
+# ── The statement lowerings' vocabulary (issue #690) ─────────────────────────
+# `python/compiler` emits a Python `try:` for four distinct reasons, and only
+# one of them is a Ball `std.try` (`compiler.run_try`): the other three are the
+# loop-body break/continue trap (`_loop_body`, `run_forin`), the
+# `except ballrt.BallReturn` function-body wrapper (`emit_body`), and that
+# wrapper's value-less constructor form. `encoder.encode_try` tells them apart
+# by the exception class each handler names, so the names live here beside the
+# rest of the inverse table rather than as literals buried in the recogniser.
+#
+# `python/encoder/tests/test_ballrt_inverse.py` closes them against
+# `python/runtime`: a rename there would otherwise turn every recogniser into a
+# silent no-match, quietly putting the whole corpus back to
+# `unsupported statement Try`.
+
+#: `except ballrt.BallBreak as _brk:` / `except ballrt.BallContinue as _cnt:` —
+#: the trap that turns a Ball `break`/`continue` back into Python's own.
+FLOW_BREAK = "BallBreak"
+FLOW_CONTINUE = "BallContinue"
+#: `except ballrt.BallReturn as _r:` — the function-body return wrapper.
+FLOW_RETURN = "BallReturn"
+#: `except ballrt.BallThrow as _ex:` — the ONE shape that is a real `std.try`.
+FLOW_THROW = "BallThrow"
+#: `ballrt.flow._caught` — the rethrow stack a compiled catch pushes the caught
+#: value onto for the duration of the handler, popped in its own `finally`.
+FLOW_MODULE = "flow"
+CAUGHT_STACK = "_caught"
+#: `ballrt.stack_trace_of(_ex)` — the compiler's spelling of a `catch (e, st)`
+#: clause's SECOND binding, which reads back as the clause's `stack_trace` field.
+STACK_TRACE_OF = "stack_trace_of"
+
+#: `ballrt.brk(label)` / `ballrt.cont(label)` -> `std.break` / `std.continue`.
+#: The operand is a label STRING, not an expression — and the compiler always
+#: passes one, EMPTY for an unlabelled jump, which reads back as no input at all
+#: (the shape `dart/encoder` produces for a label-less `break`).
+LABEL_OPS = {"brk": "break", "cont": "continue"}
+#: `ballrt.rethrow()` -> `std.rethrow`, the one flow function with no input.
+RETHROW = "rethrow"
+
 _UNARY = ("value",)
 _BINARY = ("left", "right")
 
@@ -131,18 +174,18 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "to_str": ("to_string", _UNARY),
     "length": ("length", _UNARY),
     "concat": ("concat", _BINARY),
-    "compare_to": ("compare_to", _BINARY),
+    "compare_to": ("compare_to", ("value", "other")),
     "index_get": ("index", ("target", "index")),
     "type_of": ("type_of", _UNARY),
-    "string_contains": ("string_contains", ("value", "search")),
-    "string_starts_with": ("string_starts_with", ("value", "prefix")),
-    "string_ends_with": ("string_ends_with", ("value", "suffix")),
-    "string_index_of": ("string_index_of", ("value", "search")),
-    "string_last_index_of": ("string_last_index_of", ("value", "search")),
-    "string_split": ("string_split", ("value", "separator")),
+    "string_contains": ("string_contains", _BINARY),
+    "string_starts_with": ("string_starts_with", _BINARY),
+    "string_ends_with": ("string_ends_with", _BINARY),
+    "string_index_of": ("string_index_of", _BINARY),
+    "string_last_index_of": ("string_last_index_of", _BINARY),
+    "string_split": ("string_split", _BINARY),
     "string_replace": ("string_replace", ("value", "from", "to")),
     "string_replace_all": ("string_replace_all", ("value", "from", "to")),
-    "string_code_unit_at": ("string_code_unit_at", ("value", "index")),
+    "string_code_unit_at": ("string_code_unit_at", ("target", "index")),
     "string_runes": ("string_runes", _UNARY),
     "string_pad_left": ("string_pad_left", ("value", "width", "padding")),
     "string_pad_right": ("string_pad_right", ("value", "width", "padding")),
@@ -167,6 +210,10 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     # unary base call, not a statement lowering (`rethrow` takes no operand and
     # `std.rethrow` has no input, so it is not of this shape).
     "throw": ("throw", _UNARY),
+    # `ballrt.ret(v)` is `std.return {value}`. The compiler always passes an
+    # operand — a value-less Ball `return` emits `ballrt.ret(None)`, which reads
+    # back as `std.return` over a null literal: the same program.
+    "ret": ("return", _UNARY),
     # ── Math ─────────────────────────────────────────────────────────────────
     "math_abs": ("math_abs", _UNARY),
     "math_floor": ("math_floor", _UNARY),
@@ -179,10 +226,10 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "floor_to_double": ("floor_to_double", _UNARY),
     "ceil_to_double": ("ceil_to_double", _UNARY),
     "truncate_to_double": ("truncate_to_double", _UNARY),
-    "math_pow": ("math_pow", ("base", "exponent")),
+    "math_pow": ("math_pow", _BINARY),
     "math_min": ("math_min", _BINARY),
     "math_max": ("math_max", _BINARY),
-    "math_clamp": ("math_clamp", ("value", "lower", "upper")),
+    "math_clamp": ("math_clamp", ("value", "min", "max")),
     "math_gcd": ("math_gcd", _BINARY),
     "math_is_finite": ("math_is_finite", _UNARY),
     "math_is_infinite": ("math_is_infinite", _UNARY),

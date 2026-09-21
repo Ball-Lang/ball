@@ -248,10 +248,21 @@ func (e *Encoder) encodeFunc(fd *ast.FuncDecl) *ballv1.FunctionDefinition {
 		}
 	}
 
+	// Every OTHER function go/compiler emits carries the named-result shape
+	// `… (__ret ballrt.Value) { … defer ballrt.CatchReturn(&__ret); __ret = <body>;
+	// return }`, whose Ball original is simply `<body>` — see unwrapCompiledFunc
+	// for why encoding it literally would answer null instead.
+	var encoded *ballv1.Expression
+	if stmts, result, ok := unwrapCompiledFunc(fd); ok && body == fd.Body {
+		encoded = blockExpr(e.encodeStmts(stmts), e.encodeExpr(result))
+	} else {
+		encoded = e.encodeBlockStmt(body)
+	}
+
 	fn := &ballv1.FunctionDefinition{
 		Name:       fd.Name.Name,
 		OutputType: resultType(fd.Type),
-		Body:       e.encodeBlockStmt(body),
+		Body:       encoded,
 		Metadata:   funcMetadata(params),
 	}
 	if len(params) == 1 {

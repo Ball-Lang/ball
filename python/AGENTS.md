@@ -69,7 +69,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 **compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
 four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 361 passed, 0 failed, 361 total (4 skipped carve-outs)` — Dart-identical
+`Results: 362 passed, 0 failed, 362 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
@@ -100,10 +100,17 @@ the fix that earned it** (the job prints the exact new value). Never lower it,
 and never make a row green by weakening either side. Reads goldens and subprocess
 stdout as **bytes**, normalising only CRLF.
 
-The remaining blockers, in descending order of the fixtures they head: the
-compiler's `try:`/`except` for a body that genuinely returns (`ast`'s `Try` is an
-unsupported statement here), top-level classes, and the `ret`/`arg` return and
-parameter plumbing. All are named in #690.
+`try:` — which headed the list at 142 occurrences and was the SOLE blocker of 79
+fixtures — is done: `encoder.encode_try`/`encode_while` invert all four shapes
+the compiler emits (the loop break/continue trap, the `BallReturn` body wrapper
+and its constructor form, and a real `std.try`), together with the
+`brk`/`cont`/`ret`/`rethrow` flow helpers. See `encoder/AGENTS.md` for the table
+and for why a trap is never inlined on sight.
+
+The remaining blockers, in descending order of the fixtures they head: method
+calls on a receiver (which is the same problem as top-level classes), dict
+literals, and the `arg` parameter prologue, whose inverse depends on the
+enclosing function's arity. All are named in #690.
 
 CI home: the `python-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:`

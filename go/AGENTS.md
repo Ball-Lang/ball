@@ -198,9 +198,23 @@ all six modules produce no such file at all.
 - **Fail-loud** (issue #55): an unsupported construct records an error and Encode
   returns a non-nil error rather than a placeholder. Deferred (documented gaps,
   extend here): top-level type/const/var, structs-as-TypeDefinitions, map/set
-  literals and `std_collections` ops (the Phase-2 compiler doesn't lower them
-  yet), multi-value return/assignment, `switch`/`defer`/`go`/channels,
+  literals, multi-value return/assignment, `switch`/`go`/channels,
   `fmt.Printf`/`Sprintf` and multi-argument `fmt.Println`.
+- **`ballrt.go` is the inverse of `go/compiler`'s emission, and it carries the base
+  MODULE (#691).** Two module-scoped tables — `stdHelpers` and
+  `collectionsHelpers` — merged at init by `mergeHelperTables`, which PANICS on a
+  name claimed by both rather than letting map iteration order choose the module
+  of an encoded call. Four shapes the compiler emits for every program are read
+  back structurally rather than through the table: `ballrt.FieldGet(x, "n")` is a
+  Ball `field_access`, `ballrt.NewList(a, b)` is a Ball list LITERAL,
+  `if ballrt.RunLoopBody("", func(){…}) { break }` is a loop BODY (not an `if`),
+  and the whole `(__ret ballrt.Value)` + `defer ballrt.CatchReturn(&__ret)` +
+  `__ret = <body>; return` function shape reduces to `<body>` as the block's tail
+  result — encoding it literally would make every compiled function answer null,
+  since `__ret` is not a Ball variable. `go/encoder/ballrt_table_test.go` is the
+  drift guard: it PARSES `go/compiler/base_call.go`'s `compileCollectionsCall` and
+  compares every emission against the table, with negative controls proving it
+  catches each way the two files can part.
 - The round-trip test (`go/encoder/roundtrip_test.go`) is the proof: Go →
   Ball → (compile with `go/compiler` + `go run`) is asserted equal to running the
   original Go natively, for the `testdata/*.go` sources.
@@ -312,21 +326,35 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - This leg never touches the compiled engine; `Result`/`Summary`/
   `conformanceDir`/`diffDetail` live in `support.go`, shared by every leg — keep
   new shared helpers there.
-- **Honest baseline `Results: 0 passed, 321 failed, 321 total`** (23
-  compile-error, 298 encode-error, measured 2026-09-02). That zero is expected
-  BY CONSTRUCTION and is the product: the compiler emits a flat package
-  dispatching through `ballrt.*` over `ballrt.Value`, a shape the syntactic
-  `go/ast` encoder was never built to re-parse. It mirrors
-  `csharp/engine/conformance/RoundTripLeg.cs` exactly. **Do not make it green by
-  weakening either side** — raising it is encoder/compiler work.
-- Gated only on harness health (`total >= 1`), never on the failure count. Needs
-  `dart` on PATH (or `BALL_DART`); it skips loudly rather than reporting a fake
-  zero when Dart is missing.
+- **A ratcheted MEASUREMENT, not a parity gate.** It measured a flat
+  `0 passed, 321 failed` from the day it shipped (the compiler emits a flat
+  package dispatching through `ballrt.*` over `ballrt.Value`, a shape the
+  syntactic `go/ast` encoder was never built to re-parse), then 31 after #642
+  gave the universal `std` helpers an inverse, then **79** once #691 added
+  the `std_collections` inverses and the four shapes the compiler emits for every
+  program (measured on PR #738's matrix, run 35549906393 — `Results: 79 passed,
+  281 failed, 360 total`), and it climbs as
+  `go/encoder` learns more of them. **Never make it green by
+  weakening either side, and never lower the floor** — raising it is
+  encoder/compiler work, and `GO_ROUNDTRIP_FLOOR` must be raised in the SAME PR
+  as the fix that earned it (the job prints the exact new value).
+- Gated on harness health (`total >= 1`) PLUS `passed >= 1` PLUS
+  `passed >= GO_ROUNDTRIP_FLOOR` (`tools/ci/roundtrip_floor.sh`), never on the
+  failure count. Needs `dart` on PATH (or `BALL_DART`); it skips loudly rather
+  than reporting a fake zero when Dart is missing.
+- **The per-fixture kill is bounded by `cmd.WaitDelay` (#691).** `cmd.Stdout` is
+  an `io.Writer`, so `os/exec` pipes the child and `cmd.Wait` waits for the copy
+  goroutine — which needs every holder of the pipe's write end closed, the killed
+  process's DESCENDANTS included. Killing alone therefore does not end the
+  fixture: one surviving grandchild wedges the sweep, it never prints a
+  `Results:` line, and the row dies on `timeout-minutes` instead of reporting a
+  timeout. `roundtrip_timeout_test.go` is the negative control (5.6 s with the
+  bound, 30.1 s without).
 - CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
   **That workflow is a PR gate since #619** — it has a path-filtered
   `pull_request:` trigger sharing its `push` filter, and `go/**` is in that
   filter, so the row runs on any PR touching this directory with no
-  `gh workflow run` dispatch. It still gates harness health only, never the
+  `gh workflow run` dispatch. It gates harness health plus the floor, never the
   failure count.
 
 ## Status / deferred
@@ -351,7 +379,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 361 passed, 0 failed, 361 total`; 4 golden-less
+  (`Results: 362 passed, 0 failed, 362 total`; 4 golden-less
   resource-limit/sandbox carve-outs). `compiled/compiled_engine.go` is a
   COMMITTED generated artifact since #586 (no build tag), kept fresh by ci.yml's
   `Ball Artifact Freshness` regen-and-diff job. See `go/engine/AGENTS.md`.

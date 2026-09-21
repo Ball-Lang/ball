@@ -97,10 +97,15 @@ f-strings (plain `{expr}`); `len`/`str`/`int`/`float`/`abs`; the ternary
 
 Deferred (all fail loud): classes/`self`/methods (any `obj.method(...)` call),
 decorators, `async`/`await`, `import`-qualified use, comprehensions, generators,
-`with`/`try`/`raise`/`assert`, `in`/`not in`, slices, tuple/list unpacking and
+`with`/`raise`/`assert`, `in`/`not in`, slices, tuple/list unpacking and
 multi-target parallel assignment, `*args`/`**kwargs`/keyword-only params and
 keyword call args, dict/set/tuple literals, starred elements, f-string
 conversions/format-specs.
+
+`try:` is a special case: **only** the four shapes `python/compiler` emits are
+read back (see the next section). Hand-written `try:`/`except SomeError:` is
+still deferred and still fails loud — this encoder has no `raise`, so it has
+nothing to catch.
 
 ## Reading back the compiler's own output (`ballrt.*`, #642 / #690)
 
@@ -115,21 +120,76 @@ them. `ball_encoder/ballrt_calls.py` is that inverse surface and has two halves:
   `tests/test_ballrt_inverse.py::test_same_spelled_unary_helpers_all_have_an_inverse`
   derives that closed set from std.json + `python/runtime` rather than from a
   list kept beside the table — a new one fails on the day it lands.
-* **Named constants for the four shapes that are NOT that** (handled in
+
+  **The FIELD NAMES are closed against std.json's `typeDefs` too**
+  (`test_every_helper_field_name_is_declared_by_its_base_function`). Every
+  engine reads a base call's input message BY NAME, and a name the function's
+  `inputType` does not declare is not cosmetic: `dart/engine`'s
+  `_extractBinaryArgs` reads `left`/`right` STRICTLY and throws otherwise, so
+  `string_contains` mapped to `("value", "search")` re-encoded into a program
+  the REFERENCE engine could not run at all, and `math_clamp` mapped to
+  `("value", "lower", "upper")` silently answered the lower bound
+  (`15.clamp(0, 10)` -> 0). Seven entries were wrong this way while every
+  Python-side round-trip test passed, because `python/compiler` accepts several
+  spellings per field (`a('lower', 'lowerLimit', 'min', 'low')`) — a table
+  checked only by re-running its output on Python is checked against the one
+  reader that cannot tell the difference.
+* **Named constants for the shapes that are NOT that** (handled in
   `encoder.encode_ballrt_call`): `PASSTHROUGH` (`truthy`, `iterate` — adapters
   whose Ball semantics are implicit in the consuming node), `FIELD_GET`
   (`getfield` -> a `fieldAccess` NODE, not a call), `FIELD_SET`/`INDEX_SET`
-  (-> `std.assign` over the matching l-value) and `TYPE_OPS`
+  (-> `std.assign` over the matching l-value), `TYPE_OPS`
   (`is_type`/`as_type` -> `std.is`/`std.as`, whose `type` field is a bare type
-  NAME). A helper must live in exactly one half; the test asserts no overlap.
+  NAME), `LABEL_OPS` (`brk`/`cont` -> `std.break`/`std.continue`, whose operand
+  is a label STRING — empty means no `label` field at all) and `RETHROW`
+  (`std.rethrow`, which takes no input). A helper must live in exactly one half;
+  the test asserts no overlap.
 
 A `ballrt.*` helper with no exact inverse still fails loud — it is never guessed
 at, and neither is a computed field/type-name operand. Left out on purpose:
 optional-argument helpers the compiler calls with a `None` placeholder
 (`string_substring`, `to_string_as_exponential`), helpers with no `std.json`
 declaration (`print_error`, `string_from_char_codes`), the variadic `invoke`, and
-the return/parameter plumbing (`ret`, `arg`) that needs the `try`-statement and
-prologue work #690 still tracks.
+the parameter prologue (`arg`), whose inverse depends on the enclosing
+function's arity — #690 still tracks that one.
+
+### The compiler's STATEMENT lowerings (`try:` and the loops, #690)
+
+`if` comes back from Python's own `if`, but the loops and `try` do not: the
+compiler emits *shapes*, so `encoder.encode_while` / `encoder.encode_try`
+recognise them and `ballrt_calls.py` holds only the names they match on
+(`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
+`CAUGHT_STACK`, `STACK_TRACE_OF`, closed against `python/runtime` by
+`test_the_flow_class_names_are_real_runtime_classes`).
+
+A Python `try:` is emitted for **four** reasons and only one is a `std.try`:
+
+| compiler site | shape | inverse |
+|---|---|---|
+| `_loop_body`, `run_forin` | `except ballrt.BallBreak` / `BallContinue` trap | the body, inlined — Ball's loop nodes carry `break`/`continue` natively |
+| `emit_body` | `except ballrt.BallReturn as _r: return _r.value` | the body, inlined |
+| `emit_body` (constructor) | `except ballrt.BallReturn: pass` | the body, inlined |
+| `run_try` | `except ballrt.BallThrow as _ex` + the `ballrt.flow._caught` push/pop | `std.try {body, catches[{variable, stack_trace, body}], finally}` |
+
+The trap **cannot** simply be inlined wherever it appears. The compiler's
+C-style `for` is `while True:` + exit guard + trap + UPDATE, and
+`except ballrt.BallContinue` falls *through* to UPDATE — so the whole `while
+True:` shape is read back at once as `std.for {condition, update, body}`
+(no UPDATE -> `std.while`; trap first with the guard last -> `std.do_while`).
+Inlining the trap into a `std.while` whose body ends with UPDATE drops the
+update out of `continue`'s path: a loop that never advances, which **hangs**
+rather than raising. A trap found anywhere else that is not its block's last
+statement fails loud, and the round-trip tests for this family run under a hard
+wall-clock bound so that regression fails the suite instead of the job's
+timeout.
+
+**Known lossiness, on the compiler side.** `run_try` consumes `catches[0]` and
+never reads its `type`, so every `on <Type> catch` compiles to a single
+catch-all and a second clause is dropped. This encoder's inverse is therefore
+exact for what the compiler emits *today* and produces an untyped catch; the
+defect itself shows up on the `python-compiler` leg
+(`146_nested_try_catch_types` prints `FormatException` where the golden says
+`RangeError`) and is tracked separately.
 
 ## Known semantic boundaries (not bugs)
 

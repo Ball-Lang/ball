@@ -5825,7 +5825,7 @@ inline void ball_object_set_field(BallDyn obj, const std::string& field,
 // program may compare handles, never depend on their numbering. The semantics
 // mirror dart/engine/lib/engine_std.dart exactly, so an interpreted and a
 // compiled program answer identically (conformance
-// 476_std_concurrency_handles). Before #607 this module compiled to
+// 477_std_concurrency_handles). Before #607 this module compiled to
 // DECLARATION STATEMENTS (`std::thread _thread(...)`,
 // `std::mutex _mtx`) spliced where a value was expected, so the declared
 // `-> int` of thread_spawn/mutex_create could not be honoured at all.

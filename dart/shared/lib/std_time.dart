@@ -19,14 +19,18 @@ Module buildStdTimeModule() {
 
   module.typeDefs.addAll(
     <google.DescriptorProto>[
-      _type('FormatTimestampInput', [
-        _intField('timestamp_ms', 1),
-        _stringField('format', 2),
-      ]),
-      _type('ParseTimestampInput', [
-        _stringField('value', 1),
-        _stringField('format', 2),
-      ]),
+      // NO `format` field on either type. Both carried one until #771, and
+      // NOTHING in the repository has ever read it: the reference engine
+      // answers `DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true)
+      // .toIso8601String()` and `DateTime.parse(value)`, the Dart compiler
+      // emits the same two, and the C++ runtime helpers are
+      // `_ball_format_timestamp(int64_t)` / `_ball_parse_timestamp(const
+      // std::string&)` — neither takes a pattern at all. A declared field no
+      // target reads is a contract every OTHER target implements against and
+      // the reference implementation ignores; custom format strings are a
+      // capability to ADD, not a field to keep promising.
+      _type('FormatTimestampInput', [_intField('timestamp_ms', 1)]),
+      _type('ParseTimestampInput', [_stringField('value', 1)]),
       _type('DurationInput', [_intField('left', 1), _intField('right', 2)]),
     ].map(
       (d) => TypeDefinition()
@@ -49,13 +53,16 @@ Module buildStdTimeModule() {
       'format_timestamp',
       'FormatTimestampInput',
       'string',
-      'Format ms-since-epoch to ISO 8601 or custom format string',
+      'Format ms-since-epoch as an ISO 8601 UTC string: '
+          'DateTime.fromMillisecondsSinceEpoch(timestamp_ms, isUtc: true)'
+          '.toIso8601String()',
     ),
     _fn(
       'parse_timestamp',
       'ParseTimestampInput',
       'int',
-      'Parse timestamp string to ms-since-epoch',
+      'Parse an ISO 8601 timestamp string to ms-since-epoch: '
+          'DateTime.parse(value).millisecondsSinceEpoch',
     ),
 
     // Duration arithmetic

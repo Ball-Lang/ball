@@ -1461,7 +1461,12 @@ Three legs, one runner, selected via `--leg=`:
   `new` expressions over `Ball.Shared`'s own value types (`new BallMessage("T", new BallMap { … })`
   → a TYPED `message_creation`, `new BallMap { ["k"] = v }` → an UNTYPED one,
   `new BallList(new BallValue[] { … })` → a `literal.list`), which block together because the
-  compiler emits all of them for the simplest class fixture. The
+  compiler emits all of them for the simplest class fixture. #689's next slice then added
+  `RuntimeHelpers.CollectionsTable` — the same row shape as the `std` table, for the 48
+  `std_collections` helpers it structurally could not name (a row names a FUNCTION and its only
+  emitter, `Builders.StdCall`, hard-codes `module = "std"`), which was the largest remaining
+  family of measured first blockers. The
+
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
   through the real `dart run` subprocess, so a future encoder improvement that closes this gap will

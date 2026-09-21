@@ -79,6 +79,29 @@ public class CollectionsRuntimeHelperTests
         "map_map",
     };
 
+    /// <summary>
+    /// Functions whose DECLARED input type does not name the field their implementations
+    /// actually read, and the fields they really take. The declaration is the loose one in each
+    /// case, so this overrides it for the probe AND for the "is this field declared" check —
+    /// recorded here, with its evidence, rather than silently special-cased in the encoder.
+    ///
+    /// <para><c>set_create</c> is declared with input type <c>ListInput</c>
+    /// (<c>list</c>/<c>index</c>/<c>value</c>), but the Dart REFERENCE ENGINE's
+    /// <c>_stdSetCreate</c> (<c>dart/engine/lib/engine_std.dart</c>) reads <c>elements</c> and
+    /// nothing else, answering an <b>empty set</b> — silently, never an error — for any other
+    /// key; and <c>elements</c> is the only key the Dart reference ENCODER emits
+    /// (<c>dart/encoder/lib/encoder.dart</c>'s set-literal arm). So <c>elements</c> is the field
+    /// this call has and <c>ListInput</c> is a declaration gap, reported in this slice's PR:
+    /// closing it means introducing a <c>SetCreateInput</c> across six languages' module
+    /// builders plus <c>dart/shared/std.json</c> and their parity gates, which is its own
+    /// change.</para>
+    /// </summary>
+    private static readonly Dictionary<string, string[]> UndeclaredInputFields =
+        new(StringComparer.Ordinal)
+        {
+            ["set_create"] = new[] { "elements" },
+        };
+
     /// <summary>The marker a probe packs into the input field <paramref name="field"/>. Distinct
     /// per field, so a row that maps a positional argument to the WRONG input field is caught
     /// rather than passing on a coincidence.</summary>
@@ -167,7 +190,9 @@ public class CollectionsRuntimeHelperTests
                 inputFields.ContainsKey(function.InputType),
                 $"{function.Name} declares input type `{function.InputType}`, which the module does not define");
 
-            var fields = inputFields[function.InputType];
+            var fields = UndeclaredInputFields.TryGetValue(function.Name, out var overridden)
+                ? overridden.ToList()
+                : inputFields[function.InputType];
             var source = CSharpCompiler.Compile(BuildProbe(function.Name, fields, collections));
 
             if (source.Contains("BallRuntime.UnsupportedBaseCall", StringComparison.Ordinal))
@@ -229,8 +254,8 @@ public class CollectionsRuntimeHelperTests
                 if (!fields.Contains(field.Name))
                 {
                     failures.Add(
-                        $"{function.Name}: re-encoded field `{field.Name}` is not declared by "
-                        + $"input type `{function.InputType}`");
+                        $"{function.Name}: re-encoded field `{field.Name}` is not one this "
+                        + $"function takes ({string.Join("/", fields)})");
                 }
             }
 

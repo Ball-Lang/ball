@@ -1395,7 +1395,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "109"
+      RUST_ROUNDTRIP_FLOOR: "124"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1437,10 +1437,13 @@ jobs:
             echo "the Ball -> Rust compiler dispatches through"
             echo "\`ball_lang_shared::runtime::*\` over \`BallValue\`, and the syntactic"
             echo "\`syn\` encoder reads idiomatic hand-written Rust. #692's own two"
-            echo "buckets are CLOSED (the collection constructors and the"
-            echo "\`__ball_register_types\` class prologue); the measured leaders now are"
-            echo "\`ball_arg_get\` (59 fixtures), \`BallFlow::Normal\` (25) and"
-            echo "\`ball_message_type_name\` (21, tracked separately as #718)."
+            echo "buckets are CLOSED — the collection constructors (empty in #739,"
+            echo "\`ball_map_create\`/\`ball_set_create\` in #796), the"
+            echo "\`__ball_register_types\` class prologue, and the is/as registry"
+            echo "(\`ball_is\`/\`is_not\`/\`as\`/\`is_type\`); not one of them appears in the"
+            echo "histogram any more. The measured leaders now are \`ball_arg_get\`"
+            echo "(61 fixtures), \`ball_message_type_name\` (23, tracked separately as"
+            echo "#718), \`ball_unsupported_base_call\` (18) and \`ball_iterate\` (16)."
             echo "The method-dispatcher \`panic!\` sub-case is #632, a different metric."
           } > "$RUNNER_TEMP/roundtrip.note"
 

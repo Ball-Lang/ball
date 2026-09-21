@@ -596,6 +596,55 @@ the 49 blocked on `BallValue::List`).
   `BallMessage::new("main:Dog", …)`. That type-NAME infidelity predates #692; it is asserted, not
   papered over, in `the_compiled_class_registry_re_encodes_as_superclass_metadata`.
 
+### The is/as registry and the map/set literal constructors (issue #692, second half)
+
+Four more `ball_*` helpers that are NOT table rows, because the table's contract is "one
+positional argument per input field". They have their own arms in
+`lib.rs::encode_runtime_helper_call`; the gate is
+`rust/encoder/tests/compiled_type_ops_and_literals.rs`.
+
+- **The is/as registry's query side.** `ball_is`/`ball_is_not`/`ball_as` (`base_call.rs::
+  compile_type_op`) and `ball_is_type` (`pattern.rs::type_check`, emitted for EVERY pattern type
+  test) all invert through `runtime_helpers.rs::type_op_helper`. `ball_is_type` maps to the same
+  `std.is` as `ball_is`, because it is the same discrimination — `ball_is` is literally
+  `BallValue::Bool(ball_is_type(&value, type_name))` — and its bare-`bool` result has no Ball
+  counterpart to preserve, since a Ball condition site coerces truthiness implicitly. The second
+  operand must be a string LITERAL: `std.is`'s `type` field is one in the Ball node too
+  (`dart/encoder` writes `type.toSource()` into it), so a computed type name genuinely has no
+  node and fails loud. The old `runtime_helpers.rs` doc bullet excluding these ("no type-name
+  string operands") is retired — it was keeping a supported shape out.
+- **`ball_map_create` and `ball_set_create`** are the compiler's non-empty map/set literals
+  (`BallMap::new()`/`BallList::new()` above are only the EMPTY ones). Their Ball inputs are
+  *shaped*, not positional: `std.map_create` takes one repeated `entry` field per pair, each an
+  anonymous `{key, value}` message-creation, and `std.set_create` names its list `elements`.
+- **The operand is matched AFTER encoding, not on the `syn` tree.** A pair list arrives as
+  `BallValue::List(BallList::from(vec![…]))` — three identity wrappers deep — and `encode_expr`
+  already reduces every one of them to the list literal underneath, so `lib.rs::
+  list_literal_elements` is the whole reader.
+- **The COMPREHENSION lowering fails loud, deliberately.** `{for e in m.entries: k: v}` compiles
+  to an imperative block that splices into a local `Vec` and hands `ball_map_create` that
+  variable. Its Ball node is a `map_create` with `element` fields — a different, larger inverse —
+  so encoding it as an entry-less `map_create` would silently compute `{}` (the issue #55 class).
+  Both helpers panic naming the shape instead; `a_map_create_over_a_spliced_list_fails_loud` and
+  its set twin are the pins.
+- **Stated, pre-existing gap surfaced while measuring this: every compiled STRING literal
+  re-encodes wrapped in `std.to_string`.** `compile_expression` emits a Ball string literal as
+  `BallValue::String("a".to_string())`, and `.to_string()` is NOT one of `methods.rs`'s identity
+  passthroughs — in hand-written Rust, which is this encoder's actual input, it genuinely IS
+  `std.to_string`. Over a `String` that op returns its operand unchanged, so the re-encoded
+  program computes the same answer; the extra node is a node-fidelity difference, not a
+  behavioural one, and making it an identity would special-case a literal receiver on evidence
+  nobody has measured. It is ASSERTED, not normalized away, in
+  `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
+  `std.to_string({value: "a"})`), so the day it changes, a test says so.
+- **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
+  `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
+  PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`
+  21, `ball_is_type` 18, `ball_set_create` 7 and `ball_is` 3 are each now zero. The leaders are
+  `ball_arg_get` 61, `ball_message_type_name` 23 (#718), `ball_unsupported_base_call` 18 and
+  `ball_iterate` 16. Quote the PASSED count, never the ratio: the denominator moves with the
+  corpus and the floor is on the numerator alone.
+
 ### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
 
 `(|| … )()` is the shape `rust/compiler` wraps each of its three **function** bodies in — the

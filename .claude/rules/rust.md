@@ -967,24 +967,38 @@ and its own encoder refuses caps that column no matter how good either half is o
   `failed`: the per-fixture budget is `BALL_TIMEOUT_MS` (default 60 000, fail-loud on a
   non-integer) and `roundtrip_floor.sh` reds the row on any `FAILING [name] timeout` line (C#'s
   row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
-  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, and
+  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` (the budget
+  reaches `run_dart` as an ARGUMENT, so the kill is proven in milliseconds with no environment
+  write; the env SPELLING is pinned separately by the pure
+  `the_per_fixture_budget_is_read_from_ball_timeout_ms`), and
   `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
   `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
-  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Those are
-  the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on every
-  PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
-  as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Every
+  test in that target except the whole-corpus sweep is non-`#[ignore]`d — five of them as of
+  #790 — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here
+  may write the process environment** (`std::env::set_var` is `unsafe` for exactly that reason),
+  pass the value in as an argument instead. The remaining gap is named in the row's own step
+  summary with the issue tracking it, never as an "expected baseline". #692's own two buckets
+  are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
   corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/
   `ball_spread_iter` inverses it owed, took it **109 -> 121 of 361** (run 35557346693): every
   fixture whose compiled output carries a `for-in` loop or a spliced literal re-encodes now.
-  At 121 the row's own "first still-failing fixture" line names `ball_message_type_name`
-  (#718); re-measure the other leaders from a run artifact rather than quoting the pre-#712
-  figures, which were taken at 109. **#692's 124 and #712's 121 are two INDEPENDENT measurements
-  against the same 109 baseline, each taken on its own branch — never add them.** The merged tree
+  The row's own "first still-failing fixture" line is NOT a leader — it is the alphabetically
+  first failure — so re-measure the leaders from the sweep's `Failure buckets` block in a run
+  artifact rather than quoting that line or any pre-#712 figure. **#692's 124 and #712's 121 are
+  two INDEPENDENT measurements against the same 109 baseline, each taken on its own branch —
+  never add them.** The merged tree
   MEASURES **138 of 362** (run 35561847017, job 106216902719) and that is what
-  `RUST_ROUNDTRIP_FLOOR` carries: the number a run printed, never one derived from two. The
-  leader at 138 is still `ball_message_type_name` (#718). The
+  `RUST_ROUNDTRIP_FLOOR` carries: the number a run printed, never one derived from two. **The
+  leaders come from the sweep's own `Failure buckets (cause -> fixtures)` block (#790), never
+  from prose or from the row's "first still-failing fixture" line** — that line is the
+  ALPHABETICALLY first failure (`101_simple_class`), and reading it as the leader is how this
+  file and `rust/AGENTS.md` both published `ball_message_type_name` (23) as the leader at 138
+  when the real leader was `ball_arg_get` (63). At 138 of 363 (run 35593505327, job
+  106313208884) the buckets rank `ball_arg_get` 63 (#858), `BallFlow::Normal` 25 (#859),
+  `ball_message_type_name` 23 (#718), `ball_unsupported_base_call` 19, `BallValue::Function` 16,
+  `ball_index_set` 14 and `ball_list_push` 13. The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`

@@ -80,6 +80,23 @@
 //! rather than assumed from reading the poll loop, and a `timeout` outcome is a
 //! hard error in `tools/ci/roundtrip_floor.sh` rather than one more increment
 //! of `failed`.
+//!
+//! ## No test in this target may write the process environment
+//!
+//! `#![forbid(unsafe_code)]` below is not decoration. libtest runs a target's
+//! non-`#[ignore]`d tests CONCURRENTLY, and `std::env::set_var` is `unsafe`
+//! precisely because another thread may be inside `getenv` — so a self-test
+//! that SET `BALL_TIMEOUT_MS` could only be justified by "nothing else runs in
+//! this process". This file once carried exactly that justification, and it was
+//! **already false** when it was written; every test added here falsifies it
+//! again (there are five non-`#[ignore]`d tests now, beside the `#[ignore]`d
+//! sweep). Prose saying "do not re-add it" rots the same way that SAFETY note
+//! did, so the ban is the compiler's: the budget reaches [`run_dart`] as an
+//! ARGUMENT and the spelling is parsed by the pure [`parse_timeout`], and any
+//! future test reaching for `set_var` fails to COMPILE in the PR-gated `Rust`
+//! job rather than being caught by a reader.
+#![forbid(unsafe_code)]
+
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -109,7 +126,9 @@ const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 /// by "nothing else runs in this process", a claim that was already false here
 /// (`the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` is a second
 /// non-`#[ignore]`d test) and that every test added to this file falsifies
-/// again. Parsing through a seam costs nothing and keeps the proof honest.
+/// again. Parsing through a seam costs nothing and keeps the proof honest —
+/// and the crate-level `#![forbid(unsafe_code)]` makes that a build error
+/// rather than a rule a later reader has to remember.
 fn parse_timeout(raw: Option<&str>) -> Duration {
     match raw {
         Some(raw) => {

@@ -204,13 +204,29 @@ would wedge the row's 90-minute job rather than report anything. That is not hyp
 - The budget is `BALL_TIMEOUT_MS` (default 60 000) — the same spelling
   `go/engine/conformance/roundtrip.go` uses. A non-integer value is a hard error, never a silent
   fallback. It is configurable *so that it is testable*: a hard-coded constant is a budget nobody
-  has measured.
-- `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` is the self-test. It
-  builds a **fabricated runaway** with `rustc` at test time (a program that ignores its arguments
-  and never exits), drives it through the real `run_dart` path, and asserts it comes back as the
-  `__timeout__` sentinel inside the configured budget. It is the only non-`#[ignore]`d test in
-  that target, so `cargo test --workspace` runs it on every PR and `-- --ignored` runs the sweep
-  alone — they never share a process, which is what makes the test's `set_var` safe.
+  has measured. It is read in exactly one place (`fixture_timeout`) and parsed by the PURE
+  `parse_timeout`, which `the_per_fixture_budget_is_read_from_ball_timeout_ms` pins — the
+  spelling, the unset default, and the loud rejection of `60s`/`1.5`/`-1`/`0` — without
+  writing the environment.
+- `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` is the self-test for the
+  KILL. It builds a **fabricated runaway** with `rustc` at test time (a program that ignores its
+  arguments and never exits), drives it through the real `run_dart` path, and asserts it comes
+  back as the `__timeout__` sentinel inside the budget it is HANDED: `run_dart` takes the budget
+  as an ARGUMENT, so the kill is proven in milliseconds without touching the environment.
+- **No test in this target may write the process environment** (#790). libtest runs a target's
+  non-`#[ignore]`d tests CONCURRENTLY, and `std::env::set_var` is `unsafe` precisely because
+  another thread may be inside `getenv`. `roundtrip_conformance.rs` once carried one, under a
+  SAFETY note reading “this is the only non-`#[ignore]`d test in this target” — a
+  claim that was **already false** when it was written, and that every test added to that file
+  falsifies again: the target now has FIVE non-`#[ignore]`d tests
+  (`a_failure_is_bucketed_by_its_cause_not_by_its_fixture`,
+  `the_per_fixture_budget_is_read_from_ball_timeout_ms`,
+  `the_histogram_orders_by_frequency_and_accounts_for_every_failure`,
+  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` and the runaway test), beside the
+  `#[ignore]`d whole-corpus sweep. The rule is the COMPILER's, not this paragraph's: the target
+  carries `#![forbid(unsafe_code)]`, so a future test reaching for `set_var` fails to build in
+  the PR-gated `Rust` job — pass the value in as an argument instead, the way `run_dart` takes
+  its budget.
 - A `timeout` outcome is a **hard error** in `tools/ci/roundtrip_floor.sh`, not one more increment
   of `failed`. Folded into the failure count it is indistinguishable from a golden mismatch, and
   the ratchet can only notice it once enough fixtures hang to push `passed` under the floor. All

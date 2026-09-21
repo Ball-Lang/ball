@@ -448,8 +448,10 @@ compile items so the sibling projects never double-compile each other's files.
   `csharp-roundtrip` row, whose floor #689 raised **76 -> 86** — `FieldGet` was the first blocker
   for the largest bucket of its failures (`101_simple_class`, `102_inheritance`,
   `103_abstract_class`, `104_getter_setter`, `106_factory_constructor`, …) and `ArgGet` for
-  `105_static_methods`. The row's measured first blocker is now `BallRuntime.MessageTypeName`,
-  the compiler's instance-method dispatch preamble — read the live number and the live first
+  `105_static_methods` — and then **86 -> 95** with the object-model arms below. No single helper
+  heads the histogram any more (the class-shaped fixtures spread across `BallRuntime.Iterate`,
+  `WithSelf`, `UnresolvedReference`, `MapCreate`, `ListPush`, `SetCreate`, `CallMethod` and
+  `IsType`) — read the live number and the live first
   blocker off that row, never off this line.
 - **Known, pre-existing: a positionally-packed input does not survive the re-encode.** The
   compiler's `__in` is the whole input message, but the reference engine destructures a

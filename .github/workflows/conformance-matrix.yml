@@ -1755,7 +1755,15 @@ jobs:
       # rather than through `ballrt.call_method`. Measured by this very row
       # (PR #829, job 106251801278: `Results: 266 passed, 97 failed, 363
       # total`), never predicted.
-      PYTHON_COMPILER_FLOOR: "266"
+      # 269 once #670's branch was merged with `origin/main`: the extra 3 are
+      # NOT this issue's — they come from main's own Python slices that the
+      # 266 measurement above predates. Leaving the floor at 266 would have
+      # given those back silently, which is exactly what a ratchet exists to
+      # prevent, and the row's own `IMPROVED` notice said so on two
+      # consecutive runs before anyone read it. Measured by this very row
+      # (PR #829, jobs 106269065646 and 106283796079, both `Results: 269
+      # passed, 94 failed, 363 total (floor: 266)`), never predicted.
+      PYTHON_COMPILER_FLOOR: "269"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

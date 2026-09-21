@@ -529,8 +529,11 @@ cargo fmt --check && cargo clippy --workspace
     `main:main_Dog`, while the instances the same program builds still carry
     `BallMessage::new("main:Dog", …)`. That type-NAME infidelity predates #692 and is asserted
     (not papered over) in `the_compiled_class_registry_re_encodes_as_superclass_metadata`.
-  - **Measured yield:** the `rust-roundtrip` row moved **100 -> 109 of 358** (run 34803611448),
-    and both buckets' fixtures now stop on their NEXT blocker — `101_simple_class`/
+  - **Measured yield:** the `rust-roundtrip` row moved **100 -> 109** — of 358 when it was first
+    measured (run 34803611448) and of 360 after this branch merged `main` (run 35550645549),
+    because two fixtures joined the corpus and neither round-trips. Quote the PASSED count, not
+    the ratio: the denominator moves with the corpus and the floor is on the numerator alone.
+    Both buckets' fixtures now stop on their NEXT blocker — `101_simple_class`/
     `102_inheritance` on `ball_message_type_name` (#718). A closed bucket moves the histogram; it
     does not on its own make every fixture in it pass.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
@@ -784,8 +787,9 @@ and its own encoder refuses caps that column no matter how good either half is o
   run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Those are
   the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on every
   PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
-  as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109 of
-  358** (run 34803611448) — and the measured leaders are now `ball_arg_get` (59 fixtures),
+  as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
+  (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
+  corpus) — and the measured leaders are now `ball_arg_get` (59 fixtures),
   `BallFlow::Normal` (25) and `ball_message_type_name` (21, which is #718). The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.

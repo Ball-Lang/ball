@@ -141,8 +141,10 @@ read green on every run. #642 closed the three shapes that blocked EVERY fixture
 unconditional oneof `LazyLock` statics, the entry IIFE, the `BallValue::*` constructors) and put a
 positive floor + ratchet on the row (`RUST_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh`).
 #693 (the `&mut` alias hang) took it to 99, and #692 — the runtime's COLLECTION constructors and
-the `__ball_register_types` class prologue, see "Conventions" below — to **109 of 358**
-(run 34803611448). The leaders now are `ball_arg_get` (59 fixtures), `BallFlow::Normal` (25) and
+the `__ball_register_types` class prologue, see "Conventions" below — to **109 of 360**
+(run 35550645549; 109 of 358 when it was measured at 34803611448, before two fixtures joined the
+corpus and neither round-tripped — the denominator moves on its own, the floor does not).
+The leaders now are `ball_arg_get` (59 fixtures), `BallFlow::Normal` (25) and
 `ball_message_type_name` (21, which is #718's dispatcher scrutinee).
 It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
 

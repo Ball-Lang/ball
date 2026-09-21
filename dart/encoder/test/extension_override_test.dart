@@ -56,6 +56,7 @@ import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
+import 'package:ball_encoder/encoder.dart';
 import 'package:ball_encoder/package_encoder.dart';
 import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
@@ -374,6 +375,8 @@ Set<String> _calledFunctions(Expression e) {
 }
 
 void main() {
+  _parseOnlyOverrideTests();
+
   group(
     'extension-override call syntax (#488 / #670)',
     timeout: const Timeout(Duration(minutes: 3)),
@@ -1099,6 +1102,256 @@ void main() {
           reason:
               'the compiled-back write must be valid Dart. Compiled output '
               'was:\n$compiled',
+        );
+      });
+    },
+  );
+}
+
+/// The PARSE-ONLY spelling of an extension override (issue #670).
+///
+/// `parseString` has no element model, so it cannot know an identifier names an
+/// extension: `Ext(receiver).member` arrives as an ordinary
+/// `ast.MethodInvocation` `Ext(receiver)` in target position, never as an
+/// `ast.ExtensionOverride`. `DartEncoder().encode(String)` is exactly that
+/// path — and it is the one `generate_conformance.dart`, `ball encode` and
+/// `/ball:convert` use, so it is how an extension override reaches the
+/// CONFORMANCE CORPUS and every non-Dart target.
+///
+/// It used to fall through to the generic encoding, where `Ext` ALSO names a
+/// declared typeDef: the override became a CONSTRUCTION of the extension type
+/// with the receiver buried as `arg0`, silently — no warning, and the real
+/// member never named. Measured on the reference engine at `542ce80d`:
+///
+/// ```
+/// BallRuntimeError: Undefined variable: "length"
+/// ```
+///
+/// The receiver never reaches the member, so the first thing the member reads
+/// off it is missing. Reading it as an override is not a guess: the encoder
+/// collects this unit's extension names before any body is encoded, and Dart
+/// cannot CONSTRUCT an extension.
+void _parseOnlyOverrideTests() {
+  group(
+    'extension override through the PARSE-ONLY encoder (#670)',
+    timeout: const Timeout(Duration(minutes: 3)),
+    () {
+      // Two extensions on the SAME type declaring the SAME members, so the
+      // override is the only thing selecting which one runs — the shape of
+      // `tests/conformance/src/478_extension_override_selection.dart`.
+      const source = r'''
+extension AlphaTag on List<int> {
+  String tag() => 'alpha(${this.length})';
+
+  String get label => 'A';
+
+  String scale(int by) => 'alpha*${by}';
+}
+
+extension BetaTag on List<int> {
+  String tag() => 'beta(${this.length})';
+
+  String get label => 'B';
+
+  String scale(int by) => 'beta*${by}';
+}
+
+void main() {
+  final xs = <int>[1, 2, 3];
+  print(AlphaTag(xs).tag());
+  print(BetaTag(xs).tag());
+  print(AlphaTag(xs).label);
+  print(BetaTag(xs).label);
+  print(AlphaTag(xs).scale(2));
+  print(BetaTag(xs).scale(2));
+}
+''';
+
+      const expected = <String>[
+        'alpha(3)',
+        'beta(3)',
+        'A',
+        'B',
+        'alpha*2',
+        'beta*2',
+      ];
+
+      late DartEncoder encoder;
+      late Program program;
+
+      setUpAll(() {
+        encoder = DartEncoder();
+        program = encoder.encode(source);
+      });
+
+      FunctionDefinition entryFunction() => program.modules
+          .firstWhere((m) => m.name == 'main')
+          .functions
+          .firstWhere((f) => f.name == 'main');
+
+      test('every override names the extension member, none constructs it', () {
+        final called = _calledFunctions(entryFunction().body);
+        for (final ext in const ['AlphaTag', 'BetaTag']) {
+          for (final member in const ['tag', 'label', 'scale']) {
+            expect(
+              called,
+              contains('main.main:$ext.$member'),
+              reason:
+                  'the parse-only encoder must name `main:$ext.$member`; a '
+                  'bare `$member` resolves by ordinary lookup and can reach '
+                  "the OTHER extension's member. Calls were: $called",
+            );
+          }
+        }
+        expect(
+          called.where((c) => c.endsWith('.tag') && !c.contains(':')),
+          isEmpty,
+          reason:
+              'an unqualified `tag` call means the selection was dropped. '
+              'Calls were: $called',
+        );
+      });
+
+      test('the receiver travels in `self` as a VALUE', () {
+        final calls = <FunctionCall>[];
+        void walk(Expression x) {
+          switch (x.whichExpr()) {
+            case Expression_Expr.call:
+              if (x.call.function.contains(':AlphaTag.') ||
+                  x.call.function.contains(':BetaTag.')) {
+                calls.add(x.call);
+              }
+              if (x.call.hasInput()) walk(x.call.input);
+            case Expression_Expr.block:
+              for (final s in x.block.statements) {
+                if (s.hasExpression()) walk(s.expression);
+                if (s.hasLet() && s.let.hasValue()) walk(s.let.value);
+              }
+              if (x.block.hasResult()) walk(x.block.result);
+            case Expression_Expr.messageCreation:
+              for (final f in x.messageCreation.fields) {
+                walk(f.value);
+              }
+            case Expression_Expr.fieldAccess:
+              if (x.fieldAccess.hasObject()) walk(x.fieldAccess.object);
+            case Expression_Expr.lambda:
+              if (x.lambda.hasBody()) walk(x.lambda.body);
+            case _:
+              break;
+          }
+        }
+
+        walk(entryFunction().body);
+        expect(calls, hasLength(6), reason: 'six overrides are written');
+        for (final call in calls) {
+          expect(call.input.whichExpr(), Expression_Expr.messageCreation);
+          final self = call.input.messageCreation.fields
+              .where((f) => f.name == 'self')
+              .toList();
+          expect(
+            self,
+            hasLength(1),
+            reason: '${call.function} carries no receiver in `self`',
+          );
+          expect(
+            self.single.value.whichExpr(),
+            Expression_Expr.reference,
+            reason:
+                '${call.function}: the receiver must be the RECEIVER VALUE. A '
+                '`messageCreation` here is the phantom `Ext(x)` construction '
+                'of the extension type, which buries the receiver as `arg0`.',
+          );
+          expect(self.single.value.reference.name, 'xs');
+        }
+      });
+
+      test('nothing falls to the placeholder, and nothing warns', () {
+        expect(
+          jsonEncode(program.toProto3Json()),
+          isNot(contains('unsupported:')),
+          reason: 'a placeholder means the override was refused',
+        );
+        expect(
+          encoder.warnings,
+          isEmpty,
+          reason:
+              'every extension here is declared by the unit being encoded. '
+              'Warnings were: ${encoder.warnings}',
+        );
+      });
+
+      test('the program runs on the reference engine', () async {
+        final lines = <String>[];
+        await BallEngine(program, stdout: lines.add).run();
+        expect(
+          lines,
+          equals(expected),
+          reason: 'the engine resolved a different extension member',
+        );
+      });
+
+      test('the compiled Dart re-emits the override and behaves the same', () {
+        final compiled = DartCompiler(program).compile();
+        for (final ext in const ['AlphaTag', 'BetaTag']) {
+          expect(
+            compiled,
+            contains('$ext(xs).tag()'),
+            reason: 'compiled output was:\n$compiled',
+          );
+        }
+        final scratch = Directory.systemTemp.createTempSync(
+          'ball_parse_only_override',
+        );
+        addTearDown(() {
+          if (scratch.existsSync()) scratch.deleteSync(recursive: true);
+        });
+        expect(
+          _runDart(compiled, scratch, 'round_tripped').split('\n'),
+          equals(expected),
+          reason: 'the round trip selected a different extension',
+        );
+      });
+
+      test('an override the parse-only encoder cannot name is REFUSED', () {
+        // Explicit type arguments ON the extension have nowhere sound to go
+        // (the call's `type_args` channel renders on the MEMBER), and a bare
+        // `Ext(x)` in no member-access position cannot be carried at all.
+        // Falling through would construct the extension type, in silence.
+        const refused = r'''
+extension Boxed<T> on List<T> {
+  String tag() => 'Boxed';
+}
+
+String explicitExtensionTypeArgs(List<int> xs) => Boxed<int>(xs).tag();
+
+void bareOverride(List<int> xs) {
+  Boxed(xs);
+}
+''';
+        final refusingEncoder = DartEncoder();
+        final refusedProgram = refusingEncoder.encode(refused);
+        final json = jsonEncode(refusedProgram.toProto3Json());
+        expect(
+          json,
+          contains('unsupported:'),
+          reason: 'a refusal must leave the loud placeholder behind',
+        );
+        expect(
+          refusingEncoder.warnings.where(
+            (w) => w.contains('Extension-override syntax is not encodable'),
+          ),
+          hasLength(2),
+          reason:
+              'both refused shapes must warn by name. Warnings were: '
+              '${refusingEncoder.warnings}',
+        );
+        // The member DECLARATION still exists (`"name":"main:Boxed.tag"`);
+        // what must not exist is a CALL naming it, which would mean the
+        // encoder selected an extension it just said it could not name.
+        expect(
+          json,
+          isNot(contains('"function":"main:Boxed.tag"')),
+          reason: 'a refused override must not name a member it cannot select',
         );
       });
     },

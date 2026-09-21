@@ -341,6 +341,7 @@ inline const std::vector<std::string>& program_names() {
         "475_instance_field_named_length",
         "476_user_member_named_like_builtin_accessor",
         "477_std_concurrency_handles",
+        "478_extension_override_selection",
     };
     return names;
 }

@@ -5451,6 +5451,50 @@ TEST(string_sink_emits_the_runtime_helpers) {
 // Main
 // ================================================================
 
+
+// ── Extension-override dispatch (issue #670) ────────────────────────────────
+//
+// `Ext(receiver).member` is encoded as a call NAMING the extension's own member
+// (`<module>:<Ext>.<member>`) with the receiver in `self`, because the
+// selection is the whole meaning of the node: two extensions can declare the
+// SAME member on the SAME type, and the plain `receiver.member` emission
+// resolves by ordinary lookup — a DIFFERENT member.
+//
+// C++ has no extensions, and an extension typeDef carries no `descriptor`, so
+// its members used to be partitioned as class methods of a struct that is never
+// emitted: they vanished from the output entirely and the program did not link.
+// `lower_extension_members` lowers each to a FREE function taking the receiver
+// as its first parameter, `self` — which is already what the call site emits.
+//
+// The fixture-level guard is `478_extension_override_selection` on the
+// `C++ Compiled` matrix row; this is the fast one.
+TEST(extension_members_lower_to_free_functions_taking_self) {
+    CppCompiler compiler(ball::LoadProgram(
+        (conformance_dir() / "478_extension_override_selection.ball.json").string()));
+    auto out = compiler.compile();
+
+    // Both extensions' members must be DEFINED — the defect was that nothing
+    // was emitted for them at all.
+    ASSERT_CONTAINS(out, "AlphaTag_tag(auto&& self)");
+    ASSERT_CONTAINS(out, "BetaTag_tag(auto&& self)");
+    ASSERT_CONTAINS(out, "AlphaTag_label(auto&& self)");
+    ASSERT_CONTAINS(out, "BetaTag_label(auto&& self)");
+
+    // ...and an argument-bearing member must keep the RECEIVER in slot 0. The
+    // call's `arg0` field names slot 1 once `self` is a declared parameter;
+    // without that shift `arg0` collided with `self` and the receiver was
+    // dropped from the argument list, silently.
+    ASSERT_CONTAINS(out, "AlphaTag_scale(auto&& self, int64_t by)");
+    ASSERT_CONTAINS(out, "AlphaTag_scale(xs, static_cast<int64_t>(2))");
+    ASSERT_CONTAINS(out, "BetaTag_scale(xs, static_cast<int64_t>(2))");
+
+    // Each override reaches its OWN extension, never a shared dispatcher.
+    ASSERT_CONTAINS(out, "AlphaTag_tag(xs)");
+    ASSERT_CONTAINS(out, "BetaTag_tag(xs)");
+    ASSERT_CONTAINS(out, "AlphaTag_label(xs)");
+    ASSERT_CONTAINS(out, "BetaTag_label(xs)");
+}
+
 int main() {
     std::cout << "Ball C++ Compiler Tests\n"
               << "=======================\n";

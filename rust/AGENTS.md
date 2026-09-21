@@ -625,6 +625,13 @@ positional argument per input field". They have their own arms in
   nobody has measured. It is ASSERTED, not normalized away, in
   `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
   `std.to_string({value: "a"})`), so the day it changes, a test says so.
+- **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
+  `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
+  PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`
+  21, `ball_is_type` 18, `ball_set_create` 7 and `ball_is` 3 are each now zero. The leaders are
+  `ball_arg_get` 61, `ball_message_type_name` 23 (#718), `ball_unsupported_base_call` 18 and
+  `ball_iterate` 16. Quote the PASSED count, never the ratio: the denominator moves with the
+  corpus and the floor is on the numerator alone.
 
 ### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
 

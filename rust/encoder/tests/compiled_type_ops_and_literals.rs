@@ -294,11 +294,10 @@ fn summarize_expression(expr: &Expression) -> String {
             "{}.{}({})",
             call.module,
             call.function,
-            call.input
-                .as_ref()
-                .map_or_else(|| "<absent>".to_string(), |input| summarize_expression(
-                    input
-                ))
+            call.input.as_ref().map_or_else(
+                || "<absent>".to_string(),
+                |input| summarize_expression(input)
+            )
         ),
         _ => "<expr>".to_string(),
     }
@@ -423,7 +422,10 @@ fn a_compiled_type_pattern_re_encodes_as_std_is() {
                             "pattern_expr",
                             message(
                                 "VarPattern",
-                                vec![("name", string_literal("n")), ("type", string_literal("int"))],
+                                vec![
+                                    ("name", string_literal("n")),
+                                    ("type", string_literal("int")),
+                                ],
                             ),
                         ),
                         ("body", string_literal("an int")),

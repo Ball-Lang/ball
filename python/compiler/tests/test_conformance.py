@@ -97,6 +97,18 @@ PROVEN = [
     # pair is legal Dart precisely because a plain `final` field contributes a
     # getter and NOTHING else, so the field itself IS the missing getter.
     "472_initializer_list_field_with_setter",
+    # `.add` on a SET, which the syntactic Dart -> Ball encoder routes to
+    # `std_collections.list_push` like any other `.add` (#68). `ballrt.col
+    # .list_push` had no BallSet arm, so every one of these died with Python's
+    # native `AttributeError: 'BallSet' object has no attribute 'append'` — not
+    # a BallThrow, so no compiled `try` could catch it either. Invisible to
+    # every other leg: the `python-engine` row runs the SELF-HOSTED engine,
+    # whose own set handling is compiled Ball, and the `python-roundtrip` row
+    # runs its re-encoded programs on the DART engine, which has the arm.
+    "129_unique_elements",
+    "392_empty_set_literal",
+    "459_set_add_remove_bool",
+    "462_set_mutation_in_place",
 ]
 
 

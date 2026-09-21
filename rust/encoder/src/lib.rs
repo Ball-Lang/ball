@@ -1419,6 +1419,7 @@ impl Encoder {
             syn::Expr::Closure(e) => self.encode_closure(e),
             syn::Expr::Macro(e) => self.encode_macro(&e.mac),
             syn::Expr::Struct(e) => self.encode_struct_literal(e),
+            syn::Expr::Tuple(e) => self.encode_tuple(e),
             other => panic!(
                 "ball-lang-encoder: unsupported Rust expression kind `{}` (deferred — see the \
                  module doc comment for Phase 3a's scope)",
@@ -1696,6 +1697,55 @@ impl Encoder {
             syn::Member::Unnamed(index) => index.index.to_string(),
         };
         field_access(object, field)
+    }
+
+    /// A Rust TUPLE expression (issue #767) — `(a, b)` is a positional record,
+    /// so it lowers to `std.record`, the universal base function
+    /// `dart/shared/std.json` declares for exactly that.
+    ///
+    /// **Component names are Rust's own member spelling** — `"0"`, `"1"`, … —
+    /// not Dart's `$1`/`$2`. `dart/encoder` uses `$N` because that is *Dart's*
+    /// positional getter (`record.$1`), and `cpp/compiler` lowers a `.$N` field
+    /// access as an index to match. Here the READ side already produces the
+    /// decimal index: [`Encoder::encode_field`] renders a `syn::Member::Unnamed`
+    /// (`t.0`) that way, and `types.rs::encode_item_struct` declares a tuple
+    /// STRUCT's elements under the very same names. Choosing `$1` would have
+    /// meant re-spelling the tuple-struct fields too — `p.0` on a tuple struct
+    /// and `t.0` on a tuple are syntactically indistinguishable, so the read
+    /// side cannot tell them apart — which is a separate representation
+    /// decision, not this arm. The names stay portable either way: every target
+    /// treats a component name that is neither `$N` nor `argN` as an opaque key
+    /// on BOTH the `record` build side and the `field_access` read side
+    /// (`cpp/compiler/src/compiler.cpp`'s `"record"` arm classifies it as a
+    /// *named* component; `dart/engine/lib/engine_std.dart`'s `_stdRecord`
+    /// hands the field map straight back).
+    ///
+    /// `()` is the UNIT value and encodes as the Ball null literal, not as a
+    /// zero-component record: it is Rust's "no value", the same thing a
+    /// `-> ()` function returns, and a Ball program's every other absent value
+    /// is already `null`. (A `(a)` with no trailing comma is not a tuple at all
+    /// — `syn` gives a `Expr::Paren`, handled above.)
+    fn encode_tuple(&mut self, e: &syn::ExprTuple) -> Expression {
+        if e.elems.is_empty() {
+            return null_literal();
+        }
+        let mut fields = Vec::with_capacity(e.elems.len());
+        for (index, element) in e.elems.iter().enumerate() {
+            fields.push(FieldValuePair {
+                name: index.to_string(),
+                value: Some(self.encode_expr(element)),
+            });
+        }
+        std_call(
+            "record",
+            Some(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields,
+                    metadata: None,
+                })),
+            }),
+        )
     }
 
     fn encode_index(&mut self, e: &syn::ExprIndex) -> Expression {
@@ -2975,11 +3025,13 @@ fn looks_like_float(expr: &syn::Expr) -> bool {
 }
 
 fn expr_kind_name(expr: &syn::Expr) -> &'static str {
+    // No `Tuple` arm: issue #767 gave `syn::Expr::Tuple` its own encoding
+    // (`Encoder::encode_tuple`), so it can no longer reach this panic — the same
+    // reason `item_kind_name` has no `const`/`static`/`type alias` arms.
     match expr {
         syn::Expr::Repeat(_) => "array-repeat literal",
         syn::Expr::Range(_) => "standalone range",
         syn::Expr::Let(_) => "let-guard outside if/while",
-        syn::Expr::Tuple(_) => "tuple",
         syn::Expr::Await(_) => "await",
         syn::Expr::Async(_) => "async block",
         syn::Expr::Yield(_) => "yield",

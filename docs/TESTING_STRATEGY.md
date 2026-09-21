@@ -559,7 +559,13 @@ Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** on
 PR #738's matrix (run 35549906393 — `Results: 79 passed, 281 failed, 360
 total`), when `go/encoder` gained the
 `std_collections` inverses and the four shapes `go/compiler` emits for every
-program (#691). Those are the floors. None of the four is a parity gate — most of
+program (#691), and to **80** on PR #866's matrix (run 35606234552 —
+`Results: 80 passed, 283 failed, 363 total`), when the std half of that inverse
+table gained a derivation guard of its own and the nine `std` helpers it found
+un-inverted were mapped (#793). That +1 is attributable rather than corpus
+drift: the same row on the commit this branched from (run 35603702521, main at
+`ea8724bb`) measured `79 passed, 284 failed, 363 total` — same corpus, one more
+fixture. Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 

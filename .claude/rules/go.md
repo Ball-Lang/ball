@@ -486,7 +486,9 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   InvokeInput declares only `callee`, never the `function`/`argument` the compiler emits). The
   mutation battery is judged on the problems a mutation ADDS, not on a non-empty report: a
   negative control needs its own positive floor, or a table that already has a finding makes every
-  case pass vacuously.
+  case pass vacuously. The round-trip floor moved 79 -> **80** with it (PR #866's matrix, run
+  35606234552: `Results: 80 passed, 283 failed, 363 total`, against `79 passed, 284 failed, 363
+  total` on the commit it branched from — run 35603702521, main at `ea8724bb`).
 - **The round-trip leg's per-fixture kill is bounded by `cmd.WaitDelay` (#691).**
   `roundTripOne` runs the Dart CLI out of process with `cmd.Stdout` set to an
   `io.Writer`, so `os/exec` pipes the child and copies in a goroutine — and

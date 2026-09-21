@@ -85,13 +85,17 @@ use prost_reflect::{DynamicMessage, SerializeOptions};
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 
 /// Serializes the two non-`#[ignore]`d tests below, both of which write
-/// `BALL_TIMEOUT_MS` and then spawn a process.
+/// `BALL_TIMEOUT_MS` and spawn processes.
 ///
 /// `std::env::set_var` is `unsafe` in edition 2024 because a concurrent
-/// `getenv` from any other thread is undefined behaviour — and `Command::spawn`
-/// reads the environment. `cargo test` runs the tests of one target on several
-/// threads, so holding this lock across the write-then-spawn window is what
-/// makes the `unsafe` block sound rather than merely lucky.
+/// `getenv` from any other thread is undefined behaviour — and EVERY
+/// `Command::spawn` reads the environment. `cargo test` runs the tests of one
+/// target on several threads, so the lock has to span each test's whole
+/// spawning window, not merely its `set_var`: [`build_runaway`] shells out to
+/// `rustc`, so one test compiling its stand-in while the other sits inside its
+/// `set_var` is precisely the race this exists to rule out.
+/// [`run_with_budget`] owns that critical section, so a future test cannot take
+/// half of it.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The per-fixture budget, overridable through `BALL_TIMEOUT_MS` — the same
@@ -585,6 +589,43 @@ fn build_runaway(dir: &Path, program: &str, stem: &str) -> PathBuf {
     exe
 }
 
+/// Build a fabricated launcher, set the per-fixture budget, and drive it
+/// through [`run_dart`] — all three inside [`ENV_LOCK`].
+///
+/// The lock spans the BUILD as well as the write and the run, because the build
+/// shells out to `rustc` ([`build_runaway`]) and a `Command` spawn reads the
+/// environment: one test compiling its stand-in while the other sits inside its
+/// `set_var` is the concurrent `getenv`/`setenv` that makes the `unsafe` block
+/// undefined behaviour. Owning it in one place is what keeps that guarantee
+/// whole.
+///
+/// `elapsed` is measured from INSIDE the critical section, so a test asserting
+/// the budget was honoured measures the RUN and never the time it spent queued
+/// behind the other test's lock.
+fn run_with_budget(
+    budget_ms: u64,
+    build: impl FnOnce() -> PathBuf,
+    ball_json: &Path,
+    root: &Path,
+) -> (PathBuf, Result<(i32, String, String), String>, Duration) {
+    let guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let launcher = build();
+    // SAFETY: `guard` is held across the build's `rustc` spawn, the write, and
+    // `run_dart`'s spawn, and every environment writer and every process spawn
+    // in this target goes through here — so no thread can read the environment
+    // while it is being written.
+    unsafe {
+        std::env::set_var("BALL_TIMEOUT_MS", budget_ms.to_string());
+    }
+    let started = std::time::Instant::now();
+    let result = run_dart(&launcher.to_string_lossy(), ball_json, root);
+    let elapsed = started.elapsed();
+    drop(guard);
+    (launcher, result, elapsed)
+}
+
 /// **The harness must not be able to hang.**
 ///
 /// A sweep that shells out per fixture and waits without a budget is itself a
@@ -599,11 +640,10 @@ fn build_runaway(dir: &Path, program: &str, stem: &str) -> PathBuf {
 /// production 60 s. A hard-coded budget is an untestable budget.
 ///
 /// Safety of `set_var`: the sweep below is `#[ignore]`d, so it never shares a
-/// process with this test, and the only other non-ignored test that writes the
-/// environment ([`a_timed_out_fixture_leaves_no_orphaned_descendant_process`])
-/// takes [`ENV_LOCK`] across its whole write-then-spawn window, as this one
-/// does — so no thread can be reading the environment (a `Command` spawn reads
-/// it) while it is being written.
+/// process with this test, and every environment write and process spawn either
+/// test performs happens inside [`run_with_budget`], which holds [`ENV_LOCK`]
+/// across the whole window — so no thread can be reading the environment (a
+/// `Command` spawn reads it) while it is being written.
 #[test]
 fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     let root = repo_root();
@@ -616,21 +656,8 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     );
 
     let scratch = std::env::temp_dir().join(format!("ball_runaway_{}", std::process::id()));
-    let runaway = build_runaway_launcher(&scratch);
-
-    let started = std::time::Instant::now();
-    let guard = ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // SAFETY: see the doc comment — `guard` is held across the write AND the
-    // spawn, and every other environment writer in this target takes the same
-    // lock, so nothing reads the environment while it is being written.
-    unsafe {
-        std::env::set_var("BALL_TIMEOUT_MS", "300");
-    }
-    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root);
-    drop(guard);
-    let elapsed = started.elapsed();
+    let (_runaway, result, elapsed) =
+        run_with_budget(300, || build_runaway_launcher(&scratch), &ball_json, &root);
 
     let _ = std::fs::remove_dir_all(&scratch);
 
@@ -681,19 +708,20 @@ fn a_timed_out_fixture_leaves_no_orphaned_descendant_process() {
     );
 
     let scratch = std::env::temp_dir().join(format!("ball_runaway_tree_{}", std::process::id()));
-    let runaway = build_tree_runaway_launcher(&scratch);
+    // The build, the budget write and the run all happen under `ENV_LOCK`; the
+    // stale-heartbeat guard has to be inside that window too, or the other
+    // test's `rustc` could race it.
+    let (runaway, result, _elapsed) = run_with_budget(
+        1500,
+        || {
+            let exe = build_tree_runaway_launcher(&scratch);
+            let _ = std::fs::remove_file(exe.with_extension("heartbeat"));
+            exe
+        },
+        &ball_json,
+        &root,
+    );
     let heartbeat = runaway.with_extension("heartbeat");
-    let _ = std::fs::remove_file(&heartbeat);
-
-    let guard = ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // SAFETY: `guard` is held across the write AND the spawn; see ENV_LOCK.
-    unsafe {
-        std::env::set_var("BALL_TIMEOUT_MS", "1500");
-    }
-    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root);
-    drop(guard);
 
     assert_eq!(
         result.as_ref().err().map(String::as_str),

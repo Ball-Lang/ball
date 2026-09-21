@@ -69,9 +69,11 @@ def test_program_has_main_entry():
 
 
 def test_synthesises_main_from_toplevel_statements():
-    prog = encode("x = 1\nprint(x)")
+    # `x` is rebound at module scope, so it is NOT a module-level declaration
+    # (issue #721) and stays a local of the synthesised main: hoisted
+    # (`let x = null`) and then assigned, two ways to bind one name.
+    prog = encode("x = 1\nx = 2\nprint(x)")
     body = func(prog, "main")["body"]["block"]
-    # `x` is hoisted (let x = null) then assigned; two ways to bind, one name.
     assert body["statements"][0]["let"]["name"] == "x"
 
 

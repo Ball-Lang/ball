@@ -469,6 +469,21 @@ library files named `latest`/`contest`/`attestation` that must stay **scored**,
 so a substring rule fails. The per-language rules and the one known limitation
 are in `tests/conformance/COVERAGE_STUDY.md`.
 
+The **other** half of the denominator's provenance is the "nothing to measure"
+skip, and it has to be decided from the file's SOURCE before the pipeline runs
+(#721). Deciding it afterwards — as every harness did, and as Dart/TypeScript/
+Rust still do (#811) — makes `scored` a function of the encoder: a
+declaration-less file is scored only while it happens to FAIL somewhere, and
+leaves the corpus the moment an encoder change lets it through. #646 improved
+`python/encoder`, three ZERO-BYTE `pyparsing/**/__init__.py` markers stopped
+failing at stage 3, and the Python row's `scored` fell 73 → 70 with not one
+file changed; every published ratio moved and the breach message could only
+guess at a clone failure. `rq1_study_py.py::has_scorable_material` is the
+reference implementation: a file leaves the denominator only when it has
+neither a top-level declaration nor any executable top-level statement, a file
+that HAS declarations and comes back with none is a scored failure rather than
+a skip, and the count is printed on every run, zero included.
+
 Tier A now exists for **all six** languages: Dart (`rq1_study.dart`), Rust
 (`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
 (`tools/coverage-study/go`), Python (`rq1_study_py.py`) and TypeScript

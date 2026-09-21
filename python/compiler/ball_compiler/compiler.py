@@ -1616,6 +1616,12 @@ class Compiler:
             return f"self.{name}({argstr})"
         if name in self.user_funcs:
             return f"{name}({argstr})"
+        # A module-level VARIABLE holding a first-class function value — the
+        # top-level analog of the `self.lookup(fn)` branch above, reached once an
+        # encoder emits `add10 = make_adder(10)` as a declaration rather than as
+        # a local of the synthesised main (issue #721).
+        if module_less and name in self.top_var_names:
+            return f"ballrt.call_fn({name}, {argstr})"
         # Unknown callee: fail loud (issue #55).
         self.errors.append(f"unknown call target {mod}.{fn}")
         return f"{name}({argstr})"

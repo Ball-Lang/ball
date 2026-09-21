@@ -227,6 +227,45 @@ def strip_sibling_floor(script: str) -> str:
     return script[:i] + script[k:]
 
 
+def check_negative_control_is_complete() -> bool:
+    """`strip_sibling_floor` must remove the WHOLE block — helper AND calls.
+
+    The scripts here run under `set -uo pipefail`, NOT `-e`. A strip that
+    deleted the `group_check` helper but left an invocation behind would print
+    "group_check: command not found" and still exit 0, so the negative control
+    would pass for the wrong reason and prove nothing about the floor. This
+    asserts what the strip actually did: no `group_check` survives, the
+    surrounding gates do, and a non-trivial span was taken.
+    """
+    full = load_summary_script()
+    stripped = strip_sibling_floor(full)
+    problems = []
+    leftovers = [ln.strip() for ln in stripped.split("\n") if "group_check" in ln]
+    if leftovers:
+        problems.append(f"group_check survives the strip: {leftovers[:3]}")
+    # 1 helper definition + one invocation per language group.
+    if full.count("group_check") < 8:
+        problems.append(
+            f"only {full.count('group_check')} group_check occurrences in the real "
+            "step — the floor is not the block this control strips"
+        )
+    for keep in ("engine_rows_run=0", "engine_not_ok()", "All engines this diff requires passed"):
+        if keep not in stripped:
+            problems.append(f"the strip removed too much: {keep!r} is gone")
+    removed = len(full) - len(stripped)
+    if removed < 500:
+        problems.append(f"the strip removed only {removed} chars — not the whole block")
+    if problems:
+        for p in problems:
+            print(f"FAIL negative control completeness — {p}")
+        return False
+    print(
+        f"PASS negative control completeness ({removed} chars stripped, no "
+        "group_check left, surrounding gates intact)"
+    )
+    return True
+
+
 def check_group_table_covers_every_row() -> bool:
     """Every matrix row job must appear in the summary's group_check table.
 
@@ -417,11 +456,15 @@ def main() -> int:
         passed += 1
     else:
         failed += 1
+    if check_negative_control_is_complete():
+        passed += 1
+    else:
+        failed += 1
 
     print(f"Results: {passed} passed, {failed} failed, {passed + failed} total")
-    if passed < len(cases) + 1:  # +1: the group-table coverage check
+    if passed < len(cases) + 2:  # +2: the two structural checks
         print(
-            f"executed fewer cases than expected ({passed} < {len(cases) + 1}) — "
+            f"::error::executed fewer cases than expected ({passed} < {len(cases) + 2}) — "
             "a harness that ran nothing is not a passing harness."
         )
         return 1

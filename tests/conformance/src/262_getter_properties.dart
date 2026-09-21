@@ -4,7 +4,7 @@ void main() {
   print(0.sign);
   print(7.sign);
 
-  // isEmpty / isNotEmpty (getter → string_is_empty / not(string_is_empty))
+  // isEmpty / isNotEmpty (getter → string_is_empty / string_is_not_empty)
   print(''.isEmpty);
   print('abc'.isEmpty);
   print(''.isNotEmpty);

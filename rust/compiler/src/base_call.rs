@@ -360,6 +360,7 @@ impl Compiler<'_> {
             "index" | "string_char_at" => self.compile_index(&f),
             // ── Strings (pure manipulation) ──
             "string_is_empty" => self.un("ball_string_is_empty", &f),
+            "string_is_not_empty" => self.un("ball_string_is_not_empty", &f),
             "string_contains" => self.bin("ball_string_contains", &f),
             "string_starts_with" => self.bin("ball_string_starts_with", &f),
             "string_ends_with" => self.bin("ball_string_ends_with", &f),

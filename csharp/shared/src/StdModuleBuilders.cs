@@ -183,6 +183,7 @@ public static class StdModuleBuilders
             // Strings (pure manipulation, universal)
             BaseFn("string_length", "UnaryInput", "", "String length: value.length"),
             BaseFn("string_is_empty", "UnaryInput", "", "Is string empty: value.isEmpty"),
+            BaseFn("string_is_not_empty", "UnaryInput", "", "Is string non-empty: value.isNotEmpty (issue #674)"),
             BaseFn("string_concat", "BinaryInput", "", "String concat: left + right"),
             BaseFn("string_contains", "BinaryInput", "", "String contains: left.contains(right)"),
             BaseFn("string_starts_with", "BinaryInput", "", "Starts with: left.startsWith(right)"),

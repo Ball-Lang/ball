@@ -1530,6 +1530,22 @@ export declare type CallSite = Message<"ball.v1.CallSite"> & {
    * @generated from field: string callee_function = 4;
    */
   calleeFunction: string;
+
+  /**
+   * The module that DECLARES the callee, when it differs from callee_module.
+   *
+   * The engine dispatches a base call by function identity, not by the
+   * call-site module string: an unqualified call (empty module) or one naming a
+   * benign-looking module still reaches the declaring module's base function.
+   * callee_module keeps what the program wrote; this field names where that
+   * call actually lands, so a machine-readable report cannot be misled by the
+   * call-site spelling (issue #609). Empty when the call site named the
+   * declaring module itself, and for every std capability (whose #402 bare-name
+   * resolution is already unambiguous by function name alone).
+   *
+   * @generated from field: string resolved_module = 5;
+   */
+  resolvedModule: string;
 };
 
 /**

@@ -179,6 +179,7 @@ public sealed partial class CSharpCompiler
             "index" or "string_char_at" => CompileIndex(f),
             // Strings (pure manipulation)
             "string_is_empty" => Un("StringIsEmpty", f),
+            "string_is_not_empty" => Un("StringIsNotEmpty", f),
             "string_contains" => Bin("StringContains", f),
             "string_starts_with" => Bin("StringStartsWith", f),
             "string_ends_with" => Bin("StringEndsWith", f),

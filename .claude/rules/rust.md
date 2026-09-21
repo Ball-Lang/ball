@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 358 passed, 0 failed, 358 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 360 passed, 0 failed, 360 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -253,7 +253,8 @@ cargo fmt --check && cargo clippy --workspace
   (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
   files), destructuring patterns (`let Pair(a, b) = p;`), a *reference* to a skipped module-scope
   `const`/`static`/`type` alias (the declaration itself is skipped — see below),
-  unmapped macros (`write!` — the measured largest *next* bucket, 9 of the 110 files). Each is
+  unmapped macros (the `assert!` family; `write!`/`writeln!` are CLOSED by #630 — see the
+  `write!`/`writeln!` bullet further down this section). Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
@@ -335,6 +336,41 @@ cargo fmt --check && cargo clippy --workspace
   invocation, and the 28-file `TestFlags` bucket is a `#[cfg(test)]`-scoping question, not a
   macro one — expansion moves first blockers, it does not on its own make a file clean. Full
   design record, including the per-class invocation census: `rust/AGENTS.md`.
+- **`write!`/`writeln!` route onto the declared text sink, by SYNTAX alone (#630).** `core` defines
+  `write!($dst, ..)` as `$dst.write_fmt(format_args!(..))` — the destination is a method RECEIVER,
+  so the first argument **is** the sink by construction and `encode_write_macro` consults no type
+  information (6 of the 7 first-blocked Tier A files write through an *unannotated closure
+  parameter*, so any design needing inference is dead on arrival). Two arms: anything that is not a
+  local binding → `std.sink_write{sink, text}`; a bare name bound by a `let` whose initialiser is a
+  `String` constructor → a **re-assignment** `s = std.concat(s, text)` (the `itertools::join`
+  "join-sites" rule — that local is ALSO read as a `String` in the same function, and an opaque
+  sink would silently change those reads); a bare name bound by a `let` of any other shape → a
+  **loud refusal** naming the local and its initialiser, never a guess. `writeln!` is `write!` +
+  `"\n"`, exactly how `core` spells its own no-argument arm. Both arms are wrapped in the unified
+  `Ok(..)` outcome, because `write!` evaluates to a `fmt::Result` that 22 of the 25 corpus sites
+  consume with `?`/`.unwrap()`. Supporting: `Encoder::local_scopes` (a binding-frame stack — one per
+  fn/closure/`impl` method/default-bodied trait method, seeded with that body's parameters, AND one
+  per `{ .. }` block, since a block's `let`s die at its closing brace; looked up innermost-first so
+  a closure param or a nested block's own binding shadows an enclosing local) is deliberately SEPARATE from
+  `push_fn_scope`, which records parameters only for a 2+-parameter body and is not pushed for an
+  `impl` method at all; a bare destination name that is a `&mut` ALIAS binding resolves to the
+  variable it borrows FIRST (issue #642's `ref_aliases`, the same resolution
+  `encode_path_expr` does for every other read — so `write!(slot, ..)` after
+  `let slot = &mut s;` classifies `s`, in both directions) — but only the MODELLED
+  `AliasTarget::Variable` half, since an `AliasTarget::Opaque` one (#693) emits a real binding
+  recorded as a non-`String` local and must reach the same loud refusal `encode_assign` gives a
+  write through it; `Encoder::with_pattern_binding` gives a for-loop variable, a `match`-arm
+  binding and an `if let` binding a frame of their own — `record_local`'s only call site is the
+  `let` handling, so without one the lookup walked PAST the pattern binding to a same-named
+  enclosing local, and `let mut s = String::new(); for s in writers.iter_mut() { write!(s, ..) }`
+  re-assigned the outer `s`, losing every write SILENTLY (a pattern binding classifies as a SINK,
+  like a parameter, never as a refusal: iterating real sinks is an ordinary shape, and a `String`
+  element lands in the documented boundary below and fails loud at RUN time); and
+  `String::new()`/`String::with_capacity(n)` now encode as the empty
+  string (both were "unsupported call target", so the local-`String` arm would have been
+  unreachable; capacity is an allocation hint with no observable effect). Measured: Tier A
+  `encoded` **1/77 -> 7/77**, `compiled back` 1 -> 7, `clean` unchanged at 0. Proof:
+  `rust/encoder/tests/write_sinks.rs`; design record `docs/SINK_DESIGN.md`.
 - **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`
   is an identity passthrough (a Ball `List` has no exhausted state); `.is_empty()` lowers to
   `std.equals(std.length(receiver), 0)`, reusing `.len()`'s own universal dispatch, so it needs no
@@ -576,7 +612,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 358 passed, 0 failed, 358 total` (the 4
+  whole corpus with Dart-identical output: `Results: 360 passed, 0 failed, 360 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -629,12 +665,18 @@ and its own encoder refuses caps that column no matter how good either half is o
   `src/tests/*.rs` alike are only reached through `#[cfg(test)] mod tests;` — so
   the denominator is **77, not the 110 every #491 histogram in this file and in
   `rust/AGENTS.md` is written against**; read those as history. Honest baseline,
-  **0/77 clean, 1/77 encoded** — the encoders' documented gaps (item-level macro
-  invocations, unmapped macros like `write!`, `impl` self types that are not a
+  **0/77 clean, 7/77 encoded** (1/77 before #630's `write!` slice) — the
+  encoders' documented gaps (proc-macro / `#[derive]` item invocations, the
+  unmapped `assert!` family, `impl` self types that are not a
   plain named type) are in essentially every real crate file, and a file that
   clears one lands on the next. A closed gap category usually moves the
-  histogram, not the aggregate; the crate-aware slice is the first one to move
-  the aggregate at all, and it moved it by one file. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
+  histogram, not the aggregate; the crate-aware slice was the first one to move
+  the aggregate at all, and it moved it by one file, then #630's `write!` slice
+  took it 1 -> 7. `clean` has never moved and #630 did not move it either — its
+  remaining walls are **#692** (six of the seven stop at stage 3 on
+  ``unsupported runtime helper `ball_arg_get(...)` ``; this used to read #632, whose own
+  wall #685 closed on main while #630 was open — re-measure before quoting one) and
+  declaration drift. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
   `strsim` (`tools/coverage-study/packages/rust.json`), not the original 10-crate
   #491 set. **Always point `CARGO_TARGET_DIR` at a path inside the current
   worktree** — a target dir shared with another lane serves a stale `rlib` and

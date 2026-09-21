@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 358 passed, 0
-failed, 358 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 360 passed, 0
+failed, 360 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -60,8 +60,9 @@ any other value of that key is itself an error. No pin needs it today. The secon
 is in `coverage_table.py`: an `excluded` that drops to 0 while `scored` rises by at least that many
 files is a BREACH naming the readmitted population, not a raise.
 Every other scored file is an `encode-error`: the encoder's documented gaps
-(item-level macro invocations, `write!` and other unmapped macros,
-methods declared in another file) are present in essentially every real crate
+(proc-macro / `#[derive]` item invocations, the unmapped `assert!` family,
+`impl` self types that are not a plain named type) are present in essentially
+every real crate
 file, and a file that clears one gap lands on the next. That is the honest
 number, not a cherry-picked one — do not "improve" it by changing the pin list,
 and **do not expect a closed gap category to move it** (see "Tuple + unit
@@ -369,8 +370,8 @@ was not an option; it carries `version.workspace = true` and sits in the publish
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 358 passed, 0 failed,
-358 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 360 passed, 0 failed,
+360 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -839,11 +840,112 @@ what changed, and it is exactly conserved:
 | every other category (call target 30, method call 16, `impl` self type 8, data-carrying enum 5, …) | unchanged | unchanged |
 
 All 14 files hit a **second, independent** documented gap immediately afterward — 7 of them
-`write!`, which `methods.rs::encode_macro` does not map (only `println!`/`format!`/`vec!` are).
-**`write!` is therefore the measured next-highest-yield target**, alongside the already-known
-cross-file method-call bucket; recording it here so the next slice does not have to re-derive it.
+`write!`, which `methods.rs::encode_macro` did not map at the time.
+**`write!` was therefore the measured next-highest-yield target**, alongside the already-known
+cross-file method-call bucket; recording it here so the next slice did not have to re-derive it.
+It is **CLOSED** by issue #630 — see "`write!`/`writeln!` and the declared text sink" below, the
+first slice to move the Tier A aggregate by more than one file.
 A closed category is a real win on its own terms — it is simply not an aggregate one, and the PR
 that closes one must not imply that it is.
+
+#### `write!`/`writeln!` and the declared text sink (issue #630)
+
+The design record is `docs/SINK_DESIGN.md`; the owner approved it on 2026-09-13. PR #636
+landed the three declarations `std.sink_create`/`sink_write`/`sink_to_string` (a `__type__`-tagged,
+reference-semantic value — see `.claude/rules/rust.md`); the encoder half is this slice.
+
+**`write!` needs no type information, and that is the whole design.** `core`'s own definition is
+`($dst:expr, $($arg:tt)*) => { $dst.write_fmt($crate::format_args!($($arg)*)) }` — the destination
+is a **method receiver**, so the first argument IS the sink by construction. rustc special-cases
+only `format_args!` (rust-lang/rust#106745 moved it into the AST) and rust-analyzer makes the same
+split (`format_args`/`format_args_nl` are builtin expanders; `write!`/`writeln!` go through
+`core`'s ordinary `macro_rules!`). That matters concretely: **6 of the 7 first-blocked files write
+through an unannotated closure parameter** (`|f| write!(f, "-")` in `heck`), which no inference
+could resolve.
+
+`methods.rs::encode_write_macro` therefore classifies the destination by **syntax alone**:
+
+| destination | arm | emitted |
+|---|---|---|
+| anything that is not a local binding — a parameter, field, closure param, call result | (b) | `std.sink_write{sink, text}` |
+| a bare name bound by a `let` whose initialiser is a `String` constructor | (a) | `std.assign{target, value: std.concat(target, text), op: "="}` |
+| a bare name bound by a `let` of any other shape | — | **loud refusal** naming the local and its initialiser |
+
+Arm (a) is the **join-sites** rule: in `itertools::join` the same local is *also* read as a
+`String`, so making it an opaque sink would silently change those reads; guessing either way is a
+behaviour change, so the third row refuses rather than pick. `writeln!` is `write!` + a `"\n"`
+part (`core` spells its no-argument arm as literally `write!($dst, "\n")`), and both arms are
+wrapped in the unified `Ok(..)` outcome because `write!` evaluates to a `fmt::Result` that 22 of
+the 25 corpus sites consume with `?` or `.unwrap()`.
+
+Three supporting changes ship with it. `Encoder::local_scopes` is a stack of binding frames — one per
+fn / closure / `impl` method / default-bodied trait method, seeded with that body's parameters, and
+one per `{ .. }` block, because a block's `let`s are gone at its closing brace and leaking one past
+it leaves a shadowed parameter looking like a local; each frame is filled with its `let`s and looked
+up innermost-first. It is deliberately **separate** from
+`push_fn_scope`, which records parameters only for a 2+-parameter body and is not pushed at all for
+an `impl` method; either would leave a parameter looking like a local, and a parameter misread as a
+local `String` is the silent miscompile the frame exists to prevent. And `String::new()` /
+`String::with_capacity(n)` now encode as the empty string — both were in the "unsupported call
+target" bucket, so arm (a) would have been unreachable; capacity is an allocation hint with no
+observable effect and Ball has no allocation model to carry it into.
+
+And a `&mut` ALIAS binding resolves to the variable it borrows before the table above is
+consulted. `let slot = &mut s;` is recorded in `Encoder::ref_aliases` and emits no `let` at all
+(issue #642 — Ball has no references), and every read of `slot` resolves back to `s` in
+`encode_path_expr`; a `write!` destination is a read like any other, so `write!(slot, ..)` and
+`write!(&mut s, ..)` take the same arm in both directions. Without the resolution the alias is
+simply absent from every binding frame, which reads as "not a local": a local `String` would take
+arm (b) and hand `std.sink_write` a plain string, which every engine and runtime rejects at RUN
+time (`rust/shared/src/runtime.rs::sink_backing`) — loud, but one stage later than the encoder
+can answer it. Only the MODELLED half resolves: an `AliasTarget::Opaque` binding (#693 — a borrow
+of `p.x`/`v[0]`, which DOES emit a `let`) falls through under its own name and reaches the same
+loud refusal `encode_assign` gives a plain write through it, because the binding it emits is a
+copy.
+
+And a **pattern** binding — a for-loop variable, a `match`-arm binding, an `if let` binding —
+opens a frame of its own (`Encoder::with_pattern_binding`), which also drops a `&mut` alias of
+that name for its duration exactly as a plain `let` of it does. `record_local`'s only call site is
+the `let` handling, so without a frame a pattern binding is not merely unknown but **invisible**:
+the innermost-first lookup walks past it to a same-named ENCLOSING binding, and an enclosing local
+`String` is the one kind that does not fail loud —
+`let mut s = String::new(); for s in writers.iter_mut() { write!(s, "x")?; }` re-assigned the outer
+`s` and lost every write the Rust aims at an element, silently. It classifies as a **sink**, like a
+parameter, never as a refusal: arm (a) is not expressible for a loop variable (whether writing to it
+reaches the collection is not something Ball models), iterating real sinks is an ordinary working
+shape, and a plain-`String` element lands in the documented boundary below and fails loud at RUN
+time.
+
+**Measured, on the 77 scored files** (the post-#648 denominator, not the 110 the histograms above
+are written against), same 5 pins, by the repo's own instrument — a `Coverage Study` dispatch on the
+branch, whose `Tier A (Rust)` job runs the exact `rq1-study` invocation `coverage-study.yml` pins and
+whose `publish` job then checks the raised row against `tools/coverage-study/baseline.json`
+([run 34788637747](https://github.com/Ball-Lang/ball/actions/runs/34788637747)). The "before" column
+is that same baseline row, recorded by the last main run:
+
+| funnel stage | before | after |
+|---|---:|---:|
+| 1 encoded | 1/77 | **7/77** |
+| 2 compiled back | 1/77 | **7/77** |
+| 3 re-encoded | 1/77 | 1/77 |
+| 4 declarations kept | 0/77 | 0/77 |
+| 5 fixpoint (clean) | 0/77 | 0/77 |
+
+`baseline.json`'s Rust row is raised on `encoded` only. **`clean` does not move, and must not be
+promised.** The wall for those 7 is stage 3, and **it is not #632 any more** — #632 was closed on
+`main` by #685, and the last dispatch on this branch measured the six as
+``reencode-error: unsupported runtime helper `ball_arg_get(...)` `` instead: the same
+compiler↔encoder round-trip class, one construct further along, and squarely issue **#692**'s.
+The seventh stops at stage 4, on declaration drift. A second pre-existing reason sits behind that
+one: every `MessageCreation` — which the `Ok(..)` outcome is, and which a plain `Ok(x)` in
+hand-written source always has been — compiles to `{ let mut __ball_map = BallMap::new(); … }`, and
+`BallMap::new()` is an associated function on a foreign type the encoder documents as a permanent
+gap (#692 again). Re-measure before quoting a wall: this one moved twice while the PR was open.
+
+Tests: `rust/encoder/tests/write_sinks.rs` (27 cases — every destination shape, the newline rule,
+the join-sites rule, the closure-, block- and pattern-shadowing traps, both directions of an alias
+binding, both loud refusals, the `impl Display` shape the issue names, a real
+`cargo build` of the compiled-back library, and an end-to-end run of the local-`String` arm).
 
 #### Data-carrying enum variants are deliberately NOT bundled with the above
 

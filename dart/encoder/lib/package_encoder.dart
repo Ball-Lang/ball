@@ -108,6 +108,18 @@ class PackageEncoder {
   /// byte-identical for every caller that does not opt in.
   final Map<String, ast.CompilationUnit> _resolvedUnits = {};
 
+  /// `library URI → moduleName` for every library [prepareStaticTypes]
+  /// resolved, keyed by the URI the ANALYZER uses for that library (which is
+  /// also what `Element.library.uri` answers).
+  ///
+  /// This is what lets an extension OVERRIDE name the module that declares the
+  /// extension (issue #670): `Ext(x).m()` encodes as a call to
+  /// `<declaring module>:<Ext>.m`, and a per-file [DartEncoder] has no way to
+  /// derive that module on its own. Every key is a library's DEFINING unit —
+  /// `_buildFileMap` excludes `part of` files — so the mapping is
+  /// one-library-to-one-module.
+  final Map<String, String> _libraryUriToModule = {};
+
   /// Whether [prepareStaticTypes] resolved at least one file.
   bool get hasStaticTypes => _resolvedUnits.isNotEmpty;
 
@@ -157,6 +169,7 @@ class PackageEncoder {
   /// keep calling [encode] directly.
   Future<void> prepareStaticTypes() async {
     _resolvedUnits.clear();
+    _libraryUriToModule.clear();
     final provider = PhysicalResourceProvider.INSTANCE;
     final ctx = provider.pathContext;
     final rootPath = ctx.normalize(packageDir.absolute.path);
@@ -197,6 +210,11 @@ class PackageEncoder {
           final result = await session.getResolvedUnit(filePath);
           if (result is ResolvedUnitResult) {
             _resolvedUnits[relPath] = result.unit;
+            // The URI the analyzer knows this library by — the same string an
+            // `Element.library.uri` answers from any file that imports it,
+            // however the import was spelled (relative, `package:`, prefixed).
+            _libraryUriToModule[result.libraryElement.uri.toString()] =
+                _fileToModule[relPath]!;
           } else {
             // coverage:ignore-start
             // Verified unreachable for the paths this loop passes, kept as the
@@ -285,6 +303,7 @@ class PackageEncoder {
         unit,
         moduleName: moduleName,
         uriToModuleOverrides: uriOverrides,
+        libraryUriToModule: _libraryUriToModule,
       );
       userModules.add(module);
 

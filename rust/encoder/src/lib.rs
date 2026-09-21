@@ -863,6 +863,24 @@ pub(crate) struct Encoder {
     /// `dart/encoder/lib/encoder.dart` writes it and
     /// `rust/compiler/src/type_emit.rs::superclass_of` reads it back.
     pub(crate) superclass_registrations: Vec<(String, String)>,
+    /// Set by [`Self::encode_item_fn`] immediately before it encodes the body
+    /// of a free `fn main()`, and TAKEN by the first [`Self::encode_block`]
+    /// that runs — so it is true for the entry point's own top-level statement
+    /// list and false for every block nested inside it (issue #789).
+    ///
+    /// It is what scopes `block.rs`'s `__ball_register_types();` drop. The
+    /// prologue's registrations are hoisted to FILE scope and written onto the
+    /// `TypeDefinition`s there, so the one call site that can be inverted
+    /// faithfully is the unconditional, once-per-program one `rust/compiler`'s
+    /// `compile_entry_main` emits. Dropping the call anywhere else — a helper
+    /// function, an `if` arm — would flatten a conditional, ordered or repeated
+    /// registration into that single static answer with nothing said, which is
+    /// exactly the silent degradation issue #55's fail-loud doctrine exists to
+    /// prevent. Every other position therefore falls through to
+    /// [`Self::encode_call`]'s refusal, whose message already states the
+    /// invariant ("it may only appear as a bare statement in `fn main()`").
+    /// Proof: `rust/encoder/tests/class_prologue_refusals.rs`.
+    pub(crate) entry_main_body: bool,
     /// The short name of every **tuple** struct declared in this file
     /// (`struct Pair(i64, i64);`) — issue #491. Consulted by
     /// [`Self::encode_call`] to tell a tuple-struct *construction*
@@ -1075,6 +1093,7 @@ impl Encoder {
             static_method_params: HashMap::new(),
             local_type_names: HashSet::new(),
             superclass_registrations: Vec::new(),
+            entry_main_body: false,
             tuple_struct_names: HashSet::new(),
             unit_struct_names: HashSet::new(),
             skipped_item_names: HashSet::new(),
@@ -1384,6 +1403,12 @@ impl Encoder {
         let name = item_fn.sig.ident.to_string();
         let params = param_names_and_types(&item_fn.sig);
         let params_metadata = self.push_fn_scope(&params);
+        // The entry point's own top-level statement list is the ONLY place a
+        // bare `__ball_register_types();` may be dropped (issue #789) — see
+        // [`Self::entry_main_body`]. `encode_item_fn` encodes free functions
+        // only (`impl` members go through `types.rs`), so a *method* named
+        // `main` can never claim the flag.
+        self.entry_main_body = item_fn.sig.ident == "main";
         let body = self.encode_block(&item_fn.block);
         self.pop_fn_scope();
 

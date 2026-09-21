@@ -102,6 +102,35 @@ multi-target parallel assignment, `*args`/`**kwargs`/keyword-only params and
 keyword call args, dict/set/tuple literals, starred elements, f-string
 conversions/format-specs.
 
+## Reading back the compiler's own output (`ballrt.*`, #642 / #690)
+
+`python/compiler` emits every Ball base call as a `ballrt.<helper>(...)` call, so
+the ROUND-TRIP leg (Ball -> Python -> Ball) depends on this encoder recognising
+them. `ball_encoder/ballrt_calls.py` is that inverse surface and has two halves:
+
+* **`HELPERS`** — the table: `ballrt.<name>` -> `(std base function, input field
+  per positional argument)`, for helpers that are one `std` call over expression
+  arguments. Every same-spelled `UnaryInput` base function in
+  `dart/shared/std.json` must be here, and
+  `tests/test_ballrt_inverse.py::test_same_spelled_unary_helpers_all_have_an_inverse`
+  derives that closed set from std.json + `python/runtime` rather than from a
+  list kept beside the table — a new one fails on the day it lands.
+* **Named constants for the four shapes that are NOT that** (handled in
+  `encoder.encode_ballrt_call`): `PASSTHROUGH` (`truthy`, `iterate` — adapters
+  whose Ball semantics are implicit in the consuming node), `FIELD_GET`
+  (`getfield` -> a `fieldAccess` NODE, not a call), `FIELD_SET`/`INDEX_SET`
+  (-> `std.assign` over the matching l-value) and `TYPE_OPS`
+  (`is_type`/`as_type` -> `std.is`/`std.as`, whose `type` field is a bare type
+  NAME). A helper must live in exactly one half; the test asserts no overlap.
+
+A `ballrt.*` helper with no exact inverse still fails loud — it is never guessed
+at, and neither is a computed field/type-name operand. Left out on purpose:
+optional-argument helpers the compiler calls with a `None` placeholder
+(`string_substring`, `to_string_as_exponential`), helpers with no `std.json`
+declaration (`print_error`, `string_from_char_codes`), the variadic `invoke`, and
+the return/parameter plumbing (`ret`, `arg`) that needs the `try`-statement and
+prologue work #690 still tracks.
+
 ## Known semantic boundaries (not bugs)
 
 - **Boolean stringification.** `print(True)` yields Python `True`, but Ball's

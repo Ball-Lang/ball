@@ -3319,12 +3319,14 @@ class CallSite extends $pb.GeneratedMessage {
     $core.String? function,
     $core.String? calleeModule,
     $core.String? calleeFunction,
+    $core.String? resolvedModule,
   }) {
     final result = create();
     if (module != null) result.module = module;
     if (function != null) result.function = function;
     if (calleeModule != null) result.calleeModule = calleeModule;
     if (calleeFunction != null) result.calleeFunction = calleeFunction;
+    if (resolvedModule != null) result.resolvedModule = resolvedModule;
     return result;
   }
 
@@ -3345,6 +3347,7 @@ class CallSite extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'function')
     ..aOS(3, _omitFieldNames ? '' : 'calleeModule')
     ..aOS(4, _omitFieldNames ? '' : 'calleeFunction')
+    ..aOS(5, _omitFieldNames ? '' : 'resolvedModule')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3404,6 +3407,25 @@ class CallSite extends $pb.GeneratedMessage {
   $core.bool hasCalleeFunction() => $_has(3);
   @$pb.TagNumber(4)
   void clearCalleeFunction() => $_clearField(4);
+
+  /// The module that DECLARES the callee, when it differs from callee_module.
+  ///
+  /// The engine dispatches a base call by function identity, not by the
+  /// call-site module string: an unqualified call (empty module) or one naming a
+  /// benign-looking module still reaches the declaring module's base function.
+  /// callee_module keeps what the program wrote; this field names where that
+  /// call actually lands, so a machine-readable report cannot be misled by the
+  /// call-site spelling (issue #609). Empty when the call site named the
+  /// declaring module itself, and for every std capability (whose #402 bare-name
+  /// resolution is already unambiguous by function name alone).
+  @$pb.TagNumber(5)
+  $core.String get resolvedModule => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set resolvedModule($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasResolvedModule() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearResolvedModule() => $_clearField(5);
 }
 
 /// The capabilities a single function transitively requires.

@@ -353,6 +353,18 @@ def string_is_empty(v):
     return len(v) == 0
 
 
+def string_is_not_empty(v):
+    """``value.isNotEmpty``.
+
+    Its OWN base function in the IR, never ``not(string_is_empty(...))``: the
+    ENCODER must ask a receiver for the member the source named, because a
+    DELEGATING receiver can see which one it is asked for (issue #674). Inside
+    this runtime the two answers are complementary by construction, so this
+    delegates rather than duplicating the predicate.
+    """
+    return not string_is_empty(v)
+
+
 def string_substring(v, start, end):
     s = int(start)
     if end is None:

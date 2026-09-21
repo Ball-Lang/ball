@@ -13,7 +13,24 @@ use crate::{AliasTarget, Encoder, null_literal};
 
 impl Encoder {
     /// Encode a `syn::Block` to a Ball `block` [`Expression`].
+    ///
+    /// A block is a **binding scope**: its `let`s are gone at the closing
+    /// brace (Rust's own rule), so it opens a frame of its own in
+    /// [`Self::push_locals_frame`]'s stack. Without one, an inner
+    /// `let f = String::from(..)` shadowing a `&mut fmt::Formatter` parameter
+    /// `f` would still look like a local `String` AFTER the block, and issue
+    /// #630's `write!` destination rule would re-assign a binding that is not
+    /// in scope instead of writing to the parameter's sink. Frames nest, and
+    /// lookup is innermost-first, so an enclosing body's bindings stay
+    /// visible — which is what a block, unlike a `fn` item, may see.
     pub(crate) fn encode_block(&mut self, block: &syn::Block) -> Expression {
+        self.push_locals_frame(&[]);
+        let encoded = self.encode_block_statements(block);
+        self.pop_locals_frame();
+        encoded
+    }
+
+    fn encode_block_statements(&mut self, block: &syn::Block) -> Expression {
         // A `&mut` alias binding is scoped to the block that declares it, like
         // any other `let` (issue #642), so the table is saved here and restored
         // on the way out rather than leaking into the enclosing block.
@@ -157,6 +174,11 @@ impl Encoder {
             Some(init) => self.encode_expr(&init.expr),
             None => null_literal(),
         };
+        // Record the binding AFTER its initialiser is encoded, so a shadowing
+        // `let s = s;` still reads the OUTER `s` (Rust's own rule). Issue
+        // #630's `write!` destination rule is the only consumer — see
+        // `Encoder::push_locals_frame`.
+        self.record_local(&name, local.init.as_ref().map(|init| init.expr.as_ref()));
         // Not an alias binding: this `let` SHADOWS any alias of the same name
         // that is still in scope (`let r = &mut y; ... let r = 5; ... r` reads
         // the 5, not `y`). Dropping the entry is what makes a later read of the

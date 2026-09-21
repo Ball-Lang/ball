@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 359 passed,
-0 failed, 359 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 360 passed,
+0 failed, 360 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -201,7 +201,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 359 passed, 0 failed, 359 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 360 passed, 0 failed, 360 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -332,7 +332,17 @@ python -m conformance.runner                             # prints the CI-parseab
   `Try` is an unsupported statement here), and every `ballrt.*` base-call helper. The compiler now
   emits that wrapper only when the body can actually raise (`compiler.py::emit_body`, a
   conservative textual test for `ballrt.ret(`), and `ball_encoder/ballrt_calls.py` is the inverse
-  table for the helpers; `tests/test_compiler_output.py` is the fast guard on both halves. Its CI
+  surface for the helpers; `tests/test_compiler_output.py` is the fast guard on both halves.
+  **The inverse surface is closed against drift (#690).** `HELPERS` is the table (one `std` call
+  over expression arguments); four shapes that are NOT that live beside it as named constants and
+  are handled in `encode_ballrt_call` — `PASSTHROUGH` (`truthy`/`iterate`), `FIELD_GET`
+  (`getfield` → a `fieldAccess` NODE, not a call), `FIELD_SET`/`INDEX_SET` (→ `std.assign` over the
+  matching l-value) and `TYPE_OPS` (`is_type`/`as_type` → `std.is`/`std.as` with the type NAME as a
+  string field). `tests/test_ballrt_inverse.py` derives the required set from `dart/shared/std.json`
+  (every `UnaryInput` base function) crossed with `python/runtime`'s public helpers, so a new
+  same-spelled unary base function fails on the day it lands instead of becoming another
+  `unsupported runtime helper` on a measurement row nobody reads. A helper lives in exactly one
+  half, and one with no exact inverse still fails loud — never guessed at. Its CI
   home is the `python-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619**
   and **floored + ratcheted since #642**: harness health PLUS `passed >= 1` PLUS
   `passed >= PYTHON_ROUNDTRIP_FLOOR`, enforced by `tools/ci/roundtrip_floor.sh`. Still NOT a parity

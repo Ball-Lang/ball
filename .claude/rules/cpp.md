@@ -287,6 +287,19 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
 
+- **`cpp/shared/ball_protobuf_rt.h` is regenerated and diffed by CI (#708).**
+  It is the C++ target's one COMMITTED generated artifact — Ball's own
+  `ball_protobuf` runtime compiled Ball → C++ in `--library` mode — and it
+  carries a SPLICED COPY of the compiler's runtime preamble. Change the preamble
+  (`cpp/compiler/src/compiler.cpp` or `cpp/shared/include/ball_emit_runtime.h`)
+  and this file is stale until it is regenerated. Nothing noticed for four
+  months: it froze at #398 with the two-argument `ball_cast_assert` #659
+  replaced and none of #630's `sink` handling. The gate is the `cpp` job's
+  Linux leg (`Regenerate` + `Assert the committed ball_protobuf C++ runtime`),
+  and it is the ONLY one — never add a second regeneration pass. Red run →
+  the fixed bytes are the run's `regenerated-cpp-protobuf-rt` artifact. See
+  `cpp/shared/AGENTS.md` → "Freshness".
+
 - **A caught `TypeError` reads as Dart's own message, and the rendering table is
   CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
   spells it

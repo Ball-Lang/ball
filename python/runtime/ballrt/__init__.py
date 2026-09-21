@@ -84,6 +84,7 @@ from .ops import (
     string_ends_with,
     string_index_of,
     string_is_empty,
+    string_is_not_empty,
     string_last_index_of,
     string_length,
     string_pad_left,

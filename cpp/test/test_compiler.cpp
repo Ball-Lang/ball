@@ -4148,7 +4148,7 @@ TEST(length_on_a_class_that_declares_it_is_the_field_not_ball_length) {
 // compiled `b.isNaN` to `ball_isNaN(b)` — "is this OBJECT a NaN double", which
 // is always false — instead of reading the field, and nothing reported it. The
 // same PROVABLE-receiver guard now covers them. Cross-target fixture:
-// 474_user_member_named_like_builtin_accessor.
+// 475_user_member_named_like_builtin_accessor.
 TEST(numeric_predicate_on_a_class_that_declares_it_is_the_field) {
     json meta;
     meta["kind"] = "class";

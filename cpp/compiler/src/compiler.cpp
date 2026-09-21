@@ -2230,7 +2230,7 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // declaring `bool isNaN` compiled `b.isNaN` to `ball_isNaN(b)`, i.e. "is
     // this OBJECT a NaN double" — always false — instead of reading the field,
     // with nothing reporting it. Conformance
-    // 474_user_member_named_like_builtin_accessor is the cross-target guard.
+    // 475_user_member_named_like_builtin_accessor is the cross-target guard.
     const auto declared_by_receiver = [&](const std::string& name) {
         const std::string vprop_cls = receiver_class_of(*access.object);
         if (vprop_cls.empty()) return false;
@@ -5183,6 +5183,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_length") return "ball_length(BallDyn(" + get_message_field(call, "value") + "))";
     if (fn == "string_is_empty") return get_message_field(call, "value") + ".empty()";
+    if (fn == "string_is_not_empty") return "!(" + get_message_field(call, "value") + ").empty()";
     if (fn == "string_contains") return "(" + get_message_field(call, "left") + ".find(" +
                                           get_message_field(call, "right") + ") != std::string::npos)";
     if (fn == "string_substring") {
@@ -5523,6 +5524,9 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_is_empty") {
         return "BallDyn(static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
+    }
+    if (fn == "string_is_not_empty") {
+        return "BallDyn(!static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
     }
     // std math functions take floating args; a BallDyn argument is ambiguous
     // under gcc/clang (multiple user conversions: operator double vs int64_t),

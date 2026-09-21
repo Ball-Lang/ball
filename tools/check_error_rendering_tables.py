@@ -233,8 +233,20 @@ def collect(root: pathlib.Path) -> list[Target]:
     # Modelling it as `table=` + `coverage_exempt=True` is what keeps the three
     # rows it does hold under the agreement check instead of unwatched, while not
     # demanding a `TypeError` row that would have no prefix to hold (#641).
+    # `cpp/shared/*.h` (no `include/`) is deliberately in this glob since #708.
+    # It holds the COMMITTED, generated `ball_protobuf_rt.h` — Ball's own
+    # portable protobuf engine compiled Ball -> C++ in `--library` mode — which
+    # is a real C++ runtime the build compiles and links (via
+    # `cpp/shared/ball_rt_decode.cpp`), and which raises Dart error names of its
+    # own (`FormatException`, `ArgumentError`, `TypeError`) through the very
+    # `BallException` ctor this extractor reads. Those raise sites sat OUTSIDE
+    # every check here, so a new one — a name the cross-target contract has
+    # never heard of, added to `dart/ball_protobuf/lib/**` and cross-compiled
+    # into this header — would have reached a user's `catch` with no rendering
+    # entry anywhere and nothing red.
     cpp_src = [_read(root, f) for f in
-               _files(root, "cpp/shared/include/*.h", "cpp/compiler/src/compiler.cpp")]
+               _files(root, "cpp/shared/include/*.h", "cpp/shared/*.h",
+                      "cpp/compiler/src/compiler.cpp")]
     cpp_table_body = _body(_read(root, "cpp/shared/include/ball_emit_runtime.h"),
                            "inline std::string _ball_dart_error_to_string(",
                            "if (prefix == nullptr)",

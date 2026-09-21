@@ -1322,24 +1322,15 @@ extension BallEngineStd on BallEngine {
       // receiver from a List/Set/Map), so this op must accept any collection
       // rather than `(v as String)` — otherwise list/set/map `.isEmpty` throws a
       // String cast error (conformance 97/115/123/195/199/237).
-      'string_is_empty': (i) => _stdConvert(i, (v) {
-        if (v is String) return v.isEmpty;
-        if (v is BallString) return v.value.isEmpty;
-        final l = _stdAsList(v);
-        if (l != null) return l.isEmpty;
-        final m = _stdAsMap(v);
-        if (m != null) return m.isEmpty;
-        if (v is Set) return v.isEmpty;
-        if (v is Iterable) return v.isEmpty;
-        // Per-arm verified unreachable (issue #261): real Dart's `.isEmpty`
-        // is only defined on String/Map/Iterable (List/Set/Queue/...)
-        // receivers, all of which are already handled above — the encoder
-        // can never emit `string_is_empty` for anything else, so this
-        // "must-be-String" fallback cast can never actually execute.
-        // coverage:ignore-start
-        return (v as String).isEmpty;
-        // coverage:ignore-end
-      }),
+      'string_is_empty': (i) => _stdConvert(i, _stdValueIsEmpty),
+      // `isNotEmpty` is its OWN base function, never `not(string_is_empty(...))`
+      // in the IR: the ENCODER must ask a receiver for the member the source
+      // named, because a delegating receiver can see which one it is asked for
+      // (issue #674). Inside this engine the two answers are complementary by
+      // construction, so both dispatch to the one polymorphic predicate rather
+      // than duplicating its receiver arms — two copies could drift apart, and
+      // the whole point of #674 is that they must not.
+      'string_is_not_empty': (i) => _stdConvert(i, (v) => !_stdValueIsEmpty(v)),
       'string_concat': _stdConcat,
       'string_contains': (i) =>
           _stdBinaryAny(i, (a, b) => (a as String).contains(b as String)),
@@ -2922,6 +2913,31 @@ extension BallEngineStd on BallEngine {
   Object? _stdNot(Object? input) {
     final value = _extractUnaryArg(input);
     return !_toBool(value);
+  }
+
+  /// Whether [v] is an empty String / List / Map / Set / Iterable.
+  ///
+  /// The single predicate behind both `string_is_empty` and
+  /// `string_is_not_empty`. Polymorphic because the encoder routes `.isEmpty`
+  /// and `.isNotEmpty` on any of those receivers here: it is syntactic and
+  /// cannot tell a String receiver from a collection one.
+  bool _stdValueIsEmpty(Object? v) {
+    if (v is String) return v.isEmpty;
+    if (v is BallString) return v.value.isEmpty;
+    final l = _stdAsList(v);
+    if (l != null) return l.isEmpty;
+    final m = _stdAsMap(v);
+    if (m != null) return m.isEmpty;
+    if (v is Set) return v.isEmpty;
+    if (v is Iterable) return v.isEmpty;
+    // Per-arm verified unreachable (issue #261): real Dart's `.isEmpty` /
+    // `.isNotEmpty` are only defined on String/Map/Iterable (List/Set/Queue/
+    // ...) receivers, all of which are handled above — the encoder can never
+    // emit either function for anything else, so this "must-be-String"
+    // fallback cast can never actually execute.
+    // coverage:ignore-start
+    return (v as String).isEmpty;
+    // coverage:ignore-end
   }
 
   Object? _stdConcat(Object? input) {

@@ -64,8 +64,8 @@
       "artifact": "coverage-study-tier-a-rust/tier_a.json",
       "scored": 77,
       "clean": 0,
-      "encoded": 1,
-      "compiledBack": 1,
+      "encoded": 7,
+      "compiledBack": 7,
       "reencoded": 1,
       "declarationsKept": 0,
       "excluded": 34

@@ -125,6 +125,7 @@ var ballrtHelpers = map[string]ballrtHelper{
 	"StrTrimEnd":     {fn: "string_trim_end", fields: unary},
 	"StrRunes":       {fn: "string_runes", fields: unary},
 	"StrIsEmpty":     {fn: "string_is_empty", fields: unary},
+	"StrIsNotEmpty":  {fn: "string_is_not_empty", fields: unary},
 	"StrContains":    {fn: "string_contains", fields: []string{"value", "search"}},
 	"StrStartsWith":  {fn: "string_starts_with", fields: []string{"value", "prefix"}},
 	"StrEndsWith":    {fn: "string_ends_with", fields: []string{"value", "suffix"}},

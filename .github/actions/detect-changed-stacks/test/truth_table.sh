@@ -110,8 +110,45 @@ row "self-host-cli-core" 'dart/shared/lib/cli_core.dart' '' \
   "$(expect dart cpp rust csharp go python self_host dart_core)"
 # A dart/shared file that is NOT part of the self-host CLI core does not flip
 # self_host — but it IS a conformance-matrix core input (std.json feeds
-# every compiled program), so dart_core is true.
-row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' '' "$(expect dart dart_core)"
+# every compiled program), so dart_core is true. std.dart is additionally the
+# canonical std INVENTORY, which rust/csharp/python read at test time, so those
+# three stacks run too (std_inventory; see detect.sh).
+row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' ''   "$(expect dart dart_core rust csharp python)"
+
+# ── ball_protobuf: the OTHER dart/ edit that cross-compiles into a COMMITTED
+# C++ artifact (#708). cpp/shared/ball_protobuf_rt.h is regenerated and diffed
+# by the cpp job from dart/shared/ball_protobuf.json, itself encoded from
+# dart/ball_protobuf/lib/**; without this signal such a PR set only dart=true
+# and the freshness gate never ran. It must NOT flip self_host (nothing here
+# reaches the Rust/C#/Go/Python engines), and it must NOT flip rust/csharp/go/
+# python either — those four legs are the cost the narrow signal avoids.
+row "ball-protobuf-library-source" 'dart/ball_protobuf/lib/marshal.dart' ''   "$(expect dart cpp)"
+row "ball-protobuf-compiled-artifact" 'dart/shared/ball_protobuf.json' ''   "$(expect dart cpp dart_core)"
+# Negative control: the ball_protobuf package's OWN test suite is not a
+# compilation input, so it must not start the C++ job.
+row "ball-protobuf-test-is-not-cpp" 'dart/ball_protobuf/test/editions_test.dart' ''   "$(expect dart)"
+# Negative control: a sibling dart/shared artifact that feeds no C++ artifact
+# must not start the C++ job either — but it IS the std inventory, so
+# rust/csharp/python do run.
+row "dart-shared-std-artifact-is-not-cpp" 'dart/shared/std.json' ''   "$(expect dart dart_core rust csharp python)"
+
+# ── std_inventory: the canonical std inventory is a CROSS-STACK dart/ input ──
+# rust/shared/src/std_dart_parity.rs, csharp/shared/test/StdModuleBuilderTests.cs
+# and python/encoder/tests/test_ballrt_inverse.py all read dart/shared/lib/std*.dart
+# or dart/shared/std.json off disk as their source of truth. Each of those gates
+# exists to notice the DART side moving, and a dart-only inventory edit used to
+# be exactly the commit on which their jobs skipped. It must NOT flip self_host
+# (nothing here re-compiles a self-hosted engine) and must NOT flip cpp/ts/go
+# (they reference these files only in prose).
+row "std-inventory-collections-source" 'dart/shared/lib/std_collections.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-io-source" 'dart/shared/lib/std_io.dart' ''   "$(expect dart dart_core rust csharp python)"
+row "std-inventory-binary-artifact" 'dart/shared/std.bin' ''   "$(expect dart dart_core rust csharp python)"
+# Negative controls: a dart/shared/lib file that is NOT a std module builder, and
+# a dart/shared artifact that is NOT the std inventory, must leave rust/csharp/
+# python alone. `ball_proto.dart` is the trap — same directory, same `_fn(`-ish
+# shape, read by nobody's std parity test.
+row "std-inventory-excludes-ball-proto-source" 'dart/shared/lib/ball_proto.dart' ''   "$(expect dart dart_core)"
+row "std-inventory-excludes-ball-proto-artifact" 'dart/shared/ball_proto.json' ''   "$(expect dart dart_core)"
 
 # ── corpus / dart_core: the conformance-matrix row selectors (#666) ──────────
 # conformance-matrix.yml's `pull_request:` trigger is `paths:`-filtered, and

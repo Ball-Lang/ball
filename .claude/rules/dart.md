@@ -683,6 +683,33 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   deliberate and bounded, see `docs/METADATA_SPEC.md`'s "Accessor shape" and
   `dart/engine/AGENTS.md`.
 
+- **An assignment the engine cannot perform is an ERROR, never a dropped write
+  (#742).** `engine_control_flow.dart`'s `_evalAssign` and
+  `_evalNullAwareAssign` write through exactly three `std.assign` target shapes
+  — a bare `reference`, a `fieldAccess` whose object reads as a map, and a
+  `std.index` call over a list/map. Every other shape fell out of all three
+  branches into a bare `return val;`, so the write was never performed and the
+  RHS was handed back as if it had been: a caller could not tell a dropped write
+  from a successful one, on ANY target (this is engine source, so all seven
+  engines agreed on the silent no-op). Every such path now throws a
+  `BallRuntimeError` built by `_assignErrorMessage`, naming what could not be
+  done — the unsupported shape, the field written on a non-object, the
+  container/index pair that is not indexable, or the missing
+  `target`/`value`/`index` field. Under `??=` the prefix carries the operator
+  (`std.assign (??=): …`); there is no separate `std.assign_null_aware` base
+  function, `??=` is `std.assign` with `op: '??='`. The shape name comes from an
+  EXHAUSTIVE `switch` over `Expression_Expr`, so a new oneof case in
+  `ball.proto` is a compile error here rather than a silently unnamed shape.
+  Guards: `engine: assign to an unrecognised target fails loud (#742)` in
+  `dart/engine/test/engine_test.dart` (one case per rejected shape under both
+  `=` and `??=`, plus a closed-set completeness check derived from
+  `Expression_Expr.values`) and, from the other side,
+  `engine_wave5_control_flow_coverage_test.dart`'s `null-aware index assign on
+  a non-indexable target throws` — which until #742 asserted the no-op's `'x'`,
+  i.e. a coverage test had PINNED the bug. No conformance fixture can reach
+  these paths: no encoder emits such a target, which is why the corpus never
+  saw it.
+
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

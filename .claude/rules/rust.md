@@ -272,11 +272,12 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 9 on 2026-09-14 (THREE of them are #632 siblings: the spliced collection-literal
-  lowering's two refusals — `Vec::new()` and `matches!` — tracked as #712 and pinned separately
-  because a `#[should_panic]` observes only the first panic, and the compiled method dispatcher's
-  `ball_message_type_name` scrutinee, tracked as #718), and everything else in that file is a
-  flipped, positive assertion.
+  prose** — 9 on 2026-09-21 (THREE of them are #632 siblings, and #712 changed *which* three: the
+  compiled method dispatcher's `ball_message_type_name` scrutinee (#718's unmapped-helper family),
+  the spliced MAP literal's `ball_map_create` tail — mapped since #692, but only over a LITERAL
+  pair list, so the comprehension's local accumulator is still refused by SHAPE — plus `matches!`,
+  which is no longer a #712 instance at all, since the compiler stopped emitting it, but the
+  encoder's permanent boundary for hand-written Rust). Everything else in that file is a flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -650,11 +651,11 @@ and its own encoder refuses caps that column no matter how good either half is o
   argument-less form, which must NOT carry a trailing `": "`.
 - **Enumerate what the compiler emits; do not assume it is one construct.** #632 arrived as a
   single `panic!`. Sweeping `rust/compiler/src` for constructs inside EMITTED string literals
-  finds three more: `unreachable!` (`flow_propagation`), and — in `compile_list_literal`'s
+  found three more: `unreachable!` (`flow_propagation`), and — in `compile_list_literal`'s
   imperative lowering, used by EVERY spliced collection literal (`std.spread`, `null_spread`,
-  `collection_if`, `collection_for`) — both `Vec::new()` and `matches!`. Re-run that sweep
-  whenever you add an emission shape; everything past the first was invisible to the issue that
-  named it.
+  `collection_if`, `collection_for`) — both `Vec::new()` and `matches!`. All four are closed
+  (`unreachable!` mapped, the pair fixed compiler-side by #712). Re-run that sweep whenever you
+  add an emission shape; everything past the first was invisible to the issue that named it.
 - The dispatcher fallback's message is **target-neutral** — `no method '<name>' for <type>`,
   byte-identical to `go/compiler/library.go`'s `ballrt.Thrown` and
   `csharp/compiler/src/TypeEmit.cs`'s `BallRuntimeException`. It used to carry a
@@ -681,24 +682,46 @@ and its own encoder refuses caps that column no matter how good either half is o
   early-exiting one gets. See the Encoder section's bullet on it, and `rust/AGENTS.md`'s
   "Immediately-invoked closures". The script-mode round-trip leg lives beside the library-mode
   ones in `compile_reencode_roundtrip.rs`.
-- The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
-  - the **spliced collection-literal lowering**, tracked as **#712**, the broader of the
-    two: `compile_list_literal` goes imperative the moment any element splices, and emits
-    `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type
-    — measured as the FIRST refusal) and `if !matches!(__sp, BallValue::Null)` behind it. So every
-    library whose output holds a spread, collection-`if` or collection-`for` fails stage 3, not
-    just a null-aware one. Pinned by `compiled_spliced_list_literal_is_a_documented_gap` (driven
-    through the real compiler, asserting BOTH constructs are still emitted) plus
-    `the_matches_macro_is_a_documented_gap` for the second refusal, which a single
-    `#[should_panic]` cannot reach. Do NOT close it by teaching the encoder `Vec::new()`/`matches!`
-    arms: that encodes compiler-internal spellings while still refusing every real-world one,
-    which is what Tier A measures. The fix belongs on the COMPILER side — a plain
-    `ball_is_null(&__sp)` helper and the existing `BallList`/`BallValue::List` vocabulary in place
-    of the bare `Vec`, the same plain-call vocabulary the neighbouring
-    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use — but note that vocabulary no
-    longer re-encodes *soft*: since #646 an unmapped `ball_*` is a hard refusal, so a
-    compiler-side fix owes `runtime_helpers.rs` the matching inverse, or its own pin where no
-    inverse exists.
+- **The spliced collection-literal lowering (#712) is CLOSED, compiler-side.**
+  `compile_list_literal` goes imperative the moment any element splices, so ONE lowering carried
+  every spliced list, set and map literal there is — and it emitted
+  `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type,
+  and measured as the FIRST refusal) with `if !matches!(__sp, BallValue::Null)` behind it. Closing
+  it by teaching the encoder those arms was ruled out: that encodes compiler-internal spellings
+  while still refusing every real-world one, which is what Tier A measures. What landed instead,
+  in the plain-call vocabulary the neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter`
+  already use:
+  - the accumulator is a **`BallList`** built with `.push()` — `runtime_ctors.rs` inverts
+    `BallList::new()` to an empty list literal and `methods.rs` maps `.push()` to
+    `std_collections.list_push`. No `mut`: `BallList::push` takes `&self`, so the tail is
+    `BallValue::List(__lit)` directly;
+  - the null guard is `ball_truthy(ball_not_equals(__sp.clone(), BallValue::Null))` — two helpers
+    already in the table, composing to exactly `std.not_equals(__sp, null)`;
+  - since #646 that vocabulary no longer re-encodes *soft*, so #712 also owed
+    `runtime_helpers.rs` the inverses of the helpers the loops name: **`ball_iterate` joins
+    `ball_truthy` as an identity passthrough** (the iteration coercion `std.for_in` performs
+    implicitly — emitted at four sites, all for-loop iterables, so this widened re-encodability
+    well past #712: every compiled `for-in` loop named it) and **`ball_spread_iter` maps to
+    `std.spread`** (field `value`), the exact inverse of the line that emits it. Deliberately NOT
+    the same mapping: the two differ on a portable set (`ball_iterate` yields `[key, value]` entry
+    pairs, `ball_spread_iter` the backing items), so collapsing them would be silently wrong.
+
+  Gated by `compile_reencode_roundtrip.rs::spliced_collection_literal_compiler_output_re_encodes`
+  (all four spliceable element kinds in one literal, encode → compile → encode) plus the run-proof
+  `a_spliced_collection_literal_still_splices_after_the_lowering_change`, which COMPILES AND RUNS
+  it and diffs `[1, 2, 3, 4, 5, 6]` as bytes — an element that nested instead of splicing
+  re-encodes just as cleanly and prints a different answer (#39/#300). The `documented_gaps.rs`
+  pin is flipped to `compiled_spliced_list_literal_re_encodes`;
+  `the_matches_macro_is_a_documented_gap` KEEPS its `#[should_panic]`, now pinning the encoder's
+  **permanent** boundary for hand-written Rust rather than a compiler emission. The **map**
+  comprehension got the same lowering fix but keeps one refusal — `ball_map_create` over the local
+  accumulator. #692 (#796) gave that helper a table arm AFTER #712 was written, so the refusal is
+  now a SHAPE one from that arm, not the unmapped-helper fallthrough: it inverts a LITERAL
+  `[[key, value], …]` list to the `entry`-shaped `std.map_create` it compiled from, and the
+  comprehension's Ball node is a larger `map_create` carrying `element` fields instead. Pinned as
+  `compiled_spliced_map_literal_stops_at_ball_map_create` (the compiler-output half of
+  `a_map_create_over_a_spliced_list_fails_loud`).
+- The invariant has **one** OPEN instance left, pinned fail-loud in `documented_gaps.rs`:
   - the compiled **method dispatcher's scrutinee**, tracked as **#718**, and the one that turned
     `main` red: `compile_method_dispatchers` opens every instance-method dispatcher with
     `match ball_message_type_name(&__self).as_str()`, and that helper has no universal-`std`
@@ -847,8 +870,16 @@ and its own encoder refuses caps that column no matter how good either half is o
   PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
   as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
-  corpus) — and the measured leaders are now `ball_arg_get` (59 fixtures),
-  `BallFlow::Normal` (25) and `ball_message_type_name` (21, which is #718). The
+  corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/
+  `ball_spread_iter` inverses it owed, took it **109 -> 121 of 361** (run 35557346693): every
+  fixture whose compiled output carries a `for-in` loop or a spliced literal re-encodes now.
+  At 121 the row's own "first still-failing fixture" line names `ball_message_type_name`
+  (#718); re-measure the other leaders from a run artifact rather than quoting the pre-#712
+  figures, which were taken at 109. **#692's 124 and #712's 121 are two INDEPENDENT measurements
+  against the same 109 baseline, each taken on its own branch — never add them.** The merged tree
+  MEASURES **138 of 362** (run 35561847017, job 106216902719) and that is what
+  `RUST_ROUNDTRIP_FLOOR` carries: the number a run printed, never one derived from two. The
+  leader at 138 is still `ball_message_type_name` (#718). The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`

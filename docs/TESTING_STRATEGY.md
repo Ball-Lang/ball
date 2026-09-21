@@ -618,6 +618,24 @@ place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
 
+**A coverage test can PIN the silent degradation it was written to reach
+(#742).** `engine_control_flow.dart`'s `_evalAssign`/`_evalNullAwareAssign`
+ended in a bare `return val;` for every `std.assign` target shape they could
+not write through, so a dropped write was indistinguishable from a successful
+one on all seven engines (this is engine source: the self-hosted engines are
+this same code compiled). It survived because the corpus cannot see it — no
+encoder emits such a target, so §2's completeness gate is structurally blind
+here and only a unit test can reach the arm. One existed, and it made the bug
+load-bearing: `engine_wave5_control_flow_coverage_test.dart` asserted that
+`'abc'[0] ??= 'x'` evaluates to `'x'`, i.e. it asserted the no-op, and the line
+was covered. The rule: a test written to REACH an unhandled-shape arm must
+assert the arm FAILS LOUD, never assert whatever the arm happens to return
+today — otherwise the coverage number and the test suite both certify the
+degradation. Where the unhandled set comes from a proto oneof, derive it: the
+#742 guard enumerates `Expression_Expr.values` and requires every non-accepted
+case to have a rejected-target fixture, so a new Expression case fails the
+suite until someone classifies it.
+
 ### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
 Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
 
@@ -815,8 +833,23 @@ needs; `tests/conformance/464_typed_catch_clause_dispatch` is the cross-target
 guard for that, and each compiler carries its own **per-shape** unit test
 (`go/compiler/catch_clause_dispatch_test.go`,
 `csharp/compiler/test/CatchClauseDispatchTests.cs`,
-`rust/compiler/tests/catch_clause_dispatch.rs`) — see the gate lesson below for
-why the corpus leg alone is not enough. That the throw is genuinely TYPED —
+`rust/compiler/tests/catch_clause_dispatch.rs`,
+`python/compiler/tests/test_catch_clause_dispatch.py`) — see the gate lesson
+below for why the corpus leg alone is not enough.
+
+`python/compiler` carried the identical defect for another wave (#724): it was
+not in #615's scope, and the reason nothing since then noticed is worth naming
+as its own gap class. **A target whose only corpus row is its SELF-HOSTED engine
+has no coverage of its compiler's user-program lowerings.** The `python-engine`
+row compiles the Dart engine and runs the corpus *through* it, so every fixture's
+`try` is interpreted by `_evalLazyTry` — Ball code — and the compiler's own `try`
+lowering is exercised only by whatever shapes the engine SOURCE happens to
+contain. The engine has no typed `on T catch` anywhere, so a lowering that
+ignored `type` entirely ran the whole corpus green. The closing move is the same
+one `go/compiler/user_thrown_builtin_error_test.go` makes: a leg that COMPILES a
+conformance fixture through the compiler under test and diffs its golden —
+`python/compiler/tests/test_conformance.py`'s `PROVEN` list, which #724 extended
+with `464_typed_catch_clause_dispatch` and `473_caught_user_thrown_builtin_error`. That the throw is genuinely TYPED —
 reachable by `on StateError`, not only by an untyped catch-all, which is what
 Rust's bare `panic!` gave before #597 — is pinned per runtime too, next to each
 target's implementation.

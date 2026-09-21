@@ -59,6 +59,21 @@ pub(crate) const BALL_FIELD_GET: &str = "ball_field_get";
 /// (`std.and`, `std.if`, …), so it encodes back to its operand unchanged.
 pub(crate) const BALL_TRUTHY: &str = "ball_truthy";
 
+/// `ball_iterate(x)` coerces a Ball value to the Rust sequence a `for` loop
+/// walks, and `rust/compiler` emits it at exactly four sites — all of them a
+/// for-loop ITERABLE (`compile_for_in`, `compile_collection_for` and its map
+/// analogue). Ball performs that coercion implicitly too: `std.for_in`'s
+/// `iterable` field is the collection itself, so like [`BALL_TRUTHY`] this
+/// encodes back to its operand unchanged, and `for x in ball_iterate(v)` comes
+/// back as `std.for_in{iterable: v}`.
+///
+/// Deliberately NOT the same mapping as `ball_spread_iter` below, which the
+/// neighbouring splice lowering emits in a syntactically identical position:
+/// the two differ on a portable SET (`ball_iterate` yields `[key, value]` entry
+/// pairs for a map-backed value, `ball_spread_iter` the set's backing items),
+/// so collapsing them would be a silently wrong answer rather than a loud one.
+pub(crate) const BALL_ITERATE: &str = "ball_iterate";
+
 /// `ball_map_create(<[[key, value], …] list>)` — the compiler's MAP-literal
 /// constructor (`rust/compiler/src/base_call.rs::compile_map_create`). Its Ball
 /// input is not one positional argument: `std.map_create` takes one repeated
@@ -134,6 +149,14 @@ pub(crate) fn runtime_helper(name: &str) -> Option<(&'static str, &'static [&'st
         "ball_to_string_as_fixed" => ("to_string_as_fixed", &["value", "digits"] as &[&str]),
         "ball_string_code_unit_at" => ("string_code_unit_at", &["value", "index"] as &[&str]),
         "ball_null_check" => ("null_check", UNARY),
+        // ── Collection-literal splicing (issue #712) ──
+        // `ball_spread_iter(x)` is `base_call.rs::compile_collection_element`'s
+        // emission for a `std.spread{value: x}` element, and `std.spread` is
+        // its exact inverse: a declared `std` base function
+        // (`dart/shared/std.json`) whose standalone evaluation is its operand
+        // (`engine_std.dart` dispatches it to `_extractUnaryArg`), which is what
+        // the surrounding `for` loop then walks.
+        "ball_spread_iter" => ("spread", UNARY),
         "ball_type_of" => ("type_of", UNARY),
         "ball_throw" => ("throw", UNARY),
         "ball_string_is_empty" => ("string_is_empty", UNARY),

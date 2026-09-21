@@ -31,13 +31,15 @@
 //! into: `matches!` is a pattern match over a runtime-crate enum variant and
 //! `Vec::new()` an associated function on a foreign type, so an arm for either
 //! would encode a compiler-internal spelling while still refusing every
-//! real-world occurrence — which is what Tier A actually measures. That pair is
-//! pinned fail-loud as
-//! `documented_gaps.rs::compiled_spliced_list_literal_is_a_documented_gap` (plus
-//! `the_matches_macro_is_a_documented_gap` for the second refusal, which one
-//! `#[should_panic]` cannot reach) and filed as issue #712, whose fix is
-//! compiler-side: emit plain helper calls, the vocabulary the neighbouring
-//! `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use.
+//! real-world occurrence — which is what Tier A actually measures. **Issue #712
+//! closed that pair on the COMPILER side instead** (the decision this paragraph
+//! used to record as pending): the accumulator is a `BallList` built with
+//! `.push()` and the null guard is
+//! `ball_truthy(ball_not_equals(__sp.clone(), BallValue::Null))`, all four of
+//! which this encoder already reads. So `matches!` stays refused here —
+//! permanently, and `documented_gaps.rs::the_matches_macro_is_a_documented_gap`
+//! is now a pin on that boundary for hand-written Rust rather than on a
+//! compiler emission.
 //!
 //! The gate that keeps the two halves in agreement is
 //! `rust/encoder/tests/compile_reencode_roundtrip.rs`: it runs Tier A's three

@@ -86,6 +86,27 @@ use crate::{Compiler, SwitchLabelCtx};
 /// it, so a side-effecting or expensive subject runs exactly one time.
 const SWITCH_SUBJECT: &str = "__switch_subject";
 
+/// The null-aware spread's guard, over the `__sp` local each spliced-literal
+/// lowering binds its operand to (`compile_collection_element` and its map
+/// analogue `compile_map_collection_element`).
+///
+/// It is spelled out of two ALREADY-MAPPED runtime helpers on purpose (issue
+/// #712). The obvious Rust for "is this null" is
+/// `!matches!(__sp, BallValue::Null)`, and that is what this used to emit — but
+/// a `matches!` is a pattern match over a runtime-crate enum variant, which
+/// `ball-lang-encoder` refuses by design (`methods.rs`' module doc comment:
+/// teaching it that arm would encode a compiler-internal spelling while still
+/// refusing every real-world `matches!`). Since every construct this compiler
+/// emits must be one that encoder can read back (#632), the guard is written in
+/// the plain-call vocabulary instead: `ball_not_equals` and `ball_truthy` are
+/// both in `rust/encoder/src/runtime_helpers.rs`' table, and they compose to
+/// exactly what the guard means — `std.not_equals(__sp, null)`.
+///
+/// The `.clone()` is required because `ball_not_equals` takes its operands by
+/// value while the loop below still needs `__sp`; for every non-scalar
+/// `BallValue` variant it is an `Arc` bump, not a deep copy.
+const NULL_SPREAD_GUARD: &str = "ball_truthy(ball_not_equals(__sp.clone(), BallValue::Null))";
+
 /// One lowered switch arm — see [`Compiler::parse_switch_cases`].
 struct SwitchArm {
     /// The arm's match condition(s): its own, plus those of any body-less cases
@@ -514,6 +535,19 @@ impl Compiler<'_> {
     /// elements *splice* their contents instead of nesting as a single element.
     /// The missing splice made the self-hosted engine's own
     /// `_ballSetOf([...items, v])` produce `{{…}, v}` (issues #39/#300).
+    ///
+    /// The imperative accumulator is a **`BallList`**, not a bare
+    /// `Vec<BallValue>` (issue #712): `BallList::new()` and `.push()` are
+    /// constructs `ball-lang-encoder` reads back (`runtime_ctors.rs` inverts the
+    /// first to an empty list literal, `methods.rs` maps the second to
+    /// `std_collections.list_push`), whereas `Vec::new()` is an associated
+    /// function on a foreign TYPE and a documented encoder gap — so the old
+    /// spelling failed Tier A's stage-3 re-encode for EVERY library whose output
+    /// held a spliced collection literal. No `mut` is needed: `BallList::push`
+    /// takes `&self` (its backing is an `Arc<Mutex<…>>`), and the binding still
+    /// owns a fresh backing, so the tail hands it straight to
+    /// `BallValue::List` — the `BallList::from` round trip it used to make was
+    /// one allocation with no observable effect.
     pub(crate) fn compile_list_literal(&self, list: &ListLiteral) -> String {
         if !list
             .elements
@@ -528,19 +562,19 @@ impl Compiler<'_> {
                 .join(", ");
             return format!("BallValue::List(BallList::from(vec![{items}]))");
         }
-        let mut out = String::from("{\nlet mut __lit: Vec<BallValue> = Vec::new();\n");
+        let mut out = String::from("{\nlet __lit = BallList::new();\n");
         for el in &list.elements {
             out.push_str(&self.compile_collection_element("__lit", el));
         }
-        out.push_str("BallValue::List(BallList::from(__lit))\n}");
+        out.push_str("BallValue::List(__lit)\n}");
         out
     }
 
-    /// Emit code appending one list-literal element to `target` (a
-    /// `Vec<BallValue>` local). A plain element is `push`ed; a spread splices
-    /// (`ball_spread_iter`); a `collection_if` conditionally emits its
-    /// then/else element; a `collection_for` loops. Nested element forms recurse
-    /// (`[if (c) ...x]` composes).
+    /// Emit code appending one list-literal element to `target` (a `BallList`
+    /// local — see [`Compiler::compile_list_literal`]). A plain element is
+    /// `push`ed; a spread splices (`ball_spread_iter`); a `collection_if`
+    /// conditionally emits its then/else element; a `collection_for` loops.
+    /// Nested element forms recurse (`[if (c) ...x]` composes).
     fn compile_collection_element(&self, target: &str, el: &Expression) -> String {
         let Some(kind) = Self::collection_element_fn(el) else {
             return format!("{target}.push({});\n", self.compile_expression(el));
@@ -556,7 +590,7 @@ impl Compiler<'_> {
                 self.field_or_null(&f, "value")
             ),
             "null_spread" => format!(
-                "{{ let __sp = {}; if !matches!(__sp, BallValue::Null) {{ \
+                "{{ let __sp = {}; if {NULL_SPREAD_GUARD} {{ \
                  for __e in ball_spread_iter(__sp) {{ {target}.push(__e); }} }} }}\n",
                 self.field_or_null(&f, "value")
             ),
@@ -838,13 +872,13 @@ impl Compiler<'_> {
         // (#39/#300, fixture 185). When any `element` field is present, build the
         // pair list imperatively so the comprehension parts splice.
         if entry_fields.iter().any(|f| f.name == "element") {
-            let mut out = String::from("{\nlet mut __map_entries: Vec<BallValue> = Vec::new();\n");
+            let mut out = String::from("{\nlet __map_entries = BallList::new();\n");
             for field in &entry_fields {
                 if let Some(value) = field.value.as_ref() {
                     out.push_str(&self.compile_map_collection_element("__map_entries", value));
                 }
             }
-            out.push_str("ball_map_create(BallValue::List(BallList::from(__map_entries)))\n}");
+            out.push_str("ball_map_create(BallValue::List(__map_entries))\n}");
             return out;
         }
         let mut pairs: Vec<String> = Vec::new();
@@ -869,7 +903,7 @@ impl Compiler<'_> {
         )
     }
 
-    /// Append one map-literal element to `target` (a `Vec<BallValue>` of
+    /// Append one map-literal element to `target` (a `BallList` of
     /// `[key, value]` pairs). The map analogue of [`compile_collection_element`]:
     /// a `collection_if`/`collection_for` splices its produced entries, a
     /// `spread` splices another map's entries, and a leaf `{key, value}`
@@ -888,9 +922,9 @@ impl Compiler<'_> {
                     // pair shape `ball_map_create` consumes).
                     let operand = self.field_or_null(&f, "value");
                     let guard = if kind == "null_spread" {
-                        "if !matches!(__sp, BallValue::Null)"
+                        format!("if {NULL_SPREAD_GUARD}")
                     } else {
-                        "if true"
+                        "if true".to_string()
                     };
                     format!(
                         "{{ let __sp = {operand}; {guard} {{ for __e in ball_iterate(__sp) {{ {target}.push(__e); }} }} }}\n"

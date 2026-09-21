@@ -122,16 +122,19 @@ def producer_text(lines: list[str], start: int, open_at: int) -> str | None:
     Quoting is honoured well enough to keep a `(` inside `'…'` or `"…"` from
     unbalancing the count — real bash quoting is richer than this, and the
     fallback for anything it cannot delimit is the loud error above, never a
-    silent pass.
+    silent pass. Quote and escape state carry ACROSS lines, because a quoted
+    string and a `\\`-continued line both legally span them; resetting per line
+    would let a `)` inside a multi-line string close the substitution early and
+    hand back a producer that is not what runs.
     """
     depth = 0
     collected: list[str] = []
+    in_single = False
+    in_double = False
+    escaped = False
     for offset in range(min(MAX_PRODUCER_LINES, len(lines) - start)):
         text = lines[start + offset]
         begin = open_at if offset == 0 else 0
-        in_single = False
-        in_double = False
-        escaped = False
         piece: list[str] = []
         for index in range(begin, len(text)):
             char = text[index]

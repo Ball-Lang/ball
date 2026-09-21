@@ -120,6 +120,22 @@ done < <(
 echo "${#files[@]}"
 """
 
+# A single-quoted string that SPANS lines and carries a `)`. Quote state has to
+# carry across lines: reset per line, that `)` closes the substitution early and
+# the producer handed back is not what runs — so an anchor on text AFTER it
+# reads as stale, and an anchor on text before it could exempt the wrong loop.
+QUOTE_SPANS_LINES = """#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r l; do
+  :
+done < <(
+  printf '%s
+) this paren is inside a string, not the end of the substitution
+' "$fabricated_after_multiline_quote"
+)
+echo "done"
+"""
+
 # The closing paren never arrives — the script is not delimitable, and a lint
 # that guessed where the producer ended would carve out the wrong text.
 UNBALANCED = """#!/usr/bin/env bash
@@ -253,6 +269,15 @@ def main() -> int:
         "",
         want_ok=False,
         want_fragment="tools/multi.sh:6",
+    )
+
+    case(
+        "a `)` inside a MULTI-LINE quoted string does not end the producer — "
+        "quote state carries across lines, so an anchor on text after that "
+        "paren still matches instead of reading as stale",
+        {"tools/quoted.sh": QUOTE_SPANS_LINES},
+        "tools/quoted.sh\tfabricated_after_multiline_quote\tfabricated fixture\n",
+        want_ok=True,
     )
 
     case(

@@ -966,9 +966,14 @@ and its own encoder refuses caps that column no matter how good either half is o
   runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, and
   `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
   `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
-  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Those are
-  the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on every
-  PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected), and
+  `a_timed_out_fixture_leaves_no_orphaned_descendant_process` (#791; the kill must reach the
+  whole process TREE — `dart run` forks the Dart VM, so killing the launcher alone left one
+  orphaned VM per timed-out fixture in the runner. `run_dart` spawns into its own process group
+  and `kill_process_tree` kills the group, matching C#'s `Kill(entireProcessTree: true)`). Those
+  are the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on
+  every PR; the two that write `BALL_TIMEOUT_MS` serialize on `ENV_LOCK`, since `Command::spawn`
+  reads the environment and edition 2024 makes a concurrent write UB. The remaining gap is named in the row's own step summary with the issue tracking it, never
   as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
   corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/

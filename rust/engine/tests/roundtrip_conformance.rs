@@ -266,11 +266,51 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
+/// Kill the timed-out fixture's WHOLE process tree, not just the `dart` we
+/// spawned (#791).
+///
+/// `dart run` is a launcher: it forks the Dart VM, and the VM is what executes
+/// the program and holds the inherited stdout pipe. Killing only the immediate
+/// process leaves that VM running, orphaned, for the rest of the job —
+/// invisible to a caller that only sees a `timeout` status come back.
+/// `csharp/engine/conformance/RoundTripLeg.cs` has always used
+/// `Kill(entireProcessTree: true)`; this is the same guarantee, spelled per
+/// platform. `a_timed_out_fixture_leaves_no_orphaned_descendant_process` is the
+/// negative control.
+#[cfg(unix)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    // The child leads its own process group (`process_group(0)` below), and a
+    // fork inherits its parent's group, so the whole tree is addressable as the
+    // negated pid. `kill` reports a failure only when the group is already gone,
+    // which is exactly the case the backstop below covers anyway.
+    let pid = child.id() as i32;
+    // SAFETY: `libc::kill` is a plain syscall wrapper; `-pid` is a valid group
+    // selector because the child was spawned as its own group leader.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+    let _ = child.kill();
+}
+
+/// Windows has no process groups with these semantics; `taskkill /T` walks the
+/// parent-pid chain the OS records and is the documented way to end a tree.
+#[cfg(windows)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
 fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, String), String> {
     // `Command` has no built-in timeout; the Dart CLI's own engine is not
     // driven here with a budget, so a runaway fixture would hang. Spawn and
     // poll so a hung child is killed rather than wedging the sweep.
-    let mut child = Command::new(dart)
+    let mut command = Command::new(dart);
+    command
         .arg("run")
         .arg(root.join("dart/cli/bin/ball.dart"))
         .arg("run")
@@ -278,7 +318,18 @@ fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, S
         .current_dir(root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    // Make the child its own process-group leader so `kill_process_tree` can
+    // reach the Dart VM it forks. Doing this at SPAWN time is the only way:
+    // a group cannot be imposed on a process that is already running.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("could not spawn `{dart}`: {e}"))?;
 
@@ -288,7 +339,7 @@ fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, S
             Some(_) => break,
             None => {
                 if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
+                    kill_process_tree(&mut child);
                     let _ = child.wait();
                     return Err("__timeout__".to_string());
                 }
@@ -663,9 +714,8 @@ fn a_timed_out_fixture_leaves_no_orphaned_descendant_process() {
     // window. A heartbeat that has not moved is a process that is gone.
     std::thread::sleep(Duration::from_millis(1500));
     let second = heartbeat_len(&heartbeat);
-    assert_eq!(
-        first,
-        second,
+    assert!(
+        first == second,
         "the timed-out fixture's GRANDCHILD is still running: its heartbeat grew from {first} \
          to {second} bytes 1.5 s after the harness reported the timeout. The kill reached only \
          the immediate `dart` process, so a real sweep leaks one orphaned Dart VM per timed-out \

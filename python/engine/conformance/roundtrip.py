@@ -55,6 +55,7 @@ import glob
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -148,6 +149,49 @@ def _dart_executable() -> str:
     return resolved
 
 
+# How long the reap below may wait for the killed tree's pipes to close. It is
+# not a second budget — every writer is dead by then — only the bound that turns
+# a failed tree kill into a loud error instead of a silent hang.
+_REAP_TIMEOUT_S = 30.0
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill the timed-out fixture's WHOLE process tree, not just ``dart`` (#791).
+
+    ``dart run`` is a launcher: it forks the Dart VM, and the VM is what
+    executes the program and holds the inherited stdout pipe. ``Popen.kill``
+    reaches the immediate process only, so killing it left that VM running,
+    orphaned, for the rest of the job — invisible to a caller that only saw a
+    ``timeout`` status come back. ``csharp/engine/conformance/RoundTripLeg.cs``
+    has always used ``Kill(entireProcessTree: true)``; this is the same
+    guarantee, spelled per platform.
+
+    ``proc.kill()`` stays as an unconditional backstop: the platform call above
+    reports "already gone" and "never killed anything" with the same exit
+    status, so neither is trusted here — the negative control
+    (``tests/test_roundtrip_process_tree.py``) is what proves the tree is gone.
+    """
+    if os.name == "nt":
+        # Windows has no process group with these semantics; `taskkill /T`
+        # walks the parent-pid chain the OS records.
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=_REAP_TIMEOUT_S,
+        )
+    else:
+        # The child leads its own session/process group (start_new_session
+        # below), and a fork inherits its parent's group, so the whole tree is
+        # addressable by that one id. The child has not been reaped yet, so its
+        # pid is still reserved and cannot name some unrelated process.
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    proc.kill()
+
+
 def _run_dart(dart: str, ball_json: str) -> tuple[int, bytes, bytes]:
     """Run one re-encoded program on the Dart reference engine.
 
@@ -165,13 +209,30 @@ def _run_dart(dart: str, ball_json: str) -> tuple[int, bytes, bytes]:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,       # bytes: no text=True, no newline translation
         stderr=subprocess.PIPE,
+        # POSIX: make the child its own session/process-group leader so
+        # `_kill_process_tree` can reach the Dart VM it forks. It has to happen
+        # at SPAWN time — a group cannot be imposed on a running process.
+        # Ignored on Windows, which kills the tree through `taskkill /T`.
+        start_new_session=True,
     )
     with proc:
         try:
             out, err = proc.communicate(timeout=_fixture_timeout_s())
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            _kill_process_tree(proc)
+            # Every writer is dead now, so this drains the pipes and reaps the
+            # child without being able to block. Bounded anyway, and LOUD on a
+            # survivor: silently returning `timeout` while a descendant still
+            # holds the pipes is precisely the failure this leg must not have.
+            try:
+                proc.communicate(timeout=_REAP_TIMEOUT_S)
+            except subprocess.TimeoutExpired as reap:
+                raise RuntimeError(
+                    f"a descendant of `{dart}` still held its stdout/stderr pipes "
+                    f"{_REAP_TIMEOUT_S:.0f}s after the process-tree kill — the "
+                    f"timed-out fixture's process tree was NOT killed (issue #791, "
+                    f"docs/TESTING_STRATEGY.md section 2c item 6)"
+                ) from reap
             raise
         return proc.returncode, out, err
 

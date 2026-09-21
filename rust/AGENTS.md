@@ -202,9 +202,22 @@ would wedge the row's 90-minute job rather than report anything. That is not hyp
 - `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` is the self-test. It
   builds a **fabricated runaway** with `rustc` at test time (a program that ignores its arguments
   and never exits), drives it through the real `run_dart` path, and asserts it comes back as the
-  `__timeout__` sentinel inside the configured budget. It is the only non-`#[ignore]`d test in
-  that target, so `cargo test --workspace` runs it on every PR and `-- --ignored` runs the sweep
-  alone — they never share a process, which is what makes the test's `set_var` safe.
+  `__timeout__` sentinel inside the configured budget. The sweep is `#[ignore]`d, so
+  `cargo test --workspace` runs this on every PR and `-- --ignored` runs the sweep alone; the
+  non-ignored tests that write the environment serialize their write-then-spawn window on
+  `ENV_LOCK`, which is what makes their `set_var` sound (a `Command::spawn` reads the
+  environment, and edition 2024 makes a concurrent write UB).
+- **The kill reaches the whole process TREE, not just `dart` (#791).** `dart run` is a launcher:
+  it forks the Dart VM, and the VM is what runs the program and holds the inherited stdout pipe.
+  Killing the launcher alone left one orphaned VM per timed-out fixture alive in the runner —
+  invisible to the self-test above, which only ever asserted the HARNESS came back. `run_dart`
+  spawns the child as its own process-group leader (`CommandExt::process_group(0)`) and
+  `kill_process_tree` kills the GROUP (`libc::kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on
+  Windows), matching `RoundTripLeg.cs`'s `Kill(entireProcessTree: true)`.
+  `a_timed_out_fixture_leaves_no_orphaned_descendant_process` is the negative control: a
+  fabricated stand-in that forks a grandchild inheriting its stdout, asserting the GRANDCHILD is
+  gone through a heartbeat file it appends to every 50 ms (with a positive floor on that file, so
+  a control that failed to fork anything cannot pass while proving nothing).
 - A `timeout` outcome is a **hard error** in `tools/ci/roundtrip_floor.sh`, not one more increment
   of `failed`. Folded into the failure count it is indistinguishable from a golden mismatch, and
   the ratchet can only notice it once enough fixtures hang to push `passed` under the floor. All

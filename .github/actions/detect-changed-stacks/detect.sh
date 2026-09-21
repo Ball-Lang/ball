@@ -117,6 +117,31 @@ ball_classify_stacks() {
   local ball_protobuf_src=false
   if m '^dart/ball_protobuf/lib/|^dart/shared/ball_protobuf\.(json|bin)$'; then ball_protobuf_src=true; fi
 
+  # The THIRD cross-stack `dart/` input: the canonical std INVENTORY —
+  # `dart/shared/lib/std*.dart` and the committed `dart/shared/std.{json,bin}`
+  # it is generated into. Three other stacks read those files AT TEST TIME as
+  # their source of truth, and every one of those gates exists precisely to
+  # notice the Dart side moving:
+  #   * rust/shared/src/std_dart_parity.rs — `function_names_match_dart_source`
+  #     / `function_output_types_match_dart_source`, per std module, read
+  #     `dart/shared/lib/<module>.dart` off disk (#505, #545/#557).
+  #   * csharp/shared/test/StdModuleBuilderTests.cs — `std` name-for-name
+  #     against `dart/shared/std.json`, the other modules against
+  #     `dart/shared/lib/std_*.dart`.
+  #   * python/encoder/tests/test_ballrt_inverse.py — derives the closed set of
+  #     same-spelled unary helpers from `dart/shared/std.json` crossed with
+  #     `python/runtime`, so a new `UnaryInput` base function must fail it the
+  #     day it lands.
+  # Mapped by top-level dir alone those paths set only `dart=true`, so the ONE
+  # commit each of those gates is built to catch — the Dart inventory
+  # growing — is the commit on which their jobs do not run. The drift then
+  # surfaces later, on an unrelated PR in one of those stacks, misattributed.
+  # Same shape as `ball_protobuf_src` above (#708), and deliberately just as
+  # narrow: ts/, go/ and cpp/ reference these files only in prose, so they stay
+  # out rather than dragging the ~25-min C++ matrix into every std edit.
+  local std_inventory=false
+  if m '^dart/shared/lib/std(_[a-z_]+)?\.dart$|^dart/shared/std\.(json|bin)$'; then std_inventory=true; fi
+
   # New/changed conformance fixtures (never deleted) under
   # tests/conformance/*.ball.json, as bare fixture stems (no dir, no
   # extension), space-separated. Closes the escape class where a fixture
@@ -188,12 +213,16 @@ ball_classify_stacks() {
   # dart/self_host/engine.ball.json, generated from dart/engine).
   # cpp additionally runs on a ball_protobuf source change
   # (ball_protobuf_src above — #708), the other Dart input that cross-compiles
-  # into a COMMITTED C++ artifact.
+  # into a COMMITTED C++ artifact. rust/csharp/python additionally run on a std
+  # INVENTORY change (std_inventory above): their suites read
+  # dart/shared/lib/std*.dart / dart/shared/std.json off disk as the canonical
+  # source of truth, so a dart-only inventory edit is exactly what those gates
+  # exist to catch and exactly what used to skip them.
   if m '^cpp/' || [ "$self_host" = true ] || [ "$ball_protobuf_src" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
-  if m '^rust/' || [ "$self_host" = true ]; then echo "rust=true"; else echo "rust=false"; fi
-  if m '^csharp/' || [ "$self_host" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
+  if m '^rust/' || [ "$self_host" = true ] || [ "$std_inventory" = true ]; then echo "rust=true"; else echo "rust=false"; fi
+  if m '^csharp/' || [ "$self_host" = true ] || [ "$std_inventory" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
   if m '^go/' || [ "$self_host" = true ]; then echo "go=true"; else echo "go=false"; fi
-  if m '^python/' || [ "$self_host" = true ]; then echo "python=true"; else echo "python=false"; fi
+  if m '^python/' || [ "$self_host" = true ] || [ "$std_inventory" = true ]; then echo "python=true"; else echo "python=false"; fi
   echo "infra=$infra"
   echo "self_host=$self_host"
   echo "corpus=$corpus"

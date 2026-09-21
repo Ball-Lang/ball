@@ -227,6 +227,72 @@ def test_a_computed_field_name_fails_loud() -> None:
     assert "needs a literal field name" in str(excinfo.value)
 
 
+def _unary_call_of(helper: str) -> dict:
+    """Encode `ballrt.print_(ballrt.<helper>(_input))` and return the printed
+    argument's `call`, so the assertion is on the Ball node the encoder REALLY
+    produced rather than on the lookup table it was supposed to consult."""
+    body = _encode_body(f"    ballrt.print_(ballrt.{helper}(_input))\n")
+    printed = _statements(body)[-1]["expression"]["call"]["input"]
+    message = next(f for f in printed["messageCreation"]["fields"]
+                   if f["name"] == "message")["value"]
+    return message["call"]
+
+
+def test_every_same_spelled_unary_helper_encodes_to_its_own_base_function() -> None:
+    """The behavioural half of the closed set: for EVERY same-spelled unary
+    helper, `encode()` must emit `std.<helper>` with the operand under `value`.
+
+    `test_same_spelled_unary_helpers_all_have_an_inverse` reads the HELPERS
+    dict; this runs the encoder. The two differ exactly where a future
+    "simplification" would land — an explicit arm ahead of the generic one that
+    rewrites a helper into an equivalent-looking composition (the `isNotEmpty`
+    -> `not isEmpty` shape of issue #674) leaves the dict untouched and is
+    invisible to the table test, and agrees with every golden whose program
+    only observes the boolean. Derived from std.json x the runtime module, so a
+    unary base function added tomorrow is covered the day it lands.
+    """
+    same_spelled = sorted(_unary_std_base_functions() & _runtime_helpers())
+    assert len(same_spelled) >= 30, (
+        f"only {len(same_spelled)} same-spelled unary helpers found - the "
+        "derivation broke, it is not that the runtime shrank"
+    )
+    wrong: dict[str, object] = {}
+    for helper in same_spelled:
+        call = _unary_call_of(helper)
+        if (call["module"], call["function"]) != ("std", helper):
+            wrong[helper] = f'{call["module"]}.{call["function"]}'
+            continue
+        operand = next((f for f in call["input"]["messageCreation"]["fields"]
+                        if f["name"] == "value"), None)
+        if operand is None or operand["value"].get("reference", {}).get("name") != "_input":
+            wrong[helper] = f"operand is not the bare argument under `value`: {operand}"
+    assert not wrong, (
+        "these helpers did not encode to their own std base function over "
+        f"`value`: {wrong}"
+    )
+
+
+def test_string_is_not_empty_is_its_own_base_function() -> None:
+    """`ballrt.string_is_not_empty(v)` reads back as `std.string_is_not_empty`,
+    never as `std.not` over `std.string_is_empty`.
+
+    The two are distinct base functions on purpose (issue #674): a delegating
+    receiver sees WHICH member it was asked for, so re-encoding the negation
+    would be a different program that happens to agree on `String`. The closed
+    set in `test_same_spelled_unary_helpers_all_have_an_inverse` proves the
+    mapping EXISTS; this proves it lands on the right function.
+    """
+    body = _encode_body('    ballrt.print_(ballrt.string_is_not_empty(_input))\n')
+    printed = _statements(body)[-1]["expression"]["call"]["input"]
+    message = next(f for f in printed["messageCreation"]["fields"]
+                   if f["name"] == "message")["value"]
+    call = message["call"]
+    assert (call["module"], call["function"]) == ("std", "string_is_not_empty"), call
+    operand = next(f for f in call["input"]["messageCreation"]["fields"]
+                   if f["name"] == "value")["value"]
+    assert operand["reference"]["name"] == "_input", operand
+
+
 def test_the_non_table_shapes_are_not_also_in_helpers() -> None:
     """One shape, one home: a helper handled explicitly must not also sit in
     HELPERS, where the generic arm would encode it as a plain std call."""

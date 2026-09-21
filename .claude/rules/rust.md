@@ -423,7 +423,7 @@ cargo fmt --check && cargo clippy --workspace
   always correct, and it is invisible to the local-`String` arm above, which classifies the `syn`
   AST (`is_string_constructor`) and never the encoded node. Guards:
   `with_capacity_still_evaluates_an_argument_that_has_a_side_effect` (encode → compile → RUN,
-  stdout diffed as bytes, because a dropped effect still yields a well-formed `Program`) and its
+  stdout asserted exactly, because a dropped effect still yields a well-formed `Program`) and its
   control `with_capacity_of_a_literal_or_a_plain_name_stays_a_bare_empty_string`. Measured: Tier A
   `encoded` **1/77 -> 7/77**, `compiled back` 1 -> 7, `clean` unchanged at 0. Proof:
   `rust/encoder/tests/write_sinks.rs`; design record `docs/SINK_DESIGN.md`.

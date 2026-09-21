@@ -1070,7 +1070,7 @@ is invisible to arm (a), which classifies the `syn` AST (`is_string_constructor`
 encoded node. The guard is behavioural, not structural — a dropped side effect still produces a
 well-formed `Program`, so
 `write_sinks.rs::with_capacity_still_evaluates_an_argument_that_has_a_side_effect` compiles and
-RUNS the encoded program and diffs stdout as bytes, with
+RUNS the encoded program and asserts its stdout EXACTLY, with
 `with_capacity_of_a_literal_or_a_plain_name_stays_a_bare_empty_string` as the control on the fast
 path.
 

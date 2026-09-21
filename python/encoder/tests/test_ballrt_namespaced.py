@@ -109,6 +109,7 @@ def test_every_declared_namespaced_helper_has_an_inverse(
     it closes over what the compiler CAN emit rather than over what today's
     fixtures happen to use."""
     module_name, table = rt.NAMESPACES[namespace_key]
+    explicit = rt.EXPLICIT_NAMESPACED.get(namespace_key, frozenset())
     declared, _ = _declared(builder)
     exposed = _namespace_functions(getattr(ballrt, namespace_key))
     mappable = sorted(exposed & set(declared))
@@ -116,10 +117,17 @@ def test_every_declared_namespaced_helper_has_an_inverse(
         f"only {len(mappable)} helpers found for ballrt.{namespace_key} — the "
         "derivation broke, it is not that the runtime shrank"
     )
-    missing = [name for name in mappable if name not in table]
+    invertible = set(table) | set(explicit)
+    missing = [name for name in mappable if name not in invertible]
     assert not missing, (
         f"these {module_name} base functions have a ballrt.{namespace_key} helper "
         f"but no inverse in ball_encoder/ballrt_calls.py: {missing}"
+    )
+    overlap = sorted(set(table) & set(explicit))
+    assert not overlap, (
+        "one shape, one home: a helper handled explicitly must not also sit in "
+        f"the {namespace_key} table, where the generic arm would encode it as a "
+        f"plain {module_name} call: {overlap}"
     )
 
 

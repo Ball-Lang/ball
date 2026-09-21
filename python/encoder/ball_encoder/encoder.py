@@ -1044,6 +1044,14 @@ class _Encoder:
             # see ballrt_calls.py).
             if isinstance(func.value, ast.Name) and func.value.id == rt.RUNTIME_MODULE:
                 return self.encode_ballrt_call(func.attr, node.args)
+            # A NAMESPACED runtime helper (`ballrt.col.list_push(...)`) — the
+            # compiler routes std_collections / std_convert / ball_proto through
+            # a namespace object rather than the flat surface above (issue #690).
+            if (isinstance(func.value, ast.Attribute)
+                    and isinstance(func.value.value, ast.Name)
+                    and func.value.value.id == rt.RUNTIME_MODULE):
+                return self.encode_ballrt_namespaced_call(
+                    func.value.attr, func.attr, node.args)
             # Any other method / qualified call (`obj.method(...)`). Only
             # single-argument prints and free functions are in scope; other
             # method calls need receiver types the syntactic encoder lacks.
@@ -1109,6 +1117,72 @@ class _Encoder:
             return b.null_lit()
         return b.std_call(fn, b.args_message(
             *((field, self.encode_expr(arg)) for field, arg in zip(fields, args))))
+
+    def encode_ballrt_namespaced_call(
+        self, namespace: str, name: str, args: list[ast.expr]
+    ) -> dict:
+        """Encode a ``ballrt.<ns>.<name>(args…)`` call (issue #690).
+
+        Each namespace maps onto one Ball module and each helper is spelled
+        exactly like the base function it is the emission of, so the table
+        (``ballrt_calls.NAMESPACES``) records only the input FIELD per
+        positional argument. ``set_create`` is the one shape that is not a plain
+        call into the namespace's own module and is handled explicitly."""
+        entry = rt.NAMESPACES.get(namespace)
+        if entry is None:
+            self.fail(
+                f"unsupported runtime namespace ballrt.{namespace} "
+                f"(ball_encoder/ballrt_calls.py maps {sorted(rt.NAMESPACES)})"
+            )
+            return b.null_lit()
+        module, table = entry
+        if name in rt.EXPLICIT_NAMESPACED.get(namespace, frozenset()):
+            handler = _EXPLICIT_NAMESPACED_SHAPES.get((namespace, name))
+            if handler is None:
+                self.fail(f"ballrt.{namespace}.{name}() is declared an explicit "
+                          "shape in ballrt_calls.EXPLICIT_NAMESPACED but has no "
+                          "encoder in _EXPLICIT_NAMESPACED_SHAPES")
+                return b.null_lit()
+            return handler(self, args)
+        fields = table.get(name)
+        if fields is None:
+            self.fail(
+                f"unsupported runtime helper ballrt.{namespace}.{name}() "
+                f"(ball_encoder/ballrt_calls.py lists the {module} helpers that "
+                "have an inverse)"
+            )
+            return b.null_lit()
+        if len(args) != len(fields):
+            self.fail(f"ballrt.{namespace}.{name}() expects {len(fields)} "
+                      f"argument(s), got {len(args)}")
+            return b.null_lit()
+        return b.call(module, name, b.args_message(
+            *((field, self.encode_expr(arg)) for field, arg in zip(fields, args))))
+
+    def encode_set_create(self, args: list[ast.expr]) -> dict:
+        """``ballrt.col.set_create(...)`` -> ``std.set_create``.
+
+        Two departures from the generic arm, both exact inverses of
+        ``python/compiler`` rather than choices:
+
+        * the MODULE is ``std``, not ``std_collections``. The compiler emits
+          this helper from both spellings; ``std.set_create {elements}`` is what
+          ``dart/encoder`` produces for a set literal and the only one the
+          reference engine is proven to run (``_stdSetCreate``).
+        * a literal ``None`` argument is the compiler's own token for "the
+          literal has no elements at all" (``base_expr``/``collections_expr``
+          write it directly, not through a field lookup), so it reads back as an
+          INPUT-LESS call — which is exactly what ``_stdSetCreate`` answers with
+          an empty set."""
+        if len(args) != 1:
+            self.fail(f"ballrt.{rt.COLLECTIONS_NAMESPACE}.{rt.SET_CREATE}() "
+                      f"expects 1 argument(s), got {len(args)}")
+            return b.null_lit()
+        arg = args[0]
+        if isinstance(arg, ast.Constant) and arg.value is None:
+            return b.call(rt.SET_CREATE_MODULE, rt.SET_CREATE, None)
+        return b.call(rt.SET_CREATE_MODULE, rt.SET_CREATE, b.args_message(
+            (rt.SET_CREATE_ELEMENTS, self.encode_expr(arg))))
 
     def _name_operand(self, helper: str, arg: ast.expr, what: str) -> str | None:
         """The bare string literal a non-expression operand must be.
@@ -1293,6 +1367,17 @@ class _Encoder:
 
     def fail(self, message: str) -> None:
         self.errors.append(message)
+
+
+# ── The namespaced shapes that are NOT a plain call into their own module ────
+# `ballrt_calls.EXPLICIT_NAMESPACED` declares WHICH `(namespace, helper)` pairs
+# skip the generic table arm; this says what each one is encoded BY. Keeping the
+# two apart is what makes a registration without an encoder a loud failure
+# instead of a silent re-route into whichever handler happened to be hardcoded.
+
+_EXPLICIT_NAMESPACED_SHAPES = {
+    (rt.COLLECTIONS_NAMESPACE, rt.SET_CREATE): _Encoder.encode_set_create,
+}
 
 
 # ── Compile-time constant helpers ────────────────────────────────────────────

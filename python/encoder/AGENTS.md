@@ -147,6 +147,55 @@ them. `ball_encoder/ballrt_calls.py` is that inverse surface and has two halves:
   (`std.rethrow`, which takes no input). A helper must live in exactly one half;
   the test asserts no overlap.
 
+### The NAMESPACED helpers (`ballrt.col` / `ballrt.cvt` / `ballrt.proto`, #690)
+
+Three of the compiler's modules do not use the flat surface at all — they
+dispatch through a namespace object `python/runtime/ballrt/__init__.py`
+re-exports, so the receiver of the call is `ballrt.<ns>`, not `ballrt`:
+
+| emitted | Ball module | compiler site |
+|---|---|---|
+| `ballrt.col.<name>` | `std_collections` | `collections_expr` |
+| `ballrt.cvt.<name>` | `std_convert` | `convert_expr` |
+| `ballrt.proto.<name>` | `ball_proto` | `base_expr` |
+
+`encode_call` reads that two-level receiver and routes to
+`encode_ballrt_namespaced_call`; before #690's second slice it did not, so every
+one of these fell through to the generic "any other method call" arm and killed
+the whole fixture (`method call .list_push(...) is not supported`) — 62 fixtures
+emit at least one `ballrt.col.*` call, and for 27 it was the only blocker left.
+
+The base function is always spelled exactly like the helper, so
+`COLLECTION_HELPERS` / `CONVERT_HELPERS` / `PROTO_HELPERS` record only the input
+FIELD per positional argument, and `NAMESPACES` ties each namespace to its
+module. **Those field names come from each module's own Ball declaration**, not
+from the aliases `python/compiler` accepts on the way in — the namespaced half
+of the `math_clamp` lesson above. It is load-bearing: `list_find`'s declared
+input is `ListCallbackInput{list, callback}`, while the compiler also takes
+`value`, and encoding the predicate back under `value` hands the engine a call
+whose callback is simply absent.
+`tests/test_ballrt_namespaced.py` closes both halves against
+`dart/shared/lib/std_collections.dart` / `std_convert.dart` (which declare the
+functions AND their input types) and `dart/shared/ball_proto.json`: membership
+is the runtime namespace crossed with the declaration, and each entry's fields
+must be fields of the declared input type in declaration order. A runtime helper
+no module declares must NOT be mapped — there is no base function to encode it
+as (today, `list_is_not_empty`), and the test derives that set rather than
+spelling it.
+
+`set_create` is the one namespaced shape that is not a plain call into its
+namespace's module, so it sits in `EXPLICIT_NAMESPACED` and is encoded by
+`encode_set_create` (registered in `encoder._EXPLICIT_NAMESPACED_SHAPES`, so a
+registration with no handler fails loud rather than re-routing to whichever
+handler was hardcoded). Two departures, both exact inverses of the compiler
+rather than choices: the module is **`std`**, because the compiler emits this
+helper from both `std.set_create` and `std_collections.set_create` and only the
+`std` spelling is what `dart/encoder` produces (all 34 of the corpus's set
+literals) and the reference engine is proven to run; and a literal `None`
+argument is the compiler's own token for "no elements at all", so it reads back
+as an INPUT-LESS call, which is exactly what `_stdSetCreate` answers with an
+empty set.
+
 A `ballrt.*` helper with no exact inverse still fails loud — it is never guessed
 at, and neither is a computed field/type-name operand. Left out on purpose:
 optional-argument helpers the compiler calls with a `None` placeholder

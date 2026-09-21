@@ -338,7 +338,8 @@ avoid constructs that need receiver-type info:
     receiver-type seam cannot fix this one: the delegate's static type IS a
     `dart:core` `Iterable`. So `std.string_is_not_empty` is declared alongside
     `string_is_empty` and implemented on every target (polymorphic over the same
-    receivers), and `getterRoutes` routes `isNotEmpty` straight to it. Guards:
+    receivers), and `_directGetterRoutes` routes `isNotEmpty` straight to it.
+    Guards:
     `tests/conformance/474_is_not_empty_receivers` (cross-target) and
     `dart/encoder/test/is_not_empty_member_identity_test.dart`, which RUNS a
     recording receiver through `dart run` before and after the round trip —
@@ -371,7 +372,22 @@ avoid constructs that need receiver-type info:
   (cross-target, and it pins the `String`/`List`/`int`/`double` receivers whose
   route must survive) and `dart/encoder/test/builtin_accessor_user_member_test.dart`,
   which derives one case per name from `builtinAccessorGetters` — add a route
-  without the seam and that gate fails with no test edit.
+  without the seam and that gate fails with no test edit. The SYNTACTIC proof is
+  unit-local by construction, so it cannot see a member declared in another FILE;
+  `dart/encoder/test/builtin_accessor_resolved_receiver_test.dart` is the gate
+  for the RESOLVED half alone (its subject file declares no type at all, so a
+  pass there can only come from `prepareStaticTypes()`).
+  **Where this meets #674**: a forwarding getter whose delegate's own type
+  DECLARES the member (`bool get isNotEmpty => _base.isNotEmpty;` over a class
+  that declares it) is exactly the proof this seam looks for, so it encodes as a
+  `fieldAccess` naming the member rather than `std.string_is_not_empty`. That
+  keeps #674's property — the receiver is asked for the member the source named —
+  by the MORE direct means, and it is the only encoding that reaches the
+  delegate's getter at all, since the polymorphic emptiness predicate knows
+  nothing about a user instance. The real `wrappers.dart` shape is unaffected:
+  its delegate is a `dart:core` `Iterable`, nothing is provable, and the route
+  stands. `is_not_empty_member_identity_test.dart` pins BOTH receiver kinds, so
+  neither direction can collapse onto `std.string_is_empty` unnoticed.
   **#697's half B is still open**: a MAP key named like a built-in accessor
   (`{'length': 99}.length` must be `2`, not `99`) shadows the map's own accessor
   on every engine. The reference engine can be fixed at its one lookup-order site

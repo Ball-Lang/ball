@@ -394,6 +394,30 @@ extension receiver is an ordinary list/string/map, so it can never pick between
 two extensions declaring the same member on the same type — which is the only
 situation an override is ever written for.
 
+#### What an ENGINE does with the name
+
+An engine resolves the call by ordinary module-function lookup, which is the
+whole point of putting the selection in the NAME: `<module>:<Ext>.<member>` is
+just a function of `<module>`, and `self` is just its receiver argument. Nothing
+asks the receiver.
+
+A WRITE is the same call wrapped in `std.assign`, and there the lookup must go
+through the **accessor tables** rather than the function table. A getter and a
+setter of one member share ONE function name — `is_getter` / `is_setter` is what
+distinguishes them — so a write resolved through the function table gets the
+GETTER. The Dart reference engine keys `_getters` / `_setters` off exactly those
+two metadata keys and `_resolveAccessorCall` reads them; a compound write
+(`+=`), a `??=` and a `++` all read through the getter first and write through
+the setter, evaluating the receiver once. This is the same bounded,
+deliberate "metadata the engine DISPATCHES on" carve-out the accessor-shape
+section above describes, and it is `is_getter`/`is_setter` again — no new key.
+
+Only `dart/compiler` re-emits a WRITE through an override today; the other six
+compilers refuse it loudly (measured: Go emits
+`ballrt.UnsupportedBaseCall("std", "assign")`, Python reports
+`assign: unsupported lvalue`), so the write shape is engine-only for now and
+`tests/conformance/479_extension_override_selection` carries no setter arm.
+
 ---
 
 ## Function Overloading Convention

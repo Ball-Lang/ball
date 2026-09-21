@@ -4970,6 +4970,10 @@ void main() {
       int index, {
       bool withGetter = true,
       bool withSetter = true,
+      // The other naming convention for a setter function, `<Type>.<member>=`
+      // (see `_trySetterDispatch`). A call target names the member WITHOUT it,
+      // so the lookup has to try both spellings.
+      String setterSuffix = '',
     }) => [
       if (withGetter)
         {
@@ -4979,7 +4983,7 @@ void main() {
         },
       if (withSetter)
         {
-          'name': 'main:$ext.slot',
+          'name': 'main:$ext.slot$setterSuffix',
           'body': stmt(
             stdCall(
               'assign',
@@ -5219,6 +5223,75 @@ void main() {
         ),
       ]);
       expect(runAndCapture(program), throwsAssignError("missing its 'self'"));
+    });
+
+    test('post_decrement returns the old value and writes the new', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(
+          printToString(
+            stdCall(
+              'post_decrement',
+              msg([field('value', slotOf('Beta', 'xs'))]),
+            ),
+          ),
+        ),
+        stmt(printToString(indexExpr(ref('xs'), literal(2)))),
+      ]);
+      expect(await runAndCapture(program), ['3', '2']);
+    });
+
+    test('an accessor target with no self receiver fails loud under ??=', () {
+      final program = slotProgram([
+        stmt(
+          stdCall(
+            'assign',
+            msg([
+              field(
+                'target',
+                call('main:Alpha.slot', module: 'main', input: msg([])),
+              ),
+              field('value', literal(7)),
+              field('op', literal('??=')),
+            ]),
+          ),
+        ),
+      ]);
+      expect(runAndCapture(program), throwsAssignError("missing its 'self'"));
+    });
+
+    test('an accessor target with no self receiver fails loud under ++', () {
+      final program = slotProgram([
+        stmt(
+          stdCall(
+            'post_increment',
+            msg([
+              field(
+                'value',
+                call('main:Alpha.slot', module: 'main', input: msg([])),
+              ),
+            ]),
+          ),
+        ),
+      ]);
+      expect(runAndCapture(program), throwsAssignError("missing its 'self'"));
+    });
+
+    test('a setter named with the `=` convention is found too', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(7))),
+        stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+      ], accessors: slotAccessors('Alpha', 0, setterSuffix: '='));
+      expect(await runAndCapture(program), ['7']);
     });
 
     test('a GETTER-only member is still refused, never silently written', () {

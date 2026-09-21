@@ -800,9 +800,10 @@ falls back to it would call itself in every compiled self-hosted engine. Use
 
 - **An assignment the engine cannot perform is an ERROR, never a dropped write
   (#742).** `engine_control_flow.dart`'s `_evalAssign` and
-  `_evalNullAwareAssign` write through exactly three `std.assign` target shapes
-  — a bare `reference`, a `fieldAccess` whose object reads as a map, and a
-  `std.index` call over a list/map. Every other shape fell out of all three
+  `_evalNullAwareAssign` write through four `std.assign` target shapes
+  — a bare `reference`, a `fieldAccess` whose object reads as a map, a
+  `std.index` call over a list/map, and (since #670, see the extension-override
+  bullet below) an ACCESSOR CALL naming a setter. Every other shape fell out of all
   branches into a bare `return val;`, so the write was never performed and the
   RHS was handed back as if it had been: a caller could not tell a dropped write
   from a successful one, on ANY target (this is engine source, so all seven
@@ -824,6 +825,35 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   i.e. a coverage test had PINNED the bug. No conformance fixture can reach
   these paths: no encoder emits such a target, which is why the corpus never
   saw it.
+
+- **An extension override in a WRITE position dispatches the extension's SETTER
+  (#670).** `Ext(receiver).member = v` encodes exactly like the READ does — a
+  call NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  receiver in `self` — wrapped by `std.assign`, so #670's "the engines need to
+  dispatch the qualified name" covers it. The read half worked by ordinary
+  module-function lookup; the WRITE half reached the #742 refusal above, because
+  an override write is a `call` target and `_evalAssign` knew only `std.index`
+  calls, so NO engine could run a program containing one. `_resolveAccessorCall`
+  answers from the `_getters`/`_setters` tables `_buildLookupTables` fills out of
+  each function's `is_getter`/`is_setter` metadata — never from `_functions`,
+  which keeps the GETTER when a getter and a setter share one function name (the
+  accessor-shape family of #501/#664/#651). `_assignThroughAccessorCall` serves
+  `=` and every compound operator, `_evalNullAwareAssign` serves `??=` (getter
+  first, so the RHS still short-circuits) and `_evalIncDec` serves `++`/`--`;
+  all three evaluate the receiver ONCE, so a compound write cannot run a
+  side-effecting receiver twice. Failures stay loud (a setter with no getter, an
+  accessor target with no `self`), and a call target naming no setter at all
+  falls through to #742's refusal rather than silently writing a map key.
+  Guard: `engine: an extension override writes through its setter (#670)` in
+  `dart/engine/test/engine_test.dart`, plus the write-position group in
+  `dart/encoder/test/extension_override_test.dart`, which now RUNS its encoded
+  program on the reference engine — every assertion it had read the COMPILED
+  DART, which is why the whole group was green while no engine could write.
+  **The COMPILERS' write half is still open**: only `dart/compiler` re-emits
+  `Ext(x).m = v` (the Go compiler emits `ballrt.UnsupportedBaseCall("std",
+  "assign")` and gives an extension getter/setter pair two identically-named Go
+  funcs; the Python compiler reports `assign: unsupported lvalue`), so
+  `tests/conformance/479_extension_override_selection` carries no setter arm yet.
 
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw

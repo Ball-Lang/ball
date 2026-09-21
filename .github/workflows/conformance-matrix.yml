@@ -1713,7 +1713,17 @@ jobs:
       # leg (+2); a local before/after per-fixture diff accounted for every
       # change (105, 106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 245, never predicted.
-      PYTHON_COMPILER_FLOOR: "262"
+      #
+      # 255 -> 264 with #724 (the typed `on T catch` dispatch chain), then
+      # re-measured on the merge with main's own 262 (#706's `final` field next
+      # to a same-named setter): the two fixes are disjoint, so the merged tree
+      # measures 265. THIS ROW WAS GREEN OVER #724 for as long as that defect
+      # existed — 261 passed against a 255 floor, with 146_nested_try_catch_types,
+      # 464_typed_catch_clause_dispatch and 473_caught_user_thrown_builtin_error
+      # inside the failures — the #615 lesson repeating: a ratchet is green over
+      # the regression it already tolerates. Measured before and after, locally
+      # and on CI, never predicted.
+      PYTHON_COMPILER_FLOOR: "265"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

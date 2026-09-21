@@ -618,6 +618,24 @@ place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
 
+**A coverage test can PIN the silent degradation it was written to reach
+(#742).** `engine_control_flow.dart`'s `_evalAssign`/`_evalNullAwareAssign`
+ended in a bare `return val;` for every `std.assign` target shape they could
+not write through, so a dropped write was indistinguishable from a successful
+one on all seven engines (this is engine source: the self-hosted engines are
+this same code compiled). It survived because the corpus cannot see it — no
+encoder emits such a target, so §2's completeness gate is structurally blind
+here and only a unit test can reach the arm. One existed, and it made the bug
+load-bearing: `engine_wave5_control_flow_coverage_test.dart` asserted that
+`'abc'[0] ??= 'x'` evaluates to `'x'`, i.e. it asserted the no-op, and the line
+was covered. The rule: a test written to REACH an unhandled-shape arm must
+assert the arm FAILS LOUD, never assert whatever the arm happens to return
+today — otherwise the coverage number and the test suite both certify the
+degradation. Where the unhandled set comes from a proto oneof, derive it: the
+#742 guard enumerates `Expression_Expr.values` and requires every non-accepted
+case to have a rejected-target fixture, so a new Expression case fails the
+suite until someone classifies it.
+
 ### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
 Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
 

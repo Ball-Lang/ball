@@ -1021,7 +1021,15 @@ jobs:
       # rather than `BallRuntime.CallMethod`. Measured by this very row (PR
       # #829, job 106251801199: `Results: 282 passed, 81 failed, 363 total`),
       # never predicted.
-      CSHARP_COMPILER_FLOOR: "282"
+      # 283 once #670's branch merged with `origin/main`: the extra 1 is NOT
+      # this issue's — it is #834's `478_setter_backing_store_disambiguation`,
+      # which this compiler already emits correctly, joining the corpus on the
+      # merged tree. A floor is about the tree that merges, not about whose
+      # commit earned the gain, so leaving it at 282 would give that one back
+      # silently. Measured by this very row (PR #829, job 106311674886:
+      # `Results: 283 passed, 81 failed, 364 total (floor: 282)` plus its own
+      # `IMPROVED` notice), never predicted.
+      CSHARP_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

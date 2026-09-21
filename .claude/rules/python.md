@@ -416,7 +416,12 @@ python -m conformance.runner                             # prints the CI-parseab
 - `python/engine/conformance/roundtrip.py` (`python -m conformance.roundtrip`, or
   `python -m python.engine.conformance.roundtrip` from the repo root) is a measurement
   sweep (#452 item 3): Ball → Python → Ball → the **Dart** reference engine → golden diff. Needs
-  `dart` on PATH (or `BALL_DART`), not the compiled engine. It measured a flat **0/321** from the
+  `dart` on PATH (or `BALL_DART`), not the compiled engine. **A timed-out fixture's whole process
+  TREE is killed (#791)** — `dart run` forks the Dart VM, so `subprocess.run(timeout=…)`, which
+  kills only the immediate process, left one orphaned VM per timed-out fixture in the runner;
+  `_run_dart` spawns with `start_new_session=True` and `_kill_process_tree` calls `os.killpg`
+  (`taskkill /T /F /PID` on Windows), with `tests/test_roundtrip_process_tree.py` as the negative
+  control. It measured a flat **0/321** from the
   day it shipped until #642 — the encoder refused the compiler's own output outright: the
   `try:`/`except ballrt.BallReturn` wrapper the compiler put around EVERY function body (`ast`'s
   `Try` is an unsupported statement here), and every `ballrt.*` base-call helper. The compiler now

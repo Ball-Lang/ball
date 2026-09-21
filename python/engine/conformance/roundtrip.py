@@ -55,6 +55,7 @@ import glob
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -80,9 +81,34 @@ for _sibling in ("compiler", "encoder"):
 from ball_compiler import compile_program, load_program  # noqa: E402
 from ball_encoder import encode  # noqa: E402
 
-_TIMEOUT_S = float(os.environ.get("BALL_TIMEOUT_S", "60"))
+_DEFAULT_TIMEOUT_S = 60.0
 _WORKERS = int(os.environ.get("BALL_WORKERS", str(min(8, (os.cpu_count() or 4)))))
 _DART = os.environ.get("BALL_DART", "dart")
+
+
+def _fixture_timeout_s() -> float:
+    """The per-fixture Dart-run budget, overridable through ``BALL_TIMEOUT_S``.
+
+    Read per call rather than frozen at import, so the negative control
+    (``python/engine/tests/test_roundtrip_process_tree.py``) can prove the kill
+    in seconds instead of burning the production 60 — a budget no test can reach
+    is a budget nobody has measured (the lesson Rust's leg learned in #693).
+
+    Fails loud on a typo: a budget nobody asked for is worse than no budget.
+    """
+    raw = os.environ.get("BALL_TIMEOUT_S", "").strip()
+    if not raw:
+        return _DEFAULT_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"BALL_TIMEOUT_S is {raw!r}, not a number of seconds — refusing to "
+            f"silently fall back to {_DEFAULT_TIMEOUT_S:.0f}s"
+        ) from None
+    if value <= 0:
+        raise RuntimeError(f"BALL_TIMEOUT_S must be positive, got {value!r}")
+    return value
 
 
 @dataclass
@@ -123,6 +149,94 @@ def _dart_executable() -> str:
     return resolved
 
 
+# How long the reap below may wait for the killed tree's pipes to close. It is
+# not a second budget — every writer is dead by then — only the bound that turns
+# a failed tree kill into a loud error instead of a silent hang.
+_REAP_TIMEOUT_S = 30.0
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill the timed-out fixture's WHOLE process tree, not just ``dart`` (#791).
+
+    ``dart run`` is a launcher: it forks the Dart VM, and the VM is what
+    executes the program and holds the inherited stdout pipe. ``Popen.kill``
+    reaches the immediate process only, so killing it left that VM running,
+    orphaned, for the rest of the job — invisible to a caller that only saw a
+    ``timeout`` status come back. ``csharp/engine/conformance/RoundTripLeg.cs``
+    has always used ``Kill(entireProcessTree: true)``; this is the same
+    guarantee, spelled per platform.
+
+    ``proc.kill()`` stays as an unconditional backstop: the platform call above
+    reports "already gone" and "never killed anything" with the same exit
+    status, so neither is trusted here — the negative control
+    (``tests/test_roundtrip_process_tree.py``) is what proves the tree is gone.
+    """
+    if os.name == "nt":
+        # Windows has no process group with these semantics; `taskkill /T`
+        # walks the parent-pid chain the OS records.
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=_REAP_TIMEOUT_S,
+        )
+    else:
+        # The child leads its own session/process group (start_new_session
+        # below), and a fork inherits its parent's group, so the whole tree is
+        # addressable by that one id. The child has not been reaped yet, so its
+        # pid is still reserved and cannot name some unrelated process.
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    proc.kill()
+
+
+def _run_dart(dart: str, ball_json: str) -> tuple[int, bytes, bytes]:
+    """Run one re-encoded program on the Dart reference engine.
+
+    Returns ``(returncode, stdout, stderr)`` as BYTES (never text mode — see the
+    module docstring). Raises ``subprocess.TimeoutExpired`` when the program
+    outlives :func:`_fixture_timeout_s`, which is the leg's `timeout` status.
+
+    Its own function rather than three lines inside ``_run_one`` so the kill on
+    that timeout path is reachable from a test: it is the only part of this leg
+    that can leak a process into the CI runner.
+    """
+    proc = subprocess.Popen(
+        [dart, "run", str(_BALL_DART), "run", ball_json],
+        cwd=str(_REPO_ROOT),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,       # bytes: no text=True, no newline translation
+        stderr=subprocess.PIPE,
+        # POSIX: make the child its own session/process-group leader so
+        # `_kill_process_tree` can reach the Dart VM it forks. It has to happen
+        # at SPAWN time — a group cannot be imposed on a running process.
+        # Ignored on Windows, which kills the tree through `taskkill /T`.
+        start_new_session=True,
+    )
+    with proc:
+        try:
+            out, err = proc.communicate(timeout=_fixture_timeout_s())
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(proc)
+            # Every writer is dead now, so this drains the pipes and reaps the
+            # child without being able to block. Bounded anyway, and LOUD on a
+            # survivor: silently returning `timeout` while a descendant still
+            # holds the pipes is precisely the failure this leg must not have.
+            try:
+                proc.communicate(timeout=_REAP_TIMEOUT_S)
+            except subprocess.TimeoutExpired as reap:
+                raise RuntimeError(
+                    f"a descendant of `{dart}` still held its stdout/stderr pipes "
+                    f"{_REAP_TIMEOUT_S:.0f}s after the process-tree kill — the "
+                    f"timed-out fixture's process tree was NOT killed (issue #791, "
+                    f"docs/TESTING_STRATEGY.md section 2c item 6)"
+                ) from reap
+            raise
+        return proc.returncode, out, err
+
+
 def _run_one(name: str, path: str, golden: bytes, dart: str, workdir: str) -> Result:
     # 1. Ball -> Python (fail-loud by design; a scope gap is a FAILURE here).
     try:
@@ -150,24 +264,18 @@ def _run_one(name: str, path: str, golden: bytes, dart: str, workdir: str) -> Re
 
     # 4. Run the RE-ENCODED program on the Dart reference engine (ground truth).
     try:
-        proc = subprocess.run(
-            [dart, "run", str(_BALL_DART), "run", ball_json],
-            cwd=str(_REPO_ROOT),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,   # bytes: no text=True, no newline translation
-            timeout=_TIMEOUT_S,
-        )
+        code, stdout, stderr = _run_dart(dart, ball_json)
     except subprocess.TimeoutExpired:
-        return Result(name, "timeout", f"killed after {_TIMEOUT_S:.0f}s")
+        return Result(name, "timeout", f"killed after {_fixture_timeout_s():.0f}s")
 
-    actual = _normalize(proc.stdout).rstrip("\n")
+    actual = _normalize(stdout).rstrip("\n")
     expected = _normalize(golden).rstrip("\n")
     if actual == expected:
         return Result(name, "pass")
 
-    if proc.returncode != 0:
-        err = _normalize(proc.stderr).strip().splitlines()
-        detail = err[-1] if err else f"dart run exited {proc.returncode}"
+    if code != 0:
+        err = _normalize(stderr).strip().splitlines()
+        detail = err[-1] if err else f"dart run exited {code}"
         return Result(name, "error", detail[:200])
 
     el = expected.split("\n")

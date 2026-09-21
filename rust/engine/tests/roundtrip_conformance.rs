@@ -84,6 +84,20 @@ use prost_reflect::{DynamicMessage, SerializeOptions};
 /// fixtures are what that budget is for.
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 
+/// Serializes the two non-`#[ignore]`d tests below, both of which write
+/// `BALL_TIMEOUT_MS` and spawn processes.
+///
+/// `std::env::set_var` is `unsafe` in edition 2024 because a concurrent
+/// `getenv` from any other thread is undefined behaviour — and EVERY
+/// `Command::spawn` reads the environment. `cargo test` runs the tests of one
+/// target on several threads, so the lock has to span each test's whole
+/// spawning window, not merely its `set_var`: [`build_runaway`] shells out to
+/// `rustc`, so one test compiling its stand-in while the other sits inside its
+/// `set_var` is precisely the race this exists to rule out.
+/// [`run_with_budget`] owns that critical section, so a future test cannot take
+/// half of it.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The per-fixture budget, overridable through `BALL_TIMEOUT_MS` — the same
 /// spelling `go/engine/conformance/roundtrip.go` uses.
 ///
@@ -256,11 +270,51 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
+/// Kill the timed-out fixture's WHOLE process tree, not just the `dart` we
+/// spawned (#791).
+///
+/// `dart run` is a launcher: it forks the Dart VM, and the VM is what executes
+/// the program and holds the inherited stdout pipe. Killing only the immediate
+/// process leaves that VM running, orphaned, for the rest of the job —
+/// invisible to a caller that only sees a `timeout` status come back.
+/// `csharp/engine/conformance/RoundTripLeg.cs` has always used
+/// `Kill(entireProcessTree: true)`; this is the same guarantee, spelled per
+/// platform. `a_timed_out_fixture_leaves_no_orphaned_descendant_process` is the
+/// negative control.
+#[cfg(unix)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    // The child leads its own process group (`process_group(0)` below), and a
+    // fork inherits its parent's group, so the whole tree is addressable as the
+    // negated pid. `kill` reports a failure only when the group is already gone,
+    // which is exactly the case the backstop below covers anyway.
+    let pid = child.id() as i32;
+    // SAFETY: `libc::kill` is a plain syscall wrapper; `-pid` is a valid group
+    // selector because the child was spawned as its own group leader.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+    let _ = child.kill();
+}
+
+/// Windows has no process groups with these semantics; `taskkill /T` walks the
+/// parent-pid chain the OS records and is the documented way to end a tree.
+#[cfg(windows)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
 fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, String), String> {
     // `Command` has no built-in timeout; the Dart CLI's own engine is not
     // driven here with a budget, so a runaway fixture would hang. Spawn and
     // poll so a hung child is killed rather than wedging the sweep.
-    let mut child = Command::new(dart)
+    let mut command = Command::new(dart);
+    command
         .arg("run")
         .arg(root.join("dart/cli/bin/ball.dart"))
         .arg("run")
@@ -268,7 +322,18 @@ fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, S
         .current_dir(root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    // Make the child its own process-group leader so `kill_process_tree` can
+    // reach the Dart VM it forks. Doing this at SPAWN time is the only way:
+    // a group cannot be imposed on a process that is already running.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("could not spawn `{dart}`: {e}"))?;
 
@@ -278,7 +343,7 @@ fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, S
             Some(_) => break,
             None => {
                 if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
+                    kill_process_tree(&mut child);
                     let _ = child.wait();
                     return Err("__timeout__".to_string());
                 }
@@ -428,15 +493,85 @@ fn the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path() {
 const RUNAWAY_SOURCE: &str =
     "fn main() { loop { std::thread::sleep(std::time::Duration::from_secs(3600)); } }";
 
+/// A fabricated runaway that also forks a GRANDCHILD, the shape `dart run`
+/// actually has: the launcher process spawns the Dart VM and the VM is what
+/// holds the work (and the inherited stdout pipe). Killing only the immediate
+/// process leaves that grandchild running.
+///
+/// Both roles live in one binary, selected by an argument the production
+/// command line never contains, so the control needs no environment plumbing
+/// (`run_dart` hands the child THIS process's environment, so an env-carried
+/// role would have to be written into the test process itself).
+///
+/// The grandchild's liveness is observable from the outside: it appends to a
+/// heartbeat file beside its own executable every 50 ms. A file that stops
+/// growing is a process that is gone — portable, and unlike a pid probe it
+/// cannot be confused by pid reuse (and `os.kill(pid, 0)` has no portable
+/// spelling on Windows, where signal 0 terminates rather than probes).
+const TREE_RUNAWAY_SOURCE: &str = r#"
+use std::io::Write;
+use std::time::Duration;
+
+/// Beside the executable, so the parent test can find it without being told.
+fn heartbeat_path() -> std::path::PathBuf {
+    std::env::current_exe()
+        .expect("the runaway must know its own path")
+        .with_extension("heartbeat")
+}
+
+/// The grandchild: it inherited the harness's stdout pipe. Outlive any sane
+/// assertion window, but never forever — a control that leaks a process for an
+/// hour on every RED run is its own defect.
+fn hold() -> ! {
+    let path = heartbeat_path();
+    for _ in 0..600 {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .expect("the grandchild must be able to write its heartbeat");
+        file.write_all(b".").expect("heartbeat write");
+        file.flush().expect("heartbeat flush");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::process::exit(0)
+}
+
+fn main() {
+    if std::env::args().any(|arg| arg == "--ball-hold") {
+        hold();
+    }
+    // The stand-in `dart`: hand our stdout to a grandchild that outlives us,
+    // then block.
+    let exe = std::env::current_exe().expect("the runaway must know its own path");
+    std::process::Command::new(exe)
+        .arg("--ball-hold")
+        .spawn()
+        .expect("the stand-in must be able to fork its grandchild");
+    std::thread::sleep(Duration::from_secs(3600));
+}
+"#;
+
 /// Build [`RUNAWAY_SOURCE`] and return the executable's path.
 fn build_runaway_launcher(dir: &Path) -> PathBuf {
+    build_runaway(dir, RUNAWAY_SOURCE, "ball_runaway")
+}
+
+/// Build [`TREE_RUNAWAY_SOURCE`] and return the executable's path. Its
+/// heartbeat file is the same path with the `heartbeat` extension.
+fn build_tree_runaway_launcher(dir: &Path) -> PathBuf {
+    build_runaway(dir, TREE_RUNAWAY_SOURCE, "ball_runaway_tree")
+}
+
+/// Compile one fabricated runaway with `rustc` and return the executable's path.
+fn build_runaway(dir: &Path, program: &str, stem: &str) -> PathBuf {
     std::fs::create_dir_all(dir).expect("failed to create the runaway scratch directory");
-    let source = dir.join("runaway.rs");
-    std::fs::write(&source, RUNAWAY_SOURCE).expect("failed to write the runaway source");
+    let source = dir.join(format!("{stem}.rs"));
+    std::fs::write(&source, program).expect("failed to write the runaway source");
     let exe = dir.join(if cfg!(windows) {
-        "ball_runaway.exe"
+        format!("{stem}.exe")
     } else {
-        "ball_runaway"
+        stem.to_string()
     });
     let status = Command::new("rustc")
         .arg("--edition")
@@ -454,6 +589,43 @@ fn build_runaway_launcher(dir: &Path) -> PathBuf {
     exe
 }
 
+/// Build a fabricated launcher, set the per-fixture budget, and drive it
+/// through [`run_dart`] — all three inside [`ENV_LOCK`].
+///
+/// The lock spans the BUILD as well as the write and the run, because the build
+/// shells out to `rustc` ([`build_runaway`]) and a `Command` spawn reads the
+/// environment: one test compiling its stand-in while the other sits inside its
+/// `set_var` is the concurrent `getenv`/`setenv` that makes the `unsafe` block
+/// undefined behaviour. Owning it in one place is what keeps that guarantee
+/// whole.
+///
+/// `elapsed` is measured from INSIDE the critical section, so a test asserting
+/// the budget was honoured measures the RUN and never the time it spent queued
+/// behind the other test's lock.
+fn run_with_budget(
+    budget_ms: u64,
+    build: impl FnOnce() -> PathBuf,
+    ball_json: &Path,
+    root: &Path,
+) -> (PathBuf, Result<(i32, String, String), String>, Duration) {
+    let guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let launcher = build();
+    // SAFETY: `guard` is held across the build's `rustc` spawn, the write, and
+    // `run_dart`'s spawn, and every environment writer and every process spawn
+    // in this target goes through here — so no thread can read the environment
+    // while it is being written.
+    unsafe {
+        std::env::set_var("BALL_TIMEOUT_MS", budget_ms.to_string());
+    }
+    let started = std::time::Instant::now();
+    let result = run_dart(&launcher.to_string_lossy(), ball_json, root);
+    let elapsed = started.elapsed();
+    drop(guard);
+    (launcher, result, elapsed)
+}
+
 /// **The harness must not be able to hang.**
 ///
 /// A sweep that shells out per fixture and waits without a budget is itself a
@@ -467,10 +639,11 @@ fn build_runaway_launcher(dir: &Path) -> PathBuf {
 /// this self-test can prove the kill in milliseconds instead of burning the
 /// production 60 s. A hard-coded budget is an untestable budget.
 ///
-/// Safety of `set_var`: this is the only NON-`#[ignore]`d test in this target,
-/// and the sweep below is `#[ignore]`d, so `cargo test` runs this one alone and
-/// `cargo test -- --ignored` runs the sweep alone. The two never share a
-/// process, so nothing else can read the environment while it is being written.
+/// Safety of `set_var`: the sweep below is `#[ignore]`d, so it never shares a
+/// process with this test, and every environment write and process spawn either
+/// test performs happens inside [`run_with_budget`], which holds [`ENV_LOCK`]
+/// across the whole window — so no thread can be reading the environment (a
+/// `Command` spawn reads it) while it is being written.
 #[test]
 fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     let root = repo_root();
@@ -483,17 +656,8 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     );
 
     let scratch = std::env::temp_dir().join(format!("ball_runaway_{}", std::process::id()));
-    let runaway = build_runaway_launcher(&scratch);
-
-    // SAFETY: see the doc comment — this target runs exactly one test per
-    // process, so there is no concurrent reader of the environment.
-    unsafe {
-        std::env::set_var("BALL_TIMEOUT_MS", "300");
-    }
-
-    let started = std::time::Instant::now();
-    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root);
-    let elapsed = started.elapsed();
+    let (_runaway, result, elapsed) =
+        run_with_budget(300, || build_runaway_launcher(&scratch), &ball_json, &root);
 
     let _ = std::fs::remove_dir_all(&scratch);
 
@@ -510,6 +674,87 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
          provable in milliseconds; the runaway was only killed after {elapsed:?}, which means \
          the budget is a hard-coded constant this self-test cannot reach"
     );
+}
+
+/// The size of the grandchild's heartbeat file, or 0 while it does not exist.
+fn heartbeat_len(path: &Path) -> u64 {
+    std::fs::metadata(path).map_or(0, |meta| meta.len())
+}
+
+/// **Killing the launcher is not the same as ending the fixture (#791).**
+///
+/// `dart run` is a launcher: it forks the Dart VM, and the VM is what actually
+/// executes the re-encoded program and holds the inherited stdout pipe. A
+/// timeout that kills only the immediate `dart` therefore leaves that VM
+/// running — orphaned, still burning a CI runner's CPU, invisible to a test
+/// that checks only that the harness came back with a `timeout` status. That
+/// was live here until the kill was widened to the whole process group;
+/// `csharp/engine/conformance/RoundTripLeg.cs` has always used
+/// `Kill(entireProcessTree: true)` for exactly this reason.
+///
+/// The negative control is the real shape, not a mock: a fabricated stand-in
+/// `dart` that forks a grandchild inheriting its stdout and then blocks. The
+/// assertion is about the GRANDCHILD, not about the harness — the harness
+/// returned promptly before this fix too.
+#[test]
+fn a_timed_out_fixture_leaves_no_orphaned_descendant_process() {
+    let root = repo_root();
+    // Any real fixture path: the fabricated launcher never reads its arguments.
+    let ball_json = conformance_dir().join("28_fibonacci.ball.json");
+    assert!(
+        ball_json.is_file(),
+        "the self-test needs a real fixture path to hand the launcher: {}",
+        ball_json.display()
+    );
+
+    let scratch = std::env::temp_dir().join(format!("ball_runaway_tree_{}", std::process::id()));
+    // The build, the budget write and the run all happen under `ENV_LOCK`; the
+    // stale-heartbeat guard has to be inside that window too, or the other
+    // test's `rustc` could race it.
+    let (runaway, result, _elapsed) = run_with_budget(
+        1500,
+        || {
+            let exe = build_tree_runaway_launcher(&scratch);
+            let _ = std::fs::remove_file(exe.with_extension("heartbeat"));
+            exe
+        },
+        &ball_json,
+        &root,
+    );
+    let heartbeat = runaway.with_extension("heartbeat");
+
+    assert_eq!(
+        result.as_ref().err().map(String::as_str),
+        Some("__timeout__"),
+        "the fabricated runaway must come back as the `__timeout__` sentinel: {result:?}"
+    );
+
+    // Let any write that was already in flight when the kill landed settle.
+    std::thread::sleep(Duration::from_millis(750));
+    let first = heartbeat_len(&heartbeat);
+    // POSITIVE FLOOR. Without it a control that never managed to fork a
+    // grandchild — a rustc quirk, a sandbox that forbids the spawn — would
+    // report a frozen heartbeat and pass while proving nothing at all.
+    assert!(
+        first > 0,
+        "the stand-in never wrote a heartbeat ({}), so this run fabricated no live \
+         grandchild and proves nothing about the kill",
+        heartbeat.display()
+    );
+
+    // A live grandchild appends every 50 ms, so ~30 more bytes land in this
+    // window. A heartbeat that has not moved is a process that is gone.
+    std::thread::sleep(Duration::from_millis(1500));
+    let second = heartbeat_len(&heartbeat);
+    assert!(
+        first == second,
+        "the timed-out fixture's GRANDCHILD is still running: its heartbeat grew from {first} \
+         to {second} bytes 1.5 s after the harness reported the timeout. The kill reached only \
+         the immediate `dart` process, so a real sweep leaks one orphaned Dart VM per timed-out \
+         fixture (issue #791)"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
 }
 
 #[test]

@@ -2,7 +2,7 @@
 # Drift guard for three engine-row docs (issues #610, #613, #709).
 #
 # WHY THIS EXISTS: three prose surfaces claim to enumerate "every engine that
-# actually runs a Ball program end-to-end", and both had drifted independently
+# actually runs a Ball program end-to-end", and each had drifted independently
 # of the thing that would have caught it — `.github/workflows/conformance-matrix.yml`,
 # which is the ONLY place the current engine-row set is defined:
 #
@@ -1119,9 +1119,23 @@ YAML
     "names all 7 derived engine(s) in per-language sections (OK)" \
     "$wf" "$good_portability" "$good_embed" "$good_per_target"
 
+  # The mutation issue #709 names outright: an 8th engine row added to the
+  # workflow. All three docs here are the CLEAN, real-shaped fixtures --
+  # nothing in them changed -- so the ONLY moving part is the source of
+  # truth, and the per-target doc must red alongside the two tables instead
+  # of staying silent about the new language as it did before #709.
+  local eighth_wf="$SCRATCH/wf_eighth_engine.yml"
+  sed -e 's|^  summary:$|  zig-engine:\n    name: Zig Self-Hosted Engine\n  summary:|' \
+    -e 's|needs: \[changes, |needs: [changes, zig-engine, |' \
+    -e 's|^            "${{ needs.python-engine.result }}"$|&\n\n          print_row "Zig Self-Hosted Engine" \\\n            "${{ needs.zig-engine.result }}"|' \
+    "$wf" >"$eighth_wf"
+  expect "an 8th engine row reds the per-target doc, not just the two tables" 1 \
+    "no '## ' section for Zig" \
+    "$eighth_wf" "$good_portability" "$good_embed" "$good_per_target"
+
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 21 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 21) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 22 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 22) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

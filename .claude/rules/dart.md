@@ -598,6 +598,28 @@ avoid constructs that need receiver-type info:
   consumer, so the #505 gate could not see the 30 language constructs
   (`map_create`, `typed_list`, `switch_expr`, `invoke`, `paren`, `cascade`, …)
   every encoder emitted through a different code path. Read the two as a PAIR.
+  **Every closed set above compares a NAME; the FIELD names inside a
+  `TypeDefinition` are gated separately, by
+  `dart/shared/test/std_field_signature_test.dart` (#771).** Declaring
+  `_exprField('len', 1)` where `_stdListGenerate` reads
+  `m['length'] ?? m['count'] ?? m['arg0']` passes #505, #686, #702 AND both
+  mirrors, and then computes the wrong answer on every target with no crash and
+  no diagnostic — engines and compilers extract fields by hardcoded string key
+  and never consult the descriptor. Two rules follow, and both are enforced by
+  PARSING `dart/engine/lib/engine_*.dart` + `dart/compiler/lib/compiler.dart`
+  (never a hand-maintained expectation table):
+  1. **Every field you declare must be READ by name** by the Dart engine or the
+     Dart compiler. A field nothing reads is a contract every other target
+     implements against and the reference implementation ignores — that is what
+     `ListReduceInput.initial` and `Format/ParseTimestampInput.format` were.
+  2. **Every key a handler reads must be declared, or named in BACKTICKS in that
+     function's own description** as an accepted alternative spelling (the
+     convention `std.dart` already states). `arg0`/`arg1`/…, `self` and
+     `__…__` runtime markers are the universal call convention and need
+     neither. A spelling only the Dart engine knows is a shape no other target
+     can discover from `std.json`.
+  So: when you add or rename a field, open the handler; when you teach a handler
+  a new alias, document it in the same edit.
   **A `_fn(...)` added here must be ported to the two hand-maintained mirrors in
   the same PR** — `csharp/shared/src/StdModuleBuilders.cs` and
   `rust/shared/src/std_*_module.rs`. Both are gated name-for-name against this

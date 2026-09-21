@@ -4454,7 +4454,7 @@
     {
       "module": "std_collections",
       "name": "set_create",
-      "inputType": "ListInput",
+      "inputType": "SetCreateInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
         "118_set_operations",

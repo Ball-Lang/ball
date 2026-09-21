@@ -5,7 +5,7 @@
 //! some WASM targets); the set of operations is large enough to warrant its
 //! own module. Depends on `std`.
 
-use crate::descriptor_builders::{base_fn, expr_field, type_def};
+use crate::descriptor_builders::{base_fn, expr_field, string_field, type_def};
 use crate::{FunctionDefinition, Module, TypeDefinition};
 
 /// Build the `std_collections` base module.
@@ -36,13 +36,12 @@ fn type_defs() -> Vec<TypeDefinition> {
             "ListCallbackInput",
             vec![expr_field("list", 1), expr_field("callback", 2)],
         ),
+        // NO seed field — `list_reduce` is Dart's `Iterable.reduce`, not
+        // `fold`. The `initial` this carried until #771 was read by no engine,
+        // compiler or encoder on any target.
         type_def(
             "ListReduceInput",
-            vec![
-                expr_field("list", 1),
-                expr_field("callback", 2),
-                expr_field("initial", 3),
-            ],
+            vec![expr_field("list", 1), expr_field("callback", 2)],
         ),
         type_def(
             "ListSliceInput",
@@ -79,6 +78,12 @@ fn type_defs() -> Vec<TypeDefinition> {
         type_def(
             "SetBinaryInput",
             vec![expr_field("left", 1), expr_field("right", 2)],
+        ),
+        // `set_create` declared `ListInput` until #771, while every encoder
+        // writes `{type_args?, elements}` and every engine reads `elements`.
+        type_def(
+            "SetCreateInput",
+            vec![string_field("type_args", 1), expr_field("elements", 2)],
         ),
     ]
 }
@@ -155,7 +160,7 @@ fn functions() -> Vec<FunctionDefinition> {
             "list_reduce",
             "ListReduceInput",
             "",
-            "Reduce: list.fold(initial, callback)",
+            "Reduce: list.reduce(callback) — the accumulator starts at the first element, so an empty list is an error. Engines also accept `function` or `value` for `callback`.",
         ),
         base_fn(
             "list_find",
@@ -305,9 +310,9 @@ fn functions() -> Vec<FunctionDefinition> {
         // --- Set — unordered, unique elements ---
         base_fn(
             "set_create",
-            "ListInput",
+            "SetCreateInput",
             "",
-            "Create set from list: Set.from(list)",
+            "Set literal: <type_args>{elements}. `elements` is one expression holding the element list; `type_args` carries the explicit type arguments the literal was written with, if any.",
         ),
         // `bool`, not `""` — issue #545 made `set_add`/`set_remove` Dart-exact on
         // every target (mutate the receiver in place, answer `true` only on a

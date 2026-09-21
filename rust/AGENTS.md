@@ -445,9 +445,10 @@ instructions.
   `BallValue::Null`), so every expression position (block tail, `if`/`else` branches, function
   bodies) is uniformly type-correct.
 - The encoder has **no `rust_std` base module** — every Rust construct (operators, control flow,
-  iterator sugar, `?`, `if let`) expands into universal `std`/`std_collections` calls, exactly
-  like the Dart encoder's cascade/null-aware-access/spread expansion. This is invariant, not
-  optional — see `ball-lang-encoder`'s module doc comment (`rust/encoder/src/lib.rs`).
+  iterator sugar, `?`, `if let`, `while let`) expands into universal `std`/`std_collections`
+  calls, exactly like the Dart encoder's cascade/null-aware-access/spread expansion. This is
+  invariant, not optional — see `ball-lang-encoder`'s module doc comment
+  (`rust/encoder/src/lib.rs`).
 - **`try` dispatches EVERY catch clause, in source order** (issue #615). `compile_try` emits an
   `if`/`else if` chain over the recovered payload: an `on <Type> catch` clause runs only when
   `ball_catch_matches(&__err, "<Type>")` accepts the thrown value's type tag (a
@@ -1069,9 +1070,10 @@ of `p.x`/`v[0]`, which DOES emit a `let`) falls through under its own name and r
 loud refusal `encode_assign` gives a plain write through it, because the binding it emits is a
 copy.
 
-And a **pattern** binding — a for-loop variable, a `match`-arm binding, an `if let` binding —
-opens a frame of its own (`Encoder::with_pattern_binding`), which also drops a `&mut` alias of
-that name for its duration exactly as a plain `let` of it does. `record_local`'s only call site is
+And a **pattern** binding — a for-loop variable, a `match`-arm binding, an `if let`/`while let`
+binding — opens a frame of its own (`Encoder::with_pattern_binding`), which also drops a `&mut`
+alias of that name for its duration exactly as a plain `let` of it does. `record_local`'s only
+call site is
 the `let` handling, so without a frame a pattern binding is not merely unknown but **invisible**:
 the innermost-first lookup walks past it to a same-named ENCLOSING binding, and an enclosing local
 `String` is the one kind that does not fail loud —

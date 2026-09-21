@@ -507,14 +507,58 @@ avoid constructs that need receiver-type info:
   implicitly assignable to a non-dynamic type, and unreachable code is still
   type-checked (`dart-lang/async`'s own `analysis_options.yaml` sets it, which
   is how `async/lib/src/stream_queue.dart` and `async/lib/src/async_cache.dart`
-  failed). `_asyncSafetyReturn` now splits the two shapes: a NULLABLE (or
-  `dynamic`) result keeps a plain `return null;` — falling off the end really
-  does produce null there, so a throw would be a behaviour regression — and a
-  NON-NULLABLE result gets a `Never`-typed `throw StateError('unreachable: …')`,
-  which is assignable to every return type and preserves the old line's
-  meaning (it already threw a `TypeError` if reached).
+  failed). `_asyncSafetyReturn` splits THREE shapes: a NULLABLE (or `dynamic`)
+  result keeps a plain `return null;` — falling off the end really does produce
+  null there, so a throw would be a behaviour regression — a CONCRETE
+  non-nullable result gets a `Never`-typed
+  `throw StateError('unreachable: …')`, which is assignable to every return
+  type, and a BARE TYPE PARAMETER gets neither (**#766**).
   `dart/compiler/test/strict_casts_safety_return_test.dart` is the only gate in
   the repository that runs `dart analyze` under non-default analysis options.
+  **A bare type parameter is not a non-nullable type — it is a type VARIABLE,
+  and the caller's type argument decides (#766).** The first cut read
+  nullability off the SPELLING, so `Future<T> maybe<T>() async` landed in the
+  throwing arm; at `maybe<int?>()` the declared result is `Future<int?>`,
+  falling off the end really does produce `null`, and the pre-#647 line
+  (`return null as dynamic;`) returned exactly that — so #647 turned a
+  null-returning program into an unconditional `StateError`, a real behaviour
+  change rather than the unreachable-by-construction cleanup the doc comment
+  claimed. `_asyncSafetyReturn` now takes the type-parameter names IN SCOPE
+  (`_typeParamsInScope`: the enclosing class/mixin/enum/extension/
+  extension-type's `metadata['type_params']`, unioned with the method's or
+  local function's own, maintained by `_withTypeParams` and the `declMeta`
+  argument of `_withClassContext`) and emits, for a declared result that is one
+  of those names, a statement that ASKS at run time:
+  `return null is T ? null as T : throw StateError('unreachable: …');`.
+  `null as T` is an EXPLICIT cast, so `strict-casts` accepts it where the
+  implicit `dynamic` → `T` conversion was #488's very error, and the
+  conditional's static type is `T` (`UP(T, Never)`). Keying on the in-scope SET
+  rather than on the spelling is what keeps a user class literally named `T` on
+  the concrete shape.
+  **That set holds NAMES, and `metadata['type_params']` holds SPELLINGS.**
+  `dart/encoder/lib/encoder.dart` fills both the metadata list and
+  `TypeDefinition.typeParams[].name` with the analyzer's
+  `TypeParameter.toSource()`, so a BOUNDED parameter arrives as the whole
+  string `'T extends Object?'` — the commonest spelling in real Dart — and an
+  ANNOTATED one carries its metadata too. The first cut of the fix populated
+  `_typeParamsInScope` from those raw strings, so the set did not contain
+  `'T'` and every bounded generic reproduced #766 verbatim. `_typeParamName`
+  is the extraction, and it lives in `_withTypeParams` — the ONE consumer that
+  wants a name — never in `_metaFromTd`: `_typeParamsStr` and `_addTypeParams`
+  EMIT from the same list, and stripping the bound there would drop it from
+  the generated Dart declaration. It reads the LAST identifier before the last
+  whole-word `extends` (a bound is a type and can never contain that word, so
+  a `'extends'` inside an annotation's string literal cannot fool it), and an
+  unparseable spelling degrades to the concrete shape rather than crashing the
+  compile. `dart/compiler/test/generic_async_safety_return_test.dart`
+  is the guard, and it measures BEHAVIOUR — it RUNS the emitted Dart at
+  `T = int?` (must print `null`, exit 0) and at `T = int` (must still fail
+  loud) — because the throwing and returning shapes are indistinguishable by
+  reading the source for a `throw`. It covers the bounded and annotated
+  spellings on BOTH paths into the set (the function's own metadata, and the
+  enclosing class's through `_metaFromTd` + `declMeta`), and it does not
+  assume the encoder's spelling: one case READS `type_params` back out of a
+  real `DartEncoder().encode()` and runs a program carrying those bytes.
 - **An arity window may never be WIDER than the std function it stands for.**
   A route whose `maxArgs` admits an argument the target function does not
   declare silently DROPS that argument — the compiler emits exactly the

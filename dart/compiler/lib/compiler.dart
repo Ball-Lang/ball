@@ -87,6 +87,76 @@ class DartCompiler {
   /// from shadowing a module-level variable also named `input`.
   Set<String> _topLevelNames = const {};
 
+  /// The generic type-parameter NAMES in scope at the declaration being
+  /// emitted: the enclosing class/mixin/enum/extension/extension-type's
+  /// `metadata['type_params']` unioned with the method's or local function's
+  /// own. `_asyncSafetyReturn` is the consumer — a declared result that is one
+  /// of these names is a TYPE VARIABLE, whose nullability is decided by the
+  /// caller's type argument and so cannot be read off the spelling (issue
+  /// #766).
+  ///
+  /// Names, not spellings: `metadata['type_params']` holds each parameter's
+  /// full SOURCE text, so a bounded parameter reaches [_withTypeParams] as
+  /// `'T extends Object?'` and is stored here as `'T'` — see [_typeParamName].
+  Set<String> _typeParamsInScope = const {};
+
+  /// The NAME of the type parameter [spelling] declares.
+  ///
+  /// `metadata['type_params']` holds each parameter's full SOURCE SPELLING,
+  /// not its name — `dart/encoder/lib/encoder.dart` fills both the metadata
+  /// list and `TypeDefinition.typeParams[].name` with the analyzer's
+  /// `TypeParameter.toSource()`. So a BOUNDED parameter arrives as
+  /// `'T extends Object?'` and an ANNOTATED one as `'@meta T'`. Everything
+  /// that EMITS a declaration (`_typeParamsStr`, `_addTypeParams`) wants that
+  /// spelling verbatim — dropping the bound would change the emitted Dart — so
+  /// the name extraction lives here, at the one consumer that needs a NAME,
+  /// rather than in `_metaFromTd`.
+  ///
+  /// Reading only the leading identifier would be wrong for the annotated
+  /// form, so this reads the LAST identifier before the bound instead. Dart's
+  /// grammar for a type parameter is `metadata identifier ('extends' type)?`
+  /// (https://spec.dart.dev/DartLangSpecDraft.pdf, "Generics"), and a bound is
+  /// a type — which can never itself contain the word `extends` — so the LAST
+  /// whole-word `extends` is the real one even when an annotation argument
+  /// contains that word inside a string literal.
+  ///
+  /// An unparseable spelling falls back to the trimmed input: this decides
+  /// which safety-return shape `_asyncSafetyReturn` emits, and an
+  /// unrecognised name simply keeps the pre-#766 concrete shape rather than
+  /// crashing the compile.
+  static String _typeParamName(String spelling) {
+    var head = spelling.trim();
+    final bounds = _extendsKeyword.allMatches(head);
+    if (bounds.isNotEmpty) head = head.substring(0, bounds.last.start);
+    final name = _trailingIdentifier.firstMatch(head.trimRight());
+    return name?.group(0) ?? spelling.trim();
+  }
+
+  /// The `extends` keyword as a whole word — see [_typeParamName].
+  static final RegExp _extendsKeyword = RegExp(r'\bextends\b');
+
+  /// The identifier a string ENDS with — see [_typeParamName].
+  static final RegExp _trailingIdentifier = RegExp(
+    r'[A-Za-z_$][A-Za-z0-9_$]*$',
+  );
+
+  /// Run [body] with the NAMES of [meta]'s `type_params` added to
+  /// [_typeParamsInScope]. Restores the previous set even if [body] throws.
+  T _withTypeParams<T>(Map<String, Object?> meta, T Function() body) {
+    final declared = meta['type_params'];
+    if (declared is! List || declared.isEmpty) return body();
+    final saved = _typeParamsInScope;
+    _typeParamsInScope = {
+      ...saved,
+      for (final param in declared) _typeParamName(param.toString()),
+    };
+    try {
+      return body();
+    } finally {
+      _typeParamsInScope = saved;
+    }
+  }
+
   /// Collect the instance member names of a class-like container:
   /// descriptor fields + declared methods/getters/setters/fields.
   /// Static members are excluded (they don't shadow instance refs).
@@ -108,13 +178,19 @@ class DartCompiler {
     return names;
   }
 
-  /// Run [body] with the class member name set in scope. Ensures the
-  /// previous context is restored even if [body] throws.
-  T _withClassContext<T>(Set<String> members, T Function() body) {
+  /// Run [body] with the class member name set in scope, and with the
+  /// enclosing declaration's generic type parameters ([declMeta]'s
+  /// `type_params`) added to [_typeParamsInScope]. Ensures the previous
+  /// context is restored even if [body] throws.
+  T _withClassContext<T>(
+    Set<String> members,
+    T Function() body, {
+    Map<String, Object?> declMeta = const {},
+  }) {
     final saved = _currentClassMemberNames;
     _currentClassMemberNames = members;
     try {
-      return body();
+      return _withTypeParams(declMeta, body);
     } finally {
       _currentClassMemberNames = saved;
     }
@@ -465,6 +541,11 @@ class DartCompiler {
     return dartType;
   }
 
+  /// The message every `async` safety-return failure carries. Spelled once so
+  /// the two shapes below cannot drift apart.
+  static const _asyncUnreachableMessage =
+      'unreachable: Ball async body already returned';
+
   /// The statement that closes an `async`, non-generator function whose
   /// declared result type is not `void`.
   ///
@@ -475,16 +556,32 @@ class DartCompiler {
   ///  * a NULLABLE (or `dynamic`) result — falling off the end of a Ball
   ///    function really does produce `null`, and `Future<int?>` accepts it, so
   ///    the honest statement is a plain `return null;`.
-  ///  * a NON-NULLABLE result (`Future<bool>`, `Future<T>`) — `null` is not a
-  ///    value of that type at all. The old `return null as dynamic;` threw a
-  ///    `TypeError` the moment it was ever reached, so the line was already
-  ///    unreachable-by-construction; spelling it as a `Never`-typed `throw`
-  ///    keeps that meaning and is assignable to EVERY return type, including
-  ///    under `analyzer: language: strict-casts: true`, where an implicit
+  ///  * a CONCRETE non-nullable result (`Future<bool>`) — `null` is not a
+  ///    value of that type at all, so the statement is a `Never`-typed
+  ///    `throw`, which is assignable to EVERY return type, including under
+  ///    `analyzer: language: strict-casts: true`, where an implicit
   ///    `dynamic` → `bool` conversion is an error even in code flow analysis
   ///    has proved unreachable (issue #488,
   ///    `async/lib/src/stream_queue.dart` + `async/lib/src/async_cache.dart`).
-  static String _asyncSafetyReturn(String rawReturnType) {
+  ///  * a BARE TYPE PARAMETER (`Future<T>`, with `T` in
+  ///    [typeParamsInScope]) — neither, because WHICH of the two is right is
+  ///    decided by the caller's type argument, which this compiler cannot see.
+  ///    At `T = int?` falling off the end really does produce `null` (that is
+  ///    what the pre-#647 `return null as dynamic;` line did); at `T = int`
+  ///    the value does not exist. So the statement ASKS, at run time. `null as
+  ///    T` is an EXPLICIT cast, so `strict-casts` accepts it where the
+  ///    implicit `dynamic` → `T` conversion was the very error #488 was about,
+  ///    and the conditional's static type is `T` — `UP(T, Never)` (issue
+  ///    #766).
+  ///
+  /// [typeParamsInScope] is the generic type-parameter NAMES visible at the
+  /// declaration — bounds already stripped by [_typeParamName], so a
+  /// `<T extends Object?>` is in here as `T`. A user class literally named `T`
+  /// is NOT one of them, so it keeps the concrete shape.
+  static String _asyncSafetyReturn(
+    String rawReturnType,
+    Set<String> typeParamsInScope,
+  ) {
     var inner = rawReturnType.trim();
     if (inner.startsWith('Future<') && inner.endsWith('>')) {
       inner = inner.substring('Future<'.length, inner.length - 1).trim();
@@ -496,9 +593,13 @@ class DartCompiler {
         inner == 'Null' ||
         inner == 'void' ||
         inner == 'Future';
-    return acceptsNull
-        ? 'return null;'
-        : "throw StateError('unreachable: Ball async body already returned');";
+    if (acceptsNull) return 'return null;';
+    if (typeParamsInScope.contains(inner)) {
+      return 'return null is $inner '
+          '? null as $inner '
+          ": throw StateError('$_asyncUnreachableMessage');";
+    }
+    return "throw StateError('$_asyncUnreachableMessage');";
   }
 
   cb.Library _buildLibrary(Module mainModule, FunctionDefinition? entryFunc) {
@@ -1042,7 +1143,7 @@ class DartCompiler {
             b.methods.add(_buildMethod(enumDef.name, method, mMeta));
           }
         }
-      });
+      }, declMeta: meta);
     });
   }
 
@@ -1093,7 +1194,7 @@ class DartCompiler {
         for (final method in methods) {
           b.methods.add(_buildMethod(td.name, method, _readMeta(method)));
         }
-      });
+      }, declMeta: meta);
     });
   }
 
@@ -1216,7 +1317,7 @@ class DartCompiler {
             b.methods.add(_buildMethod(descriptor.name, method, mMeta));
           }
         }
-      });
+      }, declMeta: meta);
     });
   }
 
@@ -1569,7 +1670,7 @@ class DartCompiler {
         for (final method in methods) {
           b.methods.add(_buildMethod(td.name, method, _readMeta(method)));
         }
-      });
+      }, declMeta: meta);
     });
   }
 
@@ -1651,7 +1752,7 @@ class DartCompiler {
             b.methods.add(_buildMethod(td.name, method, mMeta));
           }
         }
-      });
+      }, declMeta: meta);
     });
   }
 
@@ -1741,40 +1842,51 @@ class DartCompiler {
       _addParameters(b, meta);
 
       if (!isAbstract && !isExternal && func.hasBody()) {
-        // If `_addParameters` stashed renames (e.g. original param `n`
-        // became `input`), we can't use `=> expr` form since the
-        // expression references `n` which no longer exists. Demote to
-        // block form so `_generateFunctionBody` emits the alias prologue.
-        final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
-        final savedInGen = _inGenerator;
-        final savedInsideInstance = _insideInstanceMethod;
-        _inGenerator = isSyncStar || isAsyncStar;
-        _insideInstanceMethod = !isStatic;
-        // A parameter literally named `self` shadows the implicit receiver for
-        // the whole body, so `self` references must stay `self`, not `this`.
-        final selfParamShadow = _paramsDeclareSelf(meta);
-        if (selfParamShadow) _selfShadowDepth++;
-        if (isExpressionBody && !mustUseBlockForm) {
-          b.lambda = true;
-          b.body = _compileExpression(func.body).code;
-        } else {
-          b.body = cb.Code(
-            _captureBody(() {
-              _generateFunctionBody(func.body, _hasNonVoidReturn(func));
-              // Async/generator functions: safety return for null-safety
-              // Async (not generator) non-void: safety return
-              if (isAsync &&
-                  !isAsyncStar &&
-                  func.outputType.isNotEmpty &&
-                  _dartType(func.outputType) != 'void') {
-                _wl(_asyncSafetyReturn(_dartType(func.outputType)));
-              }
-            }),
-          );
-        }
-        if (selfParamShadow) _selfShadowDepth--;
-        _inGenerator = savedInGen;
-        _insideInstanceMethod = savedInsideInstance;
+        // The method's OWN type parameters join the enclosing declaration's
+        // for the whole body, so `_asyncSafetyReturn` can tell a declared
+        // result that is a type VARIABLE from a concrete type of the same
+        // spelling (issue #766).
+        _withTypeParams(meta, () {
+          // If `_addParameters` stashed renames (e.g. original param `n`
+          // became `input`), we can't use `=> expr` form since the
+          // expression references `n` which no longer exists. Demote to
+          // block form so `_generateFunctionBody` emits the alias prologue.
+          final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
+          final savedInGen = _inGenerator;
+          final savedInsideInstance = _insideInstanceMethod;
+          _inGenerator = isSyncStar || isAsyncStar;
+          _insideInstanceMethod = !isStatic;
+          // A parameter literally named `self` shadows the implicit receiver for
+          // the whole body, so `self` references must stay `self`, not `this`.
+          final selfParamShadow = _paramsDeclareSelf(meta);
+          if (selfParamShadow) _selfShadowDepth++;
+          if (isExpressionBody && !mustUseBlockForm) {
+            b.lambda = true;
+            b.body = _compileExpression(func.body).code;
+          } else {
+            b.body = cb.Code(
+              _captureBody(() {
+                _generateFunctionBody(func.body, _hasNonVoidReturn(func));
+                // Async/generator functions: safety return for null-safety
+                // Async (not generator) non-void: safety return
+                if (isAsync &&
+                    !isAsyncStar &&
+                    func.outputType.isNotEmpty &&
+                    _dartType(func.outputType) != 'void') {
+                  _wl(
+                    _asyncSafetyReturn(
+                      _dartType(func.outputType),
+                      _typeParamsInScope,
+                    ),
+                  );
+                }
+              }),
+            );
+          }
+          if (selfParamShadow) _selfShadowDepth--;
+          _inGenerator = savedInGen;
+          _insideInstanceMethod = savedInsideInstance;
+        });
       } else {
         // Abstract/external/body-less methods must still clear stashed
         // aliases so they don't leak into the NEXT method's body and
@@ -2074,6 +2186,14 @@ class DartCompiler {
   // TypeDefinition metadata helpers
   // ════════════════════════════════════════════════════════════
 
+  /// This declaration's metadata, with `type_params` filled in from
+  /// [TypeDefinition.typeParams] when the metadata bag does not carry it.
+  ///
+  /// Both sources hold each parameter's full SOURCE SPELLING — the encoder
+  /// fills `TypeParameter.name` with `TypeParameter.toSource()` too — and that
+  /// is deliberate: every consumer that EMITS a declaration (`_typeParamsStr`,
+  /// `_addTypeParams`) needs the bound. The one consumer that needs a bare
+  /// NAME, [_withTypeParams], extracts it with [_typeParamName].
   Map<String, Object?> _metaFromTd(TypeDefinition td) {
     final meta = td.hasMetadata()
         ? _structToMap(td.metadata)
@@ -2448,31 +2568,36 @@ class DartCompiler {
 
     final savedInGen = _inGenerator;
     _inGenerator = isSyncStar || isAsyncStar;
-    if (isExprBody && func.hasBody()) {
-      _wl('$sig => ${_e(func.body)};');
-    } else {
-      _wl('$sig {');
-      _depth++;
-      if (func.hasBody()) {
-        // Honour the encoder's `has_return` flag: a lambda assigned to a
-        // local (`final f = (x) { ... };`) carries no `outputType`, so
-        // `_hasNonVoidReturn` alone would drop the implicit return value of
-        // its final expression. Mirror `_compileLambda` here.
-        final hasReturn = meta['has_return'] == true || _hasNonVoidReturn(func);
-        _generateFunctionBody(func.body, hasReturn);
+    // A local function's own type parameters join the enclosing declaration's
+    // for its body (issue #766) — same rule as `_buildMethodFromMeta`.
+    _withTypeParams(meta, () {
+      if (isExprBody && func.hasBody()) {
+        _wl('$sig => ${_e(func.body)};');
+      } else {
+        _wl('$sig {');
+        _depth++;
+        if (func.hasBody()) {
+          // Honour the encoder's `has_return` flag: a lambda assigned to a
+          // local (`final f = (x) { ... };`) carries no `outputType`, so
+          // `_hasNonVoidReturn` alone would drop the implicit return value of
+          // its final expression. Mirror `_compileLambda` here.
+          final hasReturn =
+              meta['has_return'] == true || _hasNonVoidReturn(func);
+          _generateFunctionBody(func.body, hasReturn);
+        }
+        // Async/generator functions with non-void return types need a safety
+        // return to satisfy Dart null-safety when not all paths return.
+        // Async (not generator) non-void: safety return
+        if (isAsync &&
+            !isAsyncStar &&
+            rawReturnType != null &&
+            rawReturnType != 'void') {
+          _wl(_asyncSafetyReturn(rawReturnType, _typeParamsInScope));
+        }
+        _depth--;
+        _wl('}');
       }
-      // Async/generator functions with non-void return types need a safety
-      // return to satisfy Dart null-safety when not all paths return.
-      // Async (not generator) non-void: safety return
-      if (isAsync &&
-          !isAsyncStar &&
-          rawReturnType != null &&
-          rawReturnType != 'void') {
-        _wl(_asyncSafetyReturn(rawReturnType));
-      }
-      _depth--;
-      _wl('}');
-    }
+    });
     _inGenerator = savedInGen;
   }
 

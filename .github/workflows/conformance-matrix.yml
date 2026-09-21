@@ -1144,7 +1144,7 @@ jobs:
       # NEVER lower this to turn a red build green — preventing exactly that is
       # the whole point of a ratchet. The job prints the exact new value when it
       # sees an improvement; raise it in the SAME PR as the fix that earned it.
-      CSHARP_ROUNDTRIP_FLOOR: "115"
+      CSHARP_ROUNDTRIP_FLOOR: "125"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1181,18 +1181,21 @@ jobs:
             echo "the Ball -> C# compiler dispatches through \`BallRuntime.*\` over"
             echo "\`BallValue\`, and the syntactic Roslyn encoder reads idiomatic"
             echo "hand-written C#. #689 has closed the dispatch preamble"
-            echo "(\`BallRuntime.FieldGet\`/\`ArgGet\`, 76 -> 86) and then the"
-            echo "compiler's whole OBJECT MODEL (\`FieldSet\`, \`MessageTypeName\`,"
-            echo "and the \`new BallMessage\`/\`BallMap\`/\`BallList\` constructions,"
-            echo "86 -> 95), and #740 fixed the DART REFERENCE ENGINE this leg"
-            echo "runs the re-encoded program on — a single-parameter callee no"
-            echo "longer destructures an input bag that merely carries \`arg0\`,"
-            echo "which is the shape every re-encoded C# compiler output has"
-            echo "(95 -> 115). No single helper heads the histogram any more: the"
-            echo "class-shaped fixtures now spread across \`BallRuntime.Iterate\`,"
-            echo "\`WithSelf\`, \`UnresolvedReference\`, \`MapCreate\`, \`ListPush\`,"
-            echo "\`SetCreate\`, \`CallMethod\` and \`IsType\` — read the verbatim"
-            echo "first failure echoed below, never this list."
+            echo "(\`BallRuntime.FieldGet\`/\`ArgGet\`, 76 -> 86), the compiler's"
+            echo "whole OBJECT MODEL (\`FieldSet\`, \`MessageTypeName\`, and the"
+            echo "\`new BallMessage\`/\`BallMap\`/\`BallList\` constructions, 86 -> 95),"
+            echo "and the 48-helper \`std_collections\` family (\`ListPush\`,"
+            echo "\`MapGet\`, \`SetCreate\`, … — \`RuntimeHelpers.CollectionsTable\`,"
+            echo "95 -> 103 on its own base; 115 -> 125 merged). #740"
+            echo "separately fixed the"
+            echo "DART REFERENCE ENGINE this leg runs the re-encoded program on —"
+            echo "a single-parameter callee no longer destructures an input bag"
+            echo "that merely carries \`arg0\`, the shape every re-encoded C#"
+            echo "compiler output has (95 -> 115). The measured first blockers"
+            echo "now head with \`BallRuntime.Iterate\` (the \`foreach\` lowering),"
+            echo "\`CallMethod\` and \`MapCreate\`, plus the un-inverted"
+            echo "\`new BallFunction\` a Ball lambda compiles to — read the"
+            echo "verbatim first failure echoed below, never this list."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           # C#'s harness prints `  <fixture>: ERROR: …` under `--- failures ---`

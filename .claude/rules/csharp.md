@@ -481,11 +481,14 @@ compile items so the sibling projects never double-compile each other's files.
   `csharp-roundtrip` row, whose floor #689 raised **76 -> 86** — `FieldGet` was the first blocker
   for the largest bucket of its failures (`101_simple_class`, `102_inheritance`,
   `103_abstract_class`, `104_getter_setter`, `106_factory_constructor`, …) and `ArgGet` for
-  `105_static_methods` — and then **86 -> 95** with the object-model arms below. No single helper
-  heads the histogram any more (the class-shaped fixtures spread across `BallRuntime.Iterate`,
-  `WithSelf`, `UnresolvedReference`, `MapCreate`, `ListPush`, `SetCreate`, `CallMethod` and
-  `IsType`) — read the live number and the live first
-  blocker off that row, never off this line.
+  `105_static_methods` — then **86 -> 95** with the object-model arms below, and **95 -> 103**
+  (measured on its own base) with `RuntimeHelpers.CollectionsTable`, the 48-helper
+  `std_collections` family; #740's engine fix moved the same row **95 -> 115**
+  independently, and the two together measure **125**, which is the live floor. The
+  measured first blockers now head with `BallRuntime.Iterate` (the `foreach` lowering),
+  `CallMethod` and `MapCreate`, plus the un-inverted `new BallFunction` a Ball lambda
+  compiles to — read the live number and the live first blocker off that row, never off
+  this line.
 - **FIXED in #740: a positionally-packed input now survives the re-encode.** The compiler's `__in`
   is the whole input message, and the reference engine used to destructure a SINGLE-parameter
   function's input whenever that map carried `arg0` and not the parameter's own name, so a
@@ -548,6 +551,30 @@ compile items so the sibling projects never double-compile each other's files.
   `CompilerObjectModelRunsOnTheReferenceEngine` in `encoder/test/ReferenceEngineExecutionTests.cs`,
   which RUNS a dispatcher-shaped program and asserts a positive result (`3!` then `9!` — the
   second line is what proves the `FieldSet` write landed on the same shared instance).
+- **`RuntimeHelpers.CollectionsTable` is the SAME row shape as `Table`, for the module `Table`
+  could not name (#689).** All 48 `std_collections` helpers the compiler emits
+  (`compiler/src/BaseCall.cs`'s `CompileCollectionsCall`) are plain fixed-arity
+  `BallRuntime.<Helper>(a, b, …)` calls whose arguments come from `FieldOrNull(f, "<name>")` —
+  exactly what a row expresses. They were ABSENT, not wrong: a row names a FUNCTION and nothing
+  else, and the table's only emitter was `Builders.StdCall`, which hard-codes `module = "std"`, so
+  a `list_push` row would have encoded to `std.list_push`, which no engine declares. The second
+  table is emitted through `Builders.CollectionsCall` + `MarkCollectionsUsed()`; the `std` table is
+  untouched and no row was widened. Field names are the DECLARED input type's
+  (`StdModuleBuilders.BuildStdCollectionsModule`), which is also the compiler's own first alias, so
+  the round trip is exact. **One documented exception**: `set_create` takes `elements`, which its
+  declared `ListInput` does not name — the reference engine's `_stdSetCreate` reads `elements` and
+  nothing else, answering an EMPTY SET silently for any other key, and `elements` is the only key
+  the Dart reference encoder emits. Eleven declared collections functions are deliberately absent
+  because the COMPILER has no case for them (`list_reduce`, `list_foreach`, `map_map`, …) and emits
+  a run-time `UnsupportedBaseCall` throw — a compiler gap, tracked as a measured set.
+  Guards: `encoder/test/CollectionsRuntimeHelperTests.cs` (a CLOSED SET derived from the module
+  declaration AND from `CSharpCompiler` itself — every probe is compiled, every declared input
+  field carries its own marker, so a mis-mapped row fails instead of round-tripping silently
+  wrong, and the compiler-gap set is asserted in both directions) plus
+  `ReferenceEngineExecutionTests.CollectionsHelpersRunOnTheReferenceEngine`, the executable half.
+  Higher-order rows (`ListMap`/`ListSort`/…) are correct but not yet REACHABLE end to end: the
+  compiler emits a Ball lambda as `new BallFunction("label", (BallValue __inN) => …)`
+  (`CSharpCompiler.CompileLambda`), an object-model `new` this encoder does not yet invert.
 - **Round-trip proof, not encode-only.** A bucket flip is proven by compiling the ENCODED fixture
   back to C# and RUNNING it (`encoder/test/PredefinedTypeCallTests.cs` asserts exactly `43\n`).
   That is what caught the compiler's callback-field bug below — an encode-only assertion would

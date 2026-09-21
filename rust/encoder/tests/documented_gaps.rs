@@ -177,18 +177,41 @@ fn non_method_item_in_impl_encodes() {
     );
 }
 
-/// The `impl`-block sibling gap that is STILL open, and is a structurally
-/// different one: an `impl` whose *self type* is not a plain named type
-/// (`impl<I> Trait for (I::Item,)` — 8 of the 110 scored Tier A files, e.g.
-/// `itertools/adaptors/mod.rs`). Ball's class model keys members on an
-/// owner's short *name*, so a tuple/GAT self type has no owner to register
-/// them under — closing it needs a representation decision, not the
-/// tolerance tweak slice 5 applied above.
+/// The `impl`-block sibling gap, **narrowed** by issue #767 to the genuinely
+/// non-nominal self types: a TUPLE (`impl<I> Trait for (I::Item,)`,
+/// `itertools/adaptors/mod.rs` and `itertools/tuple_impl.rs`) and an ARRAY
+/// (pinned separately below). Ball's class model keys members on an owner's
+/// short *name*, and a tuple or array type has none — closing that needs a
+/// representation decision, not a tolerance tweak.
+///
+/// What used to be lumped in here and no longer is: a **reference** self type
+/// (`impl Trait for &'a ChunkBy<…>` / `&mut I`), which is half of this
+/// bucket's 8 Tier A files. Ball has no reference-vs-value distinction at all
+/// — `lib.rs::encode_expr` has always encoded `&x` as `x` — so `&T` names the
+/// same Ball class as `T`, and `type_short_name` now looks straight through
+/// it. The encode → compile → `cargo build` → run proof is
+/// `rust/encoder/tests/impl_for_reference_self_type.rs`. This test stays
+/// `#[should_panic]`: that slice narrowed the gap, it did not close it.
 #[test]
 #[should_panic(expected = "unsupported `impl` self type")]
 fn impl_for_a_non_named_self_type_is_a_documented_gap() {
     encode(
         "struct Pair;\nimpl From<Pair> for (i32, i32) { fn zero(&self) -> i32 { 0 } }\nfn main() {}",
+    );
+}
+
+/// The array half of the same boundary (issue #767) — `impl Trait for [T; M]`,
+/// which `itertools/combinations.rs` (`[usize; K]`) and
+/// `smallvec/conversions.rs` (`[T; M]`) are each first-blocked on. Pinned
+/// separately from the tuple case above because the two are different
+/// `syn::Type` variants reaching the same refusal, and a change that
+/// accidentally admitted one would otherwise leave the other's regression
+/// unobserved.
+#[test]
+#[should_panic(expected = "unsupported `impl` self type")]
+fn impl_for_an_array_self_type_is_a_documented_gap() {
+    encode(
+        "trait Zero { fn zero(&self) -> i32; }\nimpl Zero for [i32; 2] { fn zero(&self) -> i32 { 0 } }\nfn main() {}",
     );
 }
 
@@ -354,6 +377,46 @@ fn write_macro_encodes() {
         .find(|m| m.name == "main")
         .expect("a `main` module");
     assert_eq!(main.functions.len(), 1, "`dash` encodes");
+}
+
+/// A **PERMANENT carve-out** (issue #767): `core::fmt`'s debug-builder chain,
+/// `f.debug_struct("P").field("a", &x).finish()`.
+///
+/// It is the single largest stage-1 first-blocker on the live Tier A funnel —
+/// **9 of the 77 scored files** — and every one of them is the SAME construct:
+/// `itertools`' `debug_fmt_fields!` macro (`src/impl_macros.rs`), which issue
+/// #629's `macro_rules!` expansion now expands into exactly this chain, plus
+/// the hand-written `debug_tuple(..).field(..).finish()` in `itertools/diff.rs`
+/// and the `dbg.field(..).finish()` in `itertools/exactly_one_err.rs`.
+///
+/// It is carved out rather than mapped because the builder's OUTPUT is each
+/// field rendered through that field's own `Debug` impl — type-directed
+/// formatting with no universal `std` counterpart. `std.to_string` is a
+/// *different* string (Rust's `Display`-ish rendering of a dynamic Ball value,
+/// not `{:?}`), so an arm here would emit a program that runs and prints the
+/// wrong text: silently-wrong output, the one failure mode this crate's
+/// fail-loud posture exists to prevent. The receiver is also a caller-supplied
+/// `&mut Formatter` trait object with no Ball value behind it, which puts it in
+/// exactly the `.serialize_seq()` / `.is_human_readable()` class `methods.rs`'
+/// module doc comment already names.
+///
+/// Note the boundary this does NOT touch: `write!(f, "…")` on that same
+/// `Formatter` IS supported (issue #630) and has its own closed-gap pin above.
+/// The difference is that `write!` carries its own literal format string, so
+/// the text it produces is in the source; the debug builder's is not.
+///
+/// Green from the moment it was written, by construction — it pins a decision,
+/// not a fix (this file's doc comment: a gap nothing observes is a missing-test
+/// bug in its own right).
+#[test]
+#[should_panic(expected = "unsupported method call `.finish()`")]
+fn the_fmt_debug_builder_chain_is_a_permanent_carve_out() {
+    // `encode_library`, not `encode` — the same library shape
+    // `write_macro_encodes` above uses, so the `&mut fmt::Formatter` parameter
+    // is a real declared binding rather than a free name.
+    let _ = ball_lang_encoder::encode_library(
+        "pub fn show(f: &mut fmt::Formatter) -> fmt::Result { f.debug_struct(\"P\").field(\"a\", &1).finish() }",
+    );
 }
 
 // ── methods.rs: instance-method resolution ───────────────────────────────────

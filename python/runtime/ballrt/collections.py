@@ -109,6 +109,26 @@ def list_drop(lst, count):
 
 
 def list_push(lst, value):
+    """``list.add(value)`` — and ``set.add(value)``, which routes here too.
+
+    The Dart -> Ball encoder is syntactic, so ``.add`` on a SET is encoded as
+    ``std_collections.list_push`` as well (the encoder cannot see the receiver
+    type). Every other target already handles that: the Dart reference engine
+    has an explicit ``_isBallSet`` arm ("preserve set-ness: adding to a set
+    returns a set (de-duplicated), not a list", issue #68), and
+    :func:`list_concat` right above does the same for ``Set.addAll``. This one
+    did not, so a compiled program that added to a set died with Python's native
+    ``AttributeError: 'BallSet' object has no attribute 'append'`` — not a
+    ``BallThrow``, so no compiled ``try`` could even catch it.
+
+    Insertion MUTATES here rather than returning a copy, matching real Dart's
+    ``Set.add`` (and :func:`list_concat`'s choice for the same mis-routing): the
+    compiled caller reassigns the result either way, but an aliased set must see
+    the element too.
+    """
+    if isinstance(lst, BallSet):
+        lst.add(value)
+        return lst
     lst.append(value)
     return lst
 

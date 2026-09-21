@@ -120,6 +120,14 @@ for the authoritative member set).
   `'std'` for every std call, while the declared spelling reached the default
   arm. `ball_proto` is the one base module out of the population — it has no
   switch (`_compileBallProtoCall` lowers every name to `<receiver>.<name>()`).
+  Shape is not meaning, and these names are unreachable from the ENCODER, so
+  they can have no `tests/conformance/src/*.dart` fixture — nothing encodes to
+  `std_collections.list_zip`, which is why they stayed unimplemented.
+  `dart/compiler/test/declared_base_call_equivalence_test.dart` is the
+  behavioural half: ONE hand-authored Ball program, run on the reference engine
+  AND through `dart run` over its compiled Dart, both pinned to the same
+  expected transcript — so "the two agree" cannot mean "they agree on the wrong
+  answer". Add a lowering here and add its case there.
 - **A module that needs STATE gets a conditional runtime preamble**, the way
   `std_memory`'s linear-memory block always has. `std_concurrency` emits one too
   (`_ballThreads`/`_ballMutexes`/`_ballAtomics` plus the `_ball*` helpers), only

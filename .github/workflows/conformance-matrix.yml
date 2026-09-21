@@ -1703,7 +1703,16 @@ jobs:
       # leg (+2); a local before/after per-fixture diff accounted for every
       # change (105, 106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 245, never predicted.
-      PYTHON_COMPILER_FLOOR: "255"
+      #
+      # 255 -> 264 with #724 (the typed `on T catch` dispatch chain). THIS ROW
+      # WAS GREEN OVER THAT DEFECT for as long as it existed — 261 passed, 255
+      # floor, with 146_nested_try_catch_types, 464_typed_catch_clause_dispatch
+      # and 473_caught_user_thrown_builtin_error inside the 101 failures — which
+      # is the #615 lesson repeating: a ratchet is green over the regression it
+      # already tolerates. The fix flips exactly those three (261 -> 264,
+      # measured before and after, locally and on CI, never predicted); the
+      # other 6 of the 9 are gains earlier PRs measured and did not lock in.
+      PYTHON_COMPILER_FLOOR: "264"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

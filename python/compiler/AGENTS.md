@@ -117,26 +117,29 @@ Fixtures `436_recursive_ctor_named` and `438_ctor_initializer_list_with_body` ar
 
 ### Measured against the whole corpus (compile leg)
 
-`python -m conformance.runner` sweeps all 320 executable fixtures through the
-compiler. Measured, not asserted:
+`python -m conformance.runner` sweeps every executable fixture through the
+compiler. Measured, not asserted (and re-measured with #724):
 
 ```
-Results: 238 passed, 82 failed, 320 total (4 skipped carve-outs)
+Results: 264 passed, 98 failed, 362 total (4 skipped carve-outs)
 ```
 
-The 52 pytest cases are a curated *proof set*; this is the honest corpus number.
+The pytest cases are a curated *proof set*; this is the honest corpus number, and
+`PYTHON_COMPILER_FLOOR` in `conformance-matrix.yml` is where it is enforced.
 A fixture the compiler cannot emit counts as a **failure**, not a skip — only the
-4 golden-less resource-limit/sandbox carve-outs are skipped. The 82 break down as
-**55 `compile-error`** (loud, correct behaviour for a scope gap), **20 `error`**
+4 golden-less resource-limit/sandbox carve-outs are skipped. The 98 break down as
+**59 `compile-error`** (loud, correct behaviour for a scope gap), **31 `error`**
 (emitted Python that crashes at runtime — a real bug: the compiler emitted code it
-should have refused), and **7 `fail`** — exit 0, wrong answer.
+should have refused), and **8 `fail`** — exit 0, wrong answer.
 
-**Those 7 violate issue #55** and are the priority: `203_closure_in_loop` /
+**Those 8 violate issue #55** and are the priority: `203_closure_in_loop` /
 `229_closure_loop_var_semantics` (a C-style-`for` loop var is captured by Python's
 late-binding closure, so every closure sees the final value: prints `12 12 12`,
 golden `10 11 12` — the per-iteration snapshot the compiler does for `for-in` is
-missing for C-`for`), plus `146`, `150`, `167`, `180`, `181`. Do not describe this
-compiler as "no silent-wrong output" until they are fixed.
+missing for C-`for`), plus `112`, `150`, `167`, `180`, `181` and `432`. Do not
+describe this compiler as "no silent-wrong output" until they are fixed.
+`146_nested_try_catch_types` was on this list until #724: it printed the FIRST
+catch clause's body whatever was thrown.
 
 Load-bearing engine-mode decisions (all needed to reach parity): implicit-`self`
 method calls, **named messageCreation fields → Python keyword args** (else return

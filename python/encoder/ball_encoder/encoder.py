@@ -611,21 +611,30 @@ class _Encoder:
         Ball expression of its own, so it is consumed by this recogniser rather
         than encoded.
 
-        The clause's ``type`` is NOT recovered, because ``run_try`` never emits
-        one: it compiles every ``on <Type> catch`` to this single catch-all and
-        drops any clause after the first. This is the exact inverse of what the
-        compiler emits today; the loss is on the compiler side, where
-        ``146_nested_try_catch_types`` fails the `python-compiler` leg over it.
+        Since #724 the statements inside that frame may be a typed DISPATCH
+        CHAIN rather than one clause's bindings::
+
+            if ballrt.catch_matches(_ex.value, "T1"):
+                <clause 1>
+            elif ballrt.catch_matches(_ex.value, "T2"):
+                <clause 2>
+            else:
+                <untyped clause>      # or `raise _ex` when every clause is typed
+
+        which reads back as the multi-element ``catches`` list it came from —
+        each typed arm carrying its ``type`` field, the ``else`` arm the untyped
+        fallback, and a trailing ``raise _ex`` meaning "no untyped clause" (the
+        re-raise is ``std.try``'s own semantics, not a clause).
         """
         if s.orelse:
             self.fail("try/else is not a shape `python/compiler` emits")
             return b.null_lit()
         fields: list[tuple[str, dict]] = [("body", self.encode_block(s.body))]
         if s.handlers:
-            clause = self._encode_catch(s.handlers)
-            if clause is None:
+            clauses = self._encode_catch(s.handlers)
+            if clauses is None:
                 return b.null_lit()
-            fields.append(("catches", b.list_lit([clause])))
+            fields.append(("catches", b.list_lit(clauses)))
         if s.finalbody:
             fields.append(("finally", self.encode_block(s.finalbody)))
         if not s.handlers and not s.finalbody:
@@ -634,9 +643,10 @@ class _Encoder:
             return b.null_lit()
         return b.std_call("try", b.args_message(*fields))
 
-    def _encode_catch(self, handlers: list[ast.ExceptHandler]) -> dict | None:
-        """The single ``except ballrt.BallThrow as _ex:`` clause -> one Ball
-        catch message. Returns None (having failed loud) for anything else."""
+    def _encode_catch(self, handlers: list[ast.ExceptHandler]) -> list[dict] | None:
+        """The single ``except ballrt.BallThrow as _ex:`` handler -> the Ball
+        catch messages it lowers. Returns None (having failed loud) for anything
+        else."""
         if len(handlers) != 1:
             self.fail(f"a compiled `try:` has exactly one `except "
                       f"{rt.RUNTIME_MODULE}.{rt.FLOW_THROW}` handler, found "
@@ -653,7 +663,71 @@ class _Encoder:
         body = self._catch_handler_body(handler, name)
         if body is None:
             return None
+        if len(body) == 1 and isinstance(body[0], ast.If) \
+                and self._catch_clause_type(body[0].test, name) is not None:
+            return self._encode_catch_chain(body[0], name)
+        return [self._encode_catch_clause(body, name, None)]
+
+    def _encode_catch_chain(self, node: ast.If, name: str) -> list[dict] | None:
+        """The typed dispatch chain (issue #724) -> one clause per arm.
+
+        Walked in the order the compiler emitted it, which is the SOURCE order
+        of the Ball `catches` list. The chain ends in one of two `else` arms: the
+        untyped fallback clause, or `raise <_ex>` — the re-raise that means the
+        clause list was ALL typed, which is `std.try`'s own behaviour and so
+        encodes to no clause at all."""
+        clauses: list[dict] = []
+        current = node
+        while True:
+            type_name = self._catch_clause_type(current.test, name)
+            if type_name is None:
+                self.fail("a compiled typed catch arm tests "
+                          f"`{rt.RUNTIME_MODULE}.{rt.CATCH_MATCHES}("
+                          f"{name}.value, \"<Type>\")`, which this one does not")
+                return None
+            clauses.append(self._encode_catch_clause(current.body, name, type_name))
+            orelse = current.orelse
+            if len(orelse) == 1 and isinstance(orelse[0], ast.If) \
+                    and self._catch_clause_type(orelse[0].test, name) is not None:
+                current = orelse[0]
+                continue
+            if self._is_catch_reraise(orelse, name):
+                return clauses
+            if not orelse:
+                self.fail("a compiled typed catch chain ends in an `else:` — "
+                          "either the untyped clause or the `raise` that re-raises "
+                          "an unmatched value — and this one has neither")
+                return None
+            clauses.append(self._encode_catch_clause(orelse, name, None))
+            return clauses
+
+    @staticmethod
+    def _is_catch_reraise(stmts: list[ast.stmt], name: str) -> bool:
+        """``raise <_ex>`` — the chain's "no clause matched" arm."""
+        return (len(stmts) == 1 and isinstance(stmts[0], ast.Raise)
+                and stmts[0].cause is None
+                and isinstance(stmts[0].exc, ast.Name) and stmts[0].exc.id == name)
+
+    def _catch_clause_type(self, test: ast.expr, name: str) -> str | None:
+        """``ballrt.catch_matches(<_ex>.value, "<Type>")`` -> ``"<Type>"``."""
+        if not (isinstance(test, ast.Call) and not test.keywords
+                and self._rt_attr(test.func) == rt.CATCH_MATCHES
+                and len(test.args) == 2):
+            return None
+        thrown, type_arg = test.args
+        if not self._is_thrown_value(thrown, name):
+            return None
+        if not (isinstance(type_arg, ast.Constant) and isinstance(type_arg.value, str)
+                and type_arg.value):
+            return None
+        return type_arg.value
+
+    def _encode_catch_clause(self, body: list[ast.stmt], name: str,
+                             type_name: str | None) -> dict:
+        """One clause's bindings + body -> its Ball catch message."""
         clause: list[tuple[str, dict]] = []
+        if type_name is not None:
+            clause.append(("type", b.string_lit(type_name)))
         # `<var> = _ex.value` / `<st> = ballrt.stack_trace_of(_ex)` are the
         # clause's OWN bindings, not assignments: `_ex` has no Ball existence.
         while body and (binding := self._catch_binding(body[0], name)) is not None:
@@ -663,7 +737,7 @@ class _Encoder:
             clause.append((kind, b.string_lit(bound)))
             body = body[1:]
         clause.append(("body", self.encode_block(body)))
-        order = {"variable": 0, "stack_trace": 1, "body": 2}
+        order = {"type": 0, "variable": 1, "stack_trace": 2, "body": 3}
         clause.sort(key=lambda kv: order[kv[0]])
         return b.args_message(*clause)
 

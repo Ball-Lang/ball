@@ -104,8 +104,10 @@ conversions/format-specs.
 
 `try:` is a special case: **only** the four shapes `python/compiler` emits are
 read back (see the next section). Hand-written `try:`/`except SomeError:` is
-still deferred and still fails loud — this encoder has no `raise`, so it has
-nothing to catch.
+still deferred and still fails loud. `raise` is recognised in exactly one
+position — the `raise _ex` that ends a typed catch chain (#724), where it is the
+re-raise `std.try` already performs — and nowhere else, because this encoder has
+no general `raise` to encode.
 
 ## Reading back the compiler's own output (`ballrt.*`, #642 / #690)
 
@@ -183,13 +185,30 @@ statement fails loud, and the round-trip tests for this family run under a hard
 wall-clock bound so that regression fails the suite instead of the job's
 timeout.
 
-**Known lossiness, on the compiler side.** `run_try` consumes `catches[0]` and
-never reads its `type`, so every `on <Type> catch` compiles to a single
-catch-all and a second clause is dropped. This encoder's inverse is therefore
-exact for what the compiler emits *today* and produces an untyped catch; the
-defect itself shows up on the `python-compiler` leg
-(`146_nested_try_catch_types` prints `FormatException` where the golden says
-`RangeError`) and is tracked separately.
+**The typed clause DISPATCH CHAIN (#724).** `run_try` used to consume
+`catches[0]` alone and never read its `type`; since #724 it walks the whole list
+and emits
+
+```python
+if ballrt.catch_matches(_ex.value, "T1"):
+    <clause 1>
+elif ballrt.catch_matches(_ex.value, "T2"):
+    <clause 2>
+else:
+    <untyped clause>      # or `raise _ex` when every clause is typed
+```
+
+inside the same `_caught` frame, so `encode_ball_try` reads that chain back as
+the multi-element `catches` list it came from: each `if`/`elif` arm carries the
+`type` its `catch_matches` call names, the `else` arm is the untyped fallback,
+and a trailing `raise _ex` encodes to NO clause — it is `std.try`'s own
+"nothing matched, propagate" semantics, and an extra untyped clause there would
+turn a program that propagates into one that swallows. `CATCH_MATCHES` in
+`ballrt_calls.py` is a recognised SHAPE, not a `HELPERS` entry: it has no `std`
+base function of its own, and what it reads back as is a clause FIELD. A single
+untyped clause still compiles to no test at all, so that shape — by far the
+commonest — is byte-identical to before. Guards:
+`tests/test_ballrt_inverse.py`'s three `catch`-chain cases.
 
 ## Known semantic boundaries (not bugs)
 

@@ -365,7 +365,14 @@ python -m conformance.runner                             # prints the CI-parseab
   constructor form, and `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop.
   `encoder.encode_try`/`encode_while` recognise them; `ballrt_calls.py` holds only the class names
   they match on (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
-  `CAUGHT_STACK`, `STACK_TRACE_OF`), closed against `python/runtime` by its own test.
+  `CAUGHT_STACK`, `STACK_TRACE_OF`, `CATCH_MATCHES`), closed against `python/runtime` by its own
+  test. Since #724 the `std.try` shape's handler may hold a typed DISPATCH CHAIN
+  (`if`/`elif ballrt.catch_matches(_ex.value, "<Type>")`, the untyped clause as `else`, a trailing
+  `raise _ex` when every clause is typed): `_encode_catch` reads it back as the whole multi-clause
+  `catches` list, and the `raise` arm encodes to NO clause — it is `std.try`'s own propagate, and an
+  extra untyped clause there would turn a program that propagates into one that swallows. A compiler
+  change that alters this shape without its inverse does not fail loudly on the `python` job; it
+  shows up as a DROP on the ratcheted `python-roundtrip` row, so land the pair together.
   **Never inline a loop trap on sight.** The compiler's C-style `for` is `while True:` + exit guard
   + trap + UPDATE, and `except ballrt.BallContinue` falls *through* to UPDATE, so the whole
   `while True:` shape reads back as `std.for {condition, update, body}` (no UPDATE → `std.while`;

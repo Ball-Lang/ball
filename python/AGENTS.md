@@ -192,3 +192,19 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.
+
+### A typed `on T catch` is a TYPE TEST (issue #724)
+
+A typed exception is only half of the contract; the other half is that a clause whose type does
+NOT match must not run. `python/compiler`'s `run_try` compiled `catches[0]` alone, as an
+unconditional catch-all with its `type` ignored, so a typed clause ran for any payload and every
+later clause was dropped — the defect #615 closed for Rust/C#/Go. It now emits a dispatch chain
+over `ballrt.catch_matches` (`python/runtime/ballrt/flow.py`), and `python/encoder` reads that
+chain back as the multi-clause `catches` list, so the compiler/encoder pair stays closed.
+
+The reason it survived a whole-corpus row is worth carrying: **the `python-engine` row runs the
+SELF-HOSTED engine**, whose catch dispatch is Ball code (`_evalLazyTry`), and the engine source
+contains no typed `on T catch` at all — so a user program's typed `try` never reached this
+lowering. The leg that CAN see it is the one that compiles a conformance fixture through the
+compiler under test (`python/compiler/tests/test_conformance.py`'s `PROVEN` list, and
+`python -m conformance.runner` for the corpus-wide number).

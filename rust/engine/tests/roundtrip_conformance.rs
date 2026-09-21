@@ -619,7 +619,9 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     let runaway = build_runaway_launcher(&scratch);
 
     let started = std::time::Instant::now();
-    let guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // SAFETY: see the doc comment — `guard` is held across the write AND the
     // spawn, and every other environment writer in this target takes the same
     // lock, so nothing reads the environment while it is being written.
@@ -683,7 +685,9 @@ fn a_timed_out_fixture_leaves_no_orphaned_descendant_process() {
     let heartbeat = runaway.with_extension("heartbeat");
     let _ = std::fs::remove_file(&heartbeat);
 
-    let guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // SAFETY: `guard` is held across the write AND the spawn; see ENV_LOCK.
     unsafe {
         std::env::set_var("BALL_TIMEOUT_MS", "1500");

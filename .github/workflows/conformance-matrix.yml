@@ -101,7 +101,7 @@ jobs:
   #
   # "Every file that can start this workflow maps onto a signal some row reads"
   # is therefore a CORRECTNESS invariant of this matrix, not a convention, and
-  # it is GUARDED BOTH WAYS:
+  # it is GUARDED THREE WAYS:
   #   * statically, by tools/ci/check_matrix_paths.sh, which for each entry in
   #     the filter synthesizes a path that entry matches, runs the REAL
   #     detect-changed-stacks classifier over it, and fails unless a signal some
@@ -109,9 +109,14 @@ jobs:
   #     unmapped-path negative control.
   #   * at run time, by the positive floor in `Parity Matrix` below, which fails
   #     a pull_request run that executed ZERO engine rows.
-  # Without both, an unmapped path is silently green: the workflow starts, every
-  # row skips, and a summary that (correctly) treats `skipped` as benign prints
-  # a full table of SKIPs and exits 0.
+  #   * at run time, by the SIBLING-ROW floor in `Parity Matrix` below, which
+  #     fails a run in which a language's rows executed only partially — the one
+  #     shape neither guard above can see, because one engine row running is
+  #     enough for the zero-row floor while the skipped sibling's ratcheted
+  #     floor goes unevaluated.
+  # Without all three, an unmapped path — or a drifted row condition — is
+  # silently green: the workflow starts, rows skip, and a summary that
+  # (correctly) treats `skipped` as benign prints a table of SKIPs and exits 0.
   #
   # PR-ONLY. Every condition below is `github.event_name != 'pull_request' || …`,
   # so the push-to-main, weekly and dispatch runs still execute the FULL matrix
@@ -2010,6 +2015,86 @@ jobs:
             echo "::error::this pull_request run executed ZERO engine rows — every row's condition evaluated false, so the table above proves nothing. The workflow started, so some path in the &matrix_paths filter matched this diff; that path must map onto a signal the row conditions read. Run 'bash tools/ci/check_matrix_paths.sh' to find the unmapped entry."
             summary_failed=1
           fi
+
+          # ── SIBLING-ROW FLOOR: a language group runs WHOLE, or not at all ──
+          # The floor above counts ENGINE rows only, so it cannot see a group
+          # that ran PARTIALLY: rust-engine executed, rust-roundtrip did not.
+          # `engine_rows_run` is then 1, `skipped` is (correctly) benign, and the
+          # run is green — while the ratcheted `RUST_ROUNDTRIP_FLOOR` that the
+          # #687 fix raised to 100 was never evaluated at all. An absent check
+          # reads as green, and this is the one shape the two existing guards
+          # miss: tools/ci/check_matrix_paths.sh proves every FILTER PATH maps
+          # onto a signal some row reads, and the zero-row floor proves SOME row
+          # ran — neither proves that the rows a signal turns on ran TOGETHER.
+          #
+          # The invariant is structural, not incidental: every row of a language
+          # carries the identical condition (corpus || dart_core || <lang> ||
+          # matrix_self), so one running and its sibling skipping is impossible
+          # unless a condition drifted. This does not restate those conditions —
+          # restating them is how the copy goes stale — it asserts the OUTCOME
+          # they must produce, whatever the cause: a hand-edited `if:`, a renamed
+          # classifier output that silently evaluates to the empty string, a row
+          # added to `needs:` but not to a group.
+          #
+          # NOT pull_request-only, unlike the floor above: on push/schedule/
+          # dispatch every condition is unconditionally true, so a full group is
+          # the only reachable state and this can never fire spuriously there.
+          # If the classifier job itself fails, EVERY row skips — no group is
+          # partial, nothing fires here, and the `changes` assertion above owns
+          # that case.
+          #
+          # tools/test/test_parity_matrix_floor.py executes this block: it
+          # drives a partial group (FAIL), the same scenario with this block
+          # stripped (GREEN — the negative control), and asserts the table below
+          # covers every matrix row job in this workflow, reading the job list
+          # from the workflow itself rather than a second hand-kept copy.
+          group_check() {
+            local label="$1"
+            shift
+            local ran=0 skipped=0 ran_names="" skipped_names=""
+            local pair name res
+            for pair in "$@"; do
+              name="${pair%%=*}"
+              res="${pair#*=}"
+              if [ "$res" = "skipped" ]; then
+                skipped=$((skipped + 1))
+                skipped_names="$skipped_names $name"
+              else
+                ran=$((ran + 1))
+                ran_names="$ran_names $name"
+              fi
+            done
+            if [ "$ran" -gt 0 ] && [ "$skipped" -gt 0 ]; then
+              echo ""
+              echo "::error::the $label rows ran PARTIALLY —${ran_names} executed but${skipped_names} was skipped. Every row of a language carries the same condition, so this means one of them drifted, and the skipped row's gate (its ratcheted floor) was never evaluated on this diff. Align the row conditions in .github/workflows/conformance-matrix.yml, or move the row to its own group here if the narrowing is deliberate."
+              summary_failed=1
+            fi
+          }
+
+          group_check "Dart" \
+            "dart-engine=${{ needs.dart-engine.result }}"
+          group_check "TypeScript" \
+            "ts-engine=${{ needs.ts-engine.result }}" \
+            "ts-compiled-engine=${{ needs.ts-compiled-engine.result }}" \
+            "ts-compiled-direct=${{ needs.ts-compiled-direct.result }}"
+          group_check "C++" \
+            "cpp-compiled=${{ needs.cpp-compiled.result }}"
+          group_check "Rust" \
+            "rust-engine=${{ needs.rust-engine.result }}" \
+            "rust-compiler=${{ needs.rust-compiler.result }}" \
+            "rust-roundtrip=${{ needs.rust-roundtrip.result }}"
+          group_check "C#" \
+            "csharp-engine=${{ needs.csharp-engine.result }}" \
+            "csharp-compiler=${{ needs.csharp-compiler.result }}" \
+            "csharp-roundtrip=${{ needs.csharp-roundtrip.result }}"
+          group_check "Go" \
+            "go-engine=${{ needs.go-engine.result }}" \
+            "go-compiler=${{ needs.go-compiler.result }}" \
+            "go-roundtrip=${{ needs.go-roundtrip.result }}"
+          group_check "Python" \
+            "python-engine=${{ needs.python-engine.result }}" \
+            "python-compiler=${{ needs.python-compiler.result }}" \
+            "python-roundtrip=${{ needs.python-roundtrip.result }}"
 
           # Fail the summary if any engine job did not succeed (primary gate).
           # `skipped` is explicitly permitted — see print_row above; a row that

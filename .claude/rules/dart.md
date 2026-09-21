@@ -86,6 +86,25 @@ for the authoritative member set).
   runtime RAISES has an entry in this runtime's table and that every entry's
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
+- **`_isBaseModule` is a CLOSED SET, checked against the builders (#606).** It
+  enumerates base module names by hand, and `std_concurrency` was missing — so
+  every `std_concurrency.*` call fell through `_compileCall` to the USER-function
+  path and emitted a bare `thread_spawn(...)`, an identifier the generated Dart
+  never defines, with NO diagnostic (not even the `/* unsupported: std.<fn> */`
+  marker the `std` switch's default arm produces). A module added to
+  `dart/shared/lib/std*.dart` needs BOTH an `_isBaseModule` entry and a
+  `_compileBaseCall` lowering; `dart/compiler/test/std_concurrency_test.dart`
+  re-derives the dispatcher's list from its own source and asserts every builder
+  module is in it (with a positive floor, so an extraction that stops matching
+  fails instead of passing vacuously).
+- **A module that needs STATE gets a conditional runtime preamble**, the way
+  `std_memory`'s linear-memory block always has. `std_concurrency` emits one too
+  (`_ballThreads`/`_ballMutexes`/`_ballAtomics` plus the `_ball*` helpers), only
+  when `_baseModules.contains('std_concurrency')`, and its semantics must stay
+  byte-for-byte equivalent to `engine_std.dart`'s — a program has to mean the
+  same thing interpreted and compiled. An ASYNC body is REJECTED there rather
+  than silently un-awaited: the engine awaits it, and dropping the `Future`
+  would be a divergence, not an optimisation.
 
 - **A USER-thrown built-in error reads the same on every target, and the table
   is closed on the LITERAL-throw side too (#658).** #641's three checks are all
@@ -548,6 +567,41 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   at all while `Counter()` worked. It now calls `_initFieldDefaults` like the
   `messageCreation` path does.
 
+- **"Single-threaded" describes WHEN a `std_concurrency` body runs, never what
+  the operations ANSWER (#608).** The old block in `engine_std.dart` fabricated
+  results — `atomic_store` discarded the write, `atomic_load` echoed its own
+  call input, `atomic_compare_exchange` returned an unconditional `true` (so a
+  CAS retry loop exited on its first iteration with the wrong answer), and
+  `thread_spawn` returned the literal `0` for every thread — and because the
+  other six engines are compiled from this source, all seven agreed on the wrong
+  answer. There are now three real tables (`_threadJoined`, `_mutexLocked`,
+  `_atomicCells`) keyed by an OPAQUE 1-based handle, and every misuse (joining
+  twice, locking a locked mutex, unlocking an unlocked one, naming an unminted
+  handle) raises a `BallRuntimeError`. They are LISTS, not int-keyed maps, on
+  purpose: this file is compiled into six other engines and a list index has one
+  representation on every target. `tests/conformance/477_std_concurrency_handles`
+  is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
+  the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
+  **`sandbox: true` gates none of it.** `_checkSandbox` is called from exactly
+  three `std_io` handlers (`exit`, `panic`, `env_get`) and the `std_fs` family;
+  no `std_concurrency` handler consults it, so every function in this module
+  runs freely under a sandboxed engine. That is deliberate — a handle table and
+  an eagerly-run body touch no host resource — but it means the ONLY way to
+  withhold the module is to leave it out of `StdModuleHandler.subset(...)`,
+  which is a Dart-embedder knob and has no equivalent on the compiled targets.
+  **`scoped_lock` releases when the body RETURNS, not when it throws.** All four
+  implementations (this file, and the Dart/TS/C++ compiler preambles) unlock
+  with a plain statement after the body call, so a throwing body propagates with
+  the mutex still held and the next lock on that handle fails loud — consistent
+  everywhere, never a silent wrong answer, but the declaration still says
+  "release on exit". Issue #769 tracks making the two agree with a fixture; do
+  not "fix" one implementation alone, or the targets stop agreeing.
+  **An ASYNCHRONOUS body is awaited by this engine and refused by the compiled
+  targets.** `_concurrencyPreamble` (Dart) and `BALL_CONCURRENCY_RUNTIME` (TS)
+  both throw when the body answers a `Future`/thenable, while `engine_std.dart`
+  awaits it — deliberate and fail-loud on every side, but a real
+  interpreted-versus-compiled split that `477_std_concurrency_handles` does not
+  reach. Issue #770.
 - **A field write asks whether the field's own DECLARATION contributes a setter,
   not whether the instance carries that key (#501 + #664).**
   `_trySetterDispatch`'s guard used to be a bare

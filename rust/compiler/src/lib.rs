@@ -1547,9 +1547,9 @@ impl<'a> Compiler<'a> {
         // Fn … + Send + Sync>` requires — keeping `BallValue` `Send` so
         // `ball_throw`'s `panic_any` still type-checks.
         //
-        // A captured variable the body **mutates** (`(_) => _nextMutexId++` —
-        // the engine's ID counters) makes the `move` closure `FnMut`, not `Fn`:
-        // its pre-clone must be `let mut`, and the value wraps via
+        // A captured variable the body **mutates** (`(_) => counter++`, a
+        // captured-counter increment) makes the `move` closure `FnMut`, not
+        // `Fn`: its pre-clone must be `let mut`, and the value wraps via
         // `BallFunction::new_mut` (an interior-`Mutex` `FnMut` adapter) rather
         // than the lighter `Fn` `BallFunction::new` (issue #300).
         let mutated_captures: HashSet<String> = match &lambda.body {

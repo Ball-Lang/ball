@@ -560,6 +560,7 @@ Map<String, String> buildCapabilityTable() {
     'std_concurrency.mutex_lock': 'concurrency',
     'std_concurrency.mutex_unlock': 'concurrency',
     'std_concurrency.scoped_lock': 'concurrency',
+    'std_concurrency.atomic_create': 'concurrency',
     'std_concurrency.atomic_load': 'concurrency',
     'std_concurrency.atomic_store': 'concurrency',
     'std_concurrency.atomic_compare_exchange': 'concurrency',

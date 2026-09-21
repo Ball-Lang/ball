@@ -54,6 +54,17 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
 - Unknown base functions → emit `/* std.fn */ 0` or a comment (wrong value, no
   error) (module dispatchers ~2018+).
 - `string_split`/`string_replace`/`string_replace_all` ARE implemented (~1624/1639/1647).
+- `std_concurrency` is NO LONGER in this list (#606/#607). `compile_concurrency_call`
+  emitted declaration STATEMENTS where a value was expected (`std::thread
+  _thread(<body>)`, `std::mutex _mtx`), so the declared `-> int` of
+  `thread_spawn`/`mutex_create` could not be honoured, and it implemented three
+  functions no builder declares (`thread_detach`, `unique_lock`,
+  `atomic_fetch_add`). Every declared function now lowers to a `_ball_<op>(...)`
+  helper over the single-threaded handle tables spliced into the preamble, with
+  the same semantics as the Dart reference engine; the three undeclared ones are
+  deleted, and `cpp/test/check_declared_base_functions.py` (ci.yml's always-on
+  `proto` job) keeps this dispatch and the canonical builders in sync.
+  `tests/conformance/477_std_concurrency_handles` is the cross-target guard.
 
 **Runtime stubs (compile, produce wrong/fake results):**
 - `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h`).

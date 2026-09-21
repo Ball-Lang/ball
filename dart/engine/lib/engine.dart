@@ -193,8 +193,20 @@ class BallEngine {
   /// Command-line arguments passed to the program.
   List<String> _args;
 
-  /// Counter for simulated mutex handles (single-threaded mode).
-  int _nextMutexId = 0;
+  /// Single-threaded `std_concurrency` state (issue #608).
+  ///
+  /// Every resource in that module is addressed by an OPAQUE 1-based integer
+  /// handle, which is its index + 1 into one of these lists. Lists rather than
+  /// maps on purpose: this file is Ball-portable Dart compiled into six other
+  /// engines, and an int-keyed map's key representation differs across those
+  /// targets while a list index does not.
+  ///
+  /// They are deliberately never reclaimed. A handle is only ever handed out by
+  /// `thread_spawn` / `mutex_create` / `atomic_create`, so a stale one stays
+  /// recognisable instead of being silently reused by a later resource.
+  final List<bool> _threadJoined = <bool>[];
+  final List<bool> _mutexLocked = <bool>[];
+  final List<Object?> _atomicCells = <Object?>[];
 
   /// The exception currently bound inside an active `catch` block, or `null`.
   /// Used by the `rethrow` base function to re-raise the original exception.

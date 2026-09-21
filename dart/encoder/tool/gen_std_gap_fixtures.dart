@@ -243,6 +243,11 @@ Map<String, dynamic> collectionsCall(
   Map<String, dynamic> input,
 ) => call(function, module: 'std_collections', input: input);
 
+Map<String, dynamic> concurrencyCall(
+  String function,
+  Map<String, dynamic> input,
+) => call(function, module: 'std_concurrency', input: input);
+
 const _listInputTypeDef = {
   'name': 'ListInput',
   'descriptor': {
@@ -326,6 +331,92 @@ const _listCallbackInputTypeDef = {
       {
         'name': 'callback',
         'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
+// ── std_concurrency input types (mirror dart/shared/lib/std_concurrency.dart,
+// the canonical builder) ──
+
+const _threadInputTypeDef = {
+  'name': 'ThreadInput',
+  'descriptor': {
+    'name': 'ThreadInput',
+    'field': [
+      {
+        'name': 'body',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
+const _mutexInputTypeDef = {
+  'name': 'MutexInput',
+  'descriptor': {'name': 'MutexInput', 'field': <Map<String, Object?>>[]},
+};
+
+const _lockInputTypeDef = {
+  'name': 'LockInput',
+  'descriptor': {
+    'name': 'LockInput',
+    'field': [
+      {
+        'name': 'mutex',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'body',
+        'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
+const _atomicInputTypeDef = {
+  'name': 'AtomicInput',
+  'descriptor': {
+    'name': 'AtomicInput',
+    'field': [
+      {
+        'name': 'value',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
+const _atomicOpInputTypeDef = {
+  'name': 'AtomicOpInput',
+  'descriptor': {
+    'name': 'AtomicOpInput',
+    'field': [
+      {
+        'name': 'atomic',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'expected',
+        'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'value',
+        'number': 3,
         'label': 'LABEL_OPTIONAL',
         'type': 'TYPE_MESSAGE',
       },
@@ -421,6 +512,7 @@ Future<void> writeFixture(
   String id,
   Map<String, dynamic> programJson, {
   bool expectOutput = true,
+  List<String>? goldenLines,
 }) async {
   final program = Program()..mergeFromProto3Json(programJson);
   final jsonMap = encodeBallFileJson(program);
@@ -429,11 +521,42 @@ Future<void> writeFixture(
   File('$outDir/$id.ball.json').writeAsStringSync('$jsonStr\n');
 
   if (expectOutput) {
-    final lines = <String>[];
-    await BallEngine(program, stdout: lines.add).run();
-    File(
-      '$outDir/$id.expected_output.txt',
-    ).writeAsStringSync('${lines.join('\n')}\n');
+    if (goldenLines == null) {
+      // Golden DERIVED from the reference engine: the fixture pins whatever
+      // the engine already does.
+      final lines = <String>[];
+      await BallEngine(program, stdout: lines.add).run();
+      File(
+        '$outDir/$id.expected_output.txt',
+      ).writeAsStringSync('${lines.join('\n')}\n');
+    } else {
+      // Golden AUTHORED: the fixture states the contract the engine must meet,
+      // so it can be written before the engine meets it (test-first). The
+      // engine is still run and compared — a mismatch is reported loudly and
+      // fails this tool, never silently papered over by rewriting the golden
+      // from whatever the engine happened to print.
+      File(
+        '$outDir/$id.expected_output.txt',
+      ).writeAsStringSync('${goldenLines.join('\n')}\n');
+      final lines = <String>[];
+      String? failure;
+      try {
+        await BallEngine(program, stdout: lines.add).run();
+      } catch (e) {
+        failure = 'the reference engine THREW: $e';
+      }
+      failure ??= lines.join('\n') == goldenLines.join('\n')
+          ? null
+          : 'the reference engine printed:\n  ${lines.join('\n  ')}';
+      if (failure != null) {
+        stderr.writeln(
+          'MISMATCH for $id: the authored golden is\n'
+          '  ${goldenLines.join('\n  ')}\n'
+          'but $failure',
+        );
+        exitCode = 1;
+      }
+    }
   }
   stderr.writeln(
     'Wrote $id.ball.json${expectOutput ? ' + expected_output.txt' : ''}',
@@ -1011,6 +1134,266 @@ Future<void> main() async {
         stmt(printExpr(literal('done'))),
       ]),
     ),
+  );
+
+  // -- 477_std_concurrency_handles: the FIRST executed fixture for the
+  // `std_concurrency` base module (issues #606/#607/#608). Every one of its
+  // nine declared functions had `"coveredByFixtures": []` in
+  // tests/conformance/std_coverage.json, so the whole-corpus parity number said
+  // nothing at all about threads, mutexes or atomics -- and the Dart reference
+  // engine's "single-threaded simulation" was free to fabricate answers:
+  // `atomic_store` discarded the write, `atomic_load` echoed its own input,
+  // `atomic_compare_exchange` returned an unconditional `true`, and
+  // `thread_spawn` returned the literal `0` for every thread. Because the six
+  // other engines are self-hosted FROM that source, all seven shared it.
+  //
+  // What it pins, in the only place that gates every engine and every compiled
+  // target at once:
+  //   * `thread_spawn` runs the body EAGERLY (single-threaded semantics) and
+  //     hands back a DISTINCT handle per thread -- `ta != tb` is `false` the
+  //     moment either side regresses to a constant;
+  //   * `thread_join` accepts a real handle;
+  //   * a mutex round-trips lock -> unlock, and `scoped_lock` returns its
+  //     body's value;
+  //   * an atomic cell is CREATED, LOADED BACK after a STORE, and a CAS both
+  //     succeeds (expected matches -> exchanged) and FAILS (expected stale ->
+  //     value unchanged). The failing CAS is the line no placeholder can pass.
+  //
+  // Handle VALUES are deliberately never printed: a handle is an opaque token,
+  // so the fixture asserts distinctness, not numbering, and no target is
+  // over-constrained into a particular counter.
+  //
+  // Misuse (joining twice, unlocking an unlocked mutex, loading an unknown
+  // handle) is fail-loud on the engine and is asserted by
+  // dart/engine/test/std_concurrency_test.dart instead -- deliberately NOT here, because
+  // what a caught host error READS AS is a separate cross-target contract
+  // (issue #616 / fixture `465_state_error_message`) and this fixture is about
+  // concurrency semantics, not error rendering.
+  //
+  // Not generatable from Dart source: the Dart encoder routes NO Dart syntax to
+  // any `std_concurrency` function (zero hits in dart/encoder/lib/), so
+  // `generate_conformance.dart` can never reach it from a
+  // `tests/conformance/src/*.dart`. Hand-built here and listed in
+  // tests/conformance/CARVEOUTS.md.
+  await writeFixture(
+    '477_std_concurrency_handles',
+    buildProgramJson(
+      name: 'std_concurrency_handles',
+      stdFunctions: [
+        {'name': 'print', 'isBase': true},
+        {'name': 'to_string', 'isBase': true},
+        {'name': 'not_equals', 'isBase': true},
+      ],
+      stdTypeDefs: [
+        _printInputTypeDef,
+        _unaryInputTypeDef,
+        _binaryInputTypeDef,
+      ],
+      extraModules: [
+        {
+          'name': 'std_concurrency',
+          'functions': [
+            {'name': 'thread_spawn', 'isBase': true},
+            {'name': 'thread_join', 'isBase': true},
+            {'name': 'mutex_create', 'isBase': true},
+            {'name': 'mutex_lock', 'isBase': true},
+            {'name': 'mutex_unlock', 'isBase': true},
+            {'name': 'scoped_lock', 'isBase': true},
+            {'name': 'atomic_create', 'isBase': true},
+            {'name': 'atomic_load', 'isBase': true},
+            {'name': 'atomic_store', 'isBase': true},
+            {'name': 'atomic_compare_exchange', 'isBase': true},
+          ],
+          'typeDefs': [
+            _threadInputTypeDef,
+            _mutexInputTypeDef,
+            _lockInputTypeDef,
+            _atomicInputTypeDef,
+            _atomicOpInputTypeDef,
+            _unaryInputTypeDef,
+          ],
+        },
+      ],
+      mainFunction: mainFn([
+        // Two threads: each body runs eagerly, in spawn order.
+        letStmt(
+          'ta',
+          concurrencyCall(
+            'thread_spawn',
+            msg([
+              field('body', lambda1('_', printExpr(literal('thread a')))),
+            ], typeName: 'ThreadInput'),
+          ),
+          keyword: 'final',
+        ),
+        letStmt(
+          'tb',
+          concurrencyCall(
+            'thread_spawn',
+            msg([
+              field('body', lambda1('_', printExpr(literal('thread b')))),
+            ], typeName: 'ThreadInput'),
+          ),
+          keyword: 'final',
+        ),
+        // Distinct handles -- `false` here is the `return 0` placeholder.
+        stmt(
+          printExpr(
+            toStr(
+              stdCall(
+                'not_equals',
+                msg([field('left', ref('ta')), field('right', ref('tb'))]),
+              ),
+            ),
+          ),
+        ),
+        stmt(
+          concurrencyCall(
+            'thread_join',
+            msg([field('value', ref('ta'))], typeName: 'UnaryInput'),
+          ),
+        ),
+        stmt(
+          concurrencyCall(
+            'thread_join',
+            msg([field('value', ref('tb'))], typeName: 'UnaryInput'),
+          ),
+        ),
+        stmt(printExpr(literal('joined'))),
+        // Mutex: create -> lock -> unlock -> scoped_lock returns its body.
+        letStmt(
+          'm',
+          concurrencyCall('mutex_create', msg([], typeName: 'MutexInput')),
+          keyword: 'final',
+        ),
+        stmt(
+          concurrencyCall(
+            'mutex_lock',
+            msg([field('value', ref('m'))], typeName: 'UnaryInput'),
+          ),
+        ),
+        stmt(
+          concurrencyCall(
+            'mutex_unlock',
+            msg([field('value', ref('m'))], typeName: 'UnaryInput'),
+          ),
+        ),
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'scoped_lock',
+                msg([
+                  field('mutex', ref('m')),
+                  field('body', lambda1('_', literal('in lock'))),
+                ], typeName: 'LockInput'),
+              ),
+            ),
+          ),
+        ),
+        // Atomics: a real cell, loaded back after a store, then CAS twice.
+        letStmt(
+          'c',
+          concurrencyCall(
+            'atomic_create',
+            msg([field('value', literal(7))], typeName: 'AtomicInput'),
+          ),
+          keyword: 'final',
+        ),
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'atomic_load',
+                msg([field('value', ref('c'))], typeName: 'UnaryInput'),
+              ),
+            ),
+          ),
+        ),
+        stmt(
+          concurrencyCall(
+            'atomic_store',
+            msg([
+              field('atomic', ref('c')),
+              field('value', literal(9)),
+            ], typeName: 'AtomicOpInput'),
+          ),
+        ),
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'atomic_load',
+                msg([field('value', ref('c'))], typeName: 'UnaryInput'),
+              ),
+            ),
+          ),
+        ),
+        // CAS that MATCHES: true, and the cell moves to 11.
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'atomic_compare_exchange',
+                msg([
+                  field('atomic', ref('c')),
+                  field('expected', literal(9)),
+                  field('value', literal(11)),
+                ], typeName: 'AtomicOpInput'),
+              ),
+            ),
+          ),
+        ),
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'atomic_load',
+                msg([field('value', ref('c'))], typeName: 'UnaryInput'),
+              ),
+            ),
+          ),
+        ),
+        // CAS that does NOT match: false, and the cell is UNCHANGED.
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'atomic_compare_exchange',
+                msg([
+                  field('atomic', ref('c')),
+                  field('expected', literal(9)),
+                  field('value', literal(13)),
+                ], typeName: 'AtomicOpInput'),
+              ),
+            ),
+          ),
+        ),
+        stmt(
+          printExpr(
+            toStr(
+              concurrencyCall(
+                'atomic_load',
+                msg([field('value', ref('c'))], typeName: 'UnaryInput'),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    ),
+    goldenLines: const [
+      'thread a',
+      'thread b',
+      'true',
+      'joined',
+      'in lock',
+      '7',
+      '9',
+      'true',
+      '11',
+      'false',
+      '11',
+    ],
   );
 
   stderr.writeln('Done.');

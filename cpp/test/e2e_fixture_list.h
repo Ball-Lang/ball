@@ -340,6 +340,7 @@ inline const std::vector<std::string>& program_names() {
         "474_is_not_empty_receivers",
         "475_instance_field_named_length",
         "476_user_member_named_like_builtin_accessor",
+        "477_std_concurrency_handles",
     };
     return names;
 }

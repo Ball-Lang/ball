@@ -182,6 +182,19 @@ const json = toJson(ProgramSchema, program);
   variable, so a user function or method with such a name got the polyfill
   instead of itself.
 
+- **`isStd` is a CLOSED SET, and a module missing from it compiles to a bare
+  identifier (#606).** `std_concurrency` was absent, so `compileCall` never
+  reached `compileStdCall` and every call emitted `thread_spawn(...)` — an
+  identifier the generated TypeScript never defines, with no diagnostic. The
+  exact defect #157 fixed for `std_memory` here, and the one #606 fixed in the
+  Dart compiler. The module now has its own `compileConcurrencyCall` plus a
+  conditional `BALL_CONCURRENCY_RUNTIME` preamble (the same shape as the
+  `usesStdMemory` block), lowering every declared function onto opaque 1-based
+  handle tables with `dart/engine/lib/engine_std.dart`'s semantics, and throwing
+  at COMPILE time for a missing field or an undeclared name. An ASYNC body is
+  rejected rather than silently un-awaited. `std_fs` is still outside `isStd` —
+  that is a whole unimplemented module, not this bug.
+
 - **A method-LOCAL shadows every class member.** `expr()`'s reference branch
   turns a bare name into `this.<field>` / `this.<method>.bind(this)` /
   `this.<getter>`, and must yield when `scopeDeclaredVars` (resolved through

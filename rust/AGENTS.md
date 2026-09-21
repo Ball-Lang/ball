@@ -528,9 +528,13 @@ instructions.
   `compiled_spliced_list_literal_re_encodes`; `the_matches_macro_is_a_documented_gap` KEEPS its
   `#[should_panic]` and is now a pin on the encoder's permanent boundary for hand-written Rust,
   not on a compiler emission. The **map** comprehension went through the same lowering and got the
-  same fix, but its tail is `ball_map_create(<entry list>)`, a helper with no universal-`std`
-  inverse (no declared call takes "a list of `[key, value]` pairs") — that belongs to #718's
-  family and is pinned as `compiled_spliced_map_literal_stops_at_ball_map_create`.
+  same fix, but its tail — `ball_map_create` over the local accumulator — is still refused. #692
+  (#796) gave that helper a table arm AFTER #712 was written, so the refusal is now a SHAPE one
+  raised by the arm, not the unmapped-helper fallthrough: the arm inverts a LITERAL
+  `[[key, value], …]` pair list to the `entry`-shaped `std.map_create` it compiled from, and the
+  comprehension's Ball node is a larger `map_create` carrying `element` fields. Pinned as
+  `compiled_spliced_map_literal_stops_at_ball_map_create`, the compiler-output half of #692's
+  hand-written-Rust pin `a_map_create_over_a_spliced_list_fails_loud`.
   The script-mode entry-point IIFE is
   **CLOSED**, and so is **#687**. #646's `lib.rs::as_zero_arg_closure` INLINES the closure body
   rather than emitting the `std.invoke`-over-`lambda` shape #687 proposed, and for the entry

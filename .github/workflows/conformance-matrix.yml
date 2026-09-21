@@ -1457,6 +1457,18 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/roundtrip.log"
 
+          # The leaders come from THIS run's own histogram (#790), never from
+          # prose. The list that used to live here was hand-copied and had
+          # already drifted: it said `ball_arg_get` 61 and
+          # `ball_unsupported_base_call` 18 where the run printed 63 and 19, and
+          # named a `ball_iterate` bucket of 16 that no longer exists at all
+          # (the 16 belongs to `BallValue :: Function`). A number nothing
+          # re-derives is a number that rots — that drift, plus
+          # roundtrip_floor.sh's "first still-failing fixture" being the
+          # ALPHABETICALLY first one, is how `ball_message_type_name` (23) came
+          # to be published as the leader while `ball_arg_get` (63) really was.
+          histogram=$(awk '/^Failure buckets/ {on=1} on && /^Results:/ {exit} on' "$RUNNER_TEMP/roundtrip.log")
+
           {
             echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Rust compiler dispatches through"
@@ -1466,13 +1478,29 @@ jobs:
             echo "\`ball_map_create\`/\`ball_set_create\` in #796), the"
             echo "\`__ball_register_types\` class prologue, and the is/as registry"
             echo "(\`ball_is\`/\`is_not\`/\`as\`/\`is_type\`); not one of them appears in the"
-            echo "histogram any more. The measured leaders now are \`ball_arg_get\`"
-            echo "(61 fixtures), \`ball_message_type_name\` (23, tracked separately as"
-            echo "#718), \`ball_unsupported_base_call\` (18) and \`ball_iterate\` (16)."
-            echo "The method-dispatcher \`panic!\` sub-case is #632, a different metric."
+            echo "histogram any more. The three largest buckets are tracked:"
+            echo "\`ball_arg_get\` (the compiled parameter prologue) is #858,"
+            echo "\`BallFlow::Normal\` (the compiled try/catch idiom) is #859, and"
+            echo "\`ball_message_type_name\` is #718. The method-dispatcher"
+            echo "\`panic!\` sub-case is #632, a different metric."
+            echo ""
+            echo "Measured by this run, not copied:"
+            echo ""
+            echo '```'
+            printf '%s\n' "$histogram"
+            echo '```'
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
+
+          # Checked AFTER the floor script so its own diagnosis wins when the
+          # sweep failed outright; reached only when the row is otherwise
+          # healthy. A row that publishes no leaders is the state #790 was
+          # filed to end, so it is an error, never a quietly empty block.
+          if [ -z "$histogram" ]; then
+            echo "::error::The Rust round-trip leg printed no \`Failure buckets\` histogram, so this row named no leaders. Re-deriving them by hand from --nocapture output is exactly what issue #790 was filed for."
+            exit 1
+          fi
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}

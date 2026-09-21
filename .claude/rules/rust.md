@@ -350,7 +350,7 @@ cargo fmt --check && cargo clippy --workspace
   `rust/encoder/tests/impl_for_reference_self_type.rs` (both encode → compile → `cargo build` →
   run). **Measured yield:** stage-1 `encoded` **7/77 -> 9/77**, `compiled back` 7 -> 9, histogram
   exactly conserved (`tuple` 6 -> 0, `impl` self type 8 -> 4); `reencoded` stays **1**, because
-  both newly-arriving files stop at stage 3 on `ball_arg_get` (#790).
+  both newly-arriving files stop at stage 3 on `ball_arg_get` (#858).
   `tools/coverage-study/baseline.json` is raised on the first two and left alone on the third.
 - **Non-`Fn` items inside an `impl` block are SKIPPED, not thrown on (#491 slice 5).** An
   associated `const`/`type` (or an item-position macro) beside real methods no longer aborts the
@@ -694,10 +694,14 @@ cargo fmt --check && cargo clippy --workspace
   - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950,
     job `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the
     same PR. All FOUR of #692's blockers left the first-blocker histogram entirely
-    (`ball_map_create` 21, `ball_is_type` 18, `ball_set_create` 7, `ball_is` 3 -> zero each); the
-    leaders are now `ball_arg_get` 61, `ball_message_type_name` 23 (#718),
-    `ball_unsupported_base_call` 18 and `ball_iterate` 16. Quote the PASSED count, never the
-    ratio — the denominator moves with the corpus and the floor is on the numerator alone.
+    (`ball_map_create` 21, `ball_is_type` 18, `ball_set_create` 7, `ball_is` 3 -> zero each). The
+    leaders MOVE, so read them off the sweep's own `Failure buckets (cause -> fixtures)` block
+    (#790) instead of any prose — this list was hand-copied and had already drifted by the time
+    it was read (`ball_arg_get` 61 vs a measured 63, `ball_unsupported_base_call` 18 vs 19, and a
+    `ball_iterate` bucket of 16 that no longer exists). At 138 of 363 (run 35593505327) they are
+    `ball_arg_get` 63 (#858), `BallFlow::Normal` 25 (#859) and `ball_message_type_name` 23
+    (#718). Quote the PASSED count, never the ratio — the denominator moves with the corpus and
+    the floor is on the numerator alone.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -772,7 +776,7 @@ and its own encoder refuses caps that column no matter how good either half is o
   (`gh run download <run-id> -n coverage-study-tier-a-rust` — **never from prose**, which is how
   the six-gap list #767 collected went stale: `write!` had already closed by the time it was
   filed). Since #630 and #767 closed three of them, stage 1 is `9/77` and the dam has MOVED to
-  stage 3, where every arriving file now stops on `ball_arg_get` (#790). The round-trip gate is
+  stage 3, where every arriving file now stops on `ball_arg_get` (#858). The round-trip gate is
   what proves the compiler↔encoder invariant; the third-party funnel is a separate, slower
   instrument.
 - The script-mode entry-point IIFE is **CLOSED**, and #687 with it. #646's
@@ -909,7 +913,7 @@ and its own encoder refuses caps that column no matter how good either half is o
   histogram, not the aggregate; the crate-aware slice was the first one to move
   the aggregate at all, and it moved it by one file, then #630's `write!` slice
   took it 1 -> 7 and #767's 7 -> 9. `clean` has never moved and none of those
-  moved it — its remaining walls are **#790**
+  moved it — its remaining walls are **#858**
   (``unsupported runtime helper `ball_arg_get(...)` `` stops EVERY file that
   reaches stage 3, which is why #767 raised `encoded`/`compiledBack` and left
   `reencoded` at 1; this used to read #632, whose own
@@ -972,24 +976,39 @@ and its own encoder refuses caps that column no matter how good either half is o
   `failed`: the per-fixture budget is `BALL_TIMEOUT_MS` (default 60 000, fail-loud on a
   non-integer) and `roundtrip_floor.sh` reds the row on any `FAILING [name] timeout` line (C#'s
   row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
-  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`, and
+  runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` (the budget
+  reaches `run_dart` as an ARGUMENT, so the kill is proven in milliseconds with no environment
+  write; the env SPELLING is pinned separately by the pure
+  `the_per_fixture_budget_is_read_from_ball_timeout_ms`), and
   `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
   `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
-  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Those are
-  the only non-`#[ignore]`d tests in that target, so `cargo test --workspace` runs them on every
-  PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
-  as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Every
+  test in that target except the whole-corpus sweep is non-`#[ignore]`d — five of them as of
+  #790 — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here
+  may write the process environment** (`std::env::set_var` is `unsafe` for exactly that reason),
+  and the target carries `#![forbid(unsafe_code)]` so that is a BUILD ERROR rather than a rule a
+  reader has to remember — pass the value in as an argument instead. The remaining gap is named in the row's own step
+  summary with the issue tracking it, never as an "expected baseline". #692's own two buckets
+  are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
   corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/
   `ball_spread_iter` inverses it owed, took it **109 -> 121 of 361** (run 35557346693): every
   fixture whose compiled output carries a `for-in` loop or a spliced literal re-encodes now.
-  At 121 the row's own "first still-failing fixture" line names `ball_message_type_name`
-  (#718); re-measure the other leaders from a run artifact rather than quoting the pre-#712
-  figures, which were taken at 109. **#692's 124 and #712's 121 are two INDEPENDENT measurements
-  against the same 109 baseline, each taken on its own branch — never add them.** The merged tree
+  The row's own "first still-failing fixture" line is NOT a leader — it is the alphabetically
+  first failure — so re-measure the leaders from the sweep's `Failure buckets` block in a run
+  artifact rather than quoting that line or any pre-#712 figure. **#692's 124 and #712's 121 are
+  two INDEPENDENT measurements against the same 109 baseline, each taken on its own branch —
+  never add them.** The merged tree
   MEASURES **138 of 362** (run 35561847017, job 106216902719) and that is what
-  `RUST_ROUNDTRIP_FLOOR` carries: the number a run printed, never one derived from two. The
-  leader at 138 is still `ball_message_type_name` (#718). The
+  `RUST_ROUNDTRIP_FLOOR` carries: the number a run printed, never one derived from two. **The
+  leaders come from the sweep's own `Failure buckets (cause -> fixtures)` block (#790), never
+  from prose or from the row's "first still-failing fixture" line** — that line is the
+  ALPHABETICALLY first failure (`101_simple_class`), and reading it as the leader is how this
+  file and `rust/AGENTS.md` both published `ball_message_type_name` (23) as the leader at 138
+  when the real leader was `ball_arg_get` (63). At 138 of 363 (run 35593505327, job
+  106313208884) the buckets rank `ball_arg_get` 63 (#858), `BallFlow::Normal` 25 (#859),
+  `ball_message_type_name` 23 (#718), `ball_unsupported_base_call` 19, `BallValue::Function` 16,
+  `ball_index_set` 14 and `ball_list_push` 13. The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`

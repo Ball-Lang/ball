@@ -20,8 +20,11 @@ namespace Ball.Encoder;
 /// <c>compiler/src/BaseCall.cs</c>: the helper's name, the base function it is
 /// the emission of, and that base function's input field for each positional
 /// argument (a base call's input is always a message keyed by field name —
-/// <c>{left, right}</c>, <c>{value}</c>, …). Keep the two in step. A helper the
-/// compiler emits but this table does not name is NOT silently mis-encoded: it
+/// <c>{left, right}</c>, <c>{value}</c>, …). Keep the two in step. There are TWO
+/// such tables, differing only in the module they emit into — <see cref="Table"/>
+/// (<c>std</c>) and <see cref="CollectionsTable"/> (<c>std_collections</c>, issue
+/// #689) — because a row names a function and never a module. A helper the
+/// compiler emits but neither table names is NOT silently mis-encoded: it
 /// falls through to the encoder's existing loud refusal (issue #55 doctrine),
 /// which is why the table is deliberately restricted to helpers whose shape is
 /// unambiguous:</para>
@@ -156,6 +159,14 @@ internal static class RuntimeHelpers
     private static readonly string[] Unary = { "value" };
     private static readonly string[] Binary = { "left", "right" };
 
+    // Shared field-name tuples for CollectionsTable's rows, named after the fields the DECLARED
+    // input types spell (StdModuleBuilders.BuildStdCollectionsModule).
+    private static readonly string[] ListOnly = { "list" };
+    private static readonly string[] MapOnly = { "map" };
+    private static readonly string[] SetOnly = { "set" };
+    private static readonly string[] ListCallback = { "list", "callback" };
+    private static readonly string[] ListSeparator = { "list", "separator" };
+
     /// <summary><c>BallRuntime.&lt;Name&gt;</c> → the <c>std</c> base function it emits, plus the
     /// input field each positional argument fills.</summary>
     internal static readonly Dictionary<string, (string Function, string[] Fields)> Table =
@@ -225,6 +236,115 @@ internal static class RuntimeHelpers
             ["TypeOf"] = ("type_of", Unary),
             ["IndexGet"] = ("index", new[] { "target", "index" }),
             ["NullCoalesce"] = ("null_coalesce", Binary),
+        };
+
+    /// <summary>
+    /// <c>BallRuntime.&lt;Name&gt;</c> → the <c>std_collections</c> base function it emits, plus
+    /// the input field each positional argument fills — the same row shape as
+    /// <see cref="Table"/>, for the module <see cref="Table"/> structurally could not name
+    /// (issue #689).
+    ///
+    /// <para><b>Why a second table rather than a wider row.</b> A <see cref="Table"/> row names a
+    /// FUNCTION and nothing else, and its only emitter is <c>Builders.StdCall</c>, which
+    /// hard-codes <c>module = "std"</c> — so a <c>list_push</c> row there would have encoded to
+    /// <c>std.list_push</c>, which no engine declares. Every collections helper therefore fell
+    /// through to the loud refusal, correctly (issue #55 doctrine) and invisibly to everything but
+    /// the <c>csharp-roundtrip</c> matrix row's count. The rows themselves needed nothing new:
+    /// <c>compiler/src/BaseCall.cs</c>'s <c>CompileCollectionsCall</c> emits only fixed-arity
+    /// <c>BallRuntime.&lt;Helper&gt;(a, b, …)</c> calls whose arguments come from
+    /// <c>FieldOrNull(f, "&lt;name&gt;")</c>.</para>
+    ///
+    /// <para>Each field name below is the one that function's DECLARED input type spells
+    /// (<c>StdModuleBuilders.BuildStdCollectionsModule</c>'s <c>ListInput</c>/<c>MapInput</c>/
+    /// <c>SetInput</c>/<c>SetBinaryInput</c>/<c>ListSliceInput</c>/<c>ListCallbackInput</c>/
+    /// <c>StringJoinInput</c>). Where the compiler reads an ALIAS — <c>list_take</c>/
+    /// <c>list_drop</c> take <c>index</c> or <c>value</c>, <c>list_concat</c> <c>value</c> or
+    /// <c>index</c>, <c>map_merge</c> <c>value</c> or <c>key</c>, <c>set_create</c>
+    /// <c>list</c>/<c>elements</c>/<c>set</c>, and the higher-order calls
+    /// <c>callback</c>/<c>function</c>/<c>value</c> — the declared spelling is also the
+    /// compiler's own FIRST choice, so the round trip is exact rather than merely equivalent.
+    /// <c>set_create</c> is the one row where the DECLARATION is not the authority (see its
+    /// comment below): the field is <c>elements</c>, which its declared <c>ListInput</c> does not
+    /// name.</para>
+    ///
+    /// <para>Eleven declared <c>std_collections</c> functions are deliberately ABSENT because the
+    /// COMPILER has no case for them (<c>list_flat_map</c>, <c>list_foreach</c>, <c>list_none</c>,
+    /// <c>list_reduce</c>, <c>list_single</c>, <c>list_sort_by</c>, <c>list_zip</c>,
+    /// <c>map_entries</c>, <c>map_filter</c>, <c>map_from_entries</c>, <c>map_map</c>): each
+    /// compiles to a run-time <c>BallRuntime.UnsupportedBaseCall(…)</c> throw, so there is no
+    /// helper call to invert. <c>encoder/test/CollectionsRuntimeHelperTests.cs</c> MEASURES that
+    /// set and asserts it in BOTH directions, so closing one of those compiler gaps fails until
+    /// its row is added here.</para>
+    /// </summary>
+    internal static readonly Dictionary<string, (string Function, string[] Fields)> CollectionsTable =
+        new(StringComparer.Ordinal)
+        {
+            // List — read
+            ["ListGet"] = ("list_get", new[] { "list", "index" }),
+            ["ListLength"] = ("list_length", ListOnly),
+            ["ListIsEmpty"] = ("list_is_empty", ListOnly),
+            ["ListFirst"] = ("list_first", ListOnly),
+            ["ListLast"] = ("list_last", ListOnly),
+            ["ListContains"] = ("list_contains", new[] { "list", "value" }),
+            ["ListIndexOf"] = ("list_index_of", new[] { "list", "value" }),
+            ["ListReverse"] = ("list_reverse", ListOnly),
+            ["ListConcat"] = ("list_concat", new[] { "list", "value" }),
+            ["ListSlice"] = ("list_slice", new[] { "list", "start", "end" }),
+            ["ListTake"] = ("list_take", new[] { "list", "index" }),
+            ["ListDrop"] = ("list_drop", new[] { "list", "index" }),
+            ["ListToList"] = ("list_to_list", ListOnly),
+
+            // List — mutate
+            ["ListPush"] = ("list_push", new[] { "list", "value" }),
+            ["ListPop"] = ("list_pop", ListOnly),
+            ["ListInsert"] = ("list_insert", new[] { "list", "index", "value" }),
+            ["ListRemoveAt"] = ("list_remove_at", new[] { "list", "index" }),
+            ["ListSet"] = ("list_set", new[] { "list", "index", "value" }),
+            ["ListClear"] = ("list_clear", ListOnly),
+
+            // List — higher-order. The callback is an ordinary expression operand, so these
+            // are plain rows; the compiler's `Callback(f)` prefers the declared `callback`
+            // spelling, which is the one emitted back.
+            ["ListMap"] = ("list_map", ListCallback),
+            ["ListFilter"] = ("list_filter", ListCallback),
+            ["ListAll"] = ("list_all", ListCallback),
+            ["ListAny"] = ("list_any", ListCallback),
+            ["ListFind"] = ("list_find", ListCallback),
+            ["ListSort"] = ("list_sort", ListCallback),
+
+            // Map
+            ["MapGet"] = ("map_get", new[] { "map", "key" }),
+            ["MapSet"] = ("map_set", new[] { "map", "key", "value" }),
+            ["MapDelete"] = ("map_delete", new[] { "map", "key" }),
+            ["MapContainsKey"] = ("map_contains_key", new[] { "map", "key" }),
+            ["MapContainsValue"] = ("map_contains_value", new[] { "map", "value" }),
+            ["MapPutIfAbsent"] = ("map_put_if_absent", new[] { "map", "key", "value" }),
+            ["MapKeys"] = ("map_keys", MapOnly),
+            ["MapValues"] = ("map_values", MapOnly),
+            ["MapLength"] = ("map_length", MapOnly),
+            ["MapIsEmpty"] = ("map_is_empty", MapOnly),
+            ["MapMerge"] = ("map_merge", new[] { "map", "value" }),
+
+            // String ↔ collection bridge
+            ["StringJoin"] = ("string_join", ListSeparator),
+            ["ListJoin"] = ("list_join", ListSeparator),
+
+            // Set. `set_create` takes `elements`, NOT the `list` its declared `ListInput` spells:
+            // the reference engine's `_stdSetCreate` (dart/engine/lib/engine_std.dart) reads
+            // `elements` and nothing else — answering an EMPTY set, silently, for any other key —
+            // and `elements` is also the only key the Dart reference ENCODER emits
+            // (dart/encoder/lib/encoder.dart's set-literal arm). The declaration is the loose one
+            // here; see CollectionsRuntimeHelperTests.UndeclaredInputFields.
+            ["SetCreate"] = ("set_create", new[] { "elements" }),
+            ["SetAdd"] = ("set_add", new[] { "set", "value" }),
+            ["SetRemove"] = ("set_remove", new[] { "set", "value" }),
+            ["SetContains"] = ("set_contains", new[] { "set", "value" }),
+            ["SetLength"] = ("set_length", SetOnly),
+            ["SetIsEmpty"] = ("set_is_empty", SetOnly),
+            ["SetToList"] = ("set_to_list", SetOnly),
+            ["SetUnion"] = ("set_union", Binary),
+            ["SetIntersection"] = ("set_intersection", Binary),
+            ["SetDifference"] = ("set_difference", Binary),
         };
 
     /// <summary>

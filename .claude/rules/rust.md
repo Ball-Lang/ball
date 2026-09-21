@@ -259,6 +259,32 @@ cargo fmt --check && cargo clippy --workspace
   shape-asserted: `compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_stays_inside_the_closure`
   builds and runs the compiled output against what `rustc` prints for the source, because a
   re-bound `return` produces a perfectly well-formed Ball tree.
+- **`while let` is ENCODED, using Rust's own reference desugaring (#778).** `encode_while` used to
+  hand its condition straight to `encode_expr` with no `syn::Expr::Let` case — unlike its sibling
+  `encode_if` — so `while let Some(x) = <iter-expr> { .. }` fell through to `lib.rs`'s catch-all
+  and panicked ``unsupported Rust expression kind `let-guard outside if/while` `` **from inside a
+  `while`**: the feature was missing AND the refusal misdescribed why. Ball's `std.while` takes a
+  plain boolean `condition` with no pattern-binding slot, so `encode_while_let` writes out what
+  the Rust reference says `while let` *is* — `loop { match EXPR { PAT => BODY, _ => break } }` —
+  as `std.while(true, block { let __ball_while_let = <EXPR>; std.if(<matched?>, block { let <bind>
+  = __ball_while_let.value; <BODY> }, std.break()) })`. Three properties are load-bearing and all
+  three fail SILENTLY (an infinite loop, an immediate exit, or a wrong answer — never a refusal)
+  if a later change breaks one: the subject binding lives **inside** the loop body, so it is
+  re-evaluated every iteration; the synthetic `break` is **unlabeled**, so it exits this loop and
+  not a labelled enclosing one (a source label still goes through `wrap_label` around the
+  `std.while`, so `compile_label`'s directly-nested-loop fast path still applies); and the pattern
+  binding goes through `with_pattern_binding` (#630) so it shadows a same-named enclosing local
+  for the BODY only. Everything else is shared with `encode_if_let` — `pattern_outcome_shape` +
+  `outcome_condition` over `option_result_message`'s unified Option/Result outcome shape, so
+  `Some`/`Ok` and `None`/`Err` both fall out with no extra branch and every other pattern keeps
+  its existing loud refusal (whose wording now names `while let` too). `encode_loop` needs **no**
+  counterpart: `loop` has no condition, so no `Expr::Let` can reach it. The catch-all's message is
+  now `let-chain pattern binding (only a plain `if let` / `while let` condition is supported)`,
+  describing what can still legitimately arrive there (a Rust 2024 let chain, `a && let Some(x) =
+  y`). Guards: `rust/encoder/tests/while_let.rs` — one shape assertion plus **five** encode →
+  compile → `cargo build` → run proofs, because the desugaring's whole risk is dynamic and a tree
+  assertion cannot see once-vs-per-iteration evaluation, which frame the `break` exits, or how
+  long the binding lives.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
   variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
   encodes — see below; the guard keys on the missing BODY, not the missing receiver), a

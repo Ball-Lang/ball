@@ -1133,8 +1133,9 @@ below it.
 substitution** (#786). Raise that bound to `greaterThanOrEqualTo(10)` and a
 deletion does fail — but a SWAP does not move the number at all: `isEven` out,
 `isBlank` in, ten names before and ten after, and the derived matrix quietly
-iterates a different population than the one this document, `.claude/rules/
-dart.md`, `dart/encoder/AGENTS.md` and fixture 476 all name by literal string.
+iterates a different population than the one this document,
+`.claude/rules/dart.md`, `dart/encoder/AGENTS.md` and fixture 476 all name by
+literal string.
 A rename has the same arithmetic signature, and an addition lands with no
 acknowledgement anywhere, so the "ten getter names" prose drifts from the code
 in silence. (It is the same shape as the coverage study's `excluded.json`
@@ -1162,8 +1163,9 @@ INPUT SHAPES must read the table itself, not a copy of it, so a new entry gets
 its cases with no test edit; and the test that bounds MEMBERSHIP must compare
 that table against an independent copy, so an entry that leaves it, or is
 swapped for another, cannot pass as a smaller-but-green population. Reading
-only the table catches neither; holding only a copy catches a rename but leaves
-a new entry untested.
+only the table catches no mutation OF the table at all; holding only a copy
+catches every one of them and still leaves a new entry's input shapes
+unexercised.
 
 #### A guard whose table is flattened for one member kind and not another
 

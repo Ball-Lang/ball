@@ -44,6 +44,19 @@
 // The tail is the control in the other direction: every one of the six must
 // still answer for a REAL list / map / string / int, exactly as before. A fix
 // that simply deleted the shortcuts would pass every read above and fail there.
+//
+// One shape is deliberately SPLIT across two classes rather than folded into
+// one: a class that declares a field named `entries` AND carries a method takes
+// EVERY self-hosted engine down — **issue #860**, a defect of the same family
+// reached from a third side. `engine_invocation.dart` binds an instance's
+// fields into a method's scope with `for (final entry in selfMap.entries)`, and
+// on a self-hosted target that `.entries` is resolved by NAME, own-key-first —
+// so it reads the user's `List<int>` and then takes `.key` off the integer `7`.
+// The Dart reference engine is immune (there `selfMap` is a real
+// `Map<String, Object?>`). So `Collected` below declares all six names and
+// carries NO methods, and `Counted` carries the `this.`-readers for the five
+// names that are safe. #860's body holds the two removed lines verbatim;
+// restoring them here and regenerating is the whole reproduction.
 
 class Collected {
   final int first;
@@ -62,15 +75,26 @@ class Collected {
     this.keys,
     this.values,
   );
+}
 
-  // The same members read from INSIDE the class, through `this.` — a separate
-  // dispatch site from the external `c.first`, and the one whose receiver is
-  // trivially provable.
+// The same members read from INSIDE the class, through `this.` — a separate
+// dispatch site from the external `c.first`, and the one whose receiver is
+// trivially provable. No `entries` field here: see #860 above.
+class Counted {
+  final int first;
+  final String last;
+  @override
+  final Type runtimeType;
+  final String keys;
+  final int values;
+
+  Counted(this.first, this.last, this.runtimeType, this.keys, this.values);
+
   int readFirstViaThis() => this.first;
 
   String readLastViaThis() => this.last;
 
-  List<int> readEntriesViaThis() => this.entries;
+  Type readRuntimeTypeViaThis() => this.runtimeType;
 
   String readKeysViaThis() => this.keys;
 
@@ -108,11 +132,12 @@ void main() {
   print(c.keys);
   print(c.values);
 
-  print(c.readFirstViaThis());
-  print(c.readLastViaThis());
-  print(c.readEntriesViaThis());
-  print(c.readKeysViaThis());
-  print(c.readValuesViaThis());
+  Counted n = Counted(31, 'inner', 4.5.runtimeType, 'Z', 12);
+  print(n.readFirstViaThis());
+  print(n.readLastViaThis());
+  print(n.readRuntimeTypeViaThis());
+  print(n.readKeysViaThis());
+  print(n.readValuesViaThis());
 
   // The instance-creation receiver, which needs no local at all.
   print(Collected(1, 'z', 'q'.runtimeType, <int>[0], 'A', 2).keys);

@@ -142,7 +142,36 @@
           }
         },
         {
-          "name": "main:Collected.readFirstViaThis",
+          "name": "main:Counted.new",
+          "outputType": "main:Counted",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "first",
+                "is_this": true
+              },
+              {
+                "name": "last",
+                "is_this": true
+              },
+              {
+                "name": "runtimeType",
+                "is_this": true
+              },
+              {
+                "name": "keys",
+                "is_this": true
+              },
+              {
+                "name": "values",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Counted.readFirstViaThis",
           "outputType": "int",
           "body": {
             "fieldAccess": {
@@ -160,7 +189,7 @@
           }
         },
         {
-          "name": "main:Collected.readLastViaThis",
+          "name": "main:Counted.readLastViaThis",
           "outputType": "String",
           "body": {
             "fieldAccess": {
@@ -178,8 +207,8 @@
           }
         },
         {
-          "name": "main:Collected.readEntriesViaThis",
-          "outputType": "List<int>",
+          "name": "main:Counted.readRuntimeTypeViaThis",
+          "outputType": "Type",
           "body": {
             "fieldAccess": {
               "object": {
@@ -187,7 +216,7 @@
                   "name": "self"
                 }
               },
-              "field": "entries"
+              "field": "runtimeType"
             }
           },
           "metadata": {
@@ -196,7 +225,7 @@
           }
         },
         {
-          "name": "main:Collected.readKeysViaThis",
+          "name": "main:Counted.readKeysViaThis",
           "outputType": "String",
           "body": {
             "fieldAccess": {
@@ -214,7 +243,7 @@
           }
         },
         {
-          "name": "main:Collected.readValuesViaThis",
+          "name": "main:Counted.readValuesViaThis",
           "outputType": "int",
           "body": {
             "fieldAccess": {
@@ -782,6 +811,67 @@
                   }
                 },
                 {
+                  "let": {
+                    "name": "n",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Counted",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "31"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "stringValue": "inner"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg2",
+                            "value": {
+                              "fieldAccess": {
+                                "object": {
+                                  "literal": {
+                                    "doubleValue": 4.5
+                                  }
+                                },
+                                "field": "runtimeType"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg3",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Z"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg4",
+                            "value": {
+                              "literal": {
+                                "intValue": "12"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Counted"
+                    }
+                  }
+                },
+                {
                   "expression": {
                     "call": {
                       "module": "std",
@@ -802,7 +892,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "c"
+                                              "name": "n"
                                             }
                                           }
                                         }
@@ -839,7 +929,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "c"
+                                              "name": "n"
                                             }
                                           }
                                         }
@@ -868,7 +958,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "readEntriesViaThis",
+                                  "function": "readRuntimeTypeViaThis",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -876,7 +966,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "c"
+                                              "name": "n"
                                             }
                                           }
                                         }
@@ -913,7 +1003,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "c"
+                                              "name": "n"
                                             }
                                           }
                                         }
@@ -950,7 +1040,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "c"
+                                              "name": "n"
                                             }
                                           }
                                         }
@@ -1804,6 +1894,75 @@
               {
                 "name": "entries",
                 "type": "List<int>",
+                "is_final": true
+              },
+              {
+                "name": "keys",
+                "type": "String",
+                "is_final": true
+              },
+              {
+                "name": "values",
+                "type": "int",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Counted",
+          "descriptor": {
+            "name": "main:Counted",
+            "field": [
+              {
+                "name": "first",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "last",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "runtimeType",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "keys",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "values",
+                "number": 5,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Counted",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "first",
+                "type": "int",
+                "is_final": true
+              },
+              {
+                "name": "last",
+                "type": "String",
+                "is_final": true
+              },
+              {
+                "name": "runtimeType",
+                "type": "Type",
                 "is_final": true
               },
               {

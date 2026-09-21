@@ -304,6 +304,7 @@
         "454_inline_instance_argument_name_collision",
         "455_ctor_field_writes_that_survive",
         "470_setter_beside_final_field",
+        "475_instance_field_named_length",
         "55_scope_variable",
         "60_collatz",
         "66_digit_sum",
@@ -1542,6 +1543,7 @@
         "468_map_contains_value",
         "469_map_put_if_absent",
         "474_is_not_empty_receivers",
+        "475_instance_field_named_length",
         "78_map_operations",
         "93_multi_return",
         "95_fibonacci_memo"
@@ -2605,6 +2607,7 @@
         "472_initializer_list_field_with_setter",
         "473_caught_user_thrown_builtin_error",
         "474_is_not_empty_receivers",
+        "475_instance_field_named_length",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",

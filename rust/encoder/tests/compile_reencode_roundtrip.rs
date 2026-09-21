@@ -83,12 +83,12 @@
 //! pair is not, and must not be: `matches!` is a pattern match over a
 //! runtime-crate enum variant and `Vec::new()` an associated function on a
 //! foreign type, so an encoder arm for either would encode a compiler-internal
-//! spelling while still refusing every real-world occurrence. It is pinned
-//! fail-loud as
-//! `documented_gaps.rs::compiled_spliced_list_literal_is_a_documented_gap` and
-//! tracked as issue #712, whose fix is compiler-side. Re-run that sweep when
-//! you add a compiler emission shape — everything past the first construct was
-//! invisible to the issue that named it.
+//! spelling while still refusing every real-world occurrence. Its fix is
+//! compiler-side (issue #712), and the gates it has to satisfy are
+//! `spliced_collection_literal_compiler_output_re_encodes` and its run-proof
+//! `a_spliced_collection_literal_still_splices_after_the_lowering_change`.
+//! Re-run that sweep when you add a compiler emission shape — everything past
+//! the first construct was invisible to the issue that named it.
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -827,6 +827,21 @@ fn re_compiling_the_re_encoded_program_still_computes_the_same_answer() {
 // only enter the pipeline from the Ball side (`dart/encoder` emits them for
 // `[...l]`, `[...?l]`, `[if (c) x]` and `[for (v in it) x]`).
 
+/// The same program in LIBRARY shape — an empty `entry_function`, which is what
+/// `encode_library` produces and what Tier A's stage 2 compiles.
+///
+/// It has to be a separate builder rather than the same `Program`:
+/// `compile_module_body` SKIPS the function named by `entry_function`, because
+/// in program mode `compile_entry_main` inlines it into `fn main()` instead. A
+/// library-mode compile of a program that still names one therefore emits
+/// nothing at all — measured, and the reason the RED commit's first failure was
+/// an empty module rather than the refusal it was gating.
+fn spliced_literal_library() -> Program {
+    let mut program = spliced_literal_program();
+    program.entry_function = String::new();
+    program
+}
+
 /// `[1, ...[2, 3], if (true) 4, for (v in [5, 6]) v, ...?null]` printed through
 /// `std.to_string` — all four spliceable element kinds in one literal, plus a
 /// plain leading element so the non-splice `push` path is covered too.
@@ -852,8 +867,10 @@ fn spliced_literal_program() -> Program {
         collection_for,
         null_spread,
     ]);
+    // `std.print`'s input field is `message`, not `value` — `compile_print`
+    // reads that name and a mismatch silently prints `null`.
     let printed = std_element("to_string", vec![("value", literal)]);
-    let body = std_element("print", vec![("value", printed)]);
+    let body = std_element("print", vec![("message", printed)]);
 
     Program {
         name: "spliced_literal".to_string(),
@@ -982,7 +999,7 @@ fn reference(name: &str) -> Expression {
 /// rather than on whatever panic the encoder happens to raise second.
 #[test]
 fn spliced_collection_literal_compiler_output_re_encodes() {
-    let program = spliced_literal_program();
+    let program = spliced_literal_library();
     let compiled = Compiler::new(&program).compile_library();
     assert!(
         compiled.contains("push"),

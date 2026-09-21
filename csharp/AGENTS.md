@@ -1468,11 +1468,21 @@ Three legs, one runner, selected via `--leg=`:
   family of measured first blockers. The
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
-  through the real `dart run` subprocess, so a future encoder improvement that closes this gap will
-  be measured by this leg, not blocked by it. On Windows, `dart` resolves to a `.bat` shim that
-  `Process.Start` cannot launch directly (`CreateProcess` does not apply `PATHEXT`, a well-known
-  .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
-  /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
+  through the real reference-CLI subprocess, so a future encoder improvement that closes this gap
+  will be measured by this leg, not blocked by it. **The reference CLI is prepared ONCE per sweep,
+  not launched per fixture (#784)** — `DartCli.Prepare` AOT-compiles `dart/cli/bin/ball.dart` into
+  the leg's temp directory and every fixture then spawns that executable with `run <ball.json>`.
+  It previously ran `dart run dart/cli/bin/ball.dart run <file>` per fixture, and on Windows
+  through `cmd.exe /c`, because `dart` there resolves to a `.bat` shim `Process.Start` cannot
+  launch directly (`CreateProcess` does not apply `PATHEXT`, a well-known .NET-on-Windows gap for
+  batch-script tools like `npm`/`dart` — the reason is real, and `DartCli.CompilePlan` still pays
+  it, once). `dart run` of a package script costs 15.8 s warm on the reporting Windows machine and
+  12.6 s warm on an ubuntu-latest runner, which against the 30 s per-fixture cap made the Windows
+  sweep report ~14 fewer passes than CI **on the same commit** (81 vs 95 when #784 was filed); the
+  prepared executable runs a fixture in 42–74 ms, so the whole Windows sweep now finishes in ~41 s
+  and reports the CI number. Do NOT "fix" a future latency problem by raising the per-fixture cap:
+  it budgets a fixture's own EXECUTION, which is what the no-fixture-may-hang gate (#693) needs it
+  to mean. `engine/test/DartCliLaunchTests.cs` is the guard.
   Since #452 item 3 this leg has three siblings, built to the same shape and reporting the same
   honest zero: `python/engine/conformance/roundtrip.py`, `go/engine/conformance/roundtrip.go`, and
   `rust/engine/tests/roundtrip_conformance.rs` (`python-roundtrip`/`go-roundtrip`/`rust-roundtrip`

@@ -438,7 +438,19 @@ cargo fmt --check && cargo clippy --workspace
   element lands in the documented boundary below and fails loud at RUN time); and
   `String::new()`/`String::with_capacity(n)` now encode as the empty
   string (both were "unsupported call target", so the local-`String` arm would have been
-  unreachable; capacity is an allocation hint with no observable effect). Measured: Tier A
+  unreachable; capacity is an allocation hint with no observable effect). **Dropping that hint's
+  VALUE is not dropping its EVALUATION (#777)**: `String::with_capacity(next_id())` runs
+  `next_id()` in Rust, so an argument whose evaluation cannot be observed —
+  `capacity_argument_is_evaluation_free`, a CLOSED set of a literal or a path read through
+  `(…)`/group wrappers — keeps the bare empty-string literal, and **anything else** (a call, a
+  method call, a macro, an index or an arithmetic expression that can panic) is encoded as the
+  single statement of a `block` whose result is that empty string. The value is still dropped;
+  the effects are not. Widening that set is the only unsound direction — the block wrapper is
+  always correct, and it is invisible to the local-`String` arm above, which classifies the `syn`
+  AST (`is_string_constructor`) and never the encoded node. Guards:
+  `with_capacity_still_evaluates_an_argument_that_has_a_side_effect` (encode → compile → RUN,
+  stdout asserted exactly, because a dropped effect still yields a well-formed `Program`) and its
+  control `with_capacity_of_a_literal_or_a_plain_name_stays_a_bare_empty_string`. Measured: Tier A
   `encoded` **1/77 -> 7/77**, `compiled back` 1 -> 7, `clean` unchanged at 0. Proof:
   `rust/encoder/tests/write_sinks.rs`; design record `docs/SINK_DESIGN.md`.
 - **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`

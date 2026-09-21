@@ -3,7 +3,10 @@
 **Issue:** [#630](https://github.com/Ball-Lang/ball/issues/630) — *represent mutable output sinks so
 `write!`/`writeln!` encode*. Owner-approved 2026-09-13; landed by
 [#636](https://github.com/Ball-Lang/ball/pull/636) (the declarations, engines, compilers, runtimes and
-conformance fixture) and [#698](https://github.com/Ball-Lang/ball/pull/698) (the Rust encoder rule).
+conformance fixture), [#698](https://github.com/Ball-Lang/ball/pull/698) (the Rust encoder rule) and
+[#844](https://github.com/Ball-Lang/ball/pull/844) (issue
+[#777](https://github.com/Ball-Lang/ball/issues/777) — the capacity argument's *evaluation* survives
+its dropped *value*).
 
 This is the normative record for **what a Ball sink is** and **how each source language's sink
 constructs map onto it**. It is the document to read before adding sink support to another encoder,
@@ -175,11 +178,36 @@ Three supporting mechanisms ship with the rule:
   answer to at encode time. Tests:
   `write_sinks.rs::a_write_through_a_mut_alias_re_assigns_the_local_string_it_borrows` and
   `::a_write_through_a_mut_alias_of_a_sink_parameter_stays_a_sink_write`.
-* **`String::new()` / `String::with_capacity(n)` encode as the empty string.** Both were in the
-  encoder's "unsupported call target" bucket, so the local-`String` arm would have been unreachable.
-  Capacity is an allocation hint with no observable effect on what a program computes, and Ball has
-  no allocation model to carry it into. Every other `Type::assoc()` on a foreign type stays the
-  documented gap it was.
+* **`String::new()` / `String::with_capacity(n)` encode as the empty string — and the capacity
+  argument is still EVALUATED (#777).** Both were in the encoder's "unsupported call target" bucket,
+  so the local-`String` arm would have been unreachable. Capacity is an allocation hint with no
+  observable effect on what a program *computes*, and Ball has no allocation model to carry it into,
+  so its **value** is dropped. Its **evaluation** is a different question, and the answer is the
+  opposite one: `String::with_capacity(next_id())` runs `next_id()` in Rust, so an encoding that
+  drops the argument whole silently loses that effect — a degradation the pre-#630 loud refusal did
+  not have. `capacity_argument_is_evaluation_free` is the CLOSED set that keeps the bare
+  empty-string literal (byte-identical to the pre-#777 output): a literal, or a path read — a local,
+  a `const`, a `static` — through `(…)`/group wrappers, since reading a place as a value runs no
+  user code. Every **other** argument (a call, a method call, a macro, an index or an arithmetic
+  expression, either of which can panic) is encoded as the single statement of a `block` whose
+  `result` is that empty string, so the value is dropped and the effects are not. Only WIDENING that
+  set is unsound — the block wrapper is always correct, so the classifier is free to be conservative
+  — and the split is invisible to the local-`String` arm above, which classifies the `syn` AST
+  (`is_string_constructor`) and never the encoded node: `let mut s = String::with_capacity(f());` is
+  still a provably-local `String`. The guard is **behavioural, not structural**, because a dropped
+  effect still yields a well-formed `Program`:
+  `write_sinks.rs::with_capacity_still_evaluates_an_argument_that_has_a_side_effect` encodes,
+  compiles and RUNS the program and asserts its stdout EXACTLY (the effect's line and the empty
+  string, in order), with
+  `::with_capacity_of_a_literal_or_a_plain_name_stays_a_bare_empty_string` as the fast-path control.
+  Every other `Type::assoc()` on a foreign type stays the documented gap it was.
+
+  **This generalises to every other encoder, and is the rule to carry over.** A sizing/allocation
+  hint this record tells you to drop — C#'s `new StringBuilder(capacity)`, Go's
+  `(*strings.Builder).Grow(n)`, Rust's `String::with_capacity(n)` — is a hint whose **value** is
+  droppable, never an argument whose **evaluation** is. Drop the value; encode the argument for its
+  effects (a `block` statement, with the construct's own result as the block's `result`) unless it
+  is provably evaluation-free. Conflating the two is the exact silent degradation #777 fixed.
 
 Failure modes, all loud and all named: an empty `write!` body panics naming the macro; a format string
 that is not a string literal, and a placeholder/argument count mismatch, reuse the existing

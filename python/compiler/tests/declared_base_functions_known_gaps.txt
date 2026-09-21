@@ -9,7 +9,7 @@
 # cpp/test/check_declared_base_functions.py).
 #
 # This file freezes the drift that already exists, MEASURED by running the gate
-# with an empty list, never assumed. It started at eight names; the eighth,
+# with an empty list, never assumed. It found SEVEN undeclared names; the seventh,
 # `std.string_from_char_codes`, is the one #743 was filed about and it was
 # DELETED rather than frozen — no builder declares it, no encoder emits it, the
 # Dart reference engine does not dispatch it, and the Dart-SDK static
@@ -23,7 +23,7 @@
 # (`cd dart/shared && dart run bin/gen_std.dart` plus
 # `cd dart/encoder && dart run bin/gen_std_coverage.dart`), and delete its line.
 #
-# Deliberately NOT done in the same change as the gate: none of the seven is a
+# Deliberately NOT done in the same change as the gate: none of the six below is a
 # Python-local typo. Each is a spelling every other compiler accepts too, so
 # declaring one is a cross-target decision that ripples through every compiler,
 # every engine, the capability table and the coverage inventory — the same reason

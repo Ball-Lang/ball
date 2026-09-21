@@ -223,7 +223,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   set from the source, and fails on any name neither declared in
   `tests/conformance/std_coverage.json` for a module that dispatcher serves nor a still-live entry
   in the frozen, ratchet-only `declared_base_functions_known_gaps.txt`. That file is NOT a place to
-  put a new name — it freezes the seven measured, cross-target spellings (`for_each`,
+  put a new name — it freezes the six measured, cross-target spellings (`for_each`,
   `parenthesized`, `null_aware_index`, `set_create`, the `*_than_or_equal` pair) and can only
   shrink.
 

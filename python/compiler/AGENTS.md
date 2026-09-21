@@ -94,7 +94,7 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
   declared in `tests/conformance/std_coverage.json` for a module that dispatcher
   serves nor a still-live entry in the frozen, ratchet-only
   `tests/declared_base_functions_known_gaps.txt`. A new undeclared name can never
-  be added to that file — it exists only to freeze the seven pre-existing,
+  be added to that file — it exists only to freeze the six pre-existing,
   cross-target spellings (`for_each`, `parenthesized`, `null_aware_index`, …),
   and it can only shrink.
 

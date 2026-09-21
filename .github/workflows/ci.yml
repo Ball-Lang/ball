@@ -3118,6 +3118,27 @@ jobs:
       - name: Install dependencies
         run: python -m pip install "protobuf>=5.29" "pytest>=8.3,<10"
 
+      # ── Dart, BEFORE the pytest suites ──
+      # Two things in this job need it, and the earlier of the two is the test
+      # suite: python/encoder/tests/test_reference_engine_roundtrip.py re-encodes
+      # conformance fixtures through python/compiler + python/encoder and RUNS
+      # both the original and the re-encoded program on the Dart REFERENCE
+      # ENGINE (issue #785). That is the only instrument that can see a
+      # re-encoded tree which `ballrt` evaluates happily and the reference
+      # engine rejects — the `field_access`-on-an-absent-key class of defect,
+      # which `ballrt.getfield` answers with None. It FAILS rather than skips
+      # when `dart` is unresolvable, so this setup is load-bearing, not an
+      # optimisation: do not move it back below the test steps. The second
+      # consumer is the engine.ball.json regeneration further down, which is
+      # where these two steps used to live. Mirrors the csharp job's identical
+      # #730 arrangement.
+      - name: Setup Dart (reference engine + engine.ball.json regeneration)
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
+
       # The five packages are isolated (no workspace manager); each suite's
       # conftest.py bootstraps its sibling sources onto sys.path, so every suite
       # runs from its own package dir (the canonical invocation).
@@ -3198,17 +3219,13 @@ jobs:
       # python/engine/ball_engine/compiled_engine.py. Regenerate both from source,
       # then run the whole conformance corpus and assert Dart parity — the
       # identical regen-then-run shape as the go/rust/csharp jobs (see
-      # python/engine/AGENTS.md's "Regenerate + run").
-      - name: Setup Dart (for engine.ball.json regeneration)
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
-        with:
-          sdk: stable
-
+      # python/engine/AGENTS.md's "Regenerate + run"). Dart itself is set up
+      # (and its workspace bootstrapped) near the top of this job, because the
+      # `Encoder tests` step needs it too — see the comment there.
+      #
       # gen_engine_json.dart writes dart/self_host/engine.ball.json; the
       # `ball_engine.regen` module reads it and compiles it into
       # ball_engine/compiled_engine.py.
-      - name: Bootstrap Dart workspace
-        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
           cd dart && dart run compiler/tool/gen_engine_json.dart

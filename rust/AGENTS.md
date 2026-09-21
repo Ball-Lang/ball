@@ -140,12 +140,18 @@ program dispatching through `ball_lang_shared::runtime::*` over `BallValue`, whi
 read green on every run. #642 closed the three shapes that blocked EVERY fixture (the
 unconditional oneof `LazyLock` statics, the entry IIFE, the `BallValue::*` constructors) and put a
 positive floor + ratchet on the row (`RUST_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh`).
-#693 (the `&mut` alias hang) took it to 99, and #692 — the runtime's COLLECTION constructors and
+#693 (the `&mut` alias hang) took it to 99, #692 — the runtime's COLLECTION constructors and
 the `__ball_register_types` class prologue, see "Conventions" below — to **109 of 360**
 (run 35550645549; 109 of 358 when it was measured at 34803611448, before two fixtures joined the
-corpus and neither round-tripped — the denominator moves on its own, the floor does not).
-The leaders now are `ball_arg_get` (59 fixtures), `BallFlow::Normal` (25) and
-`ball_message_type_name` (21, which is #718's dispatcher scrutinee).
+corpus and neither round-tripped — the denominator moves on its own, the floor does not), and
+#712 to **121 of 361** (run 35557346693): the spliced collection-literal lowering stopped
+emitting `Vec::new()`/`matches!`, and `ball_iterate`/`ball_spread_iter` gained their
+universal-`std` inverses, so every fixture whose compiled output carries a `for-in` loop or a
+spliced literal re-encodes now.
+The leader is `ball_message_type_name` (#718's dispatcher scrutinee), which is what the row's
+own "first still-failing fixture" line named at 121 (`101_simple_class`); re-measure
+`ball_arg_get` and `BallFlow::Normal` from a run's artifact before quoting their counts — the
+pre-#712 figures (59 and 25) were taken at 109 and the population moved under them.
 It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
 
 ```bash

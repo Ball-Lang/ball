@@ -1395,7 +1395,12 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "109"
+      # 109 -> 121 with #712: the compiler's spliced collection-literal lowering
+      # no longer emits `Vec::new()`/`matches!`, and `ball_iterate`/
+      # `ball_spread_iter` gained their universal-`std` inverses — so every
+      # fixture whose compiled output carries a `for-in` loop or a spliced
+      # literal now re-encodes. Measured by run 35557346693.
+      RUST_ROUNDTRIP_FLOOR: "121"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

@@ -808,8 +808,12 @@ and its own encoder refuses caps that column no matter how good either half is o
   PR. The remaining gap is named in the row's own step summary with the issue tracking it, never
   as an "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
-  corpus) — and the measured leaders are now `ball_arg_get` (59 fixtures),
-  `BallFlow::Normal` (25) and `ball_message_type_name` (21, which is #718). The
+  corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/
+  `ball_spread_iter` inverses it owed, took it **109 -> 121 of 361** (run 35557346693): every
+  fixture whose compiled output carries a `for-in` loop or a spliced literal re-encodes now.
+  At 121 the row's own "first still-failing fixture" line names `ball_message_type_name`
+  (#718); re-measure the other leaders from a run artifact rather than quoting the pre-#712
+  figures, which were taken at 109. The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`

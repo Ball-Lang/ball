@@ -419,6 +419,115 @@ extension Reader on String {
       expect(calledFunctions(json), contains('std.string_is_empty'));
     });
 
+    test('`this` inside an EXTENSION TYPE resolves to its body member', () {
+      // An extension type's BODY members are declarations like any other. Its
+      // REPRESENTATION parameter deliberately is NOT — see the next case.
+      final json = encodeToJson('''
+extension type Counter(int raw) {
+  int get isEmpty => raw;
+
+  Object? read() {
+    return this.isEmpty;
+  }
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('an extension type is a provable receiver for a local too', () {
+      final json = encodeToJson('''
+extension type Counter(int raw) {
+  int get isEmpty => raw;
+}
+
+Object? read(Counter c) {
+  return c.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isNotEmpty);
+    });
+
+    test('an extension type REPRESENTATION parameter is not a declaration', () {
+      // A documented, deliberate decline: this encoder models the
+      // representation parameter nowhere — it reaches neither the descriptor
+      // nor `metadata['fields']` — so treating it as a declaration HERE would
+      // make the seam the only part of the encoder that believes in it.
+      final json = encodeToJson('''
+extension type Counter(int isEmpty) {
+  Object? read() {
+    return this.isEmpty;
+  }
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
+
+    test('`super` inside an extension has no in-unit supertype', () {
+      // `super` in an extension body is not valid Dart, but `parseString`
+      // accepts it, and the seam must answer `no proof` rather than reach for
+      // the extension's `on` type — which is what `this` denotes, not `super`.
+      final json = encodeToJson('''
+class Holder {
+  int isEmpty = 0;
+}
+
+extension Reader on Holder {
+  Object? read() {
+    return super.isEmpty;
+  }
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
+
+    test('`super` inside an ENUM has no in-unit supertype', () {
+      final json = encodeToJson('''
+enum Size {
+  small;
+
+  Object? read() {
+    return super.isEmpty;
+  }
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+    });
+
+    test('`super` inside an extension TYPE has no in-unit supertype', () {
+      final json = encodeToJson('''
+extension type Counter(int raw) {
+  Object? read() {
+    return super.isEmpty;
+  }
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+    });
+
+    test('`super` with no enclosing declaration at all gives no proof', () {
+      // Top-level `super` is not valid Dart either; the walk must terminate at
+      // the compilation unit rather than run off the end.
+      final json = encodeToJson('''
+Object? read() {
+  return super.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
+
+    test('`this` with no enclosing declaration at all gives no proof', () {
+      final json = encodeToJson('''
+Object? read() {
+  return this.isEmpty;
+}
+''');
+      expect(fieldAccessesTo(json, 'isEmpty'), isEmpty);
+      expect(calledFunctions(json), contains('std.string_is_empty'));
+    });
+
     test('`this` bound to a local first is still a provable receiver', () {
       // The binding walk resolves `me`'s initializer, which is `this`.
       final json = encodeToJson('''

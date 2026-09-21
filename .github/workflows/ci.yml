@@ -177,6 +177,20 @@ jobs:
       - name: Round-trip leg floor + ratchet test (#642)
         run: bash tools/test/test_roundtrip_floor.sh
 
+      # The four `*-compiler` rows carried four byte-identical copies of an
+      # inline gate whose only response to a measured GAIN was
+      # `echo "::notice::… IMPROVED …"; exit 0`. `GO_COMPILER_FLOOR` therefore
+      # sat at 291 while the row measured 297 (run 35552669922), six fixtures of
+      # earned gain unclaimed and a regression to 292 still green (#792). A
+      # ::notice:: in a log is not a gate. tools/ci/compiler_floor.sh makes an
+      # unclaimed gain RED, naming the exact constant and value to write; this
+      # proves the gate itself (a gain must be red, a drop must be red, a flat
+      # zero must be red, an unset/garbage floor must be a hard error rather
+      # than a silently-skipped `[`) AND asserts the wiring — that all four rows
+      # actually invoke it and none kept an inline comparison.
+      - name: Compiler leg floor + ratchet test (#792)
+        run: bash tools/test/test_compiler_floor.sh
+
       # Every runtime raises a handful of built-in Dart errors, and each target
       # then has to answer what a CAUGHT one prints as. Four of them answer from
       # an explicit `name -> prefix` table, and those tables were only "closed"

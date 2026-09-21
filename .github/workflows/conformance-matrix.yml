@@ -1160,10 +1160,12 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      # Ground truth is the Dart CLI: the leg shells out to
-      # `dart run dart/cli/bin/ball.dart run <reencoded.ball.json>` per fixture,
-      # so the Dart workspace has to be resolved even though today every fixture
-      # fails earlier, at the re-encode step.
+      # Ground truth is the Dart CLI, so the Dart workspace has to be resolved.
+      # Since #784 the leg AOT-compiles `dart/cli/bin/ball.dart` ONCE per sweep
+      # (`DartCli.Prepare`) and spawns that executable per fixture, instead of
+      # paying a `dart run` of the script every time — measured at 12.6 s warm on
+      # this runner, which is most of a 30 s per-fixture cap that exists to catch
+      # a re-encoded program that never terminates (#693), not launch latency.
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable

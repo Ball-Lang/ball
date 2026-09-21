@@ -465,9 +465,21 @@ avoid constructs that need receiver-type info:
   plus the `dart:core` control whose route must survive; the receiver SHAPES
   that are not per-name (mixin, `on`, enum, interface, extension, enclosing
   field, top-level variable, named constructor, and the declines) sit beside it.
-  Its closed-set assertion is a floor at the MEASURED count of ten, not at a
-  lower round number — a floor below the measured value stays green through the
-  silent deletion of a route, which would silently shrink the matrix with it.
+  Its closed-set assertion is exact SET EQUALITY against an independently
+  restated list of the ten names, not a bound on the size (#786): a floor below
+  the measured value stays green through the silent deletion of a route, and a
+  floor AT the measured value still cannot move for a swap (`isEven` out,
+  `isBlank` in — ten before, ten after) or a rename, either of which leaves the
+  derived matrix iterating a different population than this file, the fixture
+  and `docs/TESTING_STRATEGY.md` all name. The gate is the function
+  `closedSetComplaints`, so the suite can feed it tables it MUST reject — a
+  deletion, a swap, a rename, an addition — plus the positive control that the
+  real table is accepted; an assertion written inline against the real table
+  proves only that today's table passes. Adding a route therefore costs one
+  line in `expectedBuiltinAccessorGetters` (the acknowledgement that the new
+  name was considered, and the cue to update the "ten getter names" prose here,
+  in `dart/encoder/AGENTS.md` and in `docs/TESTING_STRATEGY.md`), while the
+  per-name matrix still needs no edit at all.
   The SYNTACTIC proof is
   unit-local by construction, so it cannot see a member declared in another FILE;
   `dart/encoder/test/builtin_accessor_resolved_receiver_test.dart` is the gate

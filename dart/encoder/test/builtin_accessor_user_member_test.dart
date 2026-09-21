@@ -93,6 +93,65 @@ String _fieldTypeFor(String name) => switch (name) {
   _ => 'bool',
 };
 
+/// The names `DartEncoder.builtinAccessorGetters` is expected to hold,
+/// restated here INDEPENDENTLY of the encoder.
+///
+/// The two halves of this suite read the route table differently on purpose.
+/// The per-name matrix below reads the REAL table, so a route added without
+/// its receiver seam fails with no test edit. This literal is the other half:
+/// it pins WHICH names that table holds, so a route deleted — or swapped for
+/// another, which leaves the count untouched — is a failure rather than a
+/// quietly smaller population for the matrix to iterate.
+const expectedBuiltinAccessorGetters = <String>{
+  // `_directGetterRoutes`' seven, one `std` call each.
+  'sign',
+  'isNaN',
+  'isFinite',
+  'isInfinite',
+  'isEmpty',
+  'isNotEmpty',
+  'runes',
+  // The three composites, each handled at its own call site.
+  'isEven',
+  'isOdd',
+  'reversed',
+};
+
+/// Everything the closed-set gate objects to in [candidate]; empty ⇒ accepted.
+///
+/// The gate is a FUNCTION so the negative controls below can feed it mutated
+/// route tables — a deletion, a swap, a rename — and prove it rejects each
+/// one. An assertion written inline against the real table can only ever show
+/// that today's table passes, which is the very same green a gate with no
+/// teeth prints (issue #786).
+///
+/// It is exact SET EQUALITY, not a bound on the size. A count — even one
+/// pinned at the measured value — answers a question about how many names are
+/// routed when the question is which, and it cannot move at all for the
+/// mutation that matters most: one name out, one name in. Both halves are
+/// reported separately so a failure names the mutation rather than a number.
+List<String> closedSetComplaints(Set<String> candidate) {
+  final complaints = <String>[];
+  final missing = (expectedBuiltinAccessorGetters.difference(candidate).toList()
+    ..sort());
+  final unexpected =
+      (candidate.difference(expectedBuiltinAccessorGetters).toList()..sort());
+  if (missing.isNotEmpty) {
+    complaints.add(
+      'no longer routed: $missing — a name that leaves the table also leaves '
+      'the per-name matrix below, which simply gets smaller and stays green',
+    );
+  }
+  if (unexpected.isNotEmpty) {
+    complaints.add(
+      'newly routed: $unexpected — add each to `expectedBuiltinAccessorGetters` '
+      'and update the "ten getter names" prose in .claude/rules/dart.md, '
+      'docs/TESTING_STRATEGY.md and dart/encoder/AGENTS.md to match',
+    );
+  }
+  return complaints;
+}
+
 /// A receiver whose type is a `dart:core` type that really declares [name],
 /// so the route must still fire.
 ({String declaration, String receiver}) _coreReceiverFor(String name) =>
@@ -109,22 +168,78 @@ String _fieldTypeFor(String name) => switch (name) {
 
 void main() {
   group('a built-in accessor name a user class declares (#697)', () {
-    test('the closed set is non-empty and is what the encoder routes', () {
-      // A positive floor at the MEASURED value: the set holds exactly these
-      // ten names today, and a floor below that would stay green through the
-      // silent deletion of a route (which would silently shrink the per-name
-      // matrix below with it). A route ADDED here is welcome and must simply
-      // bring its seam — that is what the matrix proves — so the assertion is
-      // a floor rather than an equality on the count.
+    test('the closed set is exactly the table the encoder routes', () {
       expect(
-        DartEncoder.builtinAccessorGetters.length,
-        greaterThanOrEqualTo(10),
+        closedSetComplaints(DartEncoder.builtinAccessorGetters),
+        isEmpty,
+        reason:
+            'the encoder routes ${DartEncoder.builtinAccessorGetters.toList()}',
       );
       // Every name in the set really IS routed — proven by the control leg of
       // each per-name case below, which asserts a core receiver still calls a
       // base function rather than emitting a `fieldAccess`.
       expect(DartEncoder.builtinAccessorGetters, contains('isEmpty'));
       expect(DartEncoder.builtinAccessorGetters, contains('isNotEmpty'));
+    });
+
+    // ── The gate's own negative controls (#786) ───────────────────────
+    //
+    // The per-name matrix DERIVES its cases from the route table, so a route
+    // deleted from that table does not fail the matrix — it shrinks it, and a
+    // smaller green run is indistinguishable from a complete one. The closed
+    // set is what makes that visible, and these cases are what prove the
+    // closed set can see it: each feeds `closedSetComplaints` a table mutated
+    // the way a careless edit would mutate it.
+
+    test('the gate REJECTS a deleted route', () {
+      final deleted = {...DartEncoder.builtinAccessorGetters}..remove('isEven');
+      expect(
+        closedSetComplaints(deleted),
+        isNotEmpty,
+        reason:
+            'dropping `isEven` from the table silently drops its seven matrix '
+            'cases with it — the gate has to say so',
+      );
+    });
+
+    test('the gate REJECTS a swapped route', () {
+      // The mutation a count alone cannot see: one name out, one name in,
+      // total unchanged. The matrix would then iterate a DIFFERENT population
+      // than the one the docs, the rules file and fixture 476 all name.
+      final swapped = {...DartEncoder.builtinAccessorGetters}
+        ..remove('isEven')
+        ..add('isBlank');
+      expect(
+        closedSetComplaints(swapped),
+        isNotEmpty,
+        reason:
+            '`isEven` left the table and `isBlank` took its slot, so the count '
+            'is untouched and the routed population is not',
+      );
+    });
+
+    test('the gate REJECTS a renamed direct route', () {
+      final renamed = {...DartEncoder.builtinAccessorGetters}
+        ..remove('runes')
+        ..add('codeUnits');
+      expect(closedSetComplaints(renamed), isNotEmpty);
+    });
+
+    test('the gate REJECTS a route added without the expected list', () {
+      // An ADDED route is welcome, but it is not silent: the one-line edit to
+      // `expectedBuiltinAccessorGetters` is the acknowledgement that the new
+      // name was considered, and the matrix is what then proves it brought its
+      // receiver seam. Without that edit the prose in `.claude/rules/dart.md`,
+      // `docs/TESTING_STRATEGY.md` and `dart/encoder/AGENTS.md` — all of which
+      // name this set's size — would drift from the code in silence.
+      final added = {...DartEncoder.builtinAccessorGetters, 'codeUnits'};
+      expect(closedSetComplaints(added), isNotEmpty);
+    });
+
+    test('the gate ACCEPTS the table it is bounding', () {
+      // The positive control: the cases above must fail for the mutation they
+      // name, not because the gate rejects everything.
+      expect(closedSetComplaints({...expectedBuiltinAccessorGetters}), isEmpty);
     });
 
     for (final name in DartEncoder.builtinAccessorGetters) {

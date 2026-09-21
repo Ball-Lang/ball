@@ -511,6 +511,87 @@ pub fn empties() -> String {
     }
 }
 
+// ════════════════════════════════════════════════════════════
+// `String::with_capacity(n)`: dropping n's VALUE is not dropping
+// n's EVALUATION (issue #777)
+// ════════════════════════════════════════════════════════════
+
+/// The capacity *value* is an allocation hint Ball has no model for, so it is
+/// dropped by design (the test above). Its *evaluation* is a different thing
+/// entirely: `String::with_capacity(hint())` runs `hint()` in Rust, so the
+/// encoded program has to run it too — encoding the whole call as a bare `""`
+/// drops that call SILENTLY, which is worse than the loud "unsupported call
+/// target" refusal `String::with_capacity` got before #630.
+#[test]
+fn with_capacity_still_evaluates_an_argument_that_has_a_side_effect() {
+    const SOURCE: &str = r#"
+fn hint() -> i64 {
+    println!("hint ran");
+    8
+}
+
+fn main() {
+    let s = String::with_capacity(hint());
+    println!("[{}]", s);
+}
+"#;
+    let program = encode(SOURCE);
+    let calls = calls_in(&program, "main");
+    let called: Vec<&str> = calls.iter().map(|call| call.function.as_str()).collect();
+    assert!(
+        called.contains(&"hint"),
+        "`hint()` must survive as a call inside `main` (calls: {called:?})"
+    );
+    let rust_source = Compiler::new(&program).compile();
+    assert_eq!(
+        harness::compile_and_run("with_capacity_side_effect", &rust_source),
+        "hint ran\n[]\n",
+        "the capacity argument runs for its effects and the string is still empty"
+    );
+}
+
+/// The other half of the same rule: an argument whose evaluation cannot be
+/// observed — a literal, or a plain name read — keeps the BARE empty-string
+/// fast path, with no block wrapper around it. That set is deliberately tiny
+/// (`rust/encoder/src/lib.rs::capacity_argument_is_evaluation_free`); anything
+/// outside it is encoded for its effects, as the test above requires.
+#[test]
+fn with_capacity_of_a_literal_or_a_plain_name_stays_a_bare_empty_string() {
+    const SOURCE: &str = r#"
+pub fn empties(cap: i64) -> String {
+    let a = String::with_capacity(32);
+    let b = String::with_capacity(cap);
+    a + &b
+}
+"#;
+    let program = encode_library(SOURCE);
+    let main = module(&program, "main");
+    let def = main
+        .functions
+        .iter()
+        .find(|f| f.name == "empties")
+        .expect("`empties`");
+    let Some(Expr::Block(block)) = def.body.as_ref().expect("a body").expr.as_ref() else {
+        panic!("a fn body encodes as a block");
+    };
+    for statement in &block.statements {
+        let Some(Stmt::Let(binding)) = statement.stmt.as_ref() else {
+            panic!("both statements are `let` bindings");
+        };
+        assert_eq!(
+            binding.value.as_ref().unwrap().expr,
+            Some(Expr::Literal(ball_lang_shared::proto::ball::v1::Literal {
+                value: Some(
+                    ball_lang_shared::proto::ball::v1::literal::Value::StringValue(String::new())
+                ),
+            })),
+            "`{}`'s initialiser must stay a BARE empty string — its capacity \
+             argument's evaluation cannot be observed",
+            binding.name
+        );
+    }
+}
+
 #[test]
 fn a_closure_parameter_shadows_an_enclosing_local_string() {
     // The shadowing trap: an enclosing local `String` named `f` must not make

@@ -12,7 +12,7 @@ use ball_lang_shared::proto::ball::v1::{
     Block, Expression, FieldValuePair, LetBinding, MessageCreation, Statement,
 };
 
-use crate::{AliasTarget, Encoder, null_literal, runtime_ctors};
+use crate::{AliasTarget, Encoder, expr_stmt, null_literal, runtime_ctors};
 
 impl Encoder {
     /// Encode a `syn::Block` to a Ball `block` [`Expression`].
@@ -82,16 +82,12 @@ impl Encoder {
                         result = Some(Box::new(self.encode_expr(expr)));
                     } else {
                         let encoded = self.encode_expr(expr);
-                        statements.push(Statement {
-                            stmt: Some(BallStmt::Expression(encoded)),
-                        });
+                        statements.push(expr_stmt(encoded));
                     }
                 }
                 syn::Stmt::Macro(stmt_macro) => {
                     let encoded = self.encode_macro(&stmt_macro.mac);
-                    statements.push(Statement {
-                        stmt: Some(BallStmt::Expression(encoded)),
-                    });
+                    statements.push(expr_stmt(encoded));
                 }
                 syn::Stmt::Item(_) => panic!(
                     "ball-lang-encoder: local item declarations (nested fn/struct/...) inside a block \

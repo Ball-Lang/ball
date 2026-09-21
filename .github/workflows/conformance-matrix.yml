@@ -1863,8 +1863,10 @@ jobs:
             fi
           done
 
-          # Each ratcheted compile leg self-gates on its own floor (a DROP fails
-          # the job), so its RESULT is the whole signal. They are intentionally
+          # Each ratcheted compile leg self-gates on its own floor (a DROP
+          # fails the job, and since #792 so does an unclaimed RISE — a gain
+          # whose `<LANG>_COMPILER_FLOOR` was not raised in the same PR), so its
+          # RESULT is the whole signal. They are intentionally
           # absent from the failed-count loop below: that loop asserts FULL
           # PARITY, and none of these four legs has it yet — each still fails
           # dozens of fixtures, which is exactly what its own
@@ -1879,7 +1881,7 @@ jobs:
             name="${leg%%:*}"; res="${leg#*:}"
             if engine_not_ok "$res"; then
               echo ""
-              echo "The $name compiler leg regressed below its floor. See its job log."
+              echo "The $name compiler leg did not hold its floor exactly — it regressed below it, or it improved without raising it (#792). See its job log."
               summary_failed=1
             fi
           done

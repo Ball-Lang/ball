@@ -31,7 +31,7 @@
           "isBase": true
         },
         {
-          "name": "not",
+          "name": "string_is_not_empty",
           "isBase": true
         },
         {
@@ -64,20 +64,6 @@
             "field": [
               {
                 "name": "message",
-                "number": 1,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_STRING"
-              }
-            ]
-          }
-        },
-        {
-          "name": "UnaryInput",
-          "descriptor": {
-            "name": "UnaryInput",
-            "field": [
-              {
-                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -777,7 +763,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "not",
+                                  "function": "string_is_not_empty",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -787,39 +773,23 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "string_is_empty",
+                                              "function": "set_create",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
                                                   "fields": [
                                                     {
-                                                      "name": "value",
+                                                      "name": "elements",
                                                       "value": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "set_create",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "elements",
-                                                                  "value": {
-                                                                    "literal": {
-                                                                      "listValue": {
-                                                                        "elements": [
-                                                                          {
-                                                                            "literal": {
-                                                                              "intValue": "1"
-                                                                            }
-                                                                          }
-                                                                        ]
-                                                                      }
-                                                                    }
-                                                                  }
+                                                        "literal": {
+                                                          "listValue": {
+                                                            "elements": [
+                                                              {
+                                                                "literal": {
+                                                                  "intValue": "1"
                                                                 }
-                                                              ]
-                                                            }
+                                                              }
+                                                            ]
                                                           }
                                                         }
                                                       }

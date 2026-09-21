@@ -4971,6 +4971,9 @@ function __isUnknownFnError(e: any): boolean {
       case "string_starts_with": return `${this.expr(fg("left", "value", "arg0")!)}.startsWith(${this.expr(fg("right", "pattern", "arg1")!)})`;
       case "string_ends_with": return `${this.expr(fg("left", "value", "arg0")!)}.endsWith(${this.expr(fg("right", "pattern", "arg1")!)})`;
       case "string_is_empty": return `(${this.expr(fg("value", "arg0")!)}.length === 0)`;
+      // Its own op, never `!(…)` over string_is_empty: a delegating receiver
+      // sees WHICH member it is asked for (issue #674).
+      case "string_is_not_empty": return `(${this.expr(fg("value", "arg0")!)}.length !== 0)`;
       case "string_split": return `${this.expr(fg("value", "arg0")!)}.split(${this.expr(fg("separator", "arg1", "right")!)})`;
       case "string_runes": return `Array.from(${this.expr(fg("value", "arg0")!)}).map((c) => c.codePointAt(0))`;
       case "string_substring": {

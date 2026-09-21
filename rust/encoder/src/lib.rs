@@ -903,6 +903,21 @@ pub(crate) struct Encoder {
     /// [`Self::unresolved_modules`] because these are RESOLVED: the named
     /// module is part of the same `Program`.
     pub(crate) referenced_crate_modules: BTreeSet<String>,
+    /// One frame per binding scope currently being encoded — a fn/closure/
+    /// method body (seeded with its parameters) and every `{ .. }` block
+    /// inside it (see `block.rs::encode_block`) — naming every binding that
+    /// scope introduces: its parameters and its `let`s, recorded as they are
+    /// encoded. A block needs its own frame because its `let`s are gone at the
+    /// closing brace; leaking one past it would leave a shadowed parameter
+    /// looking like a local. Issue #630's `write!`
+    /// destination rule is the only consumer: it must tell a **local
+    /// `String`** (re-assigned in place, so its non-sink reads keep seeing a
+    /// `String`) from **anything else** (a sink, encoded as
+    /// `std.sink_write`). Innermost-first lookup is what makes a closure's own
+    /// parameter shadow a same-named enclosing local, which is not a corner
+    /// case: `heck`'s `|f| write!(f, "-")` closures are 6 of the 7 Tier A
+    /// files this rule exists for.
+    local_scopes: Vec<HashMap<String, LocalKind>>,
     /// `let slot: &mut T = &mut place;` bindings in scope (issues #642/#693).
     /// Ball has no references: a `let` copies its initializer, so encoding the
     /// binding literally makes every later write THROUGH the alias land on a
@@ -936,6 +951,89 @@ pub(crate) enum AliasTarget {
     Opaque(String),
 }
 
+/// What a binding in the fn/closure/method body currently being encoded
+/// holds, as far as issue #630's `write!`-destination rule is concerned.
+/// Deliberately a closed four-way split with no "don't know" member: an
+/// unrecorded name is simply absent from [`Encoder::local_scopes`] and is
+/// therefore not a local at all.
+#[derive(Clone, Debug)]
+pub(crate) enum LocalKind {
+    /// A `let` whose initialiser is a `String` constructor — the only shape
+    /// `write!` is allowed to re-assign.
+    LocalString,
+    /// A `let` of some other shape, carrying its initialiser's source text so
+    /// the refusal can name it.
+    Other(String),
+    /// A fn/closure/method parameter. Never a local, so always a sink.
+    Parameter,
+    /// A name introduced by a PATTERN rather than a `let` — a for-loop
+    /// variable, a `match`-arm binding, an `if let` binding (see
+    /// [`Encoder::with_pattern_binding`]). Never a `let`-bound local either,
+    /// so also always a sink; a member of its own so the two can never be
+    /// confused, and so a future rule for it has somewhere to live.
+    PatternBinding,
+}
+
+/// Is `expr` a `String` constructor — the initialiser set issue #630's
+/// local-`String` arm accepts? Syntax only, deliberately: this encoder has no
+/// semantic model (see the crate doc comment), and a *wider* guess here would
+/// silently turn a non-`String` local into a re-assignment. Anything outside
+/// this list that is a local fails loud instead.
+fn is_string_constructor(expr: &syn::Expr) -> bool {
+    match expr {
+        syn::Expr::Paren(e) => is_string_constructor(&e.expr),
+        syn::Expr::Group(e) => is_string_constructor(&e.expr),
+        // `String::new()` / `String::with_capacity(n)` / `String::from(x)`.
+        syn::Expr::Call(call) => match call.func.as_ref() {
+            syn::Expr::Path(path_expr) => {
+                let segments: Vec<String> = path_expr
+                    .path
+                    .segments
+                    .iter()
+                    .map(|s| s.ident.to_string())
+                    .collect();
+                segments.len() == 2
+                    && segments[0] == "String"
+                    && matches!(segments[1].as_str(), "new" | "with_capacity" | "from")
+            }
+            _ => false,
+        },
+        // `"seed".to_string()` / `"seed".to_owned()` — only on a string
+        // LITERAL receiver. `x.to_owned()` on an unknown receiver proves
+        // nothing (it is `Vec`'s clone just as much as `str`'s).
+        syn::Expr::MethodCall(call) => {
+            call.args.is_empty()
+                && matches!(call.method.to_string().as_str(), "to_string" | "to_owned")
+                && matches!(
+                    call.receiver.as_ref(),
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(_),
+                        ..
+                    })
+                )
+        }
+        // `format!(..)` is a `String` by definition.
+        syn::Expr::Macro(mac) => mac.mac.path.is_ident("format"),
+        _ => false,
+    }
+}
+
+/// Strip the borrow/paren/group wrappers a `write!` destination may carry, so
+/// `&mut s`, `(&mut s)` and `s` all classify identically. `core` expands
+/// `write!($dst, ..)` to `$dst.write_fmt(..)`, and a method receiver
+/// auto-refs — which is precisely why both spellings appear in real code.
+pub(crate) fn strip_borrows(expr: &syn::Expr) -> &syn::Expr {
+    let mut current = expr;
+    loop {
+        current = match current {
+            syn::Expr::Reference(e) => &e.expr,
+            syn::Expr::Paren(e) => &e.expr,
+            syn::Expr::Group(e) => &e.expr,
+            other => return other,
+        };
+    }
+}
+
 impl Encoder {
     fn new(module_name: &str, crate_symbols: Option<Rc<CrateSymbols>>) -> Self {
         Encoder {
@@ -953,9 +1051,96 @@ impl Encoder {
             current_module: module_name.to_string(),
             crate_symbols,
             referenced_crate_modules: BTreeSet::new(),
+            local_scopes: Vec::new(),
             ref_aliases: HashMap::new(),
             alias_scopes: Vec::new(),
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Local-binding scoping (issue #630's `write!` destination rule)
+    // ════════════════════════════════════════════════════════════
+
+    /// Open a binding frame, seeded with `params`. Called for a fn/closure/
+    /// method body with that body's parameters, and by
+    /// `block.rs::encode_block` with none for every `{ .. }` inside it. Must
+    /// be paired with [`Self::pop_locals_frame`].
+    ///
+    /// Kept separate from [`Self::push_fn_scope`] on purpose even though the
+    /// two are pushed together for a fn/closure: `push_fn_scope` only records
+    /// parameters for a **2+-parameter** body (its `input`-field aliasing
+    /// rule), and an `impl`-block method pushes no fn scope at all. Both of
+    /// those would leave a parameter looking like a local here, and a
+    /// parameter misread as a local `String` is exactly the silent
+    /// miscompile this frame exists to prevent.
+    pub(crate) fn push_locals_frame(&mut self, params: &[(String, String)]) {
+        let frame = params
+            .iter()
+            .map(|(name, _)| (name.clone(), LocalKind::Parameter))
+            .collect();
+        self.local_scopes.push(frame);
+    }
+
+    pub(crate) fn pop_locals_frame(&mut self) {
+        self.local_scopes.pop();
+    }
+
+    /// Encode `f` with `name` in scope as a PATTERN binding — a for-loop
+    /// variable, a `match`-arm binding, or an `if let` binding (issue #630).
+    ///
+    /// Such a name is introduced without a `let`, so [`Self::record_local`] —
+    /// whose only call site is `block.rs`'s `let` handling — never sees it.
+    /// Left unrecorded it is not merely unknown but INVISIBLE: the lookup
+    /// walks straight past it to whatever ENCLOSING binding wears the same
+    /// name, and an enclosing local `String` is the one kind that does not
+    /// fail loud. `let mut s = String::new(); for s in writers.iter_mut() {
+    /// write!(s, "x")?; }` then encodes as a re-assignment of the outer `s`,
+    /// losing every write the Rust aims at an element, silently.
+    ///
+    /// The frame also SHADOWS a `&mut` alias of the same name, exactly as a
+    /// plain `let` of it does (`block.rs::encode_local` drops the entry): the
+    /// alias table is consulted for every read, so while a loop variable
+    /// `slot` is in scope, `slot` is the element — not the place an enclosing
+    /// `let slot = &mut result;` borrows. Restored on the way out, because the
+    /// alias is live again after the loop.
+    pub(crate) fn with_pattern_binding<T>(
+        &mut self,
+        name: &str,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let mut frame = HashMap::new();
+        frame.insert(name.to_string(), LocalKind::PatternBinding);
+        self.local_scopes.push(frame);
+        let shadowed_alias = self.ref_aliases.remove(name);
+        let encoded = f(self);
+        if let Some(alias) = shadowed_alias {
+            self.ref_aliases.insert(name.to_string(), alias);
+        }
+        self.local_scopes.pop();
+        encoded
+    }
+
+    /// Record a `let` binding in the innermost open frame. A re-`let` of the
+    /// same name overwrites, which is Rust's own shadowing rule.
+    pub(crate) fn record_local(&mut self, name: &str, init: Option<&syn::Expr>) {
+        let kind = match init {
+            Some(expr) if is_string_constructor(expr) => LocalKind::LocalString,
+            Some(expr) => LocalKind::Other(quote::quote!(#expr).to_string()),
+            None => LocalKind::Other("<no initialiser>".to_string()),
+        };
+        if let Some(frame) = self.local_scopes.last_mut() {
+            frame.insert(name.to_string(), kind);
+        }
+    }
+
+    /// What `name` binds to, searching innermost frame first (Rust's lexical
+    /// shadowing). `None` when no open frame declares it — a field, a
+    /// module-level item, or a body encoded outside any frame.
+    pub(crate) fn lookup_local(&self, name: &str) -> Option<&LocalKind> {
+        self.local_scopes
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(name))
     }
 
     // ════════════════════════════════════════════════════════════
@@ -1099,6 +1284,9 @@ impl Encoder {
     /// the module doc comment's "one input" section). Must be paired with
     /// [`Self::pop_fn_scope`] once the body has been encoded.
     fn push_fn_scope(&mut self, params: &[(String, String)]) -> Option<Struct> {
+        // A fn/closure body also opens a binding frame (issue #630) — see
+        // [`Self::push_locals_frame`] for why the two are separate.
+        self.push_locals_frame(params);
         // A parameter SHADOWS a `&mut` alias of the same name from an enclosing
         // scope (issue #642): in `let x = &mut y; list.map(|x| x)`, the closure's
         // `x` is its own parameter, not the borrowed `y`. Without this, the read
@@ -1125,6 +1313,7 @@ impl Encoder {
 
     fn pop_fn_scope(&mut self) {
         self.scopes.pop();
+        self.pop_locals_frame();
         if let Some(saved) = self.alias_scopes.pop() {
             self.ref_aliases = saved;
         }
@@ -1678,6 +1867,28 @@ impl Encoder {
                             return self.encode_expr(&e.args[0]);
                         }
                     }
+                }
+                // `String::new()` / `String::with_capacity(n)` — both are
+                // *the empty string*. Capacity is an allocation hint with no
+                // observable effect on what the program computes
+                // (<https://doc.rust-lang.org/std/string/struct.String.html#method.with_capacity>:
+                // "the string will be able to hold at least `capacity` bytes
+                // without reallocating"), and Ball has no allocation model to
+                // carry it into, so dropping it cannot change a result.
+                //
+                // Needed by issue #630's local-`String` arm: `write!(&mut s,
+                // ..)` is only allowed to re-assign `s` when `s` is a
+                // provably-local `String`, and these two are exactly the
+                // initialisers that prove it — so the encoder has to be able
+                // to encode them in the first place. Every OTHER
+                // `Type::assoc()` on a foreign type stays the documented gap
+                // the panic below names.
+                if path.segments.len() == 2
+                    && path.segments[0].ident == "String"
+                    && ((last_name == "new" && e.args.is_empty())
+                        || (last_name == "with_capacity" && e.args.len() == 1))
+                {
+                    return string_literal("");
                 }
                 // `Ok(x)` / `Err(x)` / `Some(x)` — the unified
                 // Option/Result "outcome" representation (see the module

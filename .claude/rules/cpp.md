@@ -114,7 +114,26 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   is the reachable case and `470_setter_beside_final_field` is its guard, with
   `cpp/test/test_compiler.cpp`'s
   `length_on_a_class_that_declares_it_is_the_field_not_ball_length` as the fast
-  gate.
+  gate. `475_instance_field_named_length` (#681) is the second gate, and the
+  plainest shape of the same collision — a mutable `int length;` with no getter
+  and no shadowing field, so `class_has_own_field` alone carries it — read
+  externally, read unqualified from inside the class, and read again after a
+  write, with a list, a string and a map as the controls proving `.length` still
+  answers for real collections. The guard covers those THREE names only. The
+  sibling shortcuts just below it in `compile_field_access` — `.entries`,
+  `.keys`, `.values`, `.first`, `.last`, `.runtimeType` — are still
+  unconditional, so a class declaring one of those names as a plain field reads
+  back the map/iterable emulation instead of the field: the same defect #681
+  fixes for `length`, still live for its siblings, and **this target only** (they
+  encode as plain `fieldAccess` nodes, which every engine resolves own-key-first).
+  Corroborating measurement: the first draft of `475_instance_field_named_length`
+  carried `int keys; int values; int entries;` and failed the `C++ Compiled` row
+  (`Results: 351 passed, 1 failed, 352 total`, run 34768683903) while the
+  `Dart Engine` and Rust / C# / Go / Python rows passed it — though that run
+  cannot attribute the failure to those three fields alone, since the same draft
+  carried `length` too and this guard had not landed. Extending
+  `declared_by_receiver` to them is #697's C-half and needs its own fixture
+  first; do not widen the guard without one.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and
@@ -286,6 +305,19 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   header, never the spliced copies (`*_embed.h` are generated at configure time,
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
+
+- **`cpp/shared/ball_protobuf_rt.h` is regenerated and diffed by CI (#708).**
+  It is the C++ target's one COMMITTED generated artifact — Ball's own
+  `ball_protobuf` runtime compiled Ball → C++ in `--library` mode — and it
+  carries a SPLICED COPY of the compiler's runtime preamble. Change the preamble
+  (`cpp/compiler/src/compiler.cpp` or `cpp/shared/include/ball_emit_runtime.h`)
+  and this file is stale until it is regenerated. Nothing noticed for four
+  months: it froze at #398 with the two-argument `ball_cast_assert` #659
+  replaced and none of #630's `sink` handling. The gate is the `cpp` job's
+  Linux leg (`Regenerate` + `Assert the committed ball_protobuf C++ runtime`),
+  and it is the ONLY one — never add a second regeneration pass. Red run →
+  the fixed bytes are the run's `regenerated-cpp-protobuf-rt` artifact. See
+  `cpp/shared/AGENTS.md` → "Freshness".
 
 - **A caught `TypeError` reads as Dart's own message, and the rendering table is
   CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart

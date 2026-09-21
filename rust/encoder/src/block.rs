@@ -16,7 +16,21 @@ use crate::{AliasTarget, Encoder, null_literal, runtime_ctors};
 
 impl Encoder {
     /// Encode a `syn::Block` to a Ball `block` [`Expression`].
+    ///
+    /// A block is a **binding scope**: its `let`s are gone at the closing
+    /// brace (Rust's own rule), so it opens a frame of its own in
+    /// [`Self::push_locals_frame`]'s stack. Without one, an inner
+    /// `let f = String::from(..)` shadowing a `&mut fmt::Formatter` parameter
+    /// `f` would still look like a local `String` AFTER the block, and issue
+    /// #630's `write!` destination rule would re-assign a binding that is not
+    /// in scope instead of writing to the parameter's sink. Frames nest, and
+    /// lookup is innermost-first, so an enclosing body's bindings stay
+    /// visible — which is what a block, unlike a `fn` item, may see.
     pub(crate) fn encode_block(&mut self, block: &syn::Block) -> Expression {
+        // The frame opens ahead of BOTH paths below: the message-builder idiom
+        // declares its `let mut` map inside this block whether or not the whole
+        // idiom matches, so a fall-through must not have skipped the scope.
+        self.push_locals_frame(&[]);
         // `{ let mut m = BallMap::new(); m.insert("x", …); BallValue::Map(m) }`
         // is not a block at all — it is `rust/compiler`'s emission for a Ball
         // `message_creation` (issue #692), and its inverse is that very node.
@@ -25,9 +39,15 @@ impl Encoder {
         // produce a DIFFERENT node from the one it compiled from. Anything that
         // is not the whole idiom falls through unchanged — see
         // `runtime_ctors::as_message_builder`.
-        if let Some(creation) = self.encode_message_builder(block) {
-            return creation;
-        }
+        let encoded = match self.encode_message_builder(block) {
+            Some(creation) => creation,
+            None => self.encode_block_statements(block),
+        };
+        self.pop_locals_frame();
+        encoded
+    }
+
+    fn encode_block_statements(&mut self, block: &syn::Block) -> Expression {
         // A `&mut` alias binding is scoped to the block that declares it, like
         // any other `let` (issue #642), so the table is saved here and restored
         // on the way out rather than leaking into the enclosing block.
@@ -216,6 +236,11 @@ impl Encoder {
             Some(init) => self.encode_expr(&init.expr),
             None => null_literal(),
         };
+        // Record the binding AFTER its initialiser is encoded, so a shadowing
+        // `let s = s;` still reads the OUTER `s` (Rust's own rule). Issue
+        // #630's `write!` destination rule is the only consumer — see
+        // `Encoder::push_locals_frame`.
+        self.record_local(&name, local.init.as_ref().map(|init| init.expr.as_ref()));
         // Not an alias binding: this `let` SHADOWS any alias of the same name
         // that is still in scope (`let r = &mut y; ... let r = 5; ... r` reads
         // the 5, not `y`). Dropping the entry is what makes a later read of the

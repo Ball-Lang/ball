@@ -173,6 +173,29 @@ jobs:
       - name: Dart-error rendering tables are closed (#641)
         run: python tools/check_error_rendering_tables.py
 
+      # ball.schema.json is the hand-maintained JSON-Schema mirror of ball.proto
+      # for JSON-only implementers, and docs/BALL_JSON_SPEC.md points machine
+      # outputs at it by $defs ref. Every $defs object sets
+      # additionalProperties:false, so a proto field added WITHOUT the matching
+      # schema edit makes the schema REJECT the very JSON this repo emits —
+      # which is what #609's `CallSite.resolved_module` did to `ball audit
+      # --output`. scripts/validate_ball_schema.py could not see it: it
+      # validates ball.v1.Program documents from the conformance/examples
+      # corpus, and no corpus file is a BallCapabilityReport. This closes it
+      # structurally, for every message, and is stdlib-only so the always-run
+      # job stays hermetic — which is also why `scripts/validate_ball_schema.py`
+      # (the corpus half, `pip install jsonschema`) is NOT wired here: this job
+      # deliberately runs on the image's preinstalled python3 with no
+      # setup-python and no network install, and the python job that has both is
+      # path-filtered to python/**, so it would skip the very changes the corpus
+      # check guards. Self-test first — a checker nobody has watched fail is not
+      # a gate.
+      - name: Proto/JSON-Schema drift self-test (#609)
+        run: python tools/test/test_check_proto_schema_drift.py
+
+      - name: ball.schema.json mirrors ball.proto (#609)
+        run: python tools/check_proto_schema_drift.py
+
       # The vcpkg self-host sidecar (issues #368/#361) is wired across four
       # files that never see each other at runtime: the release workflow that
       # publishes the asset, the portfile that names it, the overlay generator
@@ -1634,6 +1657,98 @@ jobs:
         if: env.BALL_CPP_ACTIVE == 'true'
         run: cmake --build cpp/build --config Release
 
+      # ── cpp/shared/ball_protobuf_rt.h freshness (#708) ────────────────────
+      # The C++ target's one COMMITTED generated artifact, and until #708 the
+      # only committed generated artifact in the repo that NO job regenerated
+      # and diffed. It is Ball's own `ball_protobuf` runtime compiled Ball -> C++
+      # in `--library` mode, and `cpp/shared/ball_rt_decode.cpp` #includes it —
+      # so it is real, linked code, not documentation. It had drifted for four
+      # months: last regenerated at #398, it still carried the two-argument
+      # `ball_cast_assert` that #659 replaced everywhere else and none of the
+      # `sink` handling #630 added, because the compiler splices its runtime
+      # preamble into every file it emits and this file's copy froze at #398.
+      #
+      # Regenerate-and-diff, the same contract `ball-freshness` applies to
+      # compiled_engine.ts / compiled_cli.ts / the two Go artifacts — and the
+      # same ONE-GATE-PER-ARTIFACT rule: this is the only place the header is
+      # regenerated in CI, so do not add a second pass elsewhere.
+      #
+      # It lives HERE rather than in `ball-freshness` for one reason: the
+      # generator is `ball_cpp_compile`, which only this job builds.
+      # `ball-freshness` installs Dart, Node and Go and no C++ toolchain, so
+      # wiring it there would mean a second full CMake configure+build of the
+      # compiler on every PR that touches dart/ or ts/.
+      #
+      # Linux only. All three legs build the same compiler, but the header is
+      # compared byte-for-byte against the committed copy, and only the Linux
+      # leg is guaranteed to write it with the LF endings git stores (the
+      # Windows leg's checkout is LF too, but nothing in the repo pins that, and
+      # one gate is the rule). The Linux leg is also the one that configures
+      # `-DBALL_BUILD_PROTOBUF_RT=ON`, i.e. the leg that actually compiles this
+      # header standalone.
+      - name: "Regenerate the committed ball_protobuf C++ runtime (#708)"
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=cpp/build/compiler/ball_cpp_compile
+          if [ ! -x "$exe" ]; then
+            echo "::error::$exe is missing — the regeneration below cannot run, and a skipped regeneration would make the freshness gate pass vacuously."
+            exit 1
+          fi
+          "$exe" dart/shared/ball_protobuf.json \
+            --library --ns ball_protobuf \
+            --out cpp/shared/ball_protobuf_rt.h
+          # Positive floor at a MEASURED value. `git diff --exit-code` cannot
+          # tell "the committed file matches" from "the generator wrote a stub
+          # and the committed file is that same stub", so size the header
+          # against what the generator really emits. Measured on this branch
+          # (g++ 14.2 / WSL, the #708 regeneration): 9575 lines.
+          lines="$(wc -l < cpp/shared/ball_protobuf_rt.h)"
+          case "$lines" in ''|*[!0-9]*) echo "::error::could not count the regenerated header's lines (got '$lines')"; exit 1;; esac
+          if [ "$lines" -lt 9000 ]; then
+            echo "::error::the regenerated cpp/shared/ball_protobuf_rt.h is only $lines lines (floor 9000) — ball_cpp_compile emitted a truncated or stubbed library."
+            exit 1
+          fi
+          echo "Regenerated cpp/shared/ball_protobuf_rt.h ($lines lines)."
+
+      - name: "Assert the committed ball_protobuf C++ runtime is up to date (#708)"
+        id: assert-cpp-protobuf-rt
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- cpp/shared/ball_protobuf_rt.h; then
+            echo "::error::cpp/shared/ball_protobuf_rt.h is stale. Rebuild ball_cpp_compile and regenerate it ('cd dart && dart run compiler/tool/compile_ball_protobuf_cpp.dart', or the compiler directly: 'ball_cpp_compile dart/shared/ball_protobuf.json --library --ns ball_protobuf --out cpp/shared/ball_protobuf_rt.h'), then commit — this file is generated (see cpp/shared/AGENTS.md), never hand-edited. The regenerated bytes are attached to this run as the 'regenerated-cpp-protobuf-rt' artifact."
+            exit 1
+          fi
+          echo "cpp/shared/ball_protobuf_rt.h is up to date."
+
+      # CI produces the fix, same idea as ball-freshness's `regenerated-artifacts`
+      # upload (#619) — and it matters more here, because a lane on Windows
+      # cannot build ball_cpp_compile at all without WSL. Gated on the ASSERT
+      # step's own outcome, never a bare `failure()`: a Regenerate step that died
+      # mid-write under `set -euo pipefail` leaves a TRUNCATED header, and
+      # uploading that as "the fix" is worse than uploading nothing (#625).
+      # A distinct artifact name, because tools/ci/apply_regenerated.sh owns
+      # `regenerated-artifacts` and two uploads may not share one name.
+      - name: Upload the regenerated ball_protobuf C++ runtime
+        if: failure() && steps.assert-cpp-protobuf-rt.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: regenerated-cpp-protobuf-rt
+          path: cpp/shared/ball_protobuf_rt.h
+          if-no-files-found: error
+          retention-days: 7
+
+      # The committed header must be restored before anything below reads the
+      # working tree: `test_e2e` and the coverage steps compile whatever is on
+      # disk, and leaving a regenerated file there would mean the rest of this
+      # job tested bytes no reviewer ever saw. A no-op on a green run.
+      - name: Restore the committed ball_protobuf C++ runtime
+        if: always() && env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
+        shell: bash
+        run: git checkout -- cpp/shared/ball_protobuf_rt.h
+
       # One place decides the parallelism for `ctest -j` and for the scratch
       # fixture build inside test_e2e (issue #521). `nproc` ships with GNU
       # coreutils on the Linux runner AND with Git for Windows' bash, so the
@@ -2682,7 +2797,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 358 passed, 0 failed, 358 total (4 skipped carve-outs)" — the
+      # "Results: 360 passed, 0 failed, 360 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2877,7 +2992,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 358 passed, 0 failed, 358 total (4 skipped carve-outs)" — the 4
+      # "Results: 360 passed, 0 failed, 360 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3032,7 +3147,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 358 passed, 0 failed, 358 total (4 skipped carve-outs)" — the 4
+      # "Results: 360 passed, 0 failed, 360 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

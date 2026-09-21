@@ -660,6 +660,14 @@ Module buildStdModule() {
     // --- Strings (pure manipulation, no I/O, universal) ---
     _fn('string_length', 'UnaryInput', '', 'String length: value.length'),
     _fn('string_is_empty', 'UnaryInput', '', 'Is string empty: value.isEmpty'),
+    _fn(
+      'string_is_not_empty',
+      'UnaryInput',
+      '',
+      'Is string non-empty: value.isNotEmpty. Its own function, not the '
+          'negation of string_is_empty: a delegating receiver sees WHICH '
+          'member it is asked for (issue #674).',
+    ),
     _fn('string_concat', 'BinaryInput', '', 'String concat: left + right'),
     _fn(
       'string_contains',

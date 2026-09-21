@@ -9,11 +9,19 @@ Runs pinned third-party packages through `ball_encoder.encode` →
 inventory using the **stdlib `ast` directly** — never `ball_encoder`'s own walk —
 and checks a second-generation fixpoint.
 
-Honest first baseline: **0/73 clean** (4 pinned packages,
-`tools/coverage-study/packages/python.json`). 5 files encode and compile back;
-the wall is stage 3, because the compiler's `try/except` + `ballrt.*` output is
-outside the encoder's surface, and the other 68 never encode at all (the
+Current measurement: **0/70 clean** (4 pinned packages,
+`tools/coverage-study/packages/python.json`). 2 files encode, compile back,
+re-encode and keep every declaration; the wall is stage 5 (the compiler's
+`_input=None` prologue has no encoder inverse, so generation 2 grows one
+`_input_N = _input` line), and the other 68 never encode at all (the
 top-level-class gap). Do not "improve" that number by changing the pin list.
+
+The denominator is **70, not 73**, and it is decided from each file's SOURCE at
+stage 0 (`has_scorable_material`): three of `pyparsing`'s `__init__.py` package
+markers are zero-byte, so there is nothing in them to measure. Deciding that
+after the pipeline is issue #721 — it made `scored` a function of the encoder,
+and #646 moved the row 73 → 70 with not one file changed. A file that HAS
+declarations and comes back with none is a scored failure, never a skip.
 
 `python tools/coverage-study/test/rq1_study_py_self_test.py` is the harness's own
 self-test and **is gated on every PR** in ci.yml's `python` job (both files are

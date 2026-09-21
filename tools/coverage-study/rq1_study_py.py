@@ -12,7 +12,7 @@ declaration it started with, and reaches a **second-generation fixpoint**
 (compiling the re-encoded program again yields the same source and the same
 metadata-stripped Ball IR).
 
-Two things this harness deliberately does NOT do:
+Three things this harness deliberately does NOT do:
 
 1. **It does not delegate the declaration inventory to the encoder.** The
    inventory is walked with the standard library :mod:`ast` directly, so a bug
@@ -22,6 +22,12 @@ Two things this harness deliberately does NOT do:
    library mode (:func:`ball_compiler.compiler.compile_library`), so a module
    that is only ``def``\\ s is compiled back, scored, and counted — the whole
    point of #493 is that real third-party code has no ``main``.
+3. **It does not let the pipeline decide the denominator.** Whether a file is
+   scored is answered from its SOURCE at stage 0
+   (:func:`has_scorable_material`), never from how far it got. Deciding it late
+   is how #646 moved the Python row's ``scored`` 73 -> 70 with no file changed
+   (issue #721), and a file that does declare things and comes back declaring
+   none of them is a scored FAILURE — never a skip.
 
 Usage (from the repo root)::
 
@@ -176,8 +182,48 @@ def _first_line(error: BaseException) -> str:
     return line[:160] + "…" if len(line) > 160 else line
 
 
+def has_scorable_material(source: str) -> bool:
+    """True when ``source`` contains anything a pipeline could get wrong.
+
+    A file leaves the denominator only when it has NEITHER a top-level
+    declaration NOR any executable top-level statement — an empty or
+    imports-only ``__init__.py`` package marker. Everything else is evidence: a
+    module of pure top-level code is a script body an encoder either handles or
+    does not, and dropping it would hide exactly the failures this study exists
+    to count.
+
+    The question is answered from the SOURCE, before stage 1, and that ordering
+    is the point (issue #721). Deciding it after the pipeline made the
+    denominator a function of the encoder: #646 changed `python/encoder`, three
+    ZERO-BYTE ``__init__.py`` markers stopped failing at stage 3, and the Python
+    row's `scored` fell 73 -> 70 with not one file changed — every ratio moved
+    for a reason no floor could attribute. A file that fails to parse has
+    material by definition; the encoder reports its own parse failure at stage 1.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return True
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            continue  # a re-export shim carries no semantics of its own
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+            continue  # a docstring / bare literal is a no-op
+        return True
+    return False
+
+
 def study_file(package: str, file: str, source: str) -> FileResult:
     """Run Tier A over one file's ``source`` and return its verdict."""
+    # Stage 0 — is there anything here to measure at all? Decided from the
+    # source, so the denominator is a property of the CORPUS (see above).
+    if not has_scorable_material(source):
+        return FileResult(
+            package, file, False,
+            "skipped: no declarations and no top-level code (a re-export shim)",
+            scored=False,
+        )
+
     # Stage 1 — encode.
     try:
         program = encode(source)
@@ -193,9 +239,13 @@ def study_file(package: str, file: str, source: str) -> FileResult:
     except Exception as ex:  # noqa: BLE001
         return FileResult(package, file, False, f"compile-error: {_first_line(ex)}")
     if not compiled.strip():
+        # A FAILURE, never a skip (issue #721): stage 0 already established that
+        # this file has something to measure, so coming back with no source at
+        # all is the compiler producing nothing — the one outcome that must not
+        # be allowed to leave the denominator quietly.
         return FileResult(
             package, file, False,
-            "skipped: the file compiles to nothing (no user module)", scored=False,
+            "compile-error: the compiler produced no source at all",
         )
 
     # Stage 3 — re-encode the compiled Python.
@@ -211,11 +261,10 @@ def study_file(package: str, file: str, source: str) -> FileResult:
         after = declaration_inventory(compiled)
     except SyntaxError as ex:
         return FileResult(package, file, False, f"parse-error: {_first_line(ex)}")
-    if not before:
-        return FileResult(
-            package, file, False,
-            "skipped: no top-level declarations to compile", scored=False,
-        )
+    # No `if not before: skip` here. A declaration-less file with top-level code
+    # was already admitted at stage 0 and stays scored: its inventory is empty,
+    # so nothing can be LOST, and the verdict rests on the fixpoint below
+    # (issue #721).
     ir_stable = first_ir == second_ir
     lost = before - after
     if lost:
@@ -387,8 +436,11 @@ def render_report(
         by_reason[tag] = by_reason.get(tag, 0) + 1
     for tag, count in sorted(by_reason.items(), key=lambda kv: (-kv[1], kv[0])):
         out.append(f"  {tag}: {count}\n")
-    if skipped:
-        out.append(f"  skipped (no declarations, not scored): {skipped}\n")
+    # ALWAYS printed, zero included — the same reasoning as the exclusion count
+    # below. This number is the other half of the denominator's provenance, and
+    # a line that appears only when non-zero cannot be told apart from a rule
+    # that stopped firing (issue #721).
+    out.append(f"  skipped (nothing to measure, not scored): {skipped}\n")
     # ALWAYS printed, zero included: a missing line is indistinguishable from an
     # exclusion rule that vanished, and summarize.sh fails the job on it.
     out.append(f"  excluded (test-only): {len(excluded)}\n")

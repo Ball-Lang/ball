@@ -52,6 +52,44 @@ and excluded from the denominator — they are not evidence either way. A pin
 that cannot be fetched is reported as `unreachable` and likewise not scored, so
 a network hiccup never reads as an encoder regression.
 
+### That skip is decided from the SOURCE, before stage 1 (issue #721)
+
+**Python harness today; the other three are the follow-up below.** Deciding
+"nothing to measure" *after* the pipeline makes the denominator a function of
+the encoder: a declaration-less file is then scored only while it happens to
+FAIL somewhere, and leaves the corpus the moment an encoder change lets it
+through. That is not hypothetical — #646 improved `python/encoder`, three
+ZERO-BYTE `pyparsing/**/__init__.py` package markers stopped failing at stage 3,
+and the Python row's `scored` fell **73 → 70** with not one file changed. Every
+published ratio moved for a reason no floor could attribute, and the `publish`
+job's breach message could only guess at "a pin that failed to clone".
+
+`rq1_study_py.py::has_scorable_material` therefore answers it at stage 0, from
+the parsed source alone, and the rule is narrower than "no declarations":
+
+* out of the denominator — **neither** a top-level declaration **nor** any
+  executable top-level statement: an empty or imports-only `__init__.py`
+  re-export shim;
+* **in** the denominator — a module of pure top-level code (a script body is
+  something an encoder either handles or does not) and anything that fails to
+  parse;
+* a file that HAS declarations and comes back with **none** is a scored
+  `declaration-drift` (or `compile-error` when nothing at all came back), never
+  a skip.
+
+The count is printed on every run, zero included
+(`skipped (nothing to measure, not scored): N`), for the same reason
+`excluded (test-only)` is: a line that appears only when non-zero cannot be told
+apart from a rule that stopped firing. It needs no floor of its own — once the
+rule reads only the source, this number can move only when the CORPUS moves, and
+that shows up in `scored`, which is floored.
+
+**Known gap, filed rather than papered over:** `rq1_study.dart` (Dart),
+`rq1_study_ts.mts` (TypeScript) and `rust/tools/rq1-study` (Rust) still take
+this decision at stage 4, so their denominators can move the same way. Fixing
+them means the same stage-0 rewrite in three more languages and is tracked as
+**issue #811**; the Python harness is the reference implementation.
+
 ### The funnel
 
 Every harness prints a per-stage funnel next to the clean percentage:

@@ -163,6 +163,16 @@ def test_an_assignment_after_an_effectful_statement_is_not_lifted():
     assert top_level_vars(program) == {}
 
 
+def test_a_variable_named_main_is_not_lifted():
+    """The entry point's name is reserved: with no ``def main`` the encoder
+    synthesises one, and lifting would declare ``main`` twice."""
+    program = encode('main = "not the entry point"\nprint(main)\n')
+
+    assert top_level_vars(program) == {}
+    names = [f["name"] for f in program["modules"][-1]["functions"]]
+    assert names.count("main") == 1, names
+
+
 def test_an_initializer_reading_a_main_local_is_not_lifted():
     """Condition 4 — ``doubled`` reads ``count``, which stayed a local of main;
     lifting it would emit a module-level read of a name that is not there."""

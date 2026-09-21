@@ -204,3 +204,35 @@ def test_ctor_initializer_list_is_applied_when_the_ctor_has_a_body(conformance_d
     assert "self.on = True" in src
     assert "self.ratio = 0.5" in src
     assert "self.y = -3" in src
+
+
+def test_calling_a_top_level_variable_holding_a_function():
+    """A module-level variable can hold a first-class function value, and a call
+    through its name must apply it — the top-level analog of the local-variable
+    branch. Reached once an encoder emits ``add10 = make_adder(10)`` as a
+    declaration instead of as a local of the synthesised main (issue #721);
+    before that branch existed the compiler failed loud with
+    ``unknown call target .add10``."""
+    add10 = {
+        "name": "add10",
+        "metadata": {"kind": "top_level_variable"},
+        "body": {"lambda": {
+            "outputType": "int",
+            "metadata": {"kind": "function", "params": [{"name": "step"}]},
+            "body": {"block": {"statements": [], "result": {
+                "call": {"module": "std", "function": "add", "input": {"messageCreation": {
+                    "typeName": "", "fields": [
+                        {"name": "left", "value": {"literal": {"intValue": "10"}}},
+                        {"name": "right", "value": {"reference": {"name": "step"}}},
+                    ]}}}}}},
+        }},
+    }
+    body = {"block": {"statements": [
+        {"expression": _print({"call": {"function": "add10", "input": {
+            "literal": {"intValue": "5"}}}})},
+    ]}}
+
+    src = compile_program(_program(body, extra_functions=[add10]))
+
+    assert "ballrt.call_fn(add10, 5)" in src
+    assert run_source(src) == "15\n"

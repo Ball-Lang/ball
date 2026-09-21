@@ -172,7 +172,17 @@ impl Encoder {
         let tmp = "__ball_if_let";
         let condition = outcome_condition(reference(tmp), is_err_when_matched);
 
-        let then_inner = self.encode_block(then_branch);
+        // The `Some(x)`/`Ok(x)`/`Err(e)` binding is in scope for the then
+        // branch and nothing else — encode the branch inside its frame (issue
+        // #630's `Encoder::with_pattern_binding`), or a same-named enclosing
+        // local shadows it in the wrong direction.
+        let then_inner = match &bind_name {
+            Some(name) => {
+                let name = name.clone();
+                self.with_pattern_binding(&name, |enc| enc.encode_block(then_branch))
+            }
+            None => self.encode_block(then_branch),
+        };
         let then = match bind_name {
             Some(name) => block_expr(
                 vec![let_stmt(name, field_access(reference(tmp), "value"))],
@@ -227,16 +237,24 @@ impl Encoder {
                     subpat: None,
                     ..
                 }) => {
-                    let body_inner = self.encode_expr(&arm.body);
-                    default_body = Some(block_expr(
-                        vec![let_stmt(ident.to_string(), reference(tmp))],
-                        body_inner,
-                    ));
+                    // The arm's own binding is in scope for its body only
+                    // (issue #630's `Encoder::with_pattern_binding`).
+                    let name = ident.to_string();
+                    let body_inner =
+                        self.with_pattern_binding(&name, |enc| enc.encode_expr(&arm.body));
+                    default_body =
+                        Some(block_expr(vec![let_stmt(name, reference(tmp))], body_inner));
                 }
                 pat => {
                     let (is_err, bind_name) = pattern_outcome_shape(pat);
                     let condition = outcome_condition(reference(tmp), is_err);
-                    let body_inner = self.encode_expr(&arm.body);
+                    let body_inner = match &bind_name {
+                        Some(name) => {
+                            let name = name.clone();
+                            self.with_pattern_binding(&name, |enc| enc.encode_expr(&arm.body))
+                        }
+                        None => self.encode_expr(&arm.body),
+                    };
                     let body = match bind_name {
                         Some(name) => block_expr(
                             vec![let_stmt(name, field_access(reference(tmp), "value"))],
@@ -294,12 +312,12 @@ impl Encoder {
                 // A catch-all binding arm (`other => ...`) — no equivalent
                 // in `std.switch`'s comparison model, so the arm body is
                 // wrapped to alias the subject under the arm's own name via
-                // the pre-`let`-bound subject temp (`tmp`).
-                let body_inner = self.encode_expr(&arm.body);
-                let body = block_expr(
-                    vec![let_stmt(ident.to_string(), reference(tmp))],
-                    body_inner,
-                );
+                // the pre-`let`-bound subject temp (`tmp`). The name is in
+                // scope for that body only (issue #630's
+                // `Encoder::with_pattern_binding`).
+                let name = ident.to_string();
+                let body_inner = self.with_pattern_binding(&name, |enc| enc.encode_expr(&arm.body));
+                let body = block_expr(vec![let_stmt(name, reference(tmp))], body_inner);
                 cases.push(switch_case_message(None, true, body));
             }
             syn::Pat::Lit(pat_lit) => {
@@ -390,7 +408,11 @@ impl Encoder {
                 } else {
                     "less_than"
                 };
-                let body = self.encode_block(&e.body);
+                // The loop variable is in scope for the BODY only — the range
+                // bounds above are evaluated before it exists, so they are
+                // encoded outside the frame (issue #630's
+                // `Encoder::with_pattern_binding`).
+                let body = self.with_pattern_binding(&var_name, |enc| enc.encode_block(&e.body));
                 let init = for_init_block(vec![(var_name.clone(), start)]);
                 let condition = std_call(
                     comparison,
@@ -421,7 +443,9 @@ impl Encoder {
             // element-by-element via `std.for_in`.
             other => {
                 let iterable = self.encode_expr(other);
-                let body = self.encode_block(&e.body);
+                // Same rule as the counting form: the iterable is evaluated
+                // before the variable exists, the body with it in scope.
+                let body = self.with_pattern_binding(&var_name, |enc| enc.encode_block(&e.body));
                 std_call(
                     "for_in",
                     Some(args_message(vec![

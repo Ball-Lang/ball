@@ -56,6 +56,12 @@ func (e *Encoder) encodeStmt(stmt ast.Stmt) []*ballv1.Statement {
 	case *ast.IncDecStmt:
 		return []*ballv1.Statement{exprStmt(e.encodeIncDec(s))}
 	case *ast.IfStmt:
+		// `if ballrt.RunLoopBody("", func() { … }) { break }` is not a Ball `if`
+		// at all — it is the compiler's lowering of a loop BODY (see
+		// unwrapLoopBody), so it encodes back to the body's own statements.
+		if body := unwrapLoopBody(s); body != nil {
+			return e.encodeStmts(body.List)
+		}
 		return []*ballv1.Statement{exprStmt(e.encodeIf(s))}
 	case *ast.ForStmt:
 		return []*ballv1.Statement{exprStmt(e.encodeFor(s))}

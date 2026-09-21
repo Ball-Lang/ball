@@ -574,8 +574,10 @@ jobs:
       # SAME script and this SAME step — they are its own defaults, so nothing
       # here needs a path list. They carry no table and no per-language section,
       # so they get the prose form of the same two questions: no frozen engine
-      # tally or exhaustive list that omits a derived language, and no line
-      # claiming a parity-table engine cannot run a program. #765 also rebuilt
+      # tally or exhaustive list that omits a derived language, and no sentence
+      # of the UNFOLDED paragraph claiming a parity-table engine cannot run a
+      # program (a markdown hard wrap is a typesetting artifact, not a claim
+      # boundary, and five of the six wrap at ~95 columns). #765 also rebuilt
       # the verdict test from a five-phrase allowlist into a negation x
       # execution vocabulary, so "the engine is non-functional" no longer reads
       # as a clean pass. `--self-test` first: a guard that stopped deriving must

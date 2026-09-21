@@ -117,12 +117,33 @@
 #      permanently red. It ships as a negative control. Rule 1's generic
 #      "all <N> …" quantifier shape likewise stays portability-doc-only —
 #      `CLAUDE.md` legitimately writes "all four verbs".
-#   7. Fails any LINE of those six docs that names a derived language AND tells
-#      a reader that language cannot execute a Ball program — rule 4's question,
-#      asked of prose. The LINE is the unit for the same reason rule 3 uses the
-#      table row and rule 5 the section: it keeps the claim's subject inside the
-#      unit being judged, so a paragraph that happens to mention an engine
-#      several sentences away cannot be read as a verdict about it.
+#   7. Fails any SENTENCE of those six docs that names a derived language AND
+#      tells a reader that language cannot execute a Ball program — rule 4's
+#      question, asked of prose. The unit is the sentence of the UNFOLDED
+#      PARAGRAPH, not the physical line. Five of the six swept docs hard-wrap
+#      at ~95 columns, and a wrap is a typesetting artifact, not a claim
+#      boundary, so a line-sized unit read this — #613's defect verbatim —
+#      as a clean pass:
+#
+#          A binary installed from the old Go module tags
+#          cannot run a program at all.
+#
+#      The sentence (or independent clause: `;` ends one too) is the widest
+#      unit that still keeps the claim's SUBJECT inside what is judged, which
+#      is the property rule 3 gets from a table row and rule 5 from a section.
+#      The physical LINE is judged as well, as a strict addition, so a line
+#      packing a language and a verdict into two sentences stays caught.
+#
+#      DISCLOSED LIMIT: a verdict whose subject is only a pronoun resolving
+#      into an ADJACENT sentence ("The C# engine is gated. It cannot execute a
+#      program.") is out of reach of every unit above, and widening to the
+#      whole paragraph to reach it would fire on CLAUDE.md's TRUE clause pair
+#      "...cannot run a program; Go tags are immutable once fetched...", which
+#      is about a stale module tag rather than about the Go engine. The guard
+#      states the limit instead of papering over it; the self-test's
+#      `swept_wrapped_ok` fixture is the negative control pinning both
+#      boundaries (an unfolded caveat passes; an adjacent sentence is not a
+#      verdict).
 #
 # The per-language PROSE is gated rather than generated because only two things
 # in that file are derivable — which languages it must cover, and whether a
@@ -171,6 +192,13 @@ SWEPT_DEFAULT=(
 )
 SWEPT=()
 SELF_TEST=0
+# How many cases `--self-test` drives. Declared ONCE: the floor below asserts
+# the run executed EXACTLY this many (not merely at least), and the last case
+# asserts the row documenting this guard in docs/TESTING_STRATEGY.md states
+# this same number — so a case added without updating that row reds, instead
+# of leaving a frozen tally in the row that documents the anti-frozen-tally
+# guard (which is exactly what it did between commits 2 and 3 of PR #826).
+SELF_TEST_CASES=34
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -780,27 +808,146 @@ def gate_swept_engine_set(path, text):
         ok(f"{path}: no frozen engine-set claim (OK)")
 
 
+# Rule 7's UNIT. A markdown hard wrap is a typesetting artifact, not a claim
+# boundary: five of the six swept docs wrap at ~95 columns, so judging a
+# verdict per PHYSICAL LINE let the exact #613/#765 defect — a claim that is
+# present, correctly subjected and flatly wrong — read as a clean pass whenever
+# the wrap happened to fall between the language token and the verdict:
+#
+#     A binary installed from the old Go module tags
+#     cannot run a program at all.
+#
+# So the unit is the SENTENCE of the UNFOLDED paragraph. Unfolding restores the
+# author's claim; the sentence (or independent clause — `;` separates one too)
+# keeps the subject inside the judged unit, which is the property rule 3 gets
+# from a table row and rule 5 from a section, and is why the unit is not simply
+# the whole paragraph: "…so a binary installed from them cannot run a program;
+# Go tags are immutable once fetched…" (CLAUDE.md) is two claims about two
+# different things, and only a clause-sized unit can tell them apart.
+#
+# The physical LINE is still judged as well, as a strict addition: a line that
+# happens to pack a language token and a verdict into two different sentences
+# stays caught. So the rule is the UNION of the two units, deduplicated.
+#
+# DISCLOSED LIMIT: a verdict whose subject is only a pronoun resolving into an
+# ADJACENT sentence ("The C# engine is gated. It cannot execute a program.") is
+# out of reach of every unit above, and widening to the paragraph to reach it
+# would make the guard fire on the CLAUDE.md clause pair quoted above — a true
+# statement about a stale module tag, not a verdict about the Go engine. The
+# guard states the limit rather than papering over it; `swept_wrapped_ok`
+# in the self-test is the negative control that pins the paragraph boundary.
+_FENCE_RE = re.compile(r"^[ \t]{0,3}(?:```|~~~)")
+# A line that OPENS a markdown block: nothing may be folded onto it from above.
+_BLOCK_START_RE = re.compile(r"^[ \t]*(?:#{1,6}[ \t]|[-*+][ \t]|\d+[.)][ \t]|>|\||(?:[-*_][ \t]*){3,}$)")
+# …and of those, the ones a lazy continuation line MAY be folded onto (a
+# paragraph inside a list item or a blockquote keeps wrapping; a heading, a
+# table row and a thematic break do not).
+_JOINABLE_BLOCK_RE = re.compile(r"^[ \t]*(?:[-*+][ \t]|\d+[.)][ \t]|>)")
+
+
+def unfolded_units(text):
+    """[(unit_text, lineno)] — every physical line, plus every SENTENCE of the
+    paragraphs those lines fold into, each tagged with the 1-based physical
+    line the unit STARTS on. Fenced code is never folded (its contents are
+    literal, not prose)."""
+    physical = text.splitlines()
+    units = [(line, i) for i, line in enumerate(physical, start=1)]
+
+    # 1. Fold hard wraps back into logical lines, tracking where each physical
+    #    piece landed so a sentence can still name the line it starts on.
+    folded = []  # [[text, [(offset, lineno), …]], …]
+    in_fence = False
+    joinable = False
+    for i, raw in enumerate(physical, start=1):
+        if _FENCE_RE.match(raw):
+            in_fence = not in_fence
+            folded.append([raw, [(0, i)]])
+            joinable = False
+            continue
+        if in_fence or not raw.strip():
+            folded.append([raw, [(0, i)]])
+            joinable = False
+            continue
+        if _BLOCK_START_RE.match(raw):
+            folded.append([raw, [(0, i)]])
+            joinable = bool(_JOINABLE_BLOCK_RE.match(raw))
+            continue
+        if joinable and folded:
+            head = folded[-1][0].rstrip()
+            folded[-1][1].append((len(head) + 1, i))
+            folded[-1][0] = head + " " + raw.strip()
+        else:
+            folded.append([raw, [(0, i)]])
+            joinable = True
+
+    # 2. Split each logical line into sentences / independent clauses.
+    for unit_text, spans in folded:
+        if len(spans) == 1:
+            continue  # identical to the physical line already in `units`
+        for offset, sentence in split_sentences(unit_text):
+            units.append((sentence, lineno_at(spans, offset)))
+    return units
+
+
+# A boundary is whitespace immediately after `.`, `!`, `?` or `;` (plus any
+# closing quote/bracket). Requiring the whitespace keeps `v0.2.0` and
+# `proxy.golang.org/sum.golang.org` intact; the abbreviation tail below keeps
+# "e.g. Dart" from becoming two units.
+_SENT_BOUNDARY_RE = re.compile(r"(?<=[.!?;])[\"'’)\]]*\s+")
+_ABBREV_TAIL_RE = re.compile(
+    r"(?:^|[\s(\[])(?:e\.g|i\.e|etc|vs|cf|resp|approx|no|fig|al|ch|pp|Mr|Ms|Dr|St)\.$",
+    re.IGNORECASE,
+)
+
+
+def split_sentences(unit_text):
+    """[(offset, sentence)] for `unit_text`, split on sentence / clause ends."""
+    out = []
+    start = 0
+    for m in _SENT_BOUNDARY_RE.finditer(unit_text):
+        head = unit_text[start : m.start()]
+        if _ABBREV_TAIL_RE.search(head.rstrip()):
+            continue
+        out.append((start, head))
+        start = m.end()
+    out.append((start, unit_text[start:]))
+    return out
+
+
+def lineno_at(spans, offset):
+    """The physical line number `offset` falls on, given a folded line's
+    [(offset, lineno)] pieces."""
+    lineno = spans[0][1]
+    for piece_offset, piece_lineno in spans:
+        if piece_offset <= offset:
+            lineno = piece_lineno
+        else:
+            break
+    return lineno
+
+
 def gate_swept_verdict(path, text):
-    """Rule 7: no LINE naming a derived language may claim that language cannot
-    execute a Ball program. The LINE is the unit for the same reason rule 3 uses
-    the table row — it keeps the claim's subject inside the judged unit."""
-    bad = []
-    for i, line in enumerate(text.splitlines(), start=1):
-        hit = cannot_execute_hit(line)
+    """Rule 7: no SENTENCE (of the unfolded paragraph) and no physical LINE
+    naming a derived language may claim that language cannot execute a Ball
+    program. See the note above `unfolded_units` for why the unit is the
+    sentence rather than the line or the paragraph."""
+    bad = {}
+    for unit, lineno in unfolded_units(text):
+        hit = cannot_execute_hit(unit)
         if not hit:
             continue
-        row_langs = [t for t in languages if bounded_present(line, t)]
-        if row_langs:
-            bad.append((i, ", ".join(row_langs), hit))
+        unit_langs = [t for t in languages if bounded_present(unit, t)]
+        if unit_langs:
+            bad.setdefault((lineno, ", ".join(unit_langs), hit), None)
     if bad:
-        for lineno, langs, hit in bad:
+        for lineno, langs, hit in sorted(bad, key=lambda k: (k[0], k[1], k[2])):
             failures.append(
-                f"{path}:{lineno}: a line naming {langs} claims \"{hit}\" — that language has a row in "
+                f"{path}:{lineno}: a claim naming {langs} says \"{hit}\" — that language has a row in "
                 f"conformance-matrix.yml's `summary` parity table, i.e. its engine runs the WHOLE corpus to a "
                 f"byte-exact golden on every run (issue #765)"
             )
     else:
-        ok(f"{path}: no line claims a parity-table engine cannot execute a program (OK)")
+        ok(f"{path}: no sentence claims a parity-table engine cannot execute a program (OK)")
 
 
 for swept_path, swept_text in swept_texts:
@@ -1262,6 +1409,38 @@ MD
 For Go, engine execution is unsupported until the module tags move.
 MD
 
+  # The same stale EXECUTION verdict, HARD-WRAPPED away from its subject — the
+  # shape five of the six swept docs are typeset in (~95 columns). Judged per
+  # physical line this read as a clean pass; the unit is the sentence of the
+  # unfolded paragraph, so it does not.
+  local wrapped_verdict_swept="$SCRATCH/swept_wrapped_verdict.md"
+  cat >"$wrapped_verdict_swept" <<'MD'
+# Notes
+
+A binary installed from the old Go module tags
+cannot run a program at all.
+MD
+
+  # The two negative controls unfolding must NOT cost, and the reason the unit
+  # is the SENTENCE rather than the paragraph:
+  #   A. a legitimate packaging/embeddability caveat that happens to wrap
+  #      mid-clause must still pass once unfolded;
+  #   B. a language named in one sentence and an execution negation about
+  #      something else in the NEXT sentence of the SAME paragraph must not be
+  #      read as a verdict about that language. A paragraph-sized unit fails
+  #      this fixture; the sentence-sized one passes it.
+  local wrapped_ok_swept="$SCRATCH/swept_wrapped_ok.md"
+  cat >"$wrapped_ok_swept" <<'MD'
+# Notes
+
+Go has no NuGet package yet, and the Dart engine does not
+compile for Flutter web — both are packaging facts, not
+execution verdicts.
+
+The Python engine runs the whole corpus on every matrix run.
+A stale `.ball.pb` does not execute until it is regenerated.
+MD
+
   # ── differently-worded stale verdicts in a CURRENTLY guarded doc (#765) ────
   # Both fixtures are the #613 defect — a row that is present, correctly named
   # and flatly wrong — phrased outside the five regexes the guard shipped with.
@@ -1491,8 +1670,19 @@ YAML
     "omits Rust, C#, Go, Python" \
     "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_subset_swept"
   expect "swept doc claiming a parity engine cannot execute fails" 1 \
-    "claims \"engine execution is unsupported\"" \
+    "says \"engine execution is unsupported\"" \
     "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_verdict_swept"
+
+  # The rule-7 UNIT. A hard wrap is a typesetting artifact, not a claim
+  # boundary: before the unit became the sentence of the unfolded paragraph,
+  # the first fixture here — #613's defect verbatim, merely re-wrapped — was a
+  # clean pass. The second pins the two boundaries unfolding must not cross.
+  expect "swept doc whose verdict is hard-wrapped away from its language fails" 1 \
+    "says \"cannot run a program\"" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$wrapped_verdict_swept"
+  expect "hard-wrapped caveats pass, and an adjacent sentence is not a verdict" 0 \
+    "no sentence claims a parity-table engine cannot execute a program (OK)" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$wrapped_ok_swept"
 
   # The negative controls the broadened verdict rule must NOT eat, plus the two
   # shapes the engine-set rule must NOT eat: a PARTIAL language reference that
@@ -1511,9 +1701,44 @@ YAML
     "swept doc not found" \
     "$wf" "$good_portability" "$good_embed" "$good_per_target" "$SCRATCH/does_not_exist.md"
 
+  # The row in docs/TESTING_STRATEGY.md that documents this guard may not
+  # freeze a stale case count. PR #826 shipped exactly that defect — commit 2
+  # wrote "30 cases", commit 3 moved the real count to 31 and did not carry it
+  # into the doc — in the row describing the guard against frozen tallies. The
+  # number is DERIVED here rather than asserted: the doc must state
+  # $SELF_TEST_CASES, and the floor below makes $SELF_TEST_CASES be the number
+  # of cases this function actually executed.
+  local strategy="$ROOT/docs/TESTING_STRATEGY.md"
+  local doc_case_name="docs/TESTING_STRATEGY.md states this self-test's real case count"
+  local doc_row doc_nums doc_why=""
+  if [ ! -f "$strategy" ]; then
+    doc_why="not found: $strategy"
+  else
+    doc_row="$(grep -cF 'tools/ci/check_engine_row_docs.sh' "$strategy")"
+    if [ "$doc_row" != "1" ]; then
+      doc_why="expected exactly 1 row naming tools/ci/check_engine_row_docs.sh, found $doc_row"
+    else
+      doc_nums="$(grep -F 'tools/ci/check_engine_row_docs.sh' "$strategy" |
+        grep -oE '`--self-test` drives [0-9]+ cases' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')"
+      doc_nums="${doc_nums% }"
+      if [ -z "$doc_nums" ]; then
+        doc_why="that row states no '\`--self-test\` drives N cases' count at all"
+      elif [ "$doc_nums" != "$SELF_TEST_CASES" ]; then
+        doc_why="that row says [$doc_nums], this script declares $SELF_TEST_CASES"
+      fi
+    fi
+  fi
+  if [ -z "$doc_why" ]; then
+    pass=$((pass + 1))
+    echo "PASS $doc_case_name"
+  else
+    fail=$((fail + 1))
+    echo "FAIL $doc_case_name — $doc_why"
+  fi
+
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 31 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 31) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -ne "$SELF_TEST_CASES" ]; then
+    echo "::error::self-test executed $pass case(s), not the declared $SELF_TEST_CASES — a self-test that ran nothing is not a passing self-test, and a case added without moving SELF_TEST_CASES leaves the docs/TESTING_STRATEGY.md row stale."
     return 1
   fi
   [ "$fail" -eq 0 ]

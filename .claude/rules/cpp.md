@@ -163,21 +163,47 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   own-key-first through `__super__`. Do not re-add those lines to fixture `476_…`
   until #800 lands — the issue body carries them verbatim, and restoring them is
   the whole reproduction.
-  The guard covers those SEVEN names. The sibling shortcuts further down in
-  `compile_field_access` — `.entries`, `.keys`, `.values`, `.first`, `.last`,
-  `.runtimeType` — are still unconditional, so a class declaring one of those
-  names as a plain field reads back the map/iterable emulation instead of the
-  field: the same defect #681 fixes for `length`, still live for its siblings,
-  and **this target only** (they encode as plain `fieldAccess` nodes, which every
-  engine resolves own-key-first).
-  Corroborating measurement: the first draft of `475_instance_field_named_length`
-  carried `int keys; int values; int entries;` and failed the `C++ Compiled` row
-  (`Results: 351 passed, 1 failed, 352 total`, run 34768683903) while the
-  `Dart Engine` and Rust / C# / Go / Python rows passed it — though that run
-  cannot attribute the failure to those three fields alone, since the same draft
-  carried `length` too and this guard had not landed. Extending
-  `declared_by_receiver` to that last group needs its own fixture first, exactly
-  as the numeric family got `476_…`; do not widen the guard without one.
+  **#787 closed the family: the same guard now covers the SIX sibling shortcuts
+  further down `compile_field_access`** — `.first`, `.last`, `.runtimeType`,
+  `.entries`, `.keys`, `.values`. Those fired unconditionally on any receiver,
+  so a class declaring one of the names read back the map/iterable emulation
+  instead of the member, and `.first` / `.last` did not even BUILD: they lower to
+  `obj.front()` / `obj.back()`, member functions no emitted struct declares
+  (`'struct Collected' has no member named 'front'`). Like the two families
+  above it is **this target only** — none of the six is in the Dart encoder's
+  `_directGetterRoutes` / `builtinAccessorGetters` (that is #697's family), so
+  all six encode as plain `fieldAccess` nodes every engine resolves
+  own-key-first. The gate is
+  `479_user_member_named_like_collection_accessor`, which declares all six as
+  plain data members AND as getters, reads each back externally, through `this.`
+  and off an instance-creation receiver, and pins the list / map / string / int
+  controls whose emulation must survive; the fast gates are
+  `collection_accessor_on_a_class_that_declares_it_is_the_field`,
+  `collection_accessor_getter_on_a_class_is_the_accessor_call` and
+  `collection_accessor_on_a_class_without_it_keeps_its_shortcut`.
+  **`.values` takes a NARROWER predicate than the other five**, and that
+  asymmetry is deliberate. Its shortcut emits a CALL (`obj.values()`), which
+  already names the accessor `emit_struct` generates for a user GETTER — only a
+  plain DATA member was ever mis-served. It therefore guards on
+  `declared_as_plain_field_by_receiver`, the SAME lambda the
+  `value`/`fields`/`kind`/`values` skip list below uses to decide when a name may
+  take the struct-member path (#513): a guard that skipped the shortcut on a
+  shape that skip list then refuses would fall through to bracket access and
+  answer `null`. Keep the two asking one question through one lambda; widening
+  either alone re-opens that hole. That lambda reads own fields only
+  (`class_field_decl_types_by_sname_`), so an INHERITED plain field named
+  `values` is out of scope by construction — widening it means widening the skip
+  list in the same change.
+  Blast radius, measured rather than argued: the self-hosted engine emit is
+  BYTE-IDENTICAL across this change (`ball_cpp_compile dart/self_host/engine.ball.pb`
+  diffed before/after: 0 lines), and so is `cpp/shared/ball_protobuf_rt.h`.
+  Earlier corroborating measurement: the first draft of
+  `475_instance_field_named_length` carried `int keys; int values; int entries;`
+  and failed the `C++ Compiled` row (`Results: 351 passed, 1 failed, 352 total`,
+  run 34768683903) while the `Dart Engine` and Rust / C# / Go / Python rows
+  passed it — that run could not attribute the failure to those three fields
+  alone, since the same draft carried `length` too, which is exactly why #787
+  got its own fixture.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and

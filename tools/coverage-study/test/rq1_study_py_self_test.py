@@ -101,6 +101,21 @@ async def fetch(value):
     return value
 '''
 
+# Declaration-less files (issue #721). `pyparsing/ai/__init__.py` and two of its
+# siblings are ZERO-BYTE package markers: nothing to encode, nothing to measure.
+# A re-export shim is the same shape with imports. Neither is evidence about a
+# pipeline either way.
+_SHIM_EMPTY = ""
+_SHIM_REEXPORTS = '"""Re-exports."""\n\nfrom .core import thing\n'
+
+# Declaration-less, with top-level code the encoder HANDLES.
+_SCRIPT_SUPPORTED = 'print("hi")\n'
+# Declaration-less, with top-level code the encoder REFUSES (`with` is outside
+# its surface). Identical — empty — declaration inventory to the line above;
+# only the pipeline outcome differs, so only a harness that decides from the
+# SOURCE scores the two the same way.
+_SCRIPT_UNSUPPORTED = 'with open("f") as handle:\n    pass\n'
+
 
 # Library files whose NAME contains "test" as a substring ("la-test",
 # "con-test", "at-test-ation"). These are the negative control: a rule that
@@ -182,8 +197,86 @@ def check_test_only_exclusion() -> None:
     )
 
 
+def check_declaration_less_files() -> None:
+    """The denominator is a property of the CORPUS, not of the encoder (#721).
+
+    A file with no declarations used to leave the denominator at stage 4 —
+    *after* encode, compile-back and re-encode — so whether it was scored
+    depended on how far the pipeline happened to get. Issue #646 changed the
+    encoder, three ZERO-BYTE ``__init__.py`` package markers stopped failing at
+    stage 3, and the Python row's ``scored`` fell 73 -> 70 with not one file
+    changed: every ratio moved for a reason no floor could attribute. The skip
+    must therefore be decided from the SOURCE, before stage 1.
+
+    ``__main__.py`` next to those markers is declaration-less too, but it is a
+    real script body — top-level code an encoder either handles or does not, so
+    it IS evidence and must stay scored.
+    """
+    shims = {
+        "empty __init__.py": rq1.study_file("synthetic", "ai/__init__.py", _SHIM_EMPTY),
+        "re-export shim": rq1.study_file(
+            "synthetic", "pkg/__init__.py", _SHIM_REEXPORTS
+        ),
+    }
+    for label, result in shims.items():
+        check(
+            f"a {label} is not scored — there is nothing in it to measure",
+            not result.scored and result.reason.startswith("skipped:"),
+            f'scored={result.scored} reason="{result.reason}"',
+        )
+
+    supported = rq1.study_file("synthetic", "run_ok.py", _SCRIPT_SUPPORTED)
+    unsupported = rq1.study_file("synthetic", "run_bad.py", _SCRIPT_UNSUPPORTED)
+    check(
+        "a declaration-less file with top-level CODE is scored, not skipped",
+        supported.scored and unsupported.scored,
+        f"supported scored={supported.scored} ({supported.reason}); "
+        f"unsupported scored={unsupported.scored} ({unsupported.reason})",
+    )
+    check(
+        "two files with the same (empty) inventory are scored the same way, "
+        "however far the pipeline gets",
+        supported.scored == unsupported.scored
+        and safe_stage(supported.reason) != safe_stage(unsupported.reason),
+        f"stages {safe_stage(supported.reason)} vs {safe_stage(unsupported.reason)}",
+    )
+
+    # The outcome #721 names directly: a file that DOES declare things and comes
+    # back declaring none of them is a failure, never a skip. That branch is
+    # otherwise unreachable — `compile_library` always emits its header — and an
+    # unreachable fail-open is exactly what has to be pinned, so the compiler is
+    # stubbed out for this one call.
+    real_compile = rq1.compile_library
+    try:
+        rq1.compile_library = lambda program: ""
+        emptied = rq1.study_file("synthetic", "vanished.py", _HELPER)
+    finally:
+        rq1.compile_library = real_compile
+    check(
+        "a file whose declarations all vanish is a scored failure, not a skip",
+        emptied.scored and not emptied.clean and safe_stage(emptied.reason) >= 0,
+        f'scored={emptied.scored} reason="{emptied.reason}"',
+    )
+
+    # Provenance: the count is printed even at zero, for the same reason the
+    # test-only exclusion count is — a missing line is indistinguishable from a
+    # rule that silently vanished.
+    for label, results, expected in (
+        ("with a shim", [shims["empty __init__.py"], supported], 1),
+        ("with none", [supported], 0),
+    ):
+        out: list[str] = []
+        rq1.render_report(out, results, [], [])
+        check(
+            f"the summary prints the not-scorable count ({label})",
+            f"  skipped (nothing to measure, not scored): {expected}\n" in "".join(out),
+            f"summary was:\n{''.join(out)}",
+        )
+
+
 def main() -> int:
     check_test_only_exclusion()
+    check_declaration_less_files()
 
     with tempfile.TemporaryDirectory(prefix="rq1_py_self_test") as tmp:
         root = Path(tmp)

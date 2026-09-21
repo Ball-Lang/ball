@@ -213,6 +213,20 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - **Fail-loud:** an unsupported construct raises `EncodeError`, never a placeholder. The round-trip
   test is the proof: Python → Ball → (compile with `python/compiler` + run) ≡ running the original
   Python natively.
+- **A module-level variable is a DECLARATION, not a local of the synthesised `main` (#721).**
+  `__version__ = "1.0"` is part of a module's public surface; folding it into `main` loses it while
+  the encoder reports success (`packaging/__init__.py` lost all 8 of its `__dunder__`
+  declarations that way). It is encoded as a 0-parameter function tagged
+  `metadata.kind = "top_level_variable"` — the shape every Ball compiler already emits back as a
+  module-level assignment. Lifting is only sound when it cannot REORDER an observable effect, so
+  `_lifted_top_level_vars` requires all four of: one plain-name target; that name bound exactly once
+  at module scope (a re-assigned/augmented/guard-rebound name is not one declaration); every
+  module-level statement before it merely declaring (import, docstring, `def`/`class`, or another
+  lifted assignment); and every name its initializer reads being a lifted variable or a `def`
+  already seen above it, or the `ballrt` alias. Anything else keeps the old encoding, which is the
+  right answer for a script. `python/encoder/tests/test_top_level_vars.py` pins each condition with
+  its negative control. The compiler's matching half is the `top_var_names` branch in `value_call`:
+  a top-level variable can hold a function, and `add10(5)` must apply it.
 
 ### Engine
 
@@ -322,10 +336,17 @@ python -m conformance.runner                             # prints the CI-parseab
   runs real pinned packages through `ball_encoder.encode` ->
   `ball_compiler.compile_library` -> `ball_encoder.encode`, diffs the declaration
   inventory with the **stdlib `ast` directly** (never `ball_encoder`'s own walk) and
-  checks a second-generation fixpoint. Honest first baseline **0/73 clean**; 5 files
-  encode and compile back, and the wall is stage 3 — the compiler's `try/except` +
-  `ballrt.*` output is outside the encoder's surface (the top-level-class gap keeps
-  the other 68 from encoding at all). `python tools/coverage-study/test/
+  checks a second-generation fixpoint. Current measurement **0/70 clean**; 2 files
+  encode, compile back, re-encode and keep every declaration, and the wall is stage
+  5 — the compiler's `_input=None` prologue has no encoder inverse, so generation 2
+  grows an `_input_N = _input` line (the top-level-class gap keeps the other 68 from
+  encoding at all). **The denominator is decided from each file's SOURCE at stage 0**
+  (`has_scorable_material`): a file leaves it only when it has neither a top-level
+  declaration nor any top-level code — three of `pyparsing`'s `__init__.py` markers
+  are zero-byte. Deciding that after the pipeline is issue #721: it made `scored` a
+  function of the encoder, and #646 moved the row 73 -> 70 with no file changed. A
+  file that HAS declarations and comes back with none is a scored FAILURE, never a
+  skip. `python tools/coverage-study/test/
   rq1_study_py_self_test.py` (the harness's own self-test) IS gated on every PR in
   the `python` job, and both files are in the `compileall` syntax gate; the RUN is
   the `python-tier-a` job in `coverage-study.yml`, which has **no

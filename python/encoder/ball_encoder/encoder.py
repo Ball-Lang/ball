@@ -96,6 +96,12 @@ _BUILTIN_UNARY = {
 }
 
 
+#: The synthesised entry point's name. Named rather than spelled four times
+#: over, because `_lifted_top_level_vars` must refuse to lift a module-level
+#: variable that would collide with it (issue #721).
+_ENTRY_FUNCTION = "main"
+
+
 class EncodeError(Exception):
     """A Python construct the encoder does not support (fail-loud, issue #55)."""
 
@@ -134,10 +140,15 @@ class _Encoder:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.fn_params[node.name] = self._param_names(node.args)
 
-        # Pass 2: partition top-level declarations.
+        # Pass 2: partition top-level declarations. Module-level variables are
+        # lifted out of the loose statements FIRST (see _lifted_top_level_vars),
+        # because a module-level name is a DECLARATION of the module, not a local
+        # of the synthesised main — dropping it there loses it silently.
         top_defs: list[ast.FunctionDef] = []
         loose: list[ast.stmt] = []
         guard_body: list[ast.stmt] = []
+        lifted = _lifted_top_level_vars(module)
+        top_vars: list[tuple[str, ast.expr, str]] = []
         for node in module.body:
             if isinstance(node, ast.FunctionDef):
                 top_defs.append(node)
@@ -151,12 +162,15 @@ class _Encoder:
                 guard_body = node.body
             elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
                 continue  # a module docstring / bare literal is a no-op
+            elif id(node) in lifted:
+                top_vars.append(lifted[id(node)])
             else:
                 loose.append(node)
 
         functions: list[dict] = [self.encode_func(d) for d in top_defs]
+        functions.extend(self.encode_top_level_var(n, v, t) for n, v, t in top_vars)
 
-        has_main_def = any(d.name == "main" for d in top_defs)
+        has_main_def = any(d.name == _ENTRY_FUNCTION for d in top_defs)
         if has_main_def:
             if loose:
                 self.fail("top-level statements alongside a main() function are ambiguous "
@@ -211,7 +225,7 @@ class _Encoder:
             "version": "1.0.0",
             "modules": modules,
             "entryModule": "main",
-            "entryFunction": "main",
+            "entryFunction": _ENTRY_FUNCTION,
         }
 
     # ── Functions ────────────────────────────────────────────────────────────
@@ -232,10 +246,24 @@ class _Encoder:
     def encode_synthetic_main(self, stmts: list[ast.stmt]) -> dict:
         body = self.encode_function_body(stmts, [])
         return {
-            "name": "main",
+            "name": _ENTRY_FUNCTION,
             "outputType": "void",
             "body": body,
             "metadata": b.func_metadata([]),
+        }
+
+    def encode_top_level_var(self, name: str, value: ast.expr, out_type: str) -> dict:
+        """A module-level variable becomes a 0-parameter function tagged
+        ``kind: top_level_variable`` — the shape ``python/compiler``'s
+        :meth:`emit_top_level_var` (and every other Ball compiler) already emits
+        back as a module-level assignment. Encoding it as a statement of the
+        synthesised ``main`` instead would turn a module's public declaration
+        into a function local and lose it (issue #721)."""
+        return {
+            "name": name,
+            "outputType": out_type,
+            "body": self.encode_expr(value),
+            "metadata": {"kind": "top_level_variable"},
         }
 
     def encode_function_body(self, stmts: list[ast.stmt], params: list[str]) -> dict:
@@ -1211,6 +1239,179 @@ def _const_int(node: ast.expr) -> int | None:
 
 
 # ── Local-variable collection (for hoisting) ─────────────────────────────────
+
+
+# ── Module-level variables (issue #721) ──────────────────────────────────────
+
+
+def _free_names(node: ast.expr) -> set[str]:
+    """Every name ``node`` READS."""
+    return {
+        n.id
+        for n in ast.walk(node)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+    }
+
+
+def _module_scope_bindings(module: ast.Module) -> dict[str, int]:
+    """How many times each name is bound at MODULE scope.
+
+    Counts bindings inside a top-level ``if``/``for``/``while``/``with``/``try``/
+    ``match`` too (those run at module scope), but never descends into a
+    ``def``/``class``/``lambda`` — those own their own scope. A name bound more
+    than once is not one declaration with one initializer, so it is not
+    liftable.
+
+    The walk is over every child NODE rather than a list of statement types on
+    purpose: a walrus binds its enclosing scope from anywhere (PEP 572,
+    comprehensions included) and a ``match`` case's capture patterns bind names
+    through fields no ``body``/``orelse`` enumeration reaches. A census that
+    missed one would call a re-bound name a declaration.
+
+    One binding form is deliberately NOT counted: a ``global x`` write from
+    inside a function. ``encode_stmt`` has no ``Global`` branch, so such a module
+    fails loud at stage 1 and never reaches a lift decision.
+    """
+    counts: dict[str, int] = {}
+
+    def bump(name: str) -> None:
+        counts[name] = counts.get(name, 0) + 1
+
+    def target(node: ast.expr) -> None:
+        if isinstance(node, ast.Name):
+            bump(node.id)
+        elif isinstance(node, (ast.Tuple, ast.List)):
+            for el in node.elts:
+                target(el)
+        elif isinstance(node, ast.Starred):
+            target(node.value)
+        # Attribute/Subscript targets mutate an existing object, not a binding.
+
+    def walk(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(
+                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                bump(child.name)
+                continue  # its body is a scope of its own
+            if isinstance(child, ast.Lambda):
+                continue  # likewise
+            if isinstance(child, ast.Assign):
+                for t in child.targets:
+                    target(t)
+            elif isinstance(child, (ast.AnnAssign, ast.AugAssign)):
+                target(child.target)
+            elif isinstance(child, (ast.Import, ast.ImportFrom)):
+                for alias in child.names:
+                    bump((alias.asname or alias.name).split(".", 1)[0])
+            elif isinstance(child, (ast.For, ast.AsyncFor)):
+                target(child.target)
+            elif isinstance(child, ast.withitem):
+                if child.optional_vars is not None:
+                    target(child.optional_vars)
+            elif isinstance(child, ast.ExceptHandler):
+                if child.name:
+                    bump(child.name)
+            elif isinstance(child, ast.NamedExpr):
+                target(child.target)
+            elif isinstance(child, (ast.MatchAs, ast.MatchStar)):
+                if child.name:
+                    bump(child.name)
+            elif isinstance(child, ast.MatchMapping):
+                if child.rest:
+                    bump(child.rest)
+            walk(child)
+
+    walk(module)
+    return counts
+
+
+def _declaration_prefix_member(node: ast.stmt) -> bool:
+    """True for a module-level statement that only DECLARES — it runs no code
+    whose order another statement could observe."""
+    return isinstance(
+        node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef,
+               ast.ClassDef)
+    ) or (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant))
+
+
+def _lifted_top_level_vars(
+    module: ast.Module,
+) -> dict[int, tuple[str, ast.expr, str]]:
+    """The module-level assignments to encode as Ball top-level VARIABLES,
+    keyed by ``id()`` of the statement so the partition loop recognises them in
+    source order.
+
+    A module-level name is a DECLARATION of the module; encoding it as a
+    statement of the synthesised ``main`` turns it into a function local and
+    loses it (issue #721 — ``packaging/__init__.py`` lost all 8 of its
+    ``__dunder__`` declarations that way, ``boltons/__init__.py`` its
+    ``__version__``). A Ball top-level variable is emitted by every compiler
+    AFTER the functions and BEFORE any entry point, so lifting is only sound
+    when it cannot reorder an observable effect. Hence the four conditions:
+
+    1. the statement binds ONE plain name (``x = …`` / ``x: T = …``);
+    2. that name is bound exactly once at module scope — a re-assigned or
+       augmented name is not one declaration with one initializer;
+    3. every module-level statement BEFORE it only declares (import, docstring,
+       ``def``/``class``, or another lifted assignment), so nothing effectful is
+       stepped over;
+    4. every name its initializer reads is a lifted variable or a ``def``
+       ALREADY seen above it, or the ``ballrt`` runtime alias every compiled
+       module imports — never a name that stayed a local of ``main``.
+
+    ``main`` itself is never lifted: with no ``def main`` the encoder synthesises
+    one, and a program carrying both a variable and a function called ``main``
+    has two declarations of the entry point. (With a ``def main`` present,
+    condition 2 already rules it out — the name is bound twice.)
+
+    Anything else keeps today's encoding (a statement of ``main``), which is the
+    right answer for a script and is measured as declaration loss for a library
+    by the Tier A harness rather than passing silently.
+    """
+    counts = _module_scope_bindings(module)
+    lifted: dict[int, tuple[str, ast.expr, str]] = {}
+    visible: set[str] = {rt.RUNTIME_MODULE}
+
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            visible.add(node.name)
+            continue
+        if _declaration_prefix_member(node):
+            continue
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            name, value, out_type = node.targets[0].id, node.value, "dynamic"
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            name, value = node.target.id, node.value
+            out_type = _annotation_type(node.annotation)
+        else:
+            break  # condition 3: the declaration prefix ends here
+        if (
+            name == _ENTRY_FUNCTION
+            or counts.get(name, 0) != 1
+            or not _free_names(value) <= visible
+        ):
+            break  # conditions 2 and 4, and the entry-point name
+        lifted[id(node)] = (name, value, out_type)
+        visible.add(name)
+
+    return lifted
+
+
+def _annotation_type(annotation: ast.expr) -> str:
+    """A cosmetic string for a variable annotation, or ``dynamic``."""
+    try:
+        return ast.unparse(annotation)
+    except Exception:  # noqa: BLE001 — the annotation is cosmetic (invariant #2)
+        return "dynamic"
 
 
 def _collect_locals(stmts: list[ast.stmt]) -> list[str]:

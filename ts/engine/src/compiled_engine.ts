@@ -5819,12 +5819,26 @@ export class BallEngine {
     }
   }
 
+  _assignTargetShapeName(target: any): any {
+    const input = target;
+    if (__ball_eq(whichExpr(target), Expression_Expr.call)) {
+      let mod = ((target.call.module.length === 0) ? '' : (__ball_to_string(target.call.module) + '.'));
+      return (('call ' + __ball_to_string(mod)) + __ball_to_string(target.call.function));
+    }
+    return ((whichExpr(target) === Expression_Expr.reference) ? ('reference') : ((whichExpr(target) === Expression_Expr.fieldAccess) ? ('fieldAccess') : ((whichExpr(target) === Expression_Expr.call) ? ('call') : ((whichExpr(target) === Expression_Expr.literal) ? ('literal') : ((whichExpr(target) === Expression_Expr.messageCreation) ? ('messageCreation') : ((whichExpr(target) === Expression_Expr.block) ? ('block') : ((whichExpr(target) === Expression_Expr.lambda) ? ('lambda') : ((whichExpr(target) === Expression_Expr.notSet) ? ('notSet') : (() => { throw 'Non-exhaustive switch expression'; })()))))))));
+  }
+
+  _assignErrorMessage(op: any, detail: any): any {
+    let opLabel = (((__ball_eq(op, null) || (op.length === 0)) || __ball_eq(op, '=')) ? '' : ((' (' + __ball_to_string(op)) + ')'));
+    return ((('std.assign' + __ball_to_string(opLabel)) + ': ') + __ball_to_string(detail));
+  }
+
   async _evalAssign(call: any, scope: any): Promise<any> {
     let fields = this._lazyFields(call);
     let target = __ball_index(fields, 'target');
     let value = __ball_index(fields, 'value');
     if ((__ball_eq(target, null) || __ball_eq(value, null))) {
-      return null;
+      throw new BallRuntimeError(this._assignErrorMessage(this._stringFieldVal(fields, 'op'), 'call is missing its \'target\'/\'value\' fields'));
     }
     let op = this._stringFieldVal(fields, 'op');
     if (__ball_eq(op, '??=')) {
@@ -5864,81 +5878,59 @@ export class BallEngine {
     if (__ball_eq(whichExpr(target), Expression_Expr.fieldAccess)) {
       let obj = await this._evalExpression(target.fieldAccess.object, scope);
       let map = this._cfAsMap(obj);
-      if (!__ball_eq(map, null)) {
-        let fieldName = target.fieldAccess.field_2;
-        if (((!__ball_eq(op, null) && (op.length !== 0)) && !__ball_eq(op, '='))) {
-          let current = __ball_index(map, fieldName);
-          let computed = this._applyCompoundOp(op, current, val);
-          map[fieldName] = computed;
-          this._cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
-          return computed;
-        }
-        let setterResult = await this._trySetterDispatch(map, fieldName, val);
-        if (!__ball_eq(setterResult, _sentinel)) {
-          return setterResult;
-        }
-        map[fieldName] = val;
-        this._cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
-        return val;
+      let fieldName = target.fieldAccess.field_2;
+      if (__ball_eq(map, null)) {
+        throw new BallRuntimeError(this._assignErrorMessage(op, ((('cannot write field \'' + __ball_to_string(fieldName)) + '\' on a non-object value of type ') + __ball_to_string(this._typeNameOf(obj)))));
       }
+      if (((!__ball_eq(op, null) && (op.length !== 0)) && !__ball_eq(op, '='))) {
+        let current = __ball_index(map, fieldName);
+        let computed = this._applyCompoundOp(op, current, val);
+        map[fieldName] = computed;
+        this._cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
+        return computed;
+      }
+      let setterResult = await this._trySetterDispatch(map, fieldName, val);
+      if (!__ball_eq(setterResult, _sentinel)) {
+        return setterResult;
+      }
+      map[fieldName] = val;
+      this._cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
+      return val;
     }
     if (((__ball_eq(whichExpr(target), Expression_Expr.call) && __ball_eq(target.call.module, 'std')) && __ball_eq(target.call.function, 'index'))) {
       let indexFields = this._lazyFields(target.call);
       let indexTarget = __ball_index(indexFields, 'target');
       let indexExpr = __ball_index(indexFields, 'index');
-      if ((!__ball_eq(indexTarget, null) && !__ball_eq(indexExpr, null))) {
-        let list = await this._evalExpression(indexTarget, scope);
-        let idx = await this._evalExpression(indexExpr, scope);
-        if (this._isBallSet(list)) {
-          list = _ballUserMap();
-          this._cfWritebackIndexed(indexTarget, list, scope);
-        }
-        if (((!__ball_eq(op, null) && (op.length !== 0)) && !__ball_eq(op, '='))) {
-          let computed;
-          let didSet = false;
-          if ((false /* BallList is List in TS */ && (typeof idx === 'number' && Number.isInteger(idx)))) {
-            computed = this._applyCompoundOp(op, __ball_index(list.items, idx), val);
-            list.items[idx] = computed;
-            didSet = true;
-          } else {
-            if ((Array.isArray(list) && (typeof idx === 'number' && Number.isInteger(idx)))) {
-              computed = this._applyCompoundOp(op, __ball_index(list, idx), val);
-              list[idx] = computed;
-              didSet = true;
-            } else {
-              if ((false /* BallMap is Map in TS */ && (typeof idx === 'string'))) {
-                computed = this._applyCompoundOp(op, __ball_index(list.entries, idx), val);
-                list.entries[idx] = computed;
-                didSet = true;
-              } else {
-                if ((typeof list === 'object' && list !== null && !Array.isArray(list) && !(list instanceof BallDouble) && !(list instanceof Set))) {
-                  computed = this._applyCompoundOp(op, __ball_index(list, idx), val);
-                  list[idx] = computed;
-                  didSet = true;
-                }
-              }
-            }
-          }
-          if (didSet) {
-            this._cfWritebackIndexed(indexTarget, list, scope);
-            return computed;
-          }
-        }
+      if ((__ball_eq(indexTarget, null) || __ball_eq(indexExpr, null))) {
+        throw new BallRuntimeError(this._assignErrorMessage(op, 'std.index target is missing its \'target\'/\'index\' fields'));
+      }
+      let list = await this._evalExpression(indexTarget, scope);
+      let idx = await this._evalExpression(indexExpr, scope);
+      if (this._isBallSet(list)) {
+        list = _ballUserMap();
+        this._cfWritebackIndexed(indexTarget, list, scope);
+      }
+      if (((!__ball_eq(op, null) && (op.length !== 0)) && !__ball_eq(op, '='))) {
+        let computed;
         let didSet = false;
         if ((false /* BallList is List in TS */ && (typeof idx === 'number' && Number.isInteger(idx)))) {
-          list.items[idx] = val;
+          computed = this._applyCompoundOp(op, __ball_index(list.items, idx), val);
+          list.items[idx] = computed;
           didSet = true;
         } else {
           if ((Array.isArray(list) && (typeof idx === 'number' && Number.isInteger(idx)))) {
-            list[idx] = val;
+            computed = this._applyCompoundOp(op, __ball_index(list, idx), val);
+            list[idx] = computed;
             didSet = true;
           } else {
             if ((false /* BallMap is Map in TS */ && (typeof idx === 'string'))) {
-              list.entries[idx] = val;
+              computed = this._applyCompoundOp(op, __ball_index(list.entries, idx), val);
+              list.entries[idx] = computed;
               didSet = true;
             } else {
               if ((typeof list === 'object' && list !== null && !Array.isArray(list) && !(list instanceof BallDouble) && !(list instanceof Set))) {
-                list[idx] = val;
+                computed = this._applyCompoundOp(op, __ball_index(list, idx), val);
+                list[idx] = computed;
                 didSet = true;
               }
             }
@@ -5946,11 +5938,36 @@ export class BallEngine {
         }
         if (didSet) {
           this._cfWritebackIndexed(indexTarget, list, scope);
-          return val;
+          return computed;
         }
       }
+      let didSet = false;
+      if ((false /* BallList is List in TS */ && (typeof idx === 'number' && Number.isInteger(idx)))) {
+        list.items[idx] = val;
+        didSet = true;
+      } else {
+        if ((Array.isArray(list) && (typeof idx === 'number' && Number.isInteger(idx)))) {
+          list[idx] = val;
+          didSet = true;
+        } else {
+          if ((false /* BallMap is Map in TS */ && (typeof idx === 'string'))) {
+            list.entries[idx] = val;
+            didSet = true;
+          } else {
+            if ((typeof list === 'object' && list !== null && !Array.isArray(list) && !(list instanceof BallDouble) && !(list instanceof Set))) {
+              list[idx] = val;
+              didSet = true;
+            }
+          }
+        }
+      }
+      if (didSet) {
+        this._cfWritebackIndexed(indexTarget, list, scope);
+        return val;
+      }
+      throw new BallRuntimeError(this._assignErrorMessage(op, ((('cannot index-assign into a value of type ' + __ball_to_string(this._typeNameOf(list))) + ' ') + ('with an index of type ' + __ball_to_string(this._typeNameOf(idx))))));
     }
-    return val;
+    throw new BallRuntimeError(this._assignErrorMessage(op, (('unsupported assignment target shape ' + (__ball_to_string(this._assignTargetShapeName(target)) + ': expected a reference, a field ')) + 'access, or a std.index call')));
   }
 
   async _evalNullAwareAssign(target: any, value: any, scope: any): Promise<any> {
@@ -5967,63 +5984,66 @@ export class BallEngine {
     if (__ball_eq(whichExpr(target), Expression_Expr.fieldAccess)) {
       let obj = await this._evalExpression(target.fieldAccess.object, scope);
       let map = this._cfAsMap(obj);
-      if (!__ball_eq(map, null)) {
-        let fieldName = target.fieldAccess.field_2;
-        let current = __ball_index(map, fieldName);
-        if (!__ball_eq(current, null)) {
-          return current;
-        }
-        let val = await this._evalExpression(value, scope);
-        map[fieldName] = val;
-        return val;
+      let fieldName = target.fieldAccess.field_2;
+      if (__ball_eq(map, null)) {
+        throw new BallRuntimeError(this._assignErrorMessage('??=', ((('cannot write field \'' + __ball_to_string(fieldName)) + '\' on a non-object value of type ') + __ball_to_string(this._typeNameOf(obj)))));
       }
+      let current = __ball_index(map, fieldName);
+      if (!__ball_eq(current, null)) {
+        return current;
+      }
+      let val = await this._evalExpression(value, scope);
+      map[fieldName] = val;
+      return val;
     }
     if (((__ball_eq(whichExpr(target), Expression_Expr.call) && __ball_eq(target.call.module, 'std')) && __ball_eq(target.call.function, 'index'))) {
       let indexFields = this._lazyFields(target.call);
       let indexTarget = __ball_index(indexFields, 'target');
       let indexExpr = __ball_index(indexFields, 'index');
-      if ((!__ball_eq(indexTarget, null) && !__ball_eq(indexExpr, null))) {
-        let list = await this._evalExpression(indexTarget, scope);
-        let idx = await this._evalExpression(indexExpr, scope);
-        if ((false /* BallList is List in TS */ && (typeof idx === 'number' && Number.isInteger(idx)))) {
-          let current = __ball_index(list.items, idx);
-          if (!__ball_eq(current, null)) {
-            return current;
-          }
-          let val = await this._evalExpression(value, scope);
-          list.items[idx] = val;
-          return val;
-        }
-        if ((Array.isArray(list) && (typeof idx === 'number' && Number.isInteger(idx)))) {
-          let current = __ball_index(list, idx);
-          if (!__ball_eq(current, null)) {
-            return current;
-          }
-          let val = await this._evalExpression(value, scope);
-          list[idx] = val;
-          return val;
-        }
-        if ((false /* BallMap is Map in TS */ && (typeof idx === 'string'))) {
-          let current = __ball_index(list.entries, idx);
-          if (!__ball_eq(current, null)) {
-            return current;
-          }
-          let val = await this._evalExpression(value, scope);
-          list.entries[idx] = val;
-          return val;
-        }
-        if ((typeof list === 'object' && list !== null && !Array.isArray(list) && !(list instanceof BallDouble) && !(list instanceof Set))) {
-          let current = __ball_index(list, idx);
-          if (!__ball_eq(current, null)) {
-            return current;
-          }
-          let val = await this._evalExpression(value, scope);
-          list[idx] = val;
-          return val;
-        }
+      if ((__ball_eq(indexTarget, null) || __ball_eq(indexExpr, null))) {
+        throw new BallRuntimeError(this._assignErrorMessage('??=', 'std.index target is missing its \'target\'/\'index\' fields'));
       }
+      let list = await this._evalExpression(indexTarget, scope);
+      let idx = await this._evalExpression(indexExpr, scope);
+      if ((false /* BallList is List in TS */ && (typeof idx === 'number' && Number.isInteger(idx)))) {
+        let current = __ball_index(list.items, idx);
+        if (!__ball_eq(current, null)) {
+          return current;
+        }
+        let val = await this._evalExpression(value, scope);
+        list.items[idx] = val;
+        return val;
+      }
+      if ((Array.isArray(list) && (typeof idx === 'number' && Number.isInteger(idx)))) {
+        let current = __ball_index(list, idx);
+        if (!__ball_eq(current, null)) {
+          return current;
+        }
+        let val = await this._evalExpression(value, scope);
+        list[idx] = val;
+        return val;
+      }
+      if ((false /* BallMap is Map in TS */ && (typeof idx === 'string'))) {
+        let current = __ball_index(list.entries, idx);
+        if (!__ball_eq(current, null)) {
+          return current;
+        }
+        let val = await this._evalExpression(value, scope);
+        list.entries[idx] = val;
+        return val;
+      }
+      if ((typeof list === 'object' && list !== null && !Array.isArray(list) && !(list instanceof BallDouble) && !(list instanceof Set))) {
+        let current = __ball_index(list, idx);
+        if (!__ball_eq(current, null)) {
+          return current;
+        }
+        let val = await this._evalExpression(value, scope);
+        list[idx] = val;
+        return val;
+      }
+      throw new BallRuntimeError(this._assignErrorMessage('??=', ((('cannot index-assign into a value of type ' + __ball_to_string(this._typeNameOf(list))) + ' ') + ('with an index of type ' + __ball_to_string(this._typeNameOf(idx))))));
     }
-    return this._evalExpression(value, scope);
+    throw new BallRuntimeError(this._assignErrorMessage('??=', (('unsupported assignment target shape ' + (__ball_to_string(this._assignTargetShapeName(target)) + ': expected a reference, a field ')) + 'access, or a std.index call')));
   }
 
   async _evalIncDec(call: any, scope: any): Promise<any> {

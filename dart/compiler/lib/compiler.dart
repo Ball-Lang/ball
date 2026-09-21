@@ -188,11 +188,23 @@ class DartCompiler {
   /// calls it, so this is tight.
   bool _usesSink = false;
 
+  /// The `std_collections` base functions this program declares whose lowering
+  /// needs a top-level runtime helper (issue #654). Only the declared ones are
+  /// emitted: an unused private top-level function is an analyzer
+  /// `unused_element` warning in the compiled output, and every compiled
+  /// fixture is analyzed.
+  final Set<String> _usedCollectionsHelpers = <String>{};
+
   void _buildLookupTables() {
     for (final module in program.modules) {
       for (final func in module.functions) {
         if (func.isBase && func.name == 'type_of') _usesTypeOf = true;
         if (func.isBase && func.name.startsWith('sink_')) _usesSink = true;
+        if (module.name == 'std_collections' &&
+            func.isBase &&
+            _collectionsHelperSources.containsKey(func.name)) {
+          _usedCollectionsHelpers.add(func.name);
+        }
       }
       final allBase = module.functions.every((f) => f.isBase);
       if (allBase && module.functions.isNotEmpty) {
@@ -633,6 +645,19 @@ class DartCompiler {
       // identically — `477_std_concurrency_handles` runs both.
       if (_baseModules.contains('std_concurrency')) {
         b.body.add(cb.Code(_concurrencyPreamble));
+      }
+
+      // ── std_collections runtime helpers (#654) ──
+      // Emitted per DECLARED function, in a stable order, so a program that
+      // uses none of them is byte-identical to before.
+      if (_usedCollectionsHelpers.isNotEmpty) {
+        final names = _usedCollectionsHelpers.toList()..sort();
+        b.body.add(
+          cb.Code(
+            '// Ball std_collections runtime helpers (#654)\n'
+            '${names.map((n) => _collectionsHelperSources[n]!).join('\n')}',
+          ),
+        );
       }
 
       // ── std.type_of runtime helper (#489) ──
@@ -3662,8 +3687,12 @@ class DartCompiler {
       'math_lcm' => _compileMathLcm(f),
       // ── Numeric / comparison sugar ─────────────────────────
       'compare_to' => _methodCall2(f, 'compareTo'),
-      'to_double' => _methodCallExpr(f, 'toDouble()'),
-      'to_int' => _methodCallExpr(f, 'toInt()'),
+      // `int_to_double` / `double_to_int` are the statically-typed spellings of
+      // `to_double` / `to_int` (see their declarations in
+      // dart/shared/lib/std.dart); the reference engine answers them with the
+      // very same handlers, so they lower to the very same Dart.
+      'to_double' || 'int_to_double' => _methodCallExpr(f, 'toDouble()'),
+      'to_int' || 'double_to_int' => _methodCallExpr(f, 'toInt()'),
       'to_string_as_fixed' => _methodCall2(f, 'toStringAsFixed'),
       // num.{round,floor,ceil,truncate}ToDouble() + exponential/precision (#100)
       'round_to_double' => _methodCallExpr(f, 'roundToDouble()'),
@@ -3688,9 +3717,195 @@ class DartCompiler {
       'millisecond' =>
         '${_e(f['value'] ?? f['self'] ?? call.input)}.millisecond',
       'weekday' => '${_e(f['value'] ?? f['self'] ?? call.input)}.weekday',
-      _ => '/* unsupported: std.${call.function} */',
+      'string_interpolation' => _compileStringInterpolation(call, f),
+      _ => _unimplementedBaseCall('std', call.function),
     };
   }
+
+  /// The fail-loud default arm shared by every per-module base-call dispatch
+  /// (issue #654).
+  ///
+  /// Each dispatch used to answer `'/* unsupported: <module>.<fn> */'` — a
+  /// COMMENT spliced where an EXPRESSION belongs, so the compiled Dart is
+  /// syntactically broken (`return /* unsupported: … */;` →
+  /// `BODY_MIGHT_COMPLETE_NORMALLY`) instead of the compiler saying what it
+  /// cannot do. That is the silent degradation `CLAUDE.md` bans, and it is what
+  /// hid `std_collections.map_contains_value` (#488) until PR #647 measured it.
+  ///
+  /// The message is single-sourced here because
+  /// `dart/compiler/test/base_call_dispatch_completeness_test.dart` matches on
+  /// it: that gate compiles a probe call for EVERY base function the
+  /// `dart/shared/lib/std*.dart` builders declare and fails on any name that
+  /// reaches this arm, so the cased set is a closed set over the builders.
+  Never _unimplementedBaseCall(String module, String function) {
+    throw StateError(
+      '$module.$function is not implemented by the Dart compiler. '
+      'Every base function dart/shared/lib/$module.dart declares has a '
+      'lowering in dart/compiler/lib/compiler.dart; a name outside that set '
+      'is not a declared base function. '
+      '(dart/compiler/test/base_call_dispatch_completeness_test.dart gates '
+      'that closed set.)',
+    );
+  }
+
+  /// `std.string_interpolation` — stringify each element of `parts` and
+  /// concatenate in order, exactly as `dart/shared/lib/std.dart` declares it
+  /// and `dart/engine/lib/engine_std.dart` evaluates it.
+  ///
+  /// The parts are emitted as an explicit `.toString()` chain rather than a
+  /// Dart interpolation literal: the operands are arbitrary compiled
+  /// expressions (including string literals with either quote character), and
+  /// splicing those into a `'…${…}…'` literal is a quoting hazard for zero
+  /// gain. A non-literal `parts` keeps the same meaning via `map`/`join`
+  /// instead of degrading to `''`.
+  String _compileStringInterpolation(
+    FunctionCall call,
+    Map<String, Expression> f,
+  ) {
+    final parts = f['parts'];
+    if (parts != null) {
+      if (parts.whichExpr() == Expression_Expr.literal &&
+          parts.literal.whichValue() == Literal_Value.listValue) {
+        final pieces = parts.literal.listValue.elements;
+        if (pieces.isEmpty) return "''";
+        return '(${pieces.map((p) => '(${_e(p)}).toString()').join(' + ')})';
+      }
+      return "${_e(parts)}.map((e) => '\$e').join()";
+    }
+    final value = f['value'];
+    if (value != null) return '(${_e(value)}).toString()';
+    if (call.hasInput()) return '(${_e(call.input)}).toString()';
+    throw StateError(
+      'std.string_interpolation: the call carries neither `parts` nor `value` '
+      'nor an input expression, so there is nothing to interpolate (see '
+      'dart/shared/lib/std.dart for the declared StringInterpolationInput).',
+    );
+  }
+
+  /// The `std_collections` runtime helpers, keyed by the base function that
+  /// needs one (issue #654). Each is injected only when the program DECLARES
+  /// that function, the same rule `_usesTypeOf` / `_usesSink` follow.
+  ///
+  /// These six lowerings cannot be inline Dart expressions and still mean what
+  /// `dart/engine/lib/engine_std.dart` means:
+  ///
+  ///  * `list_sort_by` must compute each key EXACTLY ONCE (the engine does), so
+  ///    the key function cannot be spliced into a comparator that calls it per
+  ///    comparison;
+  ///  * `list_zip` truncates to the shorter operand;
+  ///  * `map_merge` would be `{...a, ...b}`, which Dart rejects as an ambiguous
+  ///    map/set literal when the operands are statically `dynamic`;
+  ///  * `map_from_entries`, `map_map` and `map_filter` hand the callback (or
+  ///    read from each element) the `{key, value}` PAIR MAP the reference
+  ///    engine uses.
+  ///
+  /// An asynchronous callback is REFUSED rather than silently un-awaited —
+  /// the engine awaits it, so dropping the `Future` would make a program mean
+  /// something different compiled than interpreted. That is the same call
+  /// `_concurrencyPreamble` makes for an async body (#608).
+  static const Map<String, String> _collectionsHelperSources = <String, String>{
+    'list_sort_by': r'''
+List<Object?> _ballListSortBy(Object? list, Object? key) {
+  if (key is! Function) {
+    throw StateError(
+        'std_collections.list_sort_by: `callback` must be a function, got $key');
+  }
+  final items = (list as List).toList();
+  final keys = <Comparable<dynamic>>[];
+  for (final e in items) {
+    final k = key(e);
+    if (k is Future) {
+      throw StateError('std_collections.list_sort_by: an asynchronous callback '
+          'is not supported on the compiled Dart target');
+    }
+    keys.add(k as Comparable<dynamic>);
+  }
+  final indices = List<int>.generate(items.length, (i) => i);
+  indices.sort((a, b) => keys[a].compareTo(keys[b]));
+  return <Object?>[for (final i in indices) items[i]];
+}
+''',
+    'list_zip': r'''
+List<Object?> _ballListZip(Object? left, Object? right) {
+  final a = left as List;
+  final b = right as List;
+  final len = a.length < b.length ? a.length : b.length;
+  return List<Object?>.generate(len, (i) => <Object?>[a[i], b[i]]);
+}
+''',
+    'map_from_entries': r'''
+Map<String, Object?> _ballMapFromEntries(Object? list) {
+  final result = <String, Object?>{};
+  for (final e in (list as List)) {
+    if (e is MapEntry) {
+      // What this target's own `map_entries` lowering (`map.entries.toList()`)
+      // produces; the reference engine only ever sees the pair-map form below.
+      result['${e.key}'] = e.value;
+    } else if (e is Map) {
+      final k = e['key'] ?? e['arg0'];
+      final v = e['value'] ?? e['arg1'];
+      if (k != null) result['$k'] = v;
+    } else {
+      throw StateError('std_collections.map_from_entries: every element must '
+          'be a {key, value} pair, got $e');
+    }
+  }
+  return result;
+}
+''',
+    'map_merge': r'''
+Map<String, Object?> _ballMapMerge(Object? left, Object? right) {
+  return <String, Object?>{
+    ...(left as Map).cast<String, Object?>(),
+    ...(right as Map).cast<String, Object?>(),
+  };
+}
+''',
+    'map_map': r'''
+Map<String, Object?> _ballMapMap(Object? map, Object? callback) {
+  if (callback is! Function) {
+    throw StateError('std_collections.map_map: `callback` must be a function, '
+        'got $callback');
+  }
+  final result = <String, Object?>{};
+  for (final entry in (map as Map).entries) {
+    final r =
+        callback(<String, Object?>{'key': entry.key, 'value': entry.value});
+    if (r is Future) {
+      throw StateError('std_collections.map_map: an asynchronous callback is '
+          'not supported on the compiled Dart target');
+    }
+    if (r is MapEntry) {
+      result['${r.key}'] = r.value;
+    } else if (r is Map) {
+      result[r['key'] as String] = r['value'];
+    } else {
+      result[entry.key as String] = r;
+    }
+  }
+  return result;
+}
+''',
+    'map_filter': r'''
+Map<String, Object?> _ballMapFilter(Object? map, Object? callback) {
+  if (callback is! Function) {
+    throw StateError('std_collections.map_filter: `callback` must be a '
+        'function, got $callback');
+  }
+  final result = <String, Object?>{};
+  for (final entry in (map as Map).entries) {
+    final keep =
+        callback(<String, Object?>{'key': entry.key, 'value': entry.value});
+    if (keep is Future) {
+      throw StateError('std_collections.map_filter: an asynchronous callback '
+          'is not supported on the compiled Dart target');
+    }
+    if (keep == true) result[entry.key as String] = entry.value;
+  }
+  return result;
+}
+''',
+  };
 
   /// The `std_concurrency` runtime, injected once when a program uses the
   /// module. Mirrors `dart/engine/lib/engine_std.dart`'s single-threaded model
@@ -3856,11 +4071,8 @@ bool _ballAtomicCompareExchange(
       // FAIL LOUD. Splicing a comment where a value is expected produces
       // invalid Dart that fails at the GENERATED program's compile step with a
       // confusing error, which is the silent degradation #606 was filed about.
-      _ => throw StateError(
-        'std_concurrency.$fn is not implemented by the Dart compiler. '
-        'Every function dart/shared/lib/std_concurrency.dart declares has a '
-        'lowering here; a name outside that set is not a base function.',
-      ),
+      // Since #654 every module's default arm is this same one.
+      _ => _unimplementedBaseCall('std_concurrency', fn),
     };
   }
 
@@ -3969,7 +4181,7 @@ bool _ballAtomicCompareExchange(
       'memory_heap_size' => '_ballMemory.lengthInBytes',
       'memory_stack_size' => '(_ballMemory.lengthInBytes - _ballStackPtr)',
 
-      _ => '/* unsupported: std_memory.${call.function} */',
+      _ => _unimplementedBaseCall('std_memory', call.function),
     };
   }
 
@@ -4128,6 +4340,11 @@ bool _ballAtomicCompareExchange(
       'list_is_empty' => '${_e(f['list']!)}.isEmpty',
       'list_first' => '${_e(f['list']!)}.first',
       'list_last' => '${_e(f['list']!)}.last',
+      // `.single` carries the declared contract for free: it throws
+      // `StateError('No element')` on an empty list and
+      // `StateError('Too many elements')` on a longer one — the two messages
+      // the reference engine raises (`engine_std.dart`'s `list_single`).
+      'list_single' => '${_e(f['list']!)}.single',
       'list_contains' => '${_e(f['list']!)}.contains(${_e(_val())})',
       'list_index_of' => '${_e(f['list']!)}.indexOf(${_e(_val())})',
       'list_map' => '${_e(f['list']!)}.map(${_e(_cb())}).toList()',
@@ -4143,6 +4360,14 @@ bool _ballAtomicCompareExchange(
       // implemented it.
       'list_find' => '${_e(f['list']!)}.firstWhere(${_e(_cb())})',
       'list_all' || 'list_every' => '${_e(f['list']!)}.every(${_e(_cb())})',
+      // Declared as "None match: !list.any(callback)" — the engine's loop is
+      // exactly that negation.
+      'list_none' => '(!${_e(f['list']!)}.any(${_e(_cb())}))',
+      // Decorate-sort-undecorate over a key function: the key is computed ONCE
+      // per element (the engine does the same), which a naive
+      // `..sort((a, b) => key(a).compareTo(key(b)))` would not do, and which
+      // matters when the key expression is expensive or effectful.
+      'list_sort_by' => '_ballListSortBy(${_e(f['list']!)}, ${_e(_cb())})',
       'list_sort' =>
         f.containsKey('value') || f.containsKey('comparator')
             ? '(${_e(f['list']!)}..sort(${_e(_cb())}))'
@@ -4167,6 +4392,15 @@ bool _ballAtomicCompareExchange(
         return '${_e(f['list']!)}.sublist(${rawFields.isNotEmpty ? _e(rawFields[0].value) : _e(_start())})';
       }(),
       'list_concat' => '[...${_e(_left())}, ...${_e(_right())}]',
+      // `take`/`skip` read the count under the engine's own field spellings
+      // (`value` first, then `index`) and materialize, because every other
+      // list arm here answers a `List`, not a lazy `Iterable`.
+      'list_take' =>
+        '${_e(f['list']!)}.take(${_e(f['value'] ?? f['index']!)}).toList()',
+      'list_drop' =>
+        '${_e(f['list']!)}.skip(${_e(f['value'] ?? f['index']!)}).toList()',
+      // Truncating zip: pairs up to the SHORTER length, as the engine does.
+      'list_zip' => '_ballListZip(${_e(f['list']!)}, ${_e(_val())})',
       'list_flat_map' => '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',
       'list_clear' => '${_e(f['list']!)}..clear()',
       'list_foreach' => '${_e(f['list']!)}.forEach(${_e(_cb())})',
@@ -4189,6 +4423,16 @@ bool _ballAtomicCompareExchange(
       'map_entries' => '${_e(f['map']!)}.entries.toList()',
       'map_is_empty' => '${_e(f['map']!)}.isEmpty',
       'map_length' => '${_e(f['map']!)}.length',
+      // The four map arms below go through top-level helpers rather than
+      // inline Dart. `{...a, ...b}` is ambiguous between a map and a set
+      // literal when the operands are statically `dynamic`, and the two
+      // callback forms must hand the callback the `{key, value}` pair map the
+      // reference engine hands it — neither is expressible as a one-liner that
+      // still means the same thing interpreted and compiled.
+      'map_from_entries' => '_ballMapFromEntries(${_e(f['list']!)})',
+      'map_merge' => '_ballMapMerge(${_e(f['map']!)}, ${_e(_val())})',
+      'map_map' => '_ballMapMap(${_e(f['map']!)}, ${_e(_cb())})',
+      'map_filter' => '_ballMapFilter(${_e(f['map']!)}, ${_e(_cb())})',
       // Set operations
       // A PLAIN call, never the cascade `s..add(v)` (issue #545): Dart's
       // `Set.add` already mutates in place and answers `bool`, which is the one
@@ -4208,7 +4452,16 @@ bool _ballAtomicCompareExchange(
       'set_length' => '${_e(f['set']!)}.length',
       'set_is_empty' => '${_e(f['set']!)}.isEmpty',
       'set_to_list' => '${_e(f['set']!)}.toList()',
-      _ => '/* unsupported: std_collections.${call.function} */',
+      // `set_create` is DECLARED in std_collections but the Dart encoder emits
+      // every std call under the module name `std` (`_moduleForFunction`
+      // answers `'std'` unconditionally), so only the `std` switch ever had an
+      // arm for it and `std_collections.set_create` — the spelling its own
+      // declaration implies, and the one a program encoded from another
+      // language can carry — fell to the default arm. PR #647's gate could not
+      // see that: it scanned compiler SOURCE for the NAME, which is present,
+      // just in the other module's switch. Same lowering, both spellings.
+      'set_create' => _compileSetCreate(f),
+      _ => _unimplementedBaseCall('std_collections', call.function),
     };
   }
 
@@ -4229,7 +4482,7 @@ bool _ballAtomicCompareExchange(
       'random_double' => 'Random().nextDouble()',
       'env_get' => 'Platform.environment[${_e(f['name']!)}] ?? ""',
       'args_get' => '[]',
-      _ => '/* unsupported: std_io.${call.function} */',
+      _ => _unimplementedBaseCall('std_io', call.function),
     };
   }
 
@@ -4247,7 +4500,7 @@ bool _ballAtomicCompareExchange(
       // top-level `base64Encode`) so the compiled Dart round-trips.
       'base64_encode' => 'base64.encode(${_e(f['bytes'] ?? f['value']!)})',
       'base64_decode' => 'base64.decode(${_e(f['source'] ?? f['value']!)})',
-      _ => '/* unsupported: std_convert.${call.function} */',
+      _ => _unimplementedBaseCall('std_convert', call.function),
     };
   }
 
@@ -4271,7 +4524,7 @@ bool _ballAtomicCompareExchange(
       'dir_create' =>
         'Directory(${_e(f['path']!)}).createSync(recursive: true)',
       'dir_exists' => 'Directory(${_e(f['path']!)}).existsSync()',
-      _ => '/* unsupported: std_fs.${call.function} */',
+      _ => _unimplementedBaseCall('std_fs', call.function),
     };
   }
 
@@ -4294,7 +4547,7 @@ bool _ballAtomicCompareExchange(
       'hour' => 'DateTime.now().hour',
       'minute' => 'DateTime.now().minute',
       'second' => 'DateTime.now().second',
-      _ => '/* unsupported: std_time.${call.function} */',
+      _ => _unimplementedBaseCall('std_time', call.function),
     };
   }
 

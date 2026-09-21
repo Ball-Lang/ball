@@ -4684,6 +4684,265 @@ void main() {
     });
   });
 
+  // ── assignment to an unrecognised target shape must FAIL LOUD (#742) ───────
+  //
+  // `_evalAssign` / `_evalNullAwareAssign` handle exactly three target shapes:
+  // a bare `reference`, a `fieldAccess` over an object, and a `std.index` call
+  // over a list/map. Every other shape used to fall through to a bare
+  // `return val;` — the write was silently dropped and the RHS handed back as
+  // if the assignment had succeeded. That is the silent-degradation class
+  // CLAUDE.md bans ("Fail loud on any shape you do not handle"), and it is the
+  // same shape that hid issue #55.
+  group('engine: assign to an unrecognised target fails loud (#742)', () {
+    /// `std.assign` with an arbitrary [target] expression and RHS `99`.
+    Program assignTo(
+      Map<String, dynamic> target, {
+      String op = '=',
+      List<Map<String, dynamic>> prelude = const [],
+    }) => buildProgram(
+      stdFunctions: [
+        {'name': 'index', 'isBase': true},
+      ],
+      functions: [
+        mainFn([
+          ...prelude,
+          stmt(
+            stdCall(
+              'assign',
+              msg([
+                field('target', target),
+                field('value', literal(99)),
+                field('op', literal(op)),
+              ]),
+            ),
+          ),
+          stmt(printStr('unreachable')),
+        ]),
+      ],
+    );
+
+    Matcher throwsAssignError(String fragment) => throwsA(
+      isA<BallRuntimeError>().having(
+        (e) => e.message,
+        'message',
+        allOf(contains('std.assign'), contains(fragment)),
+      ),
+    );
+
+    // The closed set of Expression oneof cases the engine ACCEPTS as an
+    // assignment target. Every other case in `Expression_Expr.values` must
+    // fail loud — see the completeness test at the end of this group, which
+    // derives the rejected set from the proto oneof itself so a new
+    // Expression case cannot be added without being classified here.
+    const acceptedTargetShapes = <Expression_Expr>{
+      Expression_Expr.reference,
+      Expression_Expr.fieldAccess,
+      // Only `std.index`; any other call is rejected (covered below).
+      Expression_Expr.call,
+    };
+
+    /// One target expression per REJECTED Expression oneof case.
+    final rejectedTargets = <Expression_Expr, Map<String, dynamic>>{
+      Expression_Expr.literal: literal(7),
+      Expression_Expr.messageCreation: msg([field('x', literal(1))]),
+      Expression_Expr.block: {
+        'block': {'statements': <Map<String, dynamic>>[], 'result': literal(1)},
+      },
+      Expression_Expr.lambda: lambdaExpr(literal(1)),
+      // An Expression with no oneof case set at all.
+      Expression_Expr.notSet: <String, dynamic>{},
+    };
+
+    for (final entry in rejectedTargets.entries) {
+      test('a ${entry.key.name} target throws instead of no-op', () {
+        expect(
+          runAndCapture(assignTo(entry.value)),
+          throwsAssignError('unsupported assignment target'),
+        );
+      });
+
+      test('a ${entry.key.name} target throws under ??= too', () {
+        expect(
+          runAndCapture(assignTo(entry.value, op: '??=')),
+          throwsAssignError('unsupported assignment target'),
+        );
+      });
+    }
+
+    test('a call target that is not std.index throws, naming the call', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            stdCall(
+              'add',
+              msg([field('left', literal(1)), field('right', literal(2))]),
+            ),
+          ),
+        ),
+        throwsAssignError('std.add'),
+      );
+    });
+
+    test('a call target that is not std.index throws under ??= too', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            stdCall(
+              'add',
+              msg([field('left', literal(1)), field('right', literal(2))]),
+            ),
+            op: '??=',
+          ),
+        ),
+        throwsAssignError('std.add'),
+      );
+    });
+
+    test('a field write on a non-object value throws, naming the field', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            fieldAcc(ref('n'), 'field'),
+            prelude: [letStmt('n', literal(5), keyword: 'var')],
+          ),
+        ),
+        throwsAssignError("field 'field'"),
+      );
+    });
+
+    test('a field write on a non-object value throws under ??= too', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            fieldAcc(ref('n'), 'field'),
+            op: '??=',
+            prelude: [letStmt('n', literal(5), keyword: 'var')],
+          ),
+        ),
+        throwsAssignError("field 'field'"),
+      );
+    });
+
+    test('an index write into a non-container throws, naming the types', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            indexExpr(ref('n'), literal(0)),
+            prelude: [letStmt('n', literal(5), keyword: 'var')],
+          ),
+        ),
+        throwsAssignError('index-assign'),
+      );
+    });
+
+    test('an index write into a non-container throws under ??= too', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            indexExpr(ref('n'), literal(0)),
+            op: '??=',
+            prelude: [letStmt('n', literal(5), keyword: 'var')],
+          ),
+        ),
+        throwsAssignError('index-assign'),
+      );
+    });
+
+    test('a std.index target missing its index field throws', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            stdCall('index', msg([field('target', ref('n'))])),
+            prelude: [
+              letStmt('n', listLit([literal(1)]), keyword: 'var'),
+            ],
+          ),
+        ),
+        throwsAssignError("missing its 'target'/'index'"),
+      );
+    });
+
+    test('a std.index target missing its index field throws under ??=', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            stdCall('index', msg([field('target', ref('n'))])),
+            op: '??=',
+            prelude: [
+              letStmt('n', listLit([literal(1)]), keyword: 'var'),
+            ],
+          ),
+        ),
+        throwsAssignError("missing its 'target'/'index'"),
+      );
+    });
+
+    test('a std.assign call missing its target throws', () {
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            stmt(stdCall('assign', msg([field('value', literal(1))]))),
+          ]),
+        ],
+      );
+      expect(
+        runAndCapture(program),
+        throwsAssignError("missing its 'target'/'value'"),
+      );
+    });
+
+    // The supported shapes must keep working — this guards the fix against
+    // over-throwing.
+    test('the accepted shapes still assign', () async {
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'index', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt('x', literal(1), keyword: 'var'),
+            stmt(
+              stdCall(
+                'assign',
+                msg([
+                  field('target', ref('x')),
+                  field('value', literal(2)),
+                  field('op', literal('=')),
+                ]),
+              ),
+            ),
+            stmt(printToString(ref('x'))),
+            letStmt('xs', listLit([literal(0)]), keyword: 'var'),
+            stmt(
+              stdCall(
+                'assign',
+                msg([
+                  field('target', indexExpr(ref('xs'), literal(0))),
+                  field('value', literal(3)),
+                  field('op', literal('=')),
+                ]),
+              ),
+            ),
+            stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['2', '3']);
+    });
+
+    test('every Expression oneof case is classified (closed set)', () {
+      final rejected = Expression_Expr.values.toSet()
+        ..removeAll(acceptedTargetShapes);
+      expect(
+        rejectedTargets.keys.toSet(),
+        equals(rejected),
+        reason:
+            'Expression gained (or lost) a oneof case: classify it as an '
+            'accepted assignment target or add a rejected-target fixture.',
+      );
+    });
+  });
+
   // ── pre/post increment and decrement ──────────────────────────────────────
 
   group('engine: increment and decrement', () {

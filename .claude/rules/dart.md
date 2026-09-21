@@ -97,6 +97,37 @@ for the authoritative member set).
   re-derives the dispatcher's list from its own source and asserts every builder
   module is in it (with a positive floor, so an extraction that stops matching
   fails instead of passing vacuously).
+- **The base-call dispatch is a CLOSED SET over the std BUILDERS, and every
+  default arm FAILS LOUD (#654).** `_compileBaseCall`'s seven per-module
+  switches used to end in `_ => '/* unsupported: <module>.<fn> */'` — a COMMENT
+  spliced where an EXPRESSION belongs, so the compiled Dart broke later with
+  `BODY_MIGHT_COMPLETE_NORMALLY` instead of the compiler saying what it cannot
+  do (that is how #488's `map_contains_value` row hid). They all share
+  `_unimplementedBaseCall(module, function)` now, the arm #663 already gave
+  `std_concurrency`. Fourteen DECLARED names had no case:
+  `std.int_to_double`/`double_to_int`/`string_interpolation` and eleven
+  `std_collections` names. Six of the `std_collections` lowerings cannot be
+  inline expressions and still mean what `engine_std.dart` means, so they go
+  through `_collectionsHelperSources` — a per-DECLARATION preamble, like
+  `_usesTypeOf`/`_usesSink`, never per-module (an unused private top-level
+  function is an analyzer warning in the compiled output). An async callback is
+  REFUSED there, the same call `_concurrencyPreamble` makes for an async body.
+  `dart/compiler/test/base_call_dispatch_completeness_test.dart` builds its
+  population IN PROCESS from the eight `buildStd*Module()` builders and probes
+  each name by COMPILING a call to it — not by scanning switch-arm patterns,
+  which is what let `std_collections.set_create` pass before: the name is in the
+  file, in the `std` switch, because `DartEncoder._moduleForFunction` answers
+  `'std'` for every std call, while the declared spelling reached the default
+  arm. `ball_proto` is the one base module out of the population — it has no
+  switch (`_compileBallProtoCall` lowers every name to `<receiver>.<name>()`).
+  Shape is not meaning, and these names are unreachable from the ENCODER, so
+  they can have no `tests/conformance/src/*.dart` fixture — nothing encodes to
+  `std_collections.list_zip`, which is why they stayed unimplemented.
+  `dart/compiler/test/declared_base_call_equivalence_test.dart` is the
+  behavioural half: ONE hand-authored Ball program, run on the reference engine
+  AND through `dart run` over its compiled Dart, both pinned to the same
+  expected transcript — so "the two agree" cannot mean "they agree on the wrong
+  answer". Add a lowering here and add its case there.
 - **A module that needs STATE gets a conditional runtime preamble**, the way
   `std_memory`'s linear-memory block always has. `std_concurrency` emits one too
   (`_ballThreads`/`_ballMutexes`/`_ballAtomics` plus the `_ball*` helpers), only
@@ -282,11 +313,10 @@ avoid constructs that need receiver-type info:
     compiler, it alone fell to `_ => '/* unsupported: … */'`, i.e. a COMMENT
     where an expression belongs (`collection/lib/src/wrappers.dart` compiled to
     `return /* unsupported: std_collections.map_contains_value */;`).
-    `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the new
-    compiler-side mirror of `check_encoder_completeness.dart`: every
-    ENCODER-EMITTABLE base function must have a compiler case. Declared but
-    unroutable names (11 more in `std_collections`, all of `std_concurrency`)
-    are out of that population and tracked by #654.
+    `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the
+    compiler-side mirror of `check_encoder_completeness.dart`, and since **#654**
+    its population is the DECLARED set with no exclusion — see the
+    "closed set over the builders" bullet above.
 
   Still open, each with its own issue and its own measured repro:
   - `collection/lib/src/list_extensions.dart` — the compiler marks a
@@ -672,6 +702,34 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   express it. The `self`-keyed twin (a 1-parameter callee whose input map
   carries `self`) is a DIFFERENT and genuinely ambiguous case and is still open;
   see `.claude/rules/csharp.md`.
+
+- **An assignment the engine cannot perform is an ERROR, never a dropped write
+  (#742).** `engine_control_flow.dart`'s `_evalAssign` and
+  `_evalNullAwareAssign` write through exactly three `std.assign` target shapes
+  — a bare `reference`, a `fieldAccess` whose object reads as a map, and a
+  `std.index` call over a list/map. Every other shape fell out of all three
+  branches into a bare `return val;`, so the write was never performed and the
+  RHS was handed back as if it had been: a caller could not tell a dropped write
+  from a successful one, on ANY target (this is engine source, so all seven
+  engines agreed on the silent no-op). Every such path now throws a
+  `BallRuntimeError` built by `_assignErrorMessage`, naming what could not be
+  done — the unsupported shape, the field written on a non-object, the
+  container/index pair that is not indexable, or the missing
+  `target`/`value`/`index` field. Under `??=` the prefix carries the operator
+  (`std.assign (??=): …`); there is no separate `std.assign_null_aware` base
+  function, `??=` is `std.assign` with `op: '??='`. The shape name comes from an
+  EXHAUSTIVE `switch` over `Expression_Expr`, so a new oneof case in
+  `ball.proto` is a compile error here rather than a silently unnamed shape.
+  Guards: `engine: assign to an unrecognised target fails loud (#742)` in
+  `dart/engine/test/engine_test.dart` (one case per rejected shape under both
+  `=` and `??=`, plus a closed-set completeness check derived from
+  `Expression_Expr.values`) and, from the other side,
+  `engine_wave5_control_flow_coverage_test.dart`'s `null-aware index assign on
+  a non-indexable target throws` — which until #742 asserted the no-op's `'x'`,
+  i.e. a coverage test had PINNED the bug. No conformance fixture can reach
+  these paths: no encoder emits such a target, which is why the corpus never
+  saw it.
+
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

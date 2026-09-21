@@ -81,15 +81,23 @@ the reverse (every `.ball.json` has a source).
 > rename cannot silently shrink the population back. A new dispatch table must
 > be added to `_routeTables`.
 
-> **Completeness has a COMPILER end too (#488).** A base function the encoder
-> emits but the Dart compiler has no `case` for falls to the default arm, which
-> emits a `/* unsupported: … */` COMMENT where an expression belongs — a build
-> error in the compiled-back file, and nothing audited it.
-> `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the mirror:
-> every `encoderEmittable` name in `std_coverage.json` must have a compiler
-> case, with a positive floor on the population so an inventory shape change
-> cannot pass it vacuously. Declared-but-unroutable names are a different,
-> pre-existing gap tracked by #654.
+> **Completeness has a COMPILER end too (#488 → #654).** A base function the
+> Dart compiler has no `case` for used to fall to a default arm that emitted a
+> `/* unsupported: … */` COMMENT where an expression belongs — a build error in
+> the compiled-back file, and nothing audited it.
+> `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the mirror,
+> and since #654 its population is the DECLARED set with **no exclusion**: every
+> base function the eight `dart/shared/lib/std*.dart` builders declare, built in
+> process from the builders themselves, with a positive floor (>= 300) so a
+> builder shape change cannot pass it vacuously. Each name is probed by
+> COMPILING a call to it, not by matching switch-arm patterns in `compiler.dart`
+> — which is what a source scan cannot do: `std_collections.set_create`'s name
+> appears in the file (in the `std` switch, because the Dart encoder emits every
+> std call under the module name `std`), so the earlier text-scanning gate read
+> it as handled while the declared spelling reached the default arm. Every
+> per-module default arm now FAILS LOUD (`_unimplementedBaseCall`), so an
+> undeclared name is a compile error rather than broken output; the gate's
+> second test asserts that for all eight modules.
 
 ### 2b. A name-shape assertion is not a test
 An encoder unit test that asserts `call.function === "list_add"` proves only that
@@ -469,6 +477,21 @@ library files named `latest`/`contest`/`attestation` that must stay **scored**,
 so a substring rule fails. The per-language rules and the one known limitation
 are in `tests/conformance/COVERAGE_STUDY.md`.
 
+The **other** half of the denominator's provenance is the "nothing to measure"
+skip, and it has to be decided from the file's SOURCE before the pipeline runs
+(#721). Deciding it afterwards — as every harness did, and as Dart/TypeScript/
+Rust still do (#811) — makes `scored` a function of the encoder: a
+declaration-less file is scored only while it happens to FAIL somewhere, and
+leaves the corpus the moment an encoder change lets it through. #646 improved
+`python/encoder`, three ZERO-BYTE `pyparsing/**/__init__.py` markers stopped
+failing at stage 3, and the Python row's `scored` fell 73 → 70 with not one
+file changed; every published ratio moved and the breach message could only
+guess at a clone failure. `rq1_study_py.py::has_scorable_material` is the
+reference implementation: a file leaves the denominator only when it has
+neither a top-level declaration nor any executable top-level statement, a file
+that HAS declarations and comes back with none is a scored failure rather than
+a skip, and the count is printed on every run, zero included.
+
 Tier A now exists for **all six** languages: Dart (`rq1_study.dart`), Rust
 (`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
 (`tools/coverage-study/go`), Python (`rq1_study_py.py`) and TypeScript
@@ -594,6 +617,24 @@ that turns a missing feature into silent wrong output. Concrete guards now in
 place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
+
+**A coverage test can PIN the silent degradation it was written to reach
+(#742).** `engine_control_flow.dart`'s `_evalAssign`/`_evalNullAwareAssign`
+ended in a bare `return val;` for every `std.assign` target shape they could
+not write through, so a dropped write was indistinguishable from a successful
+one on all seven engines (this is engine source: the self-hosted engines are
+this same code compiled). It survived because the corpus cannot see it — no
+encoder emits such a target, so §2's completeness gate is structurally blind
+here and only a unit test can reach the arm. One existed, and it made the bug
+load-bearing: `engine_wave5_control_flow_coverage_test.dart` asserted that
+`'abc'[0] ??= 'x'` evaluates to `'x'`, i.e. it asserted the no-op, and the line
+was covered. The rule: a test written to REACH an unhandled-shape arm must
+assert the arm FAILS LOUD, never assert whatever the arm happens to return
+today — otherwise the coverage number and the test suite both certify the
+degradation. Where the unhandled set comes from a proto oneof, derive it: the
+#742 guard enumerates `Expression_Expr.values` and requires every non-accepted
+case to have a rejected-target fixture, so a new Expression case fails the
+suite until someone classifies it.
 
 ### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
 Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
@@ -1624,7 +1665,8 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **Routed-but-undeclared std functions (#505)** — the REVERSE of completeness: every `std`/`std_collections` function `encoder.dart`'s `collectionRoutes` table routes to must be declared by `buildStdModule()`/`buildStdCollectionsModule()` | `dart/shared/test/std_routed_declarations_test.dart` (carries a positive floor so a regex that stops matching cannot pass vacuously) | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Dispatched/keyed/executed-but-undeclared std functions (#702)** — the other half of the #505 PAIR, and the one that catches a consumer the `collectionRoutes` table cannot see. Three populations, each derived from its own source of truth with a positive floor: every base function the Dart engine's `StdModuleHandler` DISPATCHES (`_buildStdDispatch()` in `engine_std.dart`), every key of `buildCapabilityTable()`, and every `isBase` function an executed `tests/conformance/*.ball.json` fixture declares must be declared by a `buildStd*Module()` builder. Read the two rows together: #505 is `routed ⊆ declared`, #702 is `dispatched ∪ keyed ∪ executed ⊆ declared`, and #686's `capability_table_closed_set_test.dart` is `declared ⊆ keyed` — together they close the inventory in both directions. It found 30 undeclared functions (`std.map_create` in 29 fixtures, `std.typed_list` in 13, `std.switch_expr` in 8, …) plus 3 capability keys naming nothing at all | `dart/shared/test/std_reverse_closed_set_test.dart` | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
-| **Compiler-side dispatch completeness (§2, #488)** — every `encoderEmittable` base function in `std_coverage.json` must have a case in `dart/compiler/lib/compiler.dart`, so none can compile to a `/* unsupported: … */` comment | `dart/compiler/test/base_call_dispatch_completeness_test.dart` (positive floor on the emittable population) | every PR (`Dart`, `cd dart/compiler && dart test`) |
+| **Compiler-side dispatch completeness (§2, #488/#654)** — every base function the `dart/shared/lib/std*.dart` builders DECLARE must have a case in `dart/compiler/lib/compiler.dart`, and every per-module default arm must fail loud, so nothing can compile to a `/* unsupported: … */` comment | `dart/compiler/test/base_call_dispatch_completeness_test.dart` (population built in process from the builders, probed by compiling; positive floor >= 300) | every PR (`Dart`, `cd dart/compiler && dart test`) |
+| **Interpreted ≡ compiled for the encoder-unreachable base functions (#654)** — a name no Dart source encodes to can have no `tests/conformance/src/*.dart` fixture, so the equivalent proof is one hand-authored Ball program run BOTH ways (reference engine, and `dart run` over the compiled Dart) against one expected transcript | `dart/compiler/test/declared_base_call_equivalence_test.dart` | every PR (`Dart`, `cd dart/compiler && dart test`) |
 | **Compiled-back code type-checks under NON-DEFAULT analysis options (#488)** — the `async` safety return must be legal under `analyzer: language: strict-casts: true`, which `dart-lang/async`'s own `analysis_options.yaml` sets. No other gate in this repository runs `dart analyze` under anything but the defaults: Tier A and Tier B compile and RUN, never lint | `dart/compiler/test/strict_casts_safety_return_test.dart` — its silence-is-a-pass assertion is preceded by a NEGATIVE CONTROL that feeds the pre-fix line through the same helper and requires the diagnostic back, so a `dart analyze` that never ran cannot pass it vacuously | every PR (`Dart`, `cd dart/compiler && dart test`) |
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |

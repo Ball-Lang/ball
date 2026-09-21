@@ -80,15 +80,13 @@
 //! with `matches!(__sp, BallValue::Null)`.
 //!
 //! `panic!` and `unreachable!` are mapped, and gated here. The list-literal
-//! pair is not, and must not be: `matches!` is a pattern match over a
-//! runtime-crate enum variant and `Vec::new()` an associated function on a
-//! foreign type, so an encoder arm for either would encode a compiler-internal
-//! spelling while still refusing every real-world occurrence. It is pinned
-//! fail-loud as
-//! `documented_gaps.rs::compiled_spliced_list_literal_is_a_documented_gap` and
-//! tracked as issue #712, whose fix is compiler-side. Re-run that sweep when
-//! you add a compiler emission shape — everything past the first construct was
-//! invisible to the issue that named it.
+//! pair was fixed on the COMPILER side instead (issue #712) — an encoder arm
+//! for either would encode a compiler-internal spelling while still refusing
+//! every real-world occurrence — and is gated here too, by
+//! `spliced_collection_literal_compiler_output_re_encodes` and its run-proof
+//! `a_spliced_collection_literal_still_splices_after_the_lowering_change`.
+//! Re-run that sweep when you add a compiler emission shape — everything past
+//! the first construct was invisible to the issue that named it.
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -98,7 +96,10 @@ use ball_lang_compiler::Compiler;
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_lang_shared::proto::ball::v1::statement::Stmt;
-use ball_lang_shared::proto::ball::v1::{Expression, Program};
+use ball_lang_shared::proto::ball::v1::{
+    Expression, FieldValuePair, FunctionCall, FunctionDefinition, ListLiteral, Literal,
+    MessageCreation, Module, ModuleImport, Program, Reference,
+};
 
 /// A library with one struct and one instance method — the smallest source
 /// that makes `compile_method_dispatchers` emit a dispatcher with a fallback
@@ -804,5 +805,238 @@ fn re_compiling_the_re_encoded_program_still_computes_the_same_answer() {
         "re-compiling the RE-ENCODED program must still print the same answer: a message \
          builder or a list constructor read back as anything but the node it compiled from \
          would produce a valid Program with a different result"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The SPLICED COLLECTION LITERAL (issue #712)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `base_call.rs::compile_list_literal` abandons the direct `vec![…]` and builds
+// the literal imperatively the moment ANY element splices, so one lowering
+// carries every spread, collection-`if` and collection-`for` there is. The
+// program below exercises all four element kinds in one literal, which is the
+// point: the dispatcher case above was found as a single `panic!` and turned
+// out to be four constructs, so a one-element pin here would repeat that
+// mistake.
+//
+// The input is a Ball `Program`, not Rust source, and has to be: Rust has no
+// `...`/`...?` syntax and no collection comprehension, so these elements can
+// only enter the pipeline from the Ball side (`dart/encoder` emits them for
+// `[...l]`, `[...?l]`, `[if (c) x]` and `[for (v in it) x]`).
+
+/// The same program in LIBRARY shape — an empty `entry_function`, which is what
+/// `encode_library` produces and what Tier A's stage 2 compiles.
+///
+/// It has to be a separate builder rather than the same `Program`:
+/// `compile_module_body` SKIPS the function named by `entry_function`, because
+/// in program mode `compile_entry_main` inlines it into `fn main()` instead. A
+/// library-mode compile of a program that still names one therefore emits
+/// nothing at all — measured, and the reason the RED commit's first failure was
+/// an empty module rather than the refusal it was gating.
+fn spliced_literal_library() -> Program {
+    let mut program = spliced_literal_program();
+    program.entry_function = String::new();
+    program
+}
+
+/// `[1, ...[2, 3], if (true) 4, for (v in [5, 6]) v, ...?null]` printed through
+/// `std.to_string` — all four spliceable element kinds in one literal, plus a
+/// plain leading element so the non-splice `push` path is covered too.
+fn spliced_literal_program() -> Program {
+    let spread = std_element("spread", vec![("value", small_list(2, 3))]);
+    let collection_if = std_element(
+        "collection_if",
+        vec![("condition", bool_literal(true)), ("then", int_literal(4))],
+    );
+    let collection_for = std_element(
+        "collection_for",
+        vec![
+            ("variable", string_literal("v")),
+            ("iterable", small_list(5, 6)),
+            ("body", reference("v")),
+        ],
+    );
+    let null_spread = std_element("null_spread", vec![("value", null_literal())]);
+    let literal = list_literal(vec![
+        int_literal(1),
+        spread,
+        collection_if,
+        collection_for,
+        null_spread,
+    ]);
+    // `std.print`'s input field is `message`, not `value` — `compile_print`
+    // reads that name and a mismatch silently prints `null`.
+    let printed = std_element("to_string", vec![("value", literal)]);
+    let body = std_element("print", vec![("message", printed)]);
+
+    Program {
+        name: "spliced_literal".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_lang_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![FunctionDefinition {
+                    name: "splice".to_string(),
+                    input_type: String::new(),
+                    output_type: String::new(),
+                    body: Some(Box::new(body)),
+                    description: String::new(),
+                    is_base: false,
+                    metadata: None,
+                }],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: "splice".to_string(),
+        metadata: None,
+    }
+}
+
+/// What `[1, ...[2, 3], if (true) 4, for (v in [5, 6]) v, ...?null]` must print
+/// — the splice semantics themselves: each spliced element contributes its
+/// CONTENTS, never itself as one nested element (issues #39/#300), and a
+/// null-aware spread of null contributes nothing.
+const SPLICED_LITERAL_EXPECTED_STDOUT: &str = "[1, 2, 3, 4, 5, 6]\n";
+
+fn std_element(function: &str, fields: Vec<(&str, Expression)>) -> Expression {
+    Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: function.to_string(),
+            input: Some(Box::new(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields: fields
+                        .into_iter()
+                        .map(|(name, value)| FieldValuePair {
+                            name: name.to_string(),
+                            value: Some(value),
+                        })
+                        .collect(),
+                    metadata: None,
+                })),
+            })),
+            type_args: vec![],
+        }))),
+    }
+}
+
+fn small_list(first: i64, second: i64) -> Expression {
+    list_literal(vec![int_literal(first), int_literal(second)])
+}
+
+fn list_literal(elements: Vec<Expression>) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::ListValue(ListLiteral { elements })),
+        })),
+    }
+}
+
+fn int_literal(value: i64) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::IntValue(value)),
+        })),
+    }
+}
+
+fn bool_literal(value: bool) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::BoolValue(value)),
+        })),
+    }
+}
+
+fn string_literal(value: &str) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::StringValue(value.to_string())),
+        })),
+    }
+}
+
+/// Ball's `null` is a `Literal` with no `value` set — not a variant carrying a
+/// null payload.
+fn null_literal() -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal { value: None })),
+    }
+}
+
+fn reference(name: &str) -> Expression {
+    Expression {
+        expr: Some(Expr::Reference(Reference {
+            name: name.to_string(),
+        })),
+    }
+}
+
+/// #712's stage-3 gate: LIBRARY-mode compiler output containing a spliced
+/// collection literal must re-encode.
+///
+/// Before #712 it could not. The imperative lowering opened with
+/// `let mut __lit: Vec<BallValue> = Vec::new();` — an associated function on a
+/// foreign type, which `lib.rs` refuses by design — and spelled the
+/// null-spread guard as `matches!(__sp, BallValue::Null)`, a pattern match
+/// `methods.rs` refuses by design. So EVERY library whose compiled output held
+/// a spread, a collection-`if` or a collection-`for` stopped at
+/// `reencode-error`, which is a far broader population than the method
+/// dispatcher the same invariant was first found on.
+///
+/// The two `!contains` assertions are the staleness guard: if the lowering ever
+/// reintroduces either construct this test must fail on the SHAPE, naming it,
+/// rather than on whatever panic the encoder happens to raise second.
+#[test]
+fn spliced_collection_literal_compiler_output_re_encodes() {
+    let program = spliced_literal_library();
+    let compiled = Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("push"),
+        "this test is only exercising the construct it names while the spliced-literal lowering \
+         is still the imperative one — a direct `vec![…]` here would mean the program stopped \
+         splicing:\n{compiled}"
+    );
+    assert!(
+        !compiled.contains("Vec::new()"),
+        "the spliced-literal accumulator must not be a bare `Vec` (#712):\n{compiled}"
+    );
+    assert!(
+        !compiled.contains("matches!"),
+        "the null-spread guard must not be a `matches!` pattern (#712):\n{compiled}"
+    );
+
+    let reencoded = ball_lang_encoder::encode_library(&compiled);
+    let calls = std_calls(&reencoded);
+    for expected in ["for_in", "spread", "not_equals", "if"] {
+        assert!(
+            calls.iter().any(|name| name == expected),
+            "the re-encoded lowering must still carry `std.{expected}` — a re-encode that \
+             dropped a loop or a guard would pass a panic-free assertion just as cleanly. std \
+             calls found: {calls:?}"
+        );
+    }
+}
+
+/// The behavioural half, run rather than asserted about: a lowering change is
+/// only safe if the literal still SPLICES. An element that nested instead of
+/// splicing (`[1, [2, 3], …]`) re-encodes exactly as cleanly and prints a
+/// different answer — the #39/#300 bug this lowering exists to fix.
+#[test]
+fn a_spliced_collection_literal_still_splices_after_the_lowering_change() {
+    let program = spliced_literal_program();
+    let compiled = Compiler::new(&program).compile();
+    assert_eq!(
+        compile_and_run("spliced_literal", &compiled),
+        SPLICED_LITERAL_EXPECTED_STDOUT,
+        "each spliced element must contribute its CONTENTS, and `...?null` nothing at all"
     );
 }

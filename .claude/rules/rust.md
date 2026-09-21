@@ -687,12 +687,16 @@ and its own encoder refuses caps that column no matter how good either half is o
   `ball-lang-compiler runtime:` prefix no other target emits, which is the #616/#641
   error-rendering drift in a spot no fixture observed. Changing that spelling means re-running the
   round-trip gate, which asserts it on both sides.
-- **Tier A's Rust row is dammed at STAGE 1, not stage 3** — measured on both sides of this fix
-  (`1/77` at stage 1, 2 and 3 in runs 34766105061 and 34769384905; 76 files stop at
-  `encode-error`, none at `reencode-error`). So the `panic!` fix does not move the published
+- **Tier A's Rust row was dammed at STAGE 1, not stage 3** — measured on both sides of this fix
+  (`1/77` at stage 1, 2 and 3 in runs 34766105061 and 34769384905; 76 files stopped at
+  `encode-error`, none at `reencode-error`). So the `panic!` fix did not move the published
   funnel, and a lane that wants those numbers up works on stage 1's named reasons
-  (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
-  the invariant; the third-party funnel is a separate, slower instrument.
+  (`gh run download <run-id> -n coverage-study-tier-a-rust` — **never from prose**, which is how
+  the six-gap list #767 collected went stale: `write!` had already closed by the time it was
+  filed). Since #630 and #767 closed three of them, stage 1 is `9/77` and the dam has MOVED to
+  stage 3, where every arriving file now stops on `ball_arg_get` (#790). The round-trip gate is
+  what proves the compiler↔encoder invariant; the third-party funnel is a separate, slower
+  instrument.
 - The script-mode entry-point IIFE is **CLOSED**, and #687 with it. #646's
   `lib.rs::as_zero_arg_closure` inlines the closure body (pin flipped to
   `compiled_entry_point_iife_encodes`), which is sound for the entry wrapper — a Ball `return`

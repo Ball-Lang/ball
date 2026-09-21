@@ -24,11 +24,13 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest baseline, **0/77 clean and 1/77 encoded** (the 5 crates pinned in
+Honest baseline, **0/77 clean and 9/77 encoded** (the 5 crates pinned in
 `tools/coverage-study/packages/rust.json` — **`itertools`, `smallvec`, `bitflags`, `heck`,
-`strsim`**, not the original 10-crate set the #491 prose below narrates). That single encoded file
-arrived with the crate-aware slice below; every #491 slice before it left the aggregate at
-`0 clean, 0 encoded`.
+`strsim`**, not the original 10-crate set the #491 prose below narrates). The first encoded file
+arrived with the crate-aware slice below — every #491 slice before it left the aggregate at
+`0 clean, 0 encoded` — then #630's `write!` slice took it 1 → 7 and #767's tuple +
+reference-`impl`-self-type slice 7 → 9. `clean` has never moved: stage 3 is where every arriving
+file now stops, on `ball_arg_get` (**#790**).
 
 **The denominator was 110 until 2026-09-14, and the #491 prose below is all written against
 that number — read those histograms as history, not as today's totals.** Per the owner's

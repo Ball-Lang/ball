@@ -14,6 +14,16 @@
 // is why the `String` / `List` / `int` / `double` halves below are here: a fix
 // that simply dropped the route would break them, so they are pinned in the
 // same fixture.
+//
+// The `this.` / `super.` halves are the follow-up: those two receivers are the
+// ones whose type is TRIVIALLY provable - the enclosing declaration, and its
+// `extends` clause - yet the first cut of the seam consulted neither, so
+// `this.isEmpty` inside the very class that declares `isEmpty` still encoded as
+// `std.string_is_empty(self)`. The inherited-field reads below are the same
+// family reached from the C++ COMPILER's side: its by-name shortcut proves an
+// inherited GETTER (its getter table is flattened over the chain) but had no
+// chain walk for an inherited plain data FIELD, so `child.isEmpty` compiled to
+// `self.empty()` - the emptiness of the OBJECT - instead of reading the member.
 
 class BuiltinNames {
   int isEmpty;
@@ -53,6 +63,32 @@ class Computed {
   String get isNotEmpty => 'computed-$stored';
 }
 
+// `this.<accessor>` reads the enclosing declaration's own member; `super.` reads
+// the superclass this unit also declares. Both are plain data fields here, so
+// neither a getter table nor a shadowed-field table can stand in for the proof.
+class Counted {
+  int isEmpty;
+  bool isNaN;
+
+  Counted(this.isEmpty, this.isNaN);
+
+  int readIsEmptyViaThis() => this.isEmpty;
+
+  bool readIsNaNViaThis() => this.isNaN;
+}
+
+class CountedChild extends Counted {
+  CountedChild(int e, bool n) : super(e, n);
+
+  int readIsEmptyViaSuper() => super.isEmpty;
+
+  bool readIsNaNViaSuper() => super.isNaN;
+
+  // The inherited member through the implicit receiver: `this` names this
+  // class, and the declaration is one link up the chain.
+  int readIsEmptyViaThisInherited() => this.isEmpty;
+}
+
 void main() {
   // Direct instance-creation receiver.
   print(
@@ -90,6 +126,21 @@ void main() {
   var c = Computed(21);
   print(c.isEmpty);
   print(c.isNotEmpty);
+
+  // `this.` and `super.` receivers, and the same member reached through a
+  // SUBCLASS instance — the shape the C++ compiler's own by-name shortcut
+  // could not prove, because an inherited plain field is in neither its
+  // own-field table nor its (chain-flattened) getter table.
+  var counted = Counted(3, true);
+  print(counted.readIsEmptyViaThis());
+  print(counted.readIsNaNViaThis());
+  var child = CountedChild(5, false);
+  print(child.readIsEmptyViaSuper());
+  print(child.readIsNaNViaSuper());
+  print(child.readIsEmptyViaThisInherited());
+  CountedChild inherited = CountedChild(6, true);
+  print(inherited.isEmpty);
+  print(inherited.isNaN);
 
   // The routing itself must survive: these receivers are NOT user classes.
   String s = '';

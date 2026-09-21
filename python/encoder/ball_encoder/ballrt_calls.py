@@ -28,21 +28,26 @@ deliberately restricted to helpers whose shape is unambiguous:
   variadic (a call's arguments are the input's remaining fields), so it is not
   of this table's one-field-per-positional-argument shape.
 
-Four shapes ARE exact inverses without being one ``std`` call over expression
+Several shapes ARE exact inverses without being one ``std`` call over expression
 arguments, and live below as named constants (handled in
 ``encoder.encode_ballrt_call``): ``getfield`` lands on a ``fieldAccess`` NODE,
 ``setfield``/``index_set`` on a ``std.assign`` over the matching l-value,
 ``is_type``/``as_type`` on ``std.is``/``std.as`` whose ``type`` field is a bare
-type NAME, and ``truthy``/``iterate`` on their operand unchanged.
+type NAME, ``brk``/``cont`` on ``std.break``/``std.continue`` whose operand is a
+label STRING, ``rethrow`` on an input-less ``std.rethrow``, and
+``truthy``/``iterate`` on their operand unchanged.
 
 ``python/encoder/tests/test_ballrt_inverse.py`` is the drift guard: every
 ``UnaryInput`` base function in ``std.json`` whose ``ballrt`` helper carries the
 same spelling MUST appear here, derived from those two files rather than from a
 list kept beside this one (issue #690).
 
-Statement-shaped lowerings (``if``/``for``/``while``/``try``) are not here at
-all: the compiler emits them as native Python statements, which the encoder
-already reads back from that syntax.
+``if`` is not here at all: the compiler emits it as a native Python ``if``,
+which the encoder already reads back from that syntax. The loop and ``try``
+lowerings are *shaped*, not named — a ``while True:`` whose body carries the
+break/continue trap, or a ``try:`` whose handler names one of the flow
+exceptions below — so their recognisers live in ``encoder.encode_while`` /
+``encoder.encode_try``; only the names they match on are here (issue #690).
 """
 
 from __future__ import annotations
@@ -123,6 +128,14 @@ CAUGHT_STACK = "_caught"
 #: clause's SECOND binding, which reads back as the clause's `stack_trace` field.
 STACK_TRACE_OF = "stack_trace_of"
 
+#: `ballrt.brk(label)` / `ballrt.cont(label)` -> `std.break` / `std.continue`.
+#: The operand is a label STRING, not an expression — and the compiler always
+#: passes one, EMPTY for an unlabelled jump, which reads back as no input at all
+#: (the shape `dart/encoder` produces for a label-less `break`).
+LABEL_OPS = {"brk": "break", "cont": "continue"}
+#: `ballrt.rethrow()` -> `std.rethrow`, the one flow function with no input.
+RETHROW = "rethrow"
+
 _UNARY = ("value",)
 _BINARY = ("left", "right")
 
@@ -197,6 +210,10 @@ HELPERS: dict[str, tuple[str, tuple[str, ...]]] = {
     # unary base call, not a statement lowering (`rethrow` takes no operand and
     # `std.rethrow` has no input, so it is not of this shape).
     "throw": ("throw", _UNARY),
+    # `ballrt.ret(v)` is `std.return {value}`. The compiler always passes an
+    # operand — a value-less Ball `return` emits `ballrt.ret(None)`, which reads
+    # back as `std.return` over a null literal: the same program.
+    "ret": ("return", _UNARY),
     # ── Math ─────────────────────────────────────────────────────────────────
     "math_abs": ("math_abs", _UNARY),
     "math_floor": ("math_floor", _UNARY),

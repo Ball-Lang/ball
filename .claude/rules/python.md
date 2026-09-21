@@ -334,11 +334,26 @@ python -m conformance.runner                             # prints the CI-parseab
   conservative textual test for `ballrt.ret(`), and `ball_encoder/ballrt_calls.py` is the inverse
   surface for the helpers; `tests/test_compiler_output.py` is the fast guard on both halves.
   **The inverse surface is closed against drift (#690).** `HELPERS` is the table (one `std` call
-  over expression arguments); four shapes that are NOT that live beside it as named constants and
+  over expression arguments); the shapes that are NOT that live beside it as named constants and
   are handled in `encode_ballrt_call` — `PASSTHROUGH` (`truthy`/`iterate`), `FIELD_GET`
   (`getfield` → a `fieldAccess` NODE, not a call), `FIELD_SET`/`INDEX_SET` (→ `std.assign` over the
-  matching l-value) and `TYPE_OPS` (`is_type`/`as_type` → `std.is`/`std.as` with the type NAME as a
-  string field). `tests/test_ballrt_inverse.py` derives the required set from `dart/shared/std.json`
+  matching l-value), `TYPE_OPS` (`is_type`/`as_type` → `std.is`/`std.as` with the type NAME as a
+  string field), `LABEL_OPS` (`brk`/`cont` → `std.break`/`std.continue`; an EMPTY label means no
+  `label` field at all) and `RETHROW` (input-less `std.rethrow`).
+  **The STATEMENT lowerings are shaped, not named.** A compiled Python `try:` is one of FOUR
+  things and only one is a Ball `std.try`: the loop-body `except ballrt.BallBreak`/`BallContinue`
+  trap, the `except ballrt.BallReturn` function-body wrapper, that wrapper's value-less
+  constructor form, and `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop.
+  `encoder.encode_try`/`encode_while` recognise them; `ballrt_calls.py` holds only the class names
+  they match on (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
+  `CAUGHT_STACK`, `STACK_TRACE_OF`), closed against `python/runtime` by its own test.
+  **Never inline a loop trap on sight.** The compiler's C-style `for` is `while True:` + exit guard
+  + trap + UPDATE, and `except ballrt.BallContinue` falls *through* to UPDATE, so the whole
+  `while True:` shape reads back as `std.for {condition, update, body}` (no UPDATE → `std.while`;
+  trap-first with the guard last → `std.do_while`). Inlining it into a `std.while` whose body ends
+  with UPDATE makes a loop that never advances — it **hangs** instead of raising, which is why the
+  round-trip tests for this family run under a hard wall-clock bound and why a trap that is not its
+  block's last statement fails loud. `tests/test_ballrt_inverse.py` derives the required set from `dart/shared/std.json`
   (every `UnaryInput` base function) crossed with `python/runtime`'s public helpers, so a new
   same-spelled unary base function fails on the day it lands instead of becoming another
   `unsupported runtime helper` on a measurement row nobody reads. A helper lives in exactly one

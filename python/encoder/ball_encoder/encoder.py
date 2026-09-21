@@ -247,8 +247,7 @@ class _Encoder:
         try:
             hoist = [n for n in _collect_locals(stmts) if n not in self._params]
             out: list[dict] = [b.let_stmt(n, b.null_lit()) for n in hoist]
-            for s in stmts:
-                out.extend(self.encode_stmt(s))
+            out.extend(self.encode_stmts(stmts))
         finally:
             self._params = saved_params
         return b.block_expr(out, None)
@@ -260,6 +259,32 @@ class _Encoder:
         return names
 
     # ── Statements ───────────────────────────────────────────────────────────
+
+    def encode_stmts(self, stmts: list[ast.stmt]) -> list[dict]:
+        """Encode a statement LIST.
+
+        Position matters for exactly one shape: the compiler's loop-body
+        break/continue trap encodes to its own body inlined, which is only sound
+        when nothing follows it — trailing statements are a C-style ``for``'s
+        update, and only ``std.for`` runs an update on ``continue``. The
+        recognised ``while True:`` lowering handles that case itself
+        (:meth:`_compiled_loop`); anything else fails loud rather than silently
+        producing a loop that never advances.
+        """
+        out: list[dict] = []
+        last = len(stmts) - 1
+        for i, s in enumerate(stmts):
+            if isinstance(s, ast.Try) and self._is_loop_trap(s):
+                if i != last:
+                    self.fail(
+                        "the compiled loop-body break/continue trap is followed by "
+                        "more statements — those are a C-style `for`'s update, which "
+                        "only `std.for` runs on `continue`, so the whole `while True:` "
+                        "loop has to be read back at once, not the trap alone")
+                out.extend(self.encode_stmts(s.body))
+                continue
+            out.extend(self.encode_stmt(s))
+        return out
 
     def encode_stmt(self, stmt: ast.stmt) -> list[dict]:
         if isinstance(stmt, ast.Expr):
@@ -284,6 +309,8 @@ class _Encoder:
             return [b.expr_stmt(self.encode_for(stmt))]
         if isinstance(stmt, (ast.Break, ast.Continue)):
             return [b.expr_stmt(self.encode_branch(stmt))]
+        if isinstance(stmt, ast.Try):
+            return self.encode_try(stmt)
         if isinstance(stmt, ast.Pass):
             return []
         self.fail(f"unsupported statement {type(stmt).__name__}")
@@ -309,8 +336,7 @@ class _Encoder:
         try:
             hoist = [n for n in _collect_locals(stmts) if n not in self._params]
             out: list[dict] = [b.let_stmt(n, b.null_lit()) for n in hoist]
-            for s in stmts:
-                out.extend(self.encode_stmt(s))
+            out.extend(self.encode_stmts(stmts))
         finally:
             self._params = saved_params
         return b.block_expr(out, None)
@@ -401,6 +427,9 @@ class _Encoder:
     def encode_while(self, s: ast.While) -> dict:
         if s.orelse:
             self.fail("while/else is not supported")
+        lowered = self._compiled_loop(s)
+        if lowered is not None:
+            return lowered
         return b.std_call("while", b.args_message(
             ("condition", self.encode_expr(s.test)),
             ("body", self.encode_block(s.body)),
@@ -466,10 +495,315 @@ class _Encoder:
         ))
 
     def encode_block(self, stmts: list[ast.stmt]) -> dict:
-        out: list[dict] = []
-        for s in stmts:
-            out.extend(self.encode_stmt(s))
-        return b.block_expr(out, None)
+        return b.block_expr(self.encode_stmts(stmts), None)
+
+    # ── The compiler's own statement lowerings (issue #690) ──────────────────
+    # `python/compiler` does not emit Ball's loop and `try` nodes as anything
+    # nameable: it emits SHAPES — a `while True:` carrying a break/continue
+    # trap, a `try:` whose handler names one of `ballrt`'s flow exceptions. Each
+    # recogniser below is the exact inverse of one compiler method, and anything
+    # that is *almost* one of these shapes fails loud rather than being guessed
+    # at (issue #55 doctrine): a wrong guess here does not raise, it produces a
+    # program that silently never terminates.
+
+    def _rt_attr(self, node: ast.expr | None) -> str | None:
+        """The ``X`` of a ``ballrt.X`` attribute reference, else None."""
+        if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and node.value.id == rt.RUNTIME_MODULE):
+            return node.attr
+        return None
+
+    def _is_loop_trap(self, s: ast.Try) -> bool:
+        """``compiler._loop_body`` / ``compiler.run_forin``::
+
+            try:
+                <body>
+            except ballrt.BallBreak as _brk:
+                if _brk.label: raise
+                break
+            except ballrt.BallContinue as _cnt:
+                if _cnt.label: raise
+
+        Pure plumbing: Ball's loop nodes carry ``std.break``/``std.continue``
+        natively, so the inverse is ``<body>`` with the trap removed.
+        """
+        if s.orelse or s.finalbody or len(s.handlers) != 2:
+            return False
+        brk, cont = s.handlers
+        if (self._rt_attr(brk.type), self._rt_attr(cont.type)) != (
+                rt.FLOW_BREAK, rt.FLOW_CONTINUE):
+            return False
+        if not brk.name or not cont.name:
+            return False
+        return (self._is_label_reraise(brk.body[:1], brk.name)
+                and len(brk.body) == 2 and isinstance(brk.body[1], ast.Break)
+                and self._is_label_reraise(cont.body, cont.name)
+                and len(cont.body) == 1)
+
+    @staticmethod
+    def _is_label_reraise(stmts: list[ast.stmt], name: str) -> bool:
+        """``if <name>.label: raise`` — the trap's "this jump targets an OUTER
+        loop" escape hatch."""
+        if len(stmts) != 1 or not isinstance(stmts[0], ast.If):
+            return False
+        guard = stmts[0]
+        test = guard.test
+        return (isinstance(test, ast.Attribute) and test.attr == "label"
+                and isinstance(test.value, ast.Name) and test.value.id == name
+                and not guard.orelse and len(guard.body) == 1
+                and isinstance(guard.body[0], ast.Raise)
+                and guard.body[0].exc is None)
+
+    def _is_return_wrapper(self, s: ast.Try) -> bool:
+        """``compiler.emit_body``::
+
+            try:
+                <body>
+            except ballrt.BallReturn as _r:
+                return _r.value        # or, for a constructor body: pass
+
+        Also plumbing: Ball's ``std.return`` unwinds on its own, so the inverse
+        is ``<body>``.
+        """
+        if s.orelse or s.finalbody or len(s.handlers) != 1:
+            return False
+        handler = s.handlers[0]
+        if self._rt_attr(handler.type) != rt.FLOW_RETURN or len(handler.body) != 1:
+            return False
+        only = handler.body[0]
+        if isinstance(only, ast.Pass):
+            return True
+        return (isinstance(only, ast.Return) and handler.name is not None
+                and isinstance(only.value, ast.Attribute) and only.value.attr == "value"
+                and isinstance(only.value.value, ast.Name)
+                and only.value.value.id == handler.name)
+
+    def encode_try(self, s: ast.Try) -> list[dict]:
+        """One of the four ``try:`` lowerings, or a loud failure."""
+        if self._is_loop_trap(s):
+            # `encode_stmts` intercepts a trap where it can still see whether
+            # anything follows it, so this arm means a caller walked statements
+            # without that context — exactly where inlining would be unsound.
+            self.fail("the compiled loop-body break/continue trap can only be read "
+                      "back in its enclosing block, where a C-style `for`'s update "
+                      "is still visible")
+            return []
+        if self._is_return_wrapper(s):
+            return self.encode_stmts(s.body)
+        return [b.expr_stmt(self.encode_ball_try(s))]
+
+    def encode_ball_try(self, s: ast.Try) -> dict:
+        """``compiler.run_try`` -> ``std.try {body, catches, finally}``.
+
+        The emitted handler is::
+
+            except ballrt.BallThrow as _ex:
+                ballrt.flow._caught.append(_ex.value)
+                try:
+                    <var> = _ex.value                      # catch (e)
+                    <st>  = ballrt.stack_trace_of(_ex)     # catch (e, st)
+                    <catch body>
+                finally:
+                    ballrt.flow._caught.pop()
+
+        The ``_caught`` push/pop is the runtime's rethrow stack — the compiler's
+        spelling of "a catch is in scope", which ``std.rethrow`` reads. It has no
+        Ball expression of its own, so it is consumed by this recogniser rather
+        than encoded.
+
+        The clause's ``type`` is NOT recovered, because ``run_try`` never emits
+        one: it compiles every ``on <Type> catch`` to this single catch-all and
+        drops any clause after the first. This is the exact inverse of what the
+        compiler emits today; the loss is on the compiler side, where
+        ``146_nested_try_catch_types`` fails the `python-compiler` leg over it.
+        """
+        if s.orelse:
+            self.fail("try/else is not a shape `python/compiler` emits")
+            return b.null_lit()
+        fields: list[tuple[str, dict]] = [("body", self.encode_block(s.body))]
+        if s.handlers:
+            clause = self._encode_catch(s.handlers)
+            if clause is None:
+                return b.null_lit()
+            fields.append(("catches", b.list_lit([clause])))
+        if s.finalbody:
+            fields.append(("finally", self.encode_block(s.finalbody)))
+        if not s.handlers and not s.finalbody:
+            self.fail("a `try:` with neither a handler nor a `finally:` is not a "
+                      "shape `python/compiler` emits")
+            return b.null_lit()
+        return b.std_call("try", b.args_message(*fields))
+
+    def _encode_catch(self, handlers: list[ast.ExceptHandler]) -> dict | None:
+        """The single ``except ballrt.BallThrow as _ex:`` clause -> one Ball
+        catch message. Returns None (having failed loud) for anything else."""
+        if len(handlers) != 1:
+            self.fail(f"a compiled `try:` has exactly one `except "
+                      f"{rt.RUNTIME_MODULE}.{rt.FLOW_THROW}` handler, found "
+                      f"{len(handlers)}")
+            return None
+        handler = handlers[0]
+        name = handler.name
+        if self._rt_attr(handler.type) != rt.FLOW_THROW or not name:
+            self.fail(f"unsupported `except` clause: only "
+                      f"`{rt.RUNTIME_MODULE}.{rt.FLOW_THROW} as <name>` (a Ball "
+                      "`std.try`), the loop break/continue trap and the "
+                      f"`{rt.FLOW_RETURN}` body wrapper have Ball inverses")
+            return None
+        body = self._catch_handler_body(handler, name)
+        if body is None:
+            return None
+        clause: list[tuple[str, dict]] = []
+        # `<var> = _ex.value` / `<st> = ballrt.stack_trace_of(_ex)` are the
+        # clause's OWN bindings, not assignments: `_ex` has no Ball existence.
+        while body and (binding := self._catch_binding(body[0], name)) is not None:
+            kind, bound = binding
+            if kind in dict(clause):
+                break
+            clause.append((kind, b.string_lit(bound)))
+            body = body[1:]
+        clause.append(("body", self.encode_block(body)))
+        order = {"variable": 0, "stack_trace": 1, "body": 2}
+        clause.sort(key=lambda kv: order[kv[0]])
+        return b.args_message(*clause)
+
+    def _catch_handler_body(self, handler: ast.ExceptHandler,
+                            name: str) -> list[ast.stmt] | None:
+        """Strip the `_caught` push/pop frame, returning the clause's own
+        statements."""
+        body = handler.body
+        if not (len(body) == 2 and isinstance(body[0], ast.Expr)
+                and self._is_caught_call(body[0].value, "append", name)):
+            self.fail(f"a compiled catch opens with "
+                      f"`{rt.RUNTIME_MODULE}.{rt.FLOW_MODULE}.{rt.CAUGHT_STACK}"
+                      ".append(...)`, which this one does not")
+            return None
+        inner = body[1]
+        if not (isinstance(inner, ast.Try) and not inner.handlers and not inner.orelse
+                and len(inner.finalbody) == 1
+                and isinstance(inner.finalbody[0], ast.Expr)
+                and self._is_caught_call(inner.finalbody[0].value, "pop", None)):
+            self.fail(f"a compiled catch closes its "
+                      f"`{rt.CAUGHT_STACK}` frame in a `finally:`, which this one "
+                      "does not")
+            return None
+        return inner.body
+
+    def _is_caught_call(self, node: ast.expr, method: str, name: str | None) -> bool:
+        """``ballrt.flow._caught.<method>(<name>.value)`` (``pop`` takes none)."""
+        if not isinstance(node, ast.Call) or node.keywords:
+            return False
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == method):
+            return False
+        stack = func.value
+        if not (isinstance(stack, ast.Attribute) and stack.attr == rt.CAUGHT_STACK
+                and self._rt_attr(stack.value) == rt.FLOW_MODULE):
+            return False
+        if name is None:
+            return not node.args
+        return len(node.args) == 1 and self._is_thrown_value(node.args[0], name)
+
+    @staticmethod
+    def _is_thrown_value(node: ast.expr, name: str) -> bool:
+        return (isinstance(node, ast.Attribute) and node.attr == "value"
+                and isinstance(node.value, ast.Name) and node.value.id == name)
+
+    def _catch_binding(self, stmt: ast.stmt, name: str) -> tuple[str, str] | None:
+        """``<var> = _ex.value`` -> ``("variable", var)``;
+        ``<st> = ballrt.stack_trace_of(_ex)`` -> ``("stack_trace", st)``."""
+        if not (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)):
+            return None
+        bound = stmt.targets[0].id
+        value = stmt.value
+        if self._is_thrown_value(value, name):
+            return ("variable", bound)
+        if (isinstance(value, ast.Call)
+                and self._rt_attr(value.func) == rt.STACK_TRACE_OF
+                and len(value.args) == 1 and isinstance(value.args[0], ast.Name)
+                and value.args[0].id == name):
+            return ("stack_trace", bound)
+        return None
+
+    def _compiled_loop(self, s: ast.While) -> dict | None:
+        """``while True:`` carrying a loop trap -> the Ball loop it came from.
+
+        ``compiler.run_for`` / ``run_while`` / ``run_dowhile`` all lower to a
+        ``while True:``; what separates them is where the exit guard sits and
+        whether anything follows the trap::
+
+            while True:                      while True:
+                if not truthy(C): break          <trap BODY>
+                <trap BODY>                      if not truthy(C): break
+                <UPDATE>                     -> std.do_while {body, condition}
+
+            UPDATE empty -> std.while {condition, body}
+            otherwise    -> std.for   {condition, update, body}
+
+        ``std.for`` rather than a ``std.while`` whose body ends with the update:
+        the compiled `except ballrt.BallContinue` falls THROUGH to the update, and
+        only ``std.for`` runs an update on ``continue``. A ``std.while`` would be
+        a loop that never advances — and it would hang, not raise.
+
+        The C-style loop's ``init`` stays where the compiler put it (ordinary
+        statements before the loop), which is exactly equivalent to a ``std.for``
+        whose ``init`` has already run.
+        """
+        if not (isinstance(s.test, ast.Constant) and s.test.value is True):
+            return None
+        body = s.body
+        if body and isinstance(body[0], ast.Try) and self._is_loop_trap(body[0]):
+            if len(body) != 2:
+                return None
+            condition = self._exit_guard(body[1])
+            if condition is None:
+                return None
+            return b.std_call("do_while", b.args_message(
+                ("body", b.block_expr(self.encode_stmts(body[0].body), None)),
+                ("condition", self.encode_expr(condition)),
+            ))
+        if len(body) < 2 or not (isinstance(body[1], ast.Try)
+                                 and self._is_loop_trap(body[1])):
+            return None
+        condition = self._exit_guard(body[0])
+        if condition is None:
+            return None
+        loop_body = b.block_expr(self.encode_stmts(body[1].body), None)
+        update = body[2:]
+        if not update:
+            return b.std_call("while", b.args_message(
+                ("condition", self.encode_expr(condition)),
+                ("body", loop_body),
+            ))
+        return b.std_call("for", b.args_message(
+            ("condition", self.encode_expr(condition)),
+            ("update", self._as_expression(update)),
+            ("body", loop_body),
+        ))
+
+    def _exit_guard(self, stmt: ast.stmt) -> ast.expr | None:
+        """``if not ballrt.truthy(C): break`` -> ``C``, the loop's condition."""
+        if not (isinstance(stmt, ast.If) and not stmt.orelse
+                and len(stmt.body) == 1 and isinstance(stmt.body[0], ast.Break)):
+            return None
+        test = stmt.test
+        if not (isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not)):
+            return None
+        call = test.operand
+        if not (isinstance(call, ast.Call) and len(call.args) == 1
+                and self._rt_attr(call.func) == rt.TRUTHY):
+            return None
+        return call.args[0]
+
+    def _as_expression(self, stmts: list[ast.stmt]) -> dict:
+        """A ``std.for``'s ``update`` is an EXPRESSION; the compiler emits it as
+        statements. One expression statement is that expression; anything else
+        becomes a block expression, which evaluates the same way."""
+        encoded = self.encode_stmts(stmts)
+        if len(encoded) == 1 and "expression" in encoded[0]:
+            return encoded[0]["expression"]
+        return b.block_expr(encoded, None)
 
     def _range_args(self, node: ast.expr):
         """If ``node`` is a ``range(...)`` call, return ``(start, stop, step)`` AST
@@ -651,6 +985,12 @@ class _Encoder:
             return self.encode_index_set(args)
         if name in rt.TYPE_OPS:
             return self.encode_type_op(name, args)
+        if name in rt.LABEL_OPS:
+            return self.encode_label_op(name, args)
+        if name == rt.RETHROW:
+            if args:
+                self.fail(f"ballrt.{name}() takes no arguments, got {len(args)}")
+            return b.std_call(rt.RETHROW, None)
         if name == rt.ENTRY_WRAPPER:
             self.fail(f"ballrt.{name}() is the compiled entry-point wrapper and is "
                       "encodable only inside an `if __name__ == \"__main__\":` guard "
@@ -727,6 +1067,25 @@ class _Encoder:
             return b.null_lit()
         return b.std_call(rt.TYPE_OPS[helper], b.args_message(
             ("value", value), ("type", b.string_lit(type_name))))
+
+    def encode_label_op(self, helper: str, args: list[ast.expr]) -> dict:
+        """``ballrt.brk(label)`` / ``ballrt.cont(label)`` -> ``std.break`` /
+        ``std.continue``.
+
+        The operand is a label NAME, not an expression, and the compiler always
+        passes one — EMPTY for an unlabelled jump, which is the *absence* of the
+        ``label`` field in Ball (the shape ``dart/encoder`` produces, and what
+        every engine's "innermost loop" path tests for)."""
+        fn = rt.LABEL_OPS[helper]
+        if len(args) != 1:
+            self.fail(f"ballrt.{helper}() expects 1 argument(s), got {len(args)}")
+            return b.null_lit()
+        label = self._name_operand(helper, args[0], "label")
+        if label is None:
+            return b.null_lit()
+        if not label:
+            return b.std_call(fn, None)
+        return b.std_call(fn, b.args_message(("label", b.string_lit(label))))
 
     def encode_print(self, args: list[ast.expr]) -> dict:
         # print() → newline only; the runtime's print always appends "\n".
@@ -890,6 +1249,18 @@ def _collect_locals(stmts: list[ast.stmt]) -> list[str]:
                 walk(s)
             for s in node.orelse:
                 walk(s)
+        elif isinstance(node, ast.Try):
+            # Every loop body `python/compiler` emits lives inside a
+            # break/continue trap, so a `try:` the scan does not descend into
+            # hides most of the corpus's locals: they would be `std.assign`ed
+            # without ever being declared (issue #690). The handlers' OWN names
+            # (`_ex`, `_brk`, …) are not assignments and are consumed by the
+            # recognisers, so they never reach here.
+            for s in node.body + node.orelse + node.finalbody:
+                walk(s)
+            for handler in node.handlers:
+                for s in handler.body:
+                    walk(s)
         elif isinstance(node, ast.FunctionDef):
             # A nested def binds its own name in the enclosing function scope.
             add(node.name)

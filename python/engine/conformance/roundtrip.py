@@ -80,9 +80,34 @@ for _sibling in ("compiler", "encoder"):
 from ball_compiler import compile_program, load_program  # noqa: E402
 from ball_encoder import encode  # noqa: E402
 
-_TIMEOUT_S = float(os.environ.get("BALL_TIMEOUT_S", "60"))
+_DEFAULT_TIMEOUT_S = 60.0
 _WORKERS = int(os.environ.get("BALL_WORKERS", str(min(8, (os.cpu_count() or 4)))))
 _DART = os.environ.get("BALL_DART", "dart")
+
+
+def _fixture_timeout_s() -> float:
+    """The per-fixture Dart-run budget, overridable through ``BALL_TIMEOUT_S``.
+
+    Read per call rather than frozen at import, so the negative control
+    (``python/engine/tests/test_roundtrip_process_tree.py``) can prove the kill
+    in seconds instead of burning the production 60 — a budget no test can reach
+    is a budget nobody has measured (the lesson Rust's leg learned in #693).
+
+    Fails loud on a typo: a budget nobody asked for is worse than no budget.
+    """
+    raw = os.environ.get("BALL_TIMEOUT_S", "").strip()
+    if not raw:
+        return _DEFAULT_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"BALL_TIMEOUT_S is {raw!r}, not a number of seconds — refusing to "
+            f"silently fall back to {_DEFAULT_TIMEOUT_S:.0f}s"
+        ) from None
+    if value <= 0:
+        raise RuntimeError(f"BALL_TIMEOUT_S must be positive, got {value!r}")
+    return value
 
 
 @dataclass
@@ -123,6 +148,34 @@ def _dart_executable() -> str:
     return resolved
 
 
+def _run_dart(dart: str, ball_json: str) -> tuple[int, bytes, bytes]:
+    """Run one re-encoded program on the Dart reference engine.
+
+    Returns ``(returncode, stdout, stderr)`` as BYTES (never text mode — see the
+    module docstring). Raises ``subprocess.TimeoutExpired`` when the program
+    outlives :func:`_fixture_timeout_s`, which is the leg's `timeout` status.
+
+    Its own function rather than three lines inside ``_run_one`` so the kill on
+    that timeout path is reachable from a test: it is the only part of this leg
+    that can leak a process into the CI runner.
+    """
+    proc = subprocess.Popen(
+        [dart, "run", str(_BALL_DART), "run", ball_json],
+        cwd=str(_REPO_ROOT),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,       # bytes: no text=True, no newline translation
+        stderr=subprocess.PIPE,
+    )
+    with proc:
+        try:
+            out, err = proc.communicate(timeout=_fixture_timeout_s())
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
+        return proc.returncode, out, err
+
+
 def _run_one(name: str, path: str, golden: bytes, dart: str, workdir: str) -> Result:
     # 1. Ball -> Python (fail-loud by design; a scope gap is a FAILURE here).
     try:
@@ -150,24 +203,18 @@ def _run_one(name: str, path: str, golden: bytes, dart: str, workdir: str) -> Re
 
     # 4. Run the RE-ENCODED program on the Dart reference engine (ground truth).
     try:
-        proc = subprocess.run(
-            [dart, "run", str(_BALL_DART), "run", ball_json],
-            cwd=str(_REPO_ROOT),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,   # bytes: no text=True, no newline translation
-            timeout=_TIMEOUT_S,
-        )
+        code, stdout, stderr = _run_dart(dart, ball_json)
     except subprocess.TimeoutExpired:
-        return Result(name, "timeout", f"killed after {_TIMEOUT_S:.0f}s")
+        return Result(name, "timeout", f"killed after {_fixture_timeout_s():.0f}s")
 
-    actual = _normalize(proc.stdout).rstrip("\n")
+    actual = _normalize(stdout).rstrip("\n")
     expected = _normalize(golden).rstrip("\n")
     if actual == expected:
         return Result(name, "pass")
 
-    if proc.returncode != 0:
-        err = _normalize(proc.stderr).strip().splitlines()
-        detail = err[-1] if err else f"dart run exited {proc.returncode}"
+    if code != 0:
+        err = _normalize(stderr).strip().splitlines()
+        detail = err[-1] if err else f"dart run exited {code}"
         return Result(name, "error", detail[:200])
 
     el = expected.split("\n")

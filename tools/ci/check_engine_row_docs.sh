@@ -517,7 +517,11 @@ CANNOT_EXECUTE_RES = (
     # run a program", "does not reach golden output" and "never reaches golden
     # output" are all (negation x execution) pairs.
     re.compile(_NEGATION + _EXECUTION, re.IGNORECASE),
-    re.compile(r"no\s+working\s+engine", re.IGNORECASE),
+    # "no working engine", and the pre-#652 C# wording of embedding-per-target.md,
+    # "There is no working `.Run()` today" — MEASURED: the engine-only spelling
+    # this replaced missed the second, which is the same claim about the same
+    # thing, so `no working <entry point>` is the shape, not `no working engine`.
+    re.compile(r"no\s+working\s+[^\n]{0,20}?(?:engine\b|run\(\))", re.IGNORECASE),
     # Idioms whose negation is carried by an adjective or a noun rather than by
     # a verb phrase, so the cross product above cannot reach them.
     re.compile(r"(?:engine|it)\s+is\s+(?:currently\s+|still\s+)?non-?functional", re.IGNORECASE),
@@ -1181,6 +1185,14 @@ MD
     -e 's|^still takes zero parameters\.$|does not reach golden output. There is no working `.Run()` today.|' \
     "$good_per_target" >"$stale_per_target"
 
+  # The SECOND half of that same retired verdict, on its own. The fixture above
+  # carries both sentences, so it keeps failing on the first one and cannot tell
+  # anyone whether "There is no working `.Run()` today" is seen at all — and
+  # measured against the engine-only spelling of the idiom, it was NOT.
+  local no_run_per_target="$SCRATCH/per_target_no_run.md"
+  sed -e 's|^still takes zero parameters\.$|There is no working `.Run()` today.|' \
+    "$good_per_target" >"$no_run_per_target"
+
   # A doc with no `## ` sections at all must fail loud, never pass trivially.
   local no_sections_per_target="$SCRATCH/per_target_no_sections.md"
   cat >"$no_sections_per_target" <<'MD'
@@ -1468,6 +1480,10 @@ YAML
     "$wf" "$good_portability" "$no_output_embed" "$good_per_target" "$good_swept"
 
   # ── issue #765, bullet 2: the five other docs #652 swept, then left ungated ──
+  expect "per-target section saying there is no working entry point fails" 1 \
+    "claims \"no working \`.Run()\"" \
+    "$wf" "$good_portability" "$good_embed" "$no_run_per_target" "$good_swept"
+
   expect "swept doc freezing an engine tally fails" 1 \
     "hard-coded engine count \"three engines\"" \
     "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_tally_swept"
@@ -1496,8 +1512,8 @@ YAML
     "$wf" "$good_portability" "$good_embed" "$good_per_target" "$SCRATCH/does_not_exist.md"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 30 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 30) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 31 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 31) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

@@ -102,3 +102,75 @@ def rethrow():
     if _caught:
         raise BallThrow(_caught[-1])
     raise BallThrow(None)
+
+
+# ── Typed `on <Type> catch` dispatch (issue #724) ───────────────────────────
+#
+# The compiler lowers a `try`'s clause list to an `if`/`elif` chain over
+# :func:`catch_matches`, so the clause-selection RULE lives here — one place,
+# shared by every compiled program — exactly as Go's ``ballrt.CatchMatches``
+# and Rust's ``ball_catch_matches`` do for the same lowering (issue #615).
+
+#: Payload kinds that carry no type tag of their own. A thrown string / number /
+#: bool / list / tuple / set is ``std.throw``'s untagged case.
+_UNTAGGED_BUILTINS = (str, bytes, bytearray, bool, int, float, complex,
+                      list, tuple, set, frozenset)
+
+
+def _reports_own_type_name(thrown) -> bool:
+    """Whether a runtime OBJECT payload names its own exception type.
+
+    A class the *program* defines (a compiled user class) always does. A class
+    the RUNTIME defines does only when it is one of the Dart-shaped error types
+    — ``FormatException`` / ``RangeError`` / ``ArgumentError`` / ``IndexError``
+    from :mod:`ballrt.dart_errors`, and ``StateError`` from
+    :mod:`ballrt.selfhost`. Every other runtime class is a *value* container
+    (``BallSet``, ``StringBuffer``, ``RegExp``, …), which the reference engine
+    sees as an untagged payload, so it must not answer a typed clause.
+
+    Both modules are imported lazily: each of them imports this one.
+    """
+    module = getattr(type(thrown), "__module__", "") or ""
+    if not module.startswith("ballrt."):
+        return True
+    from . import dart_errors
+    from .selfhost import StateError
+
+    return isinstance(thrown, (dart_errors.Exception, dart_errors.Error, StateError))
+
+
+def exception_type_name(thrown) -> str:
+    """The type tag a typed ``on <Type> catch`` clause matches ``thrown`` against.
+
+    Follows the reference engine's rule (``std.throw`` in
+    ``dart/engine/lib/engine_std.dart``, read back by ``_evalLazyTry``): a
+    ``__type__``-tagged map reports its tag, an exception object reports its
+    class name, and anything untagged reports ``std.throw``'s own default,
+    ``Exception``.
+    """
+    if isinstance(thrown, dict):
+        tag = thrown.get("__type__")
+        if isinstance(tag, str) and tag:
+            return tag
+        return "Exception"
+    if thrown is None or isinstance(thrown, _UNTAGGED_BUILTINS) or callable(thrown):
+        return "Exception"
+    if _reports_own_type_name(thrown):
+        return type(thrown).__name__
+    return "Exception"
+
+
+def catch_matches(thrown, type_name: str) -> bool:
+    """Whether an ``on <Type> catch`` clause declaring ``type_name`` handles
+    ``thrown``.
+
+    A thrown value's tag may be module-qualified (``main:StateError``) while the
+    clause names the bare type, so BOTH spellings match — exactly what
+    ``_evalLazyTry`` does in the reference engine. An untyped ``catch (e)``
+    clause is never routed through here: it matches unconditionally.
+    """
+    actual = exception_type_name(thrown)
+    if actual == type_name:
+        return True
+    index = actual.find(":")
+    return index >= 0 and actual[index + 1:] == type_name

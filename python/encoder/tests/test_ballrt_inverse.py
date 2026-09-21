@@ -561,6 +561,10 @@ def test_the_flow_class_names_are_real_runtime_classes() -> None:
             "a flow exception python/runtime no longer exports"
         )
     assert callable(getattr(ballrt, rt.STACK_TRACE_OF, None)), rt.STACK_TRACE_OF
+    # The typed-clause test (#724). A rename here would make every typed catch
+    # chain unrecognisable, which reads as a DROP on the round-trip row rather
+    # than as an error anywhere.
+    assert callable(getattr(ballrt, rt.CATCH_MATCHES, None)), rt.CATCH_MATCHES
     caught = getattr(getattr(ballrt, rt.FLOW_MODULE, None), rt.CAUGHT_STACK, None)
     assert isinstance(caught, list), (
         f"ballrt.{rt.FLOW_MODULE}.{rt.CAUGHT_STACK} is not the rethrow stack the "
@@ -624,6 +628,116 @@ def test_every_helper_field_name_is_declared_by_its_base_function() -> None:
                              f"{list(fields)} — undeclared: {undeclared}")
     assert checked >= 20, f"only {checked} helpers were actually checked"
     assert not wrong, "\n".join(f"{k}: {v}" for k, v in sorted(wrong.items()))
+
+
+# ── The typed `on T catch` dispatch chain (issue #724) ───────────────────────
+#
+# `run_try` now lowers a clause list to `if`/`elif ballrt.catch_matches(...)`
+# with the untyped clause as `else` and, when every clause is typed, a trailing
+# `else: raise _ex`. That is a NEW compiled shape, so the encoder needs its
+# inverse or every program with a typed catch becomes an `encode-error` on the
+# `python-roundtrip` row. These assert the PAIR — a Ball `try` compiled and read
+# back — not a hand-written string that could drift from what the compiler emits.
+
+def _catch_clauses(program: dict) -> list[dict]:
+    """The `catches` elements of the first `std.try` in an encoded program."""
+    def walk(node):
+        if isinstance(node, dict):
+            call = node.get("call")
+            if isinstance(call, dict) and call.get("function") == "try":
+                return node
+            for value in node.values():
+                if (found := walk(value)) is not None:
+                    return found
+        elif isinstance(node, list):
+            for value in node:
+                if (found := walk(value)) is not None:
+                    return found
+        return None
+
+    call = walk(program)
+    assert call is not None, "encoded program has no std.try"
+    fields = call["call"]["input"]["messageCreation"]["fields"]
+    catches = next(f for f in fields if f["name"] == "catches")
+    return catches["value"]["literal"]["listValue"]["elements"]
+
+
+def _clause_strings(clause: dict) -> dict[str, str]:
+    return {f["name"]: f["value"].get("literal", {}).get("stringValue", "<expr>")
+            for f in clause["messageCreation"]["fields"]}
+
+
+def _ball_try(catches: list[dict]) -> dict:
+    """A one-function Ball program whose `main` is `try { throw 'boom' } …`."""
+    def lit(text):
+        return {"literal": {"stringValue": text}}
+
+    throw = {"call": {"module": "std", "function": "throw", "input": {
+        "messageCreation": {"typeName": "", "fields": [
+            {"name": "value", "value": lit("boom")}]}}}}
+    call = {"call": {"module": "std", "function": "try", "input": {
+        "messageCreation": {"typeName": "", "fields": [
+            {"name": "body", "value": throw},
+            {"name": "catches", "value": {"literal": {"listValue": {
+                "elements": catches}}}}]}}}}
+    return {"name": "t", "version": "1", "entryModule": "main",
+            "entryFunction": "main", "modules": [
+                {"name": "std", "functions": [{"name": "print", "isBase": True},
+                                              {"name": "throw", "isBase": True},
+                                              {"name": "try", "isBase": True}]},
+                {"name": "main", "functions": [{"name": "main", "metadata": {"kind": "function"},
+                                                "body": call}]}]}
+
+
+def _ball_catch(text: str, *, type_name: str | None = None,
+                variable: str | None = None) -> dict:
+    fields = []
+    if type_name is not None:
+        fields.append({"name": "type", "value": {"literal": {"stringValue": type_name}}})
+    if variable is not None:
+        fields.append({"name": "variable", "value": {"literal": {"stringValue": variable}}})
+    fields.append({"name": "body", "value": {
+        "call": {"module": "std", "function": "print", "input": {
+            "messageCreation": {"typeName": "PrintInput", "fields": [
+                {"name": "message", "value": {"literal": {"stringValue": text}}}]}}}}})
+    return {"messageCreation": {"fields": fields}}
+
+
+def test_typed_catch_chain_reads_back_as_its_whole_clause_list() -> None:
+    program = _ball_try([
+        _ball_catch("first", type_name="StateError"),
+        _ball_catch("second", type_name="FormatException", variable="e"),
+        _ball_catch("fallback", variable="f"),
+    ])
+    source = compile_program(program)
+    assert f"{rt.RUNTIME_MODULE}.{rt.CATCH_MATCHES}(" in source
+    clauses = [_clause_strings(c) for c in _catch_clauses(encode(source))]
+    assert [c.get("type") for c in clauses] == ["StateError", "FormatException", None]
+    assert [c.get("variable") for c in clauses] == [None, "e", "f"]
+    # And the re-encoded program still behaves: a thrown string is `Exception`,
+    # so neither typed clause matches and the untyped fallback runs.
+    assert _run_source(compile_program(encode(source))) == "fallback\n"
+
+
+def test_an_all_typed_chains_reraise_is_not_a_clause() -> None:
+    """`else: raise _ex` is `std.try`'s own "nothing matched" semantics, so it
+    encodes to NO clause — an extra untyped clause there would turn a program
+    that propagates into one that swallows."""
+    program = _ball_try([_ball_catch("wrong", type_name="StateError")])
+    source = compile_program(program)
+    clauses = [_clause_strings(c) for c in _catch_clauses(encode(source))]
+    assert [c.get("type") for c in clauses] == ["StateError"]
+
+
+def test_a_single_untyped_catch_still_lowers_without_a_dispatch_chain() -> None:
+    """The commonest shape must stay byte-identical to what it was before the
+    chain existed — an untyped clause needs no test, so emitting one would put a
+    `catch_matches` call in every compiled `try` in the corpus."""
+    source = compile_program(_ball_try([_ball_catch("only", variable="e")]))
+    assert rt.CATCH_MATCHES not in source
+    clauses = [_clause_strings(c) for c in _catch_clauses(encode(source))]
+    assert clauses == [{"variable": "e", "body": "<expr>"}]
+
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     sys.exit(pytest.main([__file__]))

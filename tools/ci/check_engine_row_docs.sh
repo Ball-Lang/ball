@@ -971,6 +971,110 @@ MD
 Dart, TypeScript, C++, Rust, C#, Go and Python are all covered below.
 MD
 
+  # ── the SWEPT prose docs (issue #765) ─────────────────────────────────────
+  # The six docs PR #652 hand-corrected for the same stale-engine claim but
+  # left ungated: CLAUDE.md, tests/AGENTS.md, dart/encoder/AGENTS.md,
+  # dart/self_host/AGENTS.md, docs/SELF_HOST_STATUS.md and
+  # dart/ball_protobuf/README.md. They carry no engine TABLE and no per-language
+  # SECTION, so rules 3-5 cannot reach them; what they carry is the same two
+  # claims in running prose.
+  #
+  # This fixture is the NEGATIVE-CONTROL half: every legitimate shape that must
+  # keep passing lives here — the four documented embeddability caveats
+  # ("Trusted only", "no public constructor", "no NuGet package yet", "does not
+  # compile for Flutter web"), a PARTIAL language reference that is not an
+  # exhaustive claim ("the TS/C#/Go/Python engine regeneration commands"), a
+  # COMPLETE exhaustive enumeration, and two tallies that are not engine
+  # tallies ("all four verbs", "three legs").
+  local good_swept="$SCRATCH/swept_good.md"
+  cat >"$good_swept" <<'MD'
+# Notes
+
+- Encoder changes hit user programs AND the self-hosted engine — verify every engine row of
+  `conformance-matrix.yml`'s `summary` parity table, not Dart-only.
+- The runtime behaves identically across every full-corpus Ball engine (Dart, TypeScript,
+  C++, Rust, C#, Go, Python) — see the portability matrix.
+- Regenerate via the TS/C#/Go/Python engine regeneration commands above; a partial reference
+  to four of them is not a claim about the whole set.
+- `ball` exposes all four verbs, and the C# conformance harness has three legs.
+- Rust is Trusted only, C++ has no public constructor, Go has no NuGet package yet, and the
+  Dart engine does not compile for Flutter web.
+MD
+
+  # The exact text PR #652 reverted out of dart/encoder/AGENTS.md and
+  # dart/self_host/AGENTS.md. A frozen engine tally is a lie waiting to happen
+  # (the set only ever grows), and this one is already wrong by four languages.
+  local stale_tally_swept="$SCRATCH/swept_stale_tally.md"
+  cat >"$stale_tally_swept" <<'MD'
+# Notes
+
+- A Dart-only engine fix is half a fix — re-run conformance on all three engines.
+MD
+
+  # An exhaustive claim that ENUMERATES, but omits languages the parity table
+  # defines. "every full-corpus engine (Dart, TypeScript, C++)" is the shape
+  # docs/SELF_HOST_STATUS.md and dart/ball_protobuf/README.md carry today with a
+  # complete list — the moment an 8th engine row lands, theirs look like this.
+  local stale_subset_swept="$SCRATCH/swept_stale_subset.md"
+  cat >"$stale_subset_swept" <<'MD'
+# Notes
+
+The resolver behaves identically across every full-corpus Ball engine (Dart, TypeScript,
+C++) — see the portability matrix.
+MD
+
+  # A stale EXECUTION verdict in prose, worded outside the five regexes the
+  # guard shipped with (issue #765, bullet 1).
+  local stale_verdict_swept="$SCRATCH/swept_stale_verdict.md"
+  cat >"$stale_verdict_swept" <<'MD'
+# Notes
+
+For Go, engine execution is unsupported until the module tags move.
+MD
+
+  # ── differently-worded stale verdicts in a CURRENTLY guarded doc (#765) ────
+  # Both fixtures are the #613 defect — a row that is present, correctly named
+  # and flatly wrong — phrased outside the five regexes the guard shipped with.
+  local nonfunctional_embed="$SCRATCH/embed_nonfunctional.md"
+  cat >"$nonfunctional_embed" <<'MD'
+# Ball Embed
+
+## Per-target honest status
+
+| Target | Embeddable for untrusted input? |
+|---|---|
+| **Dart** | Yes |
+| **TypeScript** | Partial |
+| **Rust** | Trusted only, and `pub fn run(&self)` takes no parameters. |
+| **C++** | Trusted only: no public constructor, and no `ball audit` for C++ at all. |
+| **C#** | **No.** The engine is non-functional for now (`SelfHostPendingException`). |
+| **Go** | Trusted only. No sandbox, no module-allowlist, no NuGet package yet. |
+| **Python** | Trusted only. No sandbox, no module-allowlist, no custom modules. |
+
+## Dangerous assumptions
+Not part of the table.
+MD
+
+  local no_output_embed="$SCRATCH/embed_no_output.md"
+  cat >"$no_output_embed" <<'MD'
+# Ball Embed
+
+## Per-target honest status
+
+| Target | Embeddable for untrusted input? |
+|---|---|
+| **Dart** | Yes |
+| **TypeScript** | Partial |
+| **Rust** | Trusted only, and `pub fn run(&self)` takes no parameters. |
+| **C++** | Trusted only: no public constructor, and no `ball audit` for C++ at all. |
+| **C#** | **No.** It still cannot produce output (`SelfHostPendingException`). |
+| **Go** | Trusted only. No sandbox, no module-allowlist, no NuGet package yet. |
+| **Python** | Trusted only. No sandbox, no module-allowlist, no custom modules. |
+
+## Dangerous assumptions
+Not part of the table.
+MD
+
   # name, wanted exit code, required substring of the output, then the 3 files.
   # The needle is what keeps a case honest: an assertion on the exit code
   # alone would accept a failure for the wrong reason.
@@ -994,46 +1098,46 @@ MD
   # Doubles as the negative control for the two frozen-tally rules: this
   # fixture carries "the 2023 row above" and "the 65 KB … budget", neither of
   # which may be mistaken for an engine tally.
-  expect "all three docs clean pass" 0 "Results: 10 passed, 0 failed, 10 total" \
-    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+  expect "all four doc surfaces clean pass" 0 "Results: 12 passed, 0 failed, 12 total" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "hard-coded fixture count fails" 1 "hard-coded fixture count \"293 fixtures\"" \
-    "$wf" "$counted_portability" "$good_embed" "$good_per_target"
+    "$wf" "$counted_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "hard-coded engine tally fails" 1 "hard-coded engine count \"7 engines\"" \
-    "$wf" "$tallied_portability" "$good_embed" "$good_per_target"
+    "$wf" "$tallied_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "quantified tally (\"Each of the 7 rows\") fails, edition years do not" 1 \
     "hard-coded engine count \"Each of the 7\"" \
-    "$wf" "$quantified_portability" "$good_embed" "$good_per_target"
+    "$wf" "$quantified_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "short portability table fails" 1 "table is missing row(s) for Rust, C#, Go, Python" \
-    "$wf" "$partial_portability" "$good_embed" "$good_per_target"
+    "$wf" "$partial_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "portability table missing ONE engine its prose still names fails" 1 \
     "table is missing row(s) for Go" \
-    "$wf" "$prose_only_portability" "$good_embed" "$good_per_target"
+    "$wf" "$prose_only_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "portability table deleted entirely fails" 1 "carries NO markdown table" \
-    "$wf" "$no_table_portability" "$good_embed" "$good_per_target"
+    "$wf" "$no_table_portability" "$good_embed" "$good_per_target" "$good_swept"
   expect "short embed table fails on the row floor" 1 \
     "table has 5 data row(s) but the workflow defines 7 engine(s)" \
-    "$wf" "$good_portability" "$short_embed" "$good_per_target"
+    "$wf" "$good_portability" "$short_embed" "$good_per_target" "$good_swept"
   expect "embed table missing engines its prose still names fails" 1 \
     "table is missing row(s) for Go, Python" \
-    "$wf" "$good_portability" "$short_embed" "$good_per_target"
+    "$wf" "$good_portability" "$short_embed" "$good_per_target" "$good_swept"
 
   expect "a substring of an engine name does not count as its row" 1 \
     "table is missing row(s) for Go" \
-    "$wf" "$good_portability" "$substring_embed" "$good_per_target"
+    "$wf" "$good_portability" "$substring_embed" "$good_per_target" "$good_swept"
 
   # The verdict rule. The row COUNT and the row NAMES are both fine here, so
   # every other rule passes this fixture — which is exactly why #613's first
   # bullet had no test before.
   expect "embed row claiming a parity engine cannot execute fails" 1 \
     "row claims \"does not execute\"" \
-    "$wf" "$good_portability" "$stale_embed" "$good_per_target"
+    "$wf" "$good_portability" "$stale_embed" "$good_per_target" "$good_swept"
 
   # The legitimate vocabulary the verdict rule must NOT eat: "Trusted only",
   # "no public constructor", "no NuGet package yet" all survive in the clean
   # fixture above, whose rows carry each of them.
   expect "embeddability caveats are not execution claims" 0 \
     "no '## Per-target honest status' row claims a parity-table engine cannot execute a program (OK)" \
-    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A workflow with an empty summary.needs must fail loud, not pass trivially.
   local empty_wf="$SCRATCH/wf_empty.yml"
@@ -1044,7 +1148,7 @@ jobs:
     needs: []
 YAML
   expect "empty summary.needs fails loud" 1 "the \`summary\` job's \`needs:\` list is empty" \
-    "$empty_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$empty_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A parity row reporting a job the summary does NOT depend on can never make
   # the matrix fail — deriving an engine from it would be a fake green.
@@ -1068,7 +1172,7 @@ jobs:
 YAML
   expect "parity row outside summary.needs fails loud" 1 \
     "which is NOT in the \`summary\` job's \`needs:\`" \
-    "$orphan_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$orphan_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A summary job whose parity table is gone must fail loud, never derive zero
   # engines and pass both docs trivially.
@@ -1087,7 +1191,7 @@ jobs:
 YAML
   expect "summary job with no parity table fails loud" 1 \
     "could not find the \`summary\` job's parity table" \
-    "$no_table_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$no_table_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # A workflow with no summary job at all must fail loud too.
   local no_summary_wf="$SCRATCH/wf_no_summary.yml"
@@ -1097,7 +1201,7 @@ jobs:
     name: Dart Engine
 YAML
   expect "missing summary job fails loud" 1 "could not find the \`summary\` job" \
-    "$no_summary_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$no_summary_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # ── embedding-per-target.md (issue #709) ───────────────────────────────────
   # Rules 1-4 gate two TABLES. This file repeats the same per-language verdict
@@ -1105,19 +1209,19 @@ YAML
   # verdict in place, reds both tables and says nothing about this file.
   expect "per-target doc missing a section for a derived engine fails" 1 \
     "no '## ' section for Go" \
-    "$wf" "$good_portability" "$good_embed" "$missing_per_target"
+    "$wf" "$good_portability" "$good_embed" "$missing_per_target" "$good_swept"
   expect "per-target section with no prose fails" 1 \
     "'## Go' section carries no prose" \
-    "$wf" "$good_portability" "$good_embed" "$empty_section_per_target"
+    "$wf" "$good_portability" "$good_embed" "$empty_section_per_target" "$good_swept"
   expect "per-target section claiming a parity engine cannot execute fails" 1 \
     "does not reach golden output" \
-    "$wf" "$good_portability" "$good_embed" "$stale_per_target"
+    "$wf" "$good_portability" "$good_embed" "$stale_per_target" "$good_swept"
   expect "per-target doc with no sections at all fails loud" 1 \
     "carries no '## ' sections at all" \
-    "$wf" "$good_portability" "$good_embed" "$no_sections_per_target"
+    "$wf" "$good_portability" "$good_embed" "$no_sections_per_target" "$good_swept"
   expect "per-target embeddability caveats are not execution claims" 0 \
     "names all 7 derived engine(s) in per-language sections (OK)" \
-    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
 
   # The mutation issue #709 names outright: an 8th engine row added to the
   # workflow. All three docs here are the CLEAN, real-shaped fixtures --
@@ -1131,11 +1235,51 @@ YAML
     "$wf" >"$eighth_wf"
   expect "an 8th engine row reds the per-target doc, not just the two tables" 1 \
     "no '## ' section for Zig" \
-    "$eighth_wf" "$good_portability" "$good_embed" "$good_per_target"
+    "$eighth_wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
+
+  # ── issue #765, bullet 1: the verdict rule may not be a five-phrase allowlist ──
+  # Both fixtures are #613's defect verbatim in SHAPE — a row that is present,
+  # correctly named, and flatly wrong — worded outside the five hand-picked
+  # phrasings the guard shipped with. A reader of either row is told the C#
+  # engine cannot run a program, which the parity table contradicts on every run.
+  expect "embed row calling a parity engine non-functional fails" 1 \
+    "row claims \"engine is non-functional\"" \
+    "$wf" "$good_portability" "$nonfunctional_embed" "$good_per_target" "$good_swept"
+  expect "embed row saying a parity engine produces no output fails" 1 \
+    "row claims \"cannot produce output\"" \
+    "$wf" "$good_portability" "$no_output_embed" "$good_per_target" "$good_swept"
+
+  # ── issue #765, bullet 2: the five other docs #652 swept, then left ungated ──
+  expect "swept doc freezing an engine tally fails" 1 \
+    "hard-coded engine count \"three engines\"" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_tally_swept"
+  expect "swept doc enumerating only some engines as if exhaustive fails" 1 \
+    "omits Rust, C#, Go, Python" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_subset_swept"
+  expect "swept doc claiming a parity engine cannot execute fails" 1 \
+    "claims \"execution is unsupported\"" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$stale_verdict_swept"
+
+  # The negative controls the broadened verdict rule must NOT eat, plus the two
+  # shapes the engine-set rule must NOT eat: a PARTIAL language reference that
+  # makes no exhaustive claim, and a tally of something that is not an engine.
+  expect "swept-doc caveats, partial references and non-engine tallies all pass" 0 \
+    "no frozen engine-set claim (OK)" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$good_swept"
+
+  # POSITIVE FLOOR. Gating zero swept docs, or one that is not there, must fail
+  # loud — a guard that silently checked nothing is the failure mode this whole
+  # file exists to prevent.
+  expect "zero swept docs fails loud" 1 \
+    "refusing to gate ZERO swept docs" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target"
+  expect "a swept doc that is not there fails loud" 1 \
+    "swept doc not found" \
+    "$wf" "$good_portability" "$good_embed" "$good_per_target" "$SCRATCH/does_not_exist.md"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 22 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 22) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 30 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 30) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

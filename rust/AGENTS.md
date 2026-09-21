@@ -1056,6 +1056,24 @@ local `String` is the silent miscompile the frame exists to prevent. And `String
 target" bucket, so arm (a) would have been unreachable; capacity is an allocation hint with no
 observable effect and Ball has no allocation model to carry it into.
 
+**The capacity argument's EVALUATION survives, even though its value does not (#777).** Dropping
+the hint is sound; dropping the expression that computes it is not —
+`String::with_capacity(next_id())` runs `next_id()` in Rust, and before #777 the encoded program
+did not, a silent degradation the pre-#630 "unsupported call target" refusal did not have.
+`capacity_argument_is_evaluation_free` is the CLOSED set that keeps the bare empty-string fast
+path: a literal, or a path read (a local, a `const`, a `static`), through `(…)`/group wrappers —
+reading a place as a value runs no user code. Every other argument (a call, a method call, a
+macro, an index or an arithmetic expression, both of which can panic) is encoded as the single
+statement of a `block` whose `result` is the empty string, so the value is dropped and the
+effects are not. Only WIDENING that set is unsound: the block wrapper is always correct, and it
+is invisible to arm (a), which classifies the `syn` AST (`is_string_constructor`), never the
+encoded node. The guard is behavioural, not structural — a dropped side effect still produces a
+well-formed `Program`, so
+`write_sinks.rs::with_capacity_still_evaluates_an_argument_that_has_a_side_effect` compiles and
+RUNS the encoded program and diffs stdout as bytes, with
+`with_capacity_of_a_literal_or_a_plain_name_stays_a_bare_empty_string` as the control on the fast
+path.
+
 And a `&mut` ALIAS binding resolves to the variable it borrows before the table above is
 consulted. `let slot = &mut s;` is recorded in `Encoder::ref_aliases` and emits no `let` at all
 (issue #642 — Ball has no references), and every read of `slot` resolves back to `s` in

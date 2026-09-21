@@ -1018,6 +1018,26 @@ fn is_string_constructor(expr: &syn::Expr) -> bool {
     }
 }
 
+/// Is evaluating `expr` unobservable, so that `String::with_capacity`'s
+/// capacity argument can be dropped WHOLE rather than encoded for its effects
+/// (issue #777)? A deliberately tiny, CLOSED set — a literal, or a path read
+/// (a local, a `const`, a `static`), through `(…)`/group wrappers. It is not a
+/// purity analysis and must never grow into a guess: a call, a method call, a
+/// macro, an index (which can panic), even an arithmetic expression (which can
+/// panic on overflow) all go the other way, and the other way is always
+/// CORRECT — encoding the argument for its effects and discarding its value
+/// costs nothing but a `block` wrapper. Only the widening direction is unsound.
+fn capacity_argument_is_evaluation_free(expr: &syn::Expr) -> bool {
+    match expr {
+        syn::Expr::Paren(e) => capacity_argument_is_evaluation_free(&e.expr),
+        syn::Expr::Group(e) => capacity_argument_is_evaluation_free(&e.expr),
+        // A literal (`32`) and a name read (`cap`, `CAP`, `Self::CAP`) both
+        // run no user code: reading a place as a value is a move or a copy.
+        syn::Expr::Lit(_) | syn::Expr::Path(_) => true,
+        _ => false,
+    }
+}
+
 /// Strip the borrow/paren/group wrappers a `write!` destination may carry, so
 /// `&mut s`, `(&mut s)` and `s` all classify identically. `core` expands
 /// `write!($dst, ..)` to `$dst.write_fmt(..)`, and a method receiver
@@ -2027,20 +2047,36 @@ impl Encoder {
                 // (<https://doc.rust-lang.org/std/string/struct.String.html#method.with_capacity>:
                 // "the string will be able to hold at least `capacity` bytes
                 // without reallocating"), and Ball has no allocation model to
-                // carry it into, so dropping it cannot change a result.
+                // carry it into, so dropping the VALUE cannot change a result.
+                //
+                // Dropping the argument's EVALUATION would (issue #777):
+                // `String::with_capacity(next_id())` runs `next_id()` in Rust,
+                // so the encoded program has to run it too. An argument whose
+                // evaluation cannot be observed keeps the bare empty string;
+                // anything else is encoded as a statement of a `block` whose
+                // result is that empty string — the value is still dropped,
+                // the effects are not.
                 //
                 // Needed by issue #630's local-`String` arm: `write!(&mut s,
                 // ..)` is only allowed to re-assign `s` when `s` is a
                 // provably-local `String`, and these two are exactly the
                 // initialisers that prove it — so the encoder has to be able
-                // to encode them in the first place. Every OTHER
-                // `Type::assoc()` on a foreign type stays the documented gap
-                // the panic below names.
+                // to encode them in the first place. The block wrapper is
+                // invisible to that arm, which classifies the `syn` AST
+                // (`is_string_constructor`), never the encoded node. Every
+                // OTHER `Type::assoc()` on a foreign type stays the documented
+                // gap the panic below names.
                 if path.segments.len() == 2
                     && path.segments[0].ident == "String"
                     && ((last_name == "new" && e.args.is_empty())
                         || (last_name == "with_capacity" && e.args.len() == 1))
                 {
+                    if last_name == "with_capacity"
+                        && !capacity_argument_is_evaluation_free(&e.args[0])
+                    {
+                        let hint = self.encode_expr(&e.args[0]);
+                        return block_expr(vec![expr_stmt(hint)], string_literal(""));
+                    }
                     return string_literal("");
                 }
                 // `Ok(x)` / `Err(x)` / `Some(x)` — the unified
@@ -2591,6 +2627,16 @@ pub(crate) fn let_stmt(name: impl Into<String>, value: Expression) -> Statement 
             value: Some(value),
             metadata: None,
         })),
+    }
+}
+
+/// A bare expression [`Statement`] — evaluated for its side effects, its value
+/// discarded. The same node `block.rs` builds for a semicolon-terminated Rust
+/// statement, and what `encode_call` wraps a dropped-but-still-evaluated
+/// `String::with_capacity` argument in (issue #777).
+pub(crate) fn expr_stmt(value: Expression) -> Statement {
+    Statement {
+        stmt: Some(BallStmt::Expression(value)),
     }
 }
 

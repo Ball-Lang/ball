@@ -10365,6 +10365,100 @@ void main() {
     });
   });
 
+  // ── Which backing store a setter mirror writes (issue #768) ──────────────
+  //
+  // After a setter runs, the engine mirrors the setter's RETURN value onto the
+  // instance's backing store, because a target that value-copies `self` never
+  // observes the body's own write. WHICH store has to be derived from the
+  // setter body: the pre-#768 code guessed the literal name `_celsius`
+  // whenever `_<property>` was absent, so any class that happened to declare a
+  // `_celsius` field had it silently overwritten by an unrelated setter —
+  // a wrong answer with no diagnostic.
+  group('setter backing-store mirror (#768)', () {
+    test('an unrelated _celsius field is left untouched', () async {
+      const src = '''
+class Reading {
+  int _celsius;
+  int _kelvin;
+
+  Reading(this._celsius, this._kelvin);
+
+  int get celsius => _celsius;
+  int get kelvin => _kelvin;
+
+  set fahrenheit(int value) => _kelvin = value + 1;
+}
+
+void main() {
+  final r = Reading(10, 0);
+  r.fahrenheit = 211;
+  print(r.celsius);
+  print(r.kelvin);
+}
+''';
+      // RED before the fix: ['212', '212'] — `_fahrenheit` does not exist, so
+      // the mirror fell through to the hardcoded `_celsius` branch and wrote
+      // the setter's result onto a field the setter never names.
+      expect(await runAndCapture(_encodeMain(src)), ['10', '212']);
+    });
+
+    test(
+      'an INHERITED computed setter mirrors its own backing store',
+      () async {
+        const src = '''
+class Reading {
+  int _celsius;
+  int _kelvin;
+
+  Reading(this._celsius, this._kelvin);
+
+  int get celsius => _celsius;
+  int get kelvin => _kelvin;
+
+  set fahrenheit(int value) => _kelvin = value + 1;
+}
+
+class SubReading extends Reading {
+  SubReading(int c, int k) : super(c, k);
+}
+
+void main() {
+  final s = SubReading(7, 0);
+  s.fahrenheit = 99;
+  print(s.celsius);
+  print(s.kelvin);
+}
+''';
+        // The super-chain dispatch is the SECOND call site of the mirror; it
+        // carried the same hardcoded fallback.
+        expect(await runAndCapture(_encodeMain(src)), ['7', '100']);
+      },
+    );
+
+    test('the `_<property>` convention still mirrors', () async {
+      const src = '''
+class Box {
+  int _size;
+
+  Box(this._size);
+
+  int get size => _size;
+
+  set size(int value) => _size = value;
+}
+
+void main() {
+  final b = Box(1);
+  b.size = 5;
+  print(b.size);
+}
+''';
+      // The positive floor: deriving the store from the body must not stop the
+      // ordinary `set size` → `_size` case from mirroring.
+      expect(await runAndCapture(_encodeMain(src)), ['5']);
+    });
+  });
+
   // ── The declared text sink `std.sink_*` (issue #630) ─────────────────────
   //
   // Before #630 Ball had no DECLARED sink. It had an undeclared one: a

@@ -1129,10 +1129,43 @@ would shrink with the table and the suite would stay green on a smaller
 population. A floor is a claim about what was measured, not a round number
 below it.
 
-The same rule generalises: whenever a component decides something by NAME —
-a route table, a method-arity window, a rendering table (#641) — the test that
-bounds it must read the table, not a copy of it, and it must enumerate the
-INPUT SHAPES that table is applied to.
+**A floor at the measured value is still only a COUNT, and a count cannot see a
+substitution** (#786). Raise that bound to `greaterThanOrEqualTo(10)` and a
+deletion does fail — but a SWAP does not move the number at all: `isEven` out,
+`isBlank` in, ten names before and ten after, and the derived matrix quietly
+iterates a different population than the one this document,
+`.claude/rules/dart.md`, `dart/encoder/AGENTS.md` and fixture 476 all name by
+literal string.
+A rename has the same arithmetic signature, and an addition lands with no
+acknowledgement anywhere, so the "ten getter names" prose drifts from the code
+in silence. (It is the same shape as the coverage study's `excluded.json`
+(#676): a count could not tell a partial readmission from a pin whose test
+suite shrank by three while its library grew by three, so the *identities* had
+to be committed.) The gate is therefore exact SET EQUALITY against an
+independently restated name list, reporting the missing and the unexpected
+names separately so a failure states the mutation rather than a number.
+
+**And the gate has to be a FUNCTION the suite can feed a table it should
+reject.** An assertion written inline against the table it is bounding can
+demonstrate only that today's table passes — which is the very same green a
+gate with no teeth prints, and is exactly what the count-only version printed
+for three of the four mutations above. `closedSetComplaints` in that file is a
+plain `Set<String> -> List<String>`, and the suite hands it a deletion, a swap,
+a rename and an addition (each of which must be rejected) plus the real table
+and the expected literal (each of which must be accepted — the positive
+control that stops the other four passing because the gate rejects
+everything). Prove the instrument, then point it at the code.
+
+The same rule generalises, in two halves that read the table differently on
+purpose: whenever a component decides something by NAME — a route table, a
+method-arity window, a rendering table (#641) — the test that enumerates the
+INPUT SHAPES must read the table itself, not a copy of it, so a new entry gets
+its cases with no test edit; and the test that bounds MEMBERSHIP must compare
+that table against an independent copy, so an entry that leaves it, or is
+swapped for another, cannot pass as a smaller-but-green population. Reading
+only the table catches no mutation OF the table at all; holding only a copy
+catches every one of them and still leaves a new entry's input shapes
+unexercised.
 
 #### A guard whose table is flattened for one member kind and not another
 

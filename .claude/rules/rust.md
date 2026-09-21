@@ -862,9 +862,10 @@ and its own encoder refuses caps that column no matter how good either half is o
   At 121 the row's own "first still-failing fixture" line names `ball_message_type_name`
   (#718); re-measure the other leaders from a run artifact rather than quoting the pre-#712
   figures, which were taken at 109. **#692's 124 and #712's 121 are two INDEPENDENT measurements
-  against the same 109 baseline, each taken on its own branch — never add them.** The floor is the
-  higher of the two until a run on the merged tree prints the combined number; raise it to THAT.
-  The
+  against the same 109 baseline, each taken on its own branch — never add them.** The merged tree
+  MEASURES **138 of 362** (run 35561847017, job 106216902719) and that is what
+  `RUST_ROUNDTRIP_FLOOR` carries: the number a run printed, never one derived from two. The
+  leader at 138 is still `ball_message_type_name` (#718). The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`

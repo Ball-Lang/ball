@@ -149,9 +149,11 @@ emitting `Vec::new()`/`matches!`, and `ball_iterate`/`ball_spread_iter` gained t
 universal-`std` inverses, so every fixture whose compiled output carries a `for-in` loop or a
 spliced literal re-encodes now.
 #692's 124 and #712's 121 are two INDEPENDENT measurements of the same row, each taken on its own
-branch against 109; neither is the merged total and they must not be added. `RUST_ROUNDTRIP_FLOOR`
-is the higher of the two (124) until a run on the merged tree prints the combined number, which is
-then what the floor is raised to.
+branch against the same 109 baseline; neither is the merged total and they must never be added.
+The merged tree MEASURES **138 of 362** (run 35561847017, job 106216902719), and
+`RUST_ROUNDTRIP_FLOOR` is 138 — the number a run printed, not one derived from two. The leader at
+138 is still `ball_message_type_name` (#718), which is what the row's own "first still-failing
+fixture" line names (`101_simple_class`).
 The leader is `ball_message_type_name` (#718's dispatcher scrutinee), which is what the row's
 own "first still-failing fixture" line named at 121 (`101_simple_class`); re-measure
 `ball_arg_get` and `BallFlow::Normal` from a run's artifact before quoting their counts — the

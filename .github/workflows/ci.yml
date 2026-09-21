@@ -566,8 +566,21 @@ jobs:
       # per-language verdict one level deeper, as prose rather than a table, and
       # is gated the same way since #709: a `## <Language>` section, carrying
       # prose, per derived engine, none of them claiming it cannot execute.
-      # `--self-test` first: a guard that stopped deriving must not pass.
-      - name: "Engine-row doc drift guard (#610, #613, #709)"
+      #
+      # Since #765 the SIX prose docs PR #652 hand-corrected for the identical
+      # claim and then left ungated (CLAUDE.md, tests/AGENTS.md,
+      # dart/encoder/AGENTS.md, dart/self_host/AGENTS.md,
+      # docs/SELF_HOST_STATUS.md, dart/ball_protobuf/README.md) are gated by the
+      # SAME script and this SAME step — they are its own defaults, so nothing
+      # here needs a path list. They carry no table and no per-language section,
+      # so they get the prose form of the same two questions: no frozen engine
+      # tally or exhaustive list that omits a derived language, and no line
+      # claiming a parity-table engine cannot run a program. #765 also rebuilt
+      # the verdict test from a five-phrase allowlist into a negation x
+      # execution vocabulary, so "the engine is non-functional" no longer reads
+      # as a clean pass. `--self-test` first: a guard that stopped deriving must
+      # not pass.
+      - name: "Engine-row doc drift guard (#610, #613, #709, #765)"
         run: |
           bash tools/ci/check_engine_row_docs.sh --self-test
           bash tools/ci/check_engine_row_docs.sh

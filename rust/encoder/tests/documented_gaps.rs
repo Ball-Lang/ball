@@ -554,7 +554,7 @@ fn the_matches_macro_is_a_documented_gap() {
 /// the pipeline, so the map path's state is OBSERVED rather than assumed. After
 /// #712 the stop is this ONE construct, where it used to be three.
 #[test]
-#[should_panic(expected = "`ball_map_create(...) is only encodable over a LITERAL")]
+#[should_panic(expected = "ball_map_create(...) is only encodable over a LITERAL")]
 fn compiled_spliced_map_literal_stops_at_ball_map_create() {
     let program = map_comprehension_program();
     let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();

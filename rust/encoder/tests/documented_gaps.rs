@@ -448,68 +448,116 @@ fn compiled_entry_point_iife_encodes() {
     );
 }
 
-/// The same invariant's other OPEN shape, tracked as issue #712 — and the
-/// one the #632 sweep found by enumerating what the compiler EMITS rather than
-/// assuming the dispatcher's `panic!` was the only instance.
+/// #712, CLOSED: the spliced-collection-literal lowering re-encodes.
 ///
 /// `base_call.rs::compile_list_literal` switches to an **imperative** lowering
 /// the moment any element splices (a spread, `collection_if` or
-/// `collection_for`), and that lowering emits TWO constructs this encoder
-/// refuses:
+/// `collection_for`) — so this was never one construct's problem but every
+/// spliced list, set and map literal's. That lowering used to open with
+/// `let mut __lit: Vec<BallValue> = Vec::new();`, an associated function on a
+/// foreign TYPE and a documented `lib.rs` gap, and to spell the null-spread
+/// guard as `if !matches!(__sp, BallValue::Null)`, a pattern match over a
+/// runtime-crate enum variant. This encoder refuses both on purpose (see
+/// `methods.rs`'s module doc comment: an arm for either would encode a
+/// compiler-internal spelling while still refusing every real-world
+/// occurrence, and real-world occurrences are what Tier A measures), so every
+/// library whose compiled output held a spliced collection literal failed
+/// Tier A's stage 3 at the `Vec::new()`, with the `matches!` behind it.
 ///
-/// 1. `let mut __lit: Vec<BallValue> = Vec::new();` — an associated function on
-///    a foreign TYPE, a documented `lib.rs` gap, and the FIRST refusal;
-/// 2. `if !matches!(__sp, BallValue::Null)` — the null-spread guard, refused by
-///    `methods.rs::encode_macro` (pinned separately below, since a
-///    `#[should_panic]` can only observe the first panic).
-///
-/// So #712 is the whole lowering, not one macro: every library whose compiled
-/// output contains a spliced collection literal fails stage 3. The `assert!`s
-/// below hold BOTH constructs, so the pin cannot quietly narrow to one.
+/// #712 fixed it on the COMPILER side, in the plain-call vocabulary the
+/// lowering's neighbours already use: `BallList::new()` + `.push()` for the
+/// accumulator (`runtime_ctors.rs` already inverts the first, `methods.rs` the
+/// second) and `ball_truthy(ball_not_equals(__sp.clone(), BallValue::Null))`
+/// for the guard — two helpers `runtime_helpers.rs` already maps, composing to
+/// exactly what the guard means. The two helpers the loops themselves name,
+/// `ball_spread_iter` and `ball_iterate`, gained their inverses in the same
+/// change (`std.spread`, and the iteration coercion `std.for_in` performs
+/// implicitly).
 ///
 /// The input is a Ball program, not Rust source, and deliberately so: Rust has
 /// no `...?` syntax, so this construct can only enter the pipeline from the
 /// Ball side (the Dart encoder emits it for `[...?l]`). It is driven through
-/// the REAL compiler — a pin quoting a remembered emission site stops tracking
-/// the compiler the moment that lowering changes.
-///
-/// The fix belongs on the COMPILER side, in the plain-call vocabulary the
-/// neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` calls already
-/// use — but note that that vocabulary no longer re-encodes *soft*: since #646
-/// an unmapped `ball_*` is a hard refusal, so a compiler-side fix owes
-/// `runtime_helpers.rs` the matching inverse (or, where none exists, its own
-/// pin, as `compiled_method_dispatcher_scrutinee_is_a_documented_gap` below
-/// is). Teaching the encoder a `Vec::new()` or `matches!` arm instead would
-/// encode compiler-internal spellings while still refusing every real-world
-/// one, which is what Tier A actually measures.
+/// the REAL compiler — an assertion quoting a remembered emission site stops
+/// tracking the compiler the moment that lowering changes.
 #[test]
-#[should_panic(expected = "unsupported call target")]
-fn compiled_spliced_list_literal_is_a_documented_gap() {
+fn compiled_spliced_list_literal_re_encodes() {
     let program = null_spread_program();
     let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
     assert!(
-        compiled.contains("Vec::new()"),
-        "this pin is only meaningful while the spliced-literal lowering still opens with \
-         `Vec::new()` — if that changed, re-measure #712 and update this test:\n{compiled}"
+        !compiled.contains("Vec::new()"),
+        "the spliced-literal lowering must not open with `Vec::new()` — an associated function \
+         on a foreign type this encoder refuses (#712):\n{compiled}"
     );
     assert!(
-        compiled.contains("matches!"),
-        "…and while it still spells the null-spread guard as `matches!`, which is the SECOND \
-         refusal behind it:\n{compiled}"
+        !compiled.contains("matches!"),
+        "…nor spell its null guard as `matches!`, a pattern match this encoder refuses \
+         (#712):\n{compiled}"
     );
-    let _ = ball_lang_encoder::encode_library(&compiled);
+    let reencoded = ball_lang_encoder::encode_library(&compiled);
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("\"for_in\"") && rendered.contains("\"spread\""),
+        "the splice must come back as a real `std.for_in` over a `std.spread` — a re-encode \
+         that dropped the loop body would pass a panic-free assertion just as cleanly: \
+         {rendered}"
+    );
+    assert!(
+        rendered.contains("\"not_equals\""),
+        "…and the null-spread guard must come back as the `std.not_equals` against null that it \
+         means, not be dropped: {rendered}"
+    );
 }
 
-/// The second half of #712, pinned on its own because `#[should_panic]` sees
-/// only the first panic and `Vec::new()` fires ahead of it in the compiled
-/// output above. Without this, "the encoder refuses `matches!`" would be an
-/// assumption the suite never observed — and a later change that mapped
-/// `matches!` would leave the gap looking open when it was closed, or the
-/// reverse.
+/// `matches!` is still refused, and that is PERMANENT — it is precisely what
+/// closing #712 on the compiler side buys.
+///
+/// This pin used to be #712's second half: `Vec::new()` fired first in the
+/// compiled output, so a single `#[should_panic]` could never observe the
+/// `matches!` refusal behind it. The compiler emits neither construct any more
+/// (the test above asserts that against real compiler output), so what remains
+/// here is the encoder's own deliberate boundary for HAND-WRITTEN Rust:
+/// `matches!` is a pattern match over arbitrary patterns, which this encoder
+/// does not model, and guessing an `std.is`/equality lowering is exactly the
+/// silent degradation its fail-loud posture exists to prevent. #712's body
+/// ruled the alternative out by name ("Do not close it by widening the
+/// encoder"). If the encoder ever gains general pattern support, that is
+/// separate, larger work.
 #[test]
 #[should_panic(expected = "unsupported macro invocation")]
 fn the_matches_macro_is_a_documented_gap() {
     encode("fn main() { let ok = matches!(1, 1); println!(\"{}\", ok); }");
+}
+
+/// The spliced **MAP** literal's remaining refusal — which is NOT #712's, and
+/// belongs to #718's unmapped-`ball_*`-helper family instead.
+///
+/// `compile_map_create`'s comprehension branch went through the same
+/// `Vec::new()`/`matches!` lowering and #712 fixed it there too (the assertion
+/// below holds that, so the two halves cannot drift apart). What it cannot fix
+/// is the branch's TAIL: `ball_map_create(<entry list>)`, a runtime helper
+/// `runtime_helpers.rs` does not map.
+///
+/// It cannot be mapped the way `ball_spread_iter` was. `ball_map_create`'s Ball
+/// inverse is a map-literal NODE built from its entries, and in the spliced
+/// form that entry list is computed at run time — there is no universal-`std`
+/// call whose input is "a list of `[key, value]` pairs" for the table to name
+/// (`dart/shared/std.json`, the canonical base-function inventory, declares
+/// none). Inventing one, or inverting it to a `std_collections` call the table
+/// cannot express, is the #55 silent-degradation class.
+///
+/// Pinned so the map path's state is OBSERVED rather than assumed: after #712
+/// the refusal is this ONE helper, where it used to be three constructs.
+#[test]
+#[should_panic(expected = "unsupported runtime helper `ball_map_create")]
+fn compiled_spliced_map_literal_stops_at_ball_map_create() {
+    let program = map_comprehension_program();
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
+    assert!(
+        !compiled.contains("Vec::new()") && !compiled.contains("matches!"),
+        "#712 fixed the map comprehension's lowering too — this pin is only about the \
+         `ball_map_create` tail:\n{compiled}"
+    );
+    let _ = ball_lang_encoder::encode_library(&compiled);
 }
 
 /// A library with one struct and one instance method — the smallest source
@@ -611,15 +659,68 @@ fn null_spread_program() -> Program {
             })),
         })),
     };
+    single_function_library("null_spread", "splice", body)
+}
+
+/// A one-function library whose body is the map comprehension `{...?input}` —
+/// the smallest program that makes `compile_map_create` take its **spliced**
+/// branch (an `element` field rather than `entry` fields), which is where the
+/// map analogue of #712's lowering lives.
+fn map_comprehension_program() -> Program {
+    let null_spread = Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: "null_spread".to_string(),
+            input: Some(Box::new(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields: vec![FieldValuePair {
+                        name: "value".to_string(),
+                        value: Some(Expression {
+                            expr: Some(Expr::Reference(Reference {
+                                name: "input".to_string(),
+                            })),
+                        }),
+                    }],
+                    metadata: None,
+                })),
+            })),
+            type_args: vec![],
+        }))),
+    };
+    let body = Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: "map_create".to_string(),
+            input: Some(Box::new(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields: vec![FieldValuePair {
+                        name: "element".to_string(),
+                        value: Some(null_spread),
+                    }],
+                    metadata: None,
+                })),
+            })),
+            type_args: vec![],
+        }))),
+    };
+    single_function_library("map_comprehension", "splice", body)
+}
+
+/// Wrap `body` as the sole function of a one-module library `Program` — the
+/// shape `compile_library` consumes. Shared by the two builders above so a
+/// change to the envelope cannot make them disagree.
+fn single_function_library(name: &str, function: &str, body: Expression) -> Program {
     Program {
-        name: "null_spread".to_string(),
+        name: name.to_string(),
         version: "1.0.0".to_string(),
         modules: vec![
             ball_lang_shared::build_std_module(),
             Module {
                 name: "main".to_string(),
                 functions: vec![FunctionDefinition {
-                    name: "splice".to_string(),
+                    name: function.to_string(),
                     input_type: String::new(),
                     output_type: String::new(),
                     body: Some(Box::new(body)),

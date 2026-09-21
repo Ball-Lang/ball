@@ -1746,6 +1746,106 @@ impl Encoder {
             // Truthiness coercion is implicit at every Ball condition site.
             return self.encode_expr(&args[0]);
         }
+        // ── The is/as registry's QUERY side (issue #692) ──
+        //
+        // `ball_is(v, "T")` / `ball_is_not` / `ball_as` — and `ball_is_type`,
+        // the bare-`bool` form a compiled pattern's `&&` chain uses. Not table
+        // rows: the second operand is a type NAME, which is a string LITERAL in
+        // the Ball node too (`dart/encoder`'s `IsExpression`/`AsExpression`
+        // arms emit `{value, type: "<source text>"}`), so a computed one has no
+        // Ball node to encode to and must fail loud rather than be guessed at.
+        if let Some(function) = runtime_helpers::type_op_helper(name) {
+            assert_eq!(
+                args.len(),
+                2,
+                "ball-lang-encoder: {name}(...) expects exactly two arguments, got {}",
+                args.len()
+            );
+            let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(type_name),
+                ..
+            }) = &args[1]
+            else {
+                panic!(
+                    "ball-lang-encoder: {name}(...) is only encodable as                  `{name}(<value>, \"<type>\")` — a computed type name has no Ball                  `std.{function}` node"
+                );
+            };
+            let value = self.encode_expr(&args[0]);
+            return std_call(
+                function,
+                Some(args_message(vec![
+                    ("value", value),
+                    ("type", string_literal(type_name.value())),
+                ])),
+            );
+        }
+        // ── The collection-literal constructors (issue #692) ──
+        //
+        // `ball_map_create([[k, v], …])` is `base_call.rs::compile_map_create`'s
+        // emission for a MAP literal, and its Ball inverse is the very
+        // `std.map_create` node it compiled from: one repeated `entry` field per
+        // pair, each an anonymous `{key, value}` message-creation. Recognizing
+        // the pair list AFTER encoding it is what makes the match robust — the
+        // operand arrives as `BallValue::List(BallList::from(vec![…]))`, three
+        // identity wrappers deep, and `encode_expr` already reduces every one of
+        // them to the list literal underneath.
+        //
+        // A `ball_map_create` whose operand is NOT a literal list of 2-element
+        // literal lists is the comprehension lowering (an imperative block that
+        // splices `collection_for`/`spread` parts into a local `Vec`), whose
+        // Ball node is a `map_create` with `element` fields rather than
+        // `entry`s. That inverse is a different, larger shape, so it fails loud
+        // here instead of being approximated by a wrong node.
+        if name == runtime_helpers::BALL_MAP_CREATE {
+            assert_eq!(
+                args.len(),
+                1,
+                "ball-lang-encoder: {name}(...) expects exactly one argument, got {}",
+                args.len()
+            );
+            let encoded = self.encode_expr(&args[0]);
+            let Some(pairs) = list_literal_elements(&encoded) else {
+                panic!(
+                    "ball-lang-encoder: {name}(...) is only encodable over a LITERAL                  `[[key, value], …]` list — the map-comprehension lowering splices its                  entries into a local `Vec`, whose Ball node is a `map_create` with                  `element` fields rather than `entry`s"
+                );
+            };
+            let mut fields: Vec<(&str, Expression)> = Vec::with_capacity(pairs.len());
+            for pair in pairs {
+                let entry = list_literal_elements(pair).filter(|kv| kv.len() == 2);
+                let Some(kv) = entry else {
+                    panic!(
+                        "ball-lang-encoder: every element of {name}(...)'s list must be a                  literal `[key, value]` pair — `std.map_create` has no node for anything                  else"
+                    );
+                };
+                fields.push((
+                    "entry",
+                    args_message(vec![("key", kv[0].clone()), ("value", kv[1].clone())]),
+                ));
+            }
+            return std_call("map_create", Some(args_message(fields)));
+        }
+        // `ball_set_create(<elements>)` — a SET literal. `std.set_create`'s
+        // input names that list `elements` and requires it to BE a list literal
+        // (`base_call.rs::field_list_or_empty` compiles the field directly), so
+        // a non-literal operand — the spread/comprehension lowering — fails loud
+        // rather than producing a node the compiler would re-read differently.
+        if name == runtime_helpers::BALL_SET_CREATE {
+            assert_eq!(
+                args.len(),
+                1,
+                "ball-lang-encoder: {name}(...) expects exactly one argument, got {}",
+                args.len()
+            );
+            let encoded = self.encode_expr(&args[0]);
+            assert!(
+                list_literal_elements(&encoded).is_some(),
+                "ball-lang-encoder: {name}(...) is only encodable over a LITERAL element                  list — the set-comprehension lowering splices its elements into a local                  `Vec`, whose Ball node is a `set_create` with `element` fields"
+            );
+            return std_call(
+                "set_create",
+                Some(args_message(vec![("elements", encoded)])),
+            );
+        }
         let Some((function, field_names)) = runtime_helpers::runtime_helper(name) else {
             panic!(
                 "ball-lang-encoder: unsupported runtime helper `{name}(...)` —                  rust/encoder/src/runtime_helpers.rs lists the helpers that have a universal                  std inverse. Encoding it as a same-file call would produce a Program that only                  fails at run time"
@@ -2363,6 +2463,19 @@ pub(crate) fn list_literal(elements: Vec<Expression>) -> Expression {
         expr: Some(Expr::Literal(Literal {
             value: Some(LiteralValue::ListValue(ListLiteral { elements })),
         })),
+    }
+}
+
+/// The elements of an already-encoded Ball LIST LITERAL, or `None` when `expr`
+/// is any other node. The inverse of [`list_literal`], used where a Ball input
+/// field is specified to carry a literal list rather than an arbitrary
+/// expression (`std.set_create`'s `elements`, `std.map_create`'s pairs).
+pub(crate) fn list_literal_elements(expr: &Expression) -> Option<&[Expression]> {
+    match &expr.expr {
+        Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::ListValue(list)),
+        })) => Some(list.elements.as_slice()),
+        _ => None,
     }
 }
 

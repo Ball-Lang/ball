@@ -639,6 +639,27 @@ checker that answers nothing. Shadow the dependency (a PATH stub that exits 127)
 and assert the leg reports FAIL, paired with a positive control on the real tree
 so the negative case cannot pass for an unrelated reason.
 
+**This rule is enforced, not merely written down** (issue #705).
+`tools/check_verdict_exit_status.py` — the always-on `proto` job, self-test
+first — rejects every `done < <(…)` under `tools/**/*.sh` and `cpp/test/*.sh`
+unless `tools/verdict_loop_carveouts.tsv` names that exact loop *and states the
+reason it is safe*. Anchors are matched against the loop's PRODUCER (the text
+inside `<( … )`, however many lines its parentheses span), so an entry stays
+attached to the loop it justifies when the file moves around it and a rewritten
+producer must be re-justified; an entry matching zero loops is stale and an
+error, one matching two is ambiguous and an error, an empty reason is an error,
+and inspecting zero loops at all is an error.
+
+It is a carve-out list rather than an analysis on purpose. Deciding from bash
+source whether a given loop "feeds a verdict" is dataflow analysis, and a wrong
+answer in the permissive direction is precisely the silent hole this section
+exists to close. Shape 2 above is unavailable to a process substitution by
+construction (`$?` after `done < <(cmd)` is the loop's status, never `cmd`'s),
+so what remains is a judgement about the surrounding code — a positive floor, a
+pure in-memory transformation — and a judgement belongs in a reviewed, named
+list. A loop that genuinely needs a checker's status is restructured, never
+carved out.
+
 ### 4. A fixture's name must not overstate its coverage
 Enforced by `dart/encoder/bin/check_fixture_names.dart` (CI): a fixture named
 `*comprehension*` / `*spread*` / `*null_aware*` / `*cascade*` must actually use
@@ -1005,9 +1026,47 @@ test edit**, which is the property a hand-listed test set does not have.
 `tests/conformance/476_user_member_named_like_builtin_accessor` is the
 cross-target half, pinning every engine row against `dart run`.
 
+**Deriving the NAMES is only half of it — the receiver SHAPES have to be
+derived-or-enumerated too.** The first cut of this gate derived its ten names
+from the table and then hand-listed the receiver shapes under a separate
+heading, and `this.` / `super.` were simply absent from that hand-list. They
+are the two receivers whose type is *trivially* provable (the enclosing
+declaration, and its `extends` clause), so the seam declined them and the
+original wrong answer survived at full strength — `this.isEmpty` inside the very
+class that declares `isEmpty` still encoded as `std.string_is_empty(self)`. A
+shape that is absent from a hand-list is indistinguishable, in a green run, from
+a shape that is handled. The fix puts every PER-NAME receiver shape inside the
+derived loop (FIELD / GETTER / INSTANCE-CREATION / INHERITED / `this.` /
+`super.` / the `dart:core` control) and keeps only the genuinely one-off shapes
+outside it — and every DECLINE is pinned by a case asserting the route still
+fires, so "not handled" can never be mistaken for "deliberately declined".
+
+The **floor on the derived set must sit at its MEASURED value** for the same
+reason. `expect(builtinAccessorGetters.length, greaterThanOrEqualTo(6))` while
+the set holds ten leaves four routes deletable in silence: the per-name matrix
+would shrink with the table and the suite would stay green on a smaller
+population. A floor is a claim about what was measured, not a round number
+below it.
+
 The same rule generalises: whenever a component decides something by NAME —
 a route table, a method-arity window, a rendering table (#641) — the test that
-bounds it must read the table, not a copy of it.
+bounds it must read the table, not a copy of it, and it must enumerate the
+INPUT SHAPES that table is applied to.
+
+#### A guard whose table is flattened for one member kind and not another
+
+The C++ compiler's own by-name shortcut (`declared_by_receiver`) is the same
+decision made at the other end of the pipeline, and it carried a matching hole
+for a different reason: `class_getters_by_sname_` is FLATTENED over the
+inheritance chain when the metadata is built, while `class_own_fields_by_sname_`
+is strictly own-fields. So an inherited `int get length` proved the receiver and
+an inherited plain `int length;` did not — `child.length` on a subclass whose
+BASE declares the field compiled to `ball_length(child)`. **No engine row can
+fail this**: the engines resolve a plain `fieldAccess` own-key-first through the
+`__super__` chain, so only the `C++ Compiled` row sees it, which is precisely
+why the guard belongs in the shared conformance fixture rather than in a
+target-local test alone. When two tables answer one predicate, check they have
+the same REACH before treating either as proof.
 
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
@@ -1589,6 +1648,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
 | **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |
+| **§3a itself is enforced, not merely documented** (#705) | `tools/check_verdict_exit_status.py` — every `done < <(…)` under `tools/**/*.sh` + `cpp/test/*.sh` must be named in `tools/verdict_loop_carveouts.tsv` WITH the reason it is safe (anchored on the loop's producer, so a rewritten producer is re-justified). A stale entry, an ambiguous anchor, an empty reason, an undelimitable substitution and a scan that inspected zero loops are each an error. A reviewed LIST rather than an inference: a wrong answer in the permissive direction is the exact hole §3a exists to close. `tools/test/test_check_verdict_exit_status.py` drives 18 offline cases first — an uncarved offender, a carved one, a floored-but-uncarved one, the stale/ambiguous/empty-reason refusals, the multi-line shape, a `)` inside a multi-line quoted string (quote state must carry across lines or the producer handed back is not what runs), the undelimitable shape, the scanned scope in both directions, the zero-loops floor — and ends on the real tree as the positive control | every PR (the always-on `proto` job, stdlib-only) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs `dart/shared/lib/std*.dart` and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose). Truth-table rows both ways, including `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |

@@ -65,6 +65,23 @@
 ///     last two rows cover [verifyTreeUnchanged]: an unchanged tree passes, and
 ///     a tree that changed under the run FAILS LOUD rather than charging a
 ///     stranger's edit to the substituted file.
+///  7. **THE YARDSTICK IS MEASURED THE SAME WAY (issue #705).** A package whose
+///     suite depends on WHERE it runs must come back `baseline-unstable`, never
+///     a package of `behavioral-drift`. The baseline used to run in the
+///     pointed-at checkout while every candidate runs in a copy, so the
+///     instrument manufactured one drift row per file for any path-sensitive
+///     suite. The fixture asserts its own directory NAME — a full path would
+///     also be sensitive to `/tmp` vs `/private/tmp` and would prove nothing.
+///  8. **A LINK STOPS THE COPY (issue #705).** `_copyTree` skipped links on the
+///     assertion that no pinned package ships one; an assertion is not a guard,
+///     and a copy that quietly lost a path charges whatever it carried to the
+///     substituted file. Not platform-gated: an unavailable link API FAILS this
+///     check with a configuration message rather than skipping it.
+///  9. **WHOLE MODE CHECKS THE TREE BEFORE COPYING (issue #705).** It has one
+///     scored run and so no between-candidate window, but it has the window
+///     between the baseline and the copy. The `afterBaseline` seam produces that
+///     window deterministically instead of racing a timer against two real
+///     `dart test` runs.
 ///
 /// It also covers the whole-package mode (`rq1_tierb_all.dart`), whose stricter
 /// signal is one verdict per package with no restore between files, and the
@@ -400,9 +417,14 @@ Future<void> main() async {
     final unstable = await studyPackagePerFile('synthetic', tempDir);
     failing.deleteSync();
     check(
+      // Named on the SUITE's own tally, not on the tag alone: a failed
+      // `dart pub get` and a timeout carry the same `baseline-unstable` tag, so
+      // the tag by itself would pass for a reason that has nothing to do with
+      // the red suite this case just wrote.
       'a package whose UNMODIFIED suite does not pass 100% is reported '
-          'baseline-unstable',
-      unstable.status.startsWith('baseline-unstable'),
+          'baseline-unstable, naming its own passing/failing tally',
+      unstable.status.startsWith('baseline-unstable') &&
+          unstable.status.contains('the unmodified suite is'),
       'status was "${unstable.status}"',
     );
     check(
@@ -419,6 +441,9 @@ Future<void> main() async {
   }
 
   await _perFileIsolation();
+  await _baselineIsMeasuredInTheSameKindOfCopy();
+  await _copyRefusesSymlinks();
+  await _wholeModeVerifiesTheTreeBeforeCopying();
 
   final total = _passed + _failed;
   stdout.writeln('Results: $_passed passed, $_failed failed, $total total');
@@ -568,6 +593,212 @@ Future<void> _perFileIsolation() async {
           'scoring — a stranger\'s edit is never charged to the substituted file',
       threw,
       'verifyTreeUnchanged accepted a modified tree',
+    );
+  } finally {
+    dir.deleteSync(recursive: true);
+  }
+}
+
+/// Issue #705, advisory 1 on PR #668: the yardstick and the thing measured
+/// against it must be measured the SAME WAY.
+///
+/// The baseline used to run `dart test` in the checkout the harness was pointed
+/// at, while every candidate runs it in a temp copy. Any suite whose result
+/// depends on WHERE it runs — a test asserting a path, reading a fixture by
+/// absolute path, or keyed on its own directory name — therefore passed for the
+/// baseline and failed for every candidate, and the harness charged that
+/// difference to the encoder: a whole package of `behavioral-drift` produced by
+/// the instrument, one row per file.
+///
+/// The honest answer is not "make the copy look like the checkout" — it is to
+/// measure the baseline in the same kind of copy, so a path-sensitive suite
+/// fails the baseline and the package is excluded as `baseline-unstable`, which
+/// is exactly what the taxonomy already says about a suite that cannot be a
+/// yardstick.
+///
+/// The fixture asserts its own directory NAME rather than a full path: a full
+/// path comparison would also be sensitive to `/tmp` vs `/private/tmp` symlink
+/// resolution and tell us nothing about the property under test.
+Future<void> _baselineIsMeasuredInTheSameKindOfCopy() async {
+  final dir = Directory.systemTemp.createTempSync('rq1_tierb_pathsensitive');
+  try {
+    final checkoutName = dir.path.split(Platform.pathSeparator).last;
+    Directory('${dir.path}/lib').createSync(recursive: true);
+    Directory('${dir.path}/test').createSync(recursive: true);
+    File('${dir.path}/pubspec.yaml').writeAsStringSync('''
+name: ball_tierb_pathsensitive
+publish_to: none
+environment:
+  sdk: ^3.9.0
+dev_dependencies:
+  test: any
+''');
+    File('${dir.path}/lib/sensitive.dart').writeAsStringSync('''
+class Sensitive {
+  int twice(int value) {
+    return value * 2;
+  }
+}
+''');
+    File('${dir.path}/test/path_test.dart').writeAsStringSync('''
+import 'dart:io';
+
+import 'package:ball_tierb_pathsensitive/sensitive.dart';
+import 'package:test/test.dart';
+
+void main() {
+  test('doubles', () {
+    expect(Sensitive().twice(21), 42);
+  });
+
+  test('runs in the directory it was written for', () {
+    expect(
+      Directory.current.path.split(Platform.pathSeparator).last,
+      '$checkoutName',
+    );
+  });
+}
+''');
+
+    final run = await studyPackagePerFile('pathsensitive', dir);
+
+    check(
+      // `baseline-unstable` ALONE would pass for the wrong reason — a failed
+      // `dart pub get` and a timeout carry the same tag — so this names the
+      // SUITE's own tally, which only `establishBaseline`'s "the unmodified
+      // suite is N passing / M failing" arm produces. A check that can pass
+      // without the mechanism under test having run is the shape this whole
+      // issue is about.
+      'ISSUE #705: a package whose suite depends on WHERE it runs is excluded '
+          'as baseline-unstable BY ITS OWN SUITE FAILING — the baseline is '
+          'measured in the same kind of copy as every candidate, so the '
+          'harness cannot manufacture drift out of its own temp directory',
+      run.status.startsWith('baseline-unstable') &&
+          run.status.contains('the unmodified suite is'),
+      'status was "${run.status}", files=${[for (final f in run.files) '${f.file}: ${f.reason}']}',
+    );
+    check(
+      'and not one of its files is scored behavioral-drift',
+      run.files.every((f) => f.tag != 'behavioral-drift'),
+      'drifted: ${[for (final f in run.files)
+        if (f.tag == 'behavioral-drift') '${f.file}: ${f.reason}']}',
+    );
+  } finally {
+    dir.deleteSync(recursive: true);
+  }
+}
+
+/// Issue #705, advisory 2 on PR #668: `_copyTree` skipped links on the
+/// ASSERTION that no pinned package ships one. An assertion is not a guard.
+///
+/// A checkout containing a link is copied without it, the copy is silently
+/// incomplete, and whatever the missing path carried is charged to the file the
+/// harness believes it substituted — the #653 failure again, one layer down and
+/// with nothing left to notice it. Following the link instead is not the fix
+/// either: it would copy whatever lies outside the checkout. So the only honest
+/// answer is to refuse, by name.
+///
+/// Deliberately NOT platform-gated. Creating a link needs privilege on Windows
+/// (Developer Mode or an elevated shell) and the Dart CI job runs on
+/// `ubuntu-latest`; a self-test that quietly opts out on one platform is a fake
+/// green, so an unavailable link API fails this check with a configuration
+/// message instead of skipping it.
+Future<void> _copyRefusesSymlinks() async {
+  final dir = Directory.systemTemp.createTempSync('rq1_tierb_symlink');
+  try {
+    Directory('${dir.path}/lib').createSync(recursive: true);
+    File('${dir.path}/lib/real.dart').writeAsStringSync('const answer = 42;\n');
+
+    final link = Link('${dir.path}/lib/aliased.dart');
+    var created = true;
+    try {
+      link.createSync('${dir.path}/lib/real.dart');
+    } on FileSystemException catch (e) {
+      created = false;
+      check(
+        'the self-test can create a link (Windows needs symlink-creation '
+            'privilege: enable Developer Mode, or run elevated)',
+        false,
+        '$e',
+      );
+    }
+
+    if (created) {
+      var thrown = '';
+      try {
+        await withSubstitutedCopy(
+          dir,
+          const <String, String>{},
+          (workspace) async => workspace.path,
+        );
+      } catch (e) {
+        thrown = e.toString();
+      }
+      check(
+        'ISSUE #705: a checkout containing a link FAILS LOUD instead of being '
+        'copied without it — a silently incomplete copy charges whatever '
+        'the missing path carried to the substituted file',
+        thrown.contains('aliased.dart'),
+        thrown.isEmpty
+            ? 'the copy succeeded and dropped the link on the floor'
+            : 'threw, but without naming the link: $thrown',
+      );
+    }
+  } finally {
+    dir.deleteSync(recursive: true);
+  }
+}
+
+/// Issue #705, advisory 2 on PR #668: whole-package mode took its copy with no
+/// [verifyTreeUnchanged] guard, the one per-file mode applies before every
+/// candidate.
+///
+/// Whole mode takes exactly one copy, so there is no BETWEEN-candidate window —
+/// which is the reason the guard was left out. But the window that matters is
+/// the one between the BASELINE and the copy, and whole mode has it too: the
+/// baseline is what the single verdict is compared against, and if the tree
+/// changed after it was measured then the copy is not the tree the baseline
+/// describes. One verdict built on that is exactly as wrong as a hundred.
+///
+/// The window is produced deterministically through the `afterBaseline` seam
+/// rather than by racing a timer against two real `dart test` runs.
+Future<void> _wholeModeVerifiesTheTreeBeforeCopying() async {
+  final dir = Directory.systemTemp.createTempSync('rq1_tierb_wholeguard');
+  try {
+    Directory('${dir.path}/lib').createSync(recursive: true);
+    Directory('${dir.path}/test').createSync(recursive: true);
+    File('${dir.path}/pubspec.yaml').writeAsStringSync(_isolationPubspec);
+    File('${dir.path}/lib/aa_alpha.dart').writeAsStringSync(_alphaSource);
+    File('${dir.path}/lib/bb_beta.dart').writeAsStringSync(_betaSource);
+    File(
+      '${dir.path}/test/isolation_test.dart',
+    ).writeAsStringSync(_isolationSuite);
+
+    final stranger = File('${dir.path}/lib/bb_beta.dart');
+    var thrown = '';
+    try {
+      await studyPackageWhole(
+        'wholeguard',
+        dir,
+        afterBaseline: () async {
+          // A second Tier B process, a diagnostic script or a re-clone, in the
+          // window between the baseline and the copy.
+          stranger.writeAsStringSync('class Beta { int value() => 3; }\n');
+        },
+      );
+    } on StateError catch (e) {
+      thrown = e.message;
+    }
+
+    check(
+      'ISSUE #705: whole-package mode verifies the tree against the baseline '
+      'snapshot BEFORE copying — a checkout that changed under the run '
+      'fails loud instead of producing one verdict the baseline no longer '
+      'describes',
+      thrown.contains('bb_beta.dart'),
+      thrown.isEmpty
+          ? 'studyPackageWhole scored a tree that changed after its baseline'
+          : 'threw, but without naming the changed file: $thrown',
     );
   } finally {
     dir.deleteSync(recursive: true);

@@ -232,6 +232,22 @@ that language's own self-test (all six gated on every PR in `ci.yml`):
      16c is that workflow as an executable case: the artifact that breaches in
      16a passes once the committed list records it.
 
+     **The residual this diff cannot see, stated rather than implied** (#705, from
+     PR #679's review). Firing on positive evidence alone leaves exactly one
+     shape outside it: a test file **new to a pin** that a broken exclusion rule
+     scores from its very first appearance. It is in neither the committed list
+     (it never was excluded) nor the run's own `excluded` (the rule failed on
+     it), so no comparison of paths can name it — the file simply looks like one
+     more library file that has always been scored. That is undecidable from
+     paths by construction, not an omission to be fixed here, and widening the
+     rule to guess at it would break the property above it (a path that is merely
+     gone is not a breach). What sees that shape instead is each language's own
+     test-only-rule self-test, whose three library files named `latest`,
+     `contest` and `attestation/verify` are the negative control for a rule that
+     has stopped classifying — and, on a pin whose test population really did
+     change, the reviewer looking at the regenerated `excluded.json` in the same
+     PR.
+
 Three harnesses were already filtering before this change — TypeScript dropped
 `*.test.ts` / `*.spec.ts` / `*.bench.ts` and three directories, Python dropped
 `test` / `tests`, Go dropped `_test.go` and `testdata/` — and not one of them
@@ -629,6 +645,39 @@ whole-package mode reuses the same trees.
 
 **Give each run its own `--checkouts` directory.** That is now enforced rather
 than assumed, but the enforcement is an error, not a repair.
+
+#### Three halves of that obligation it left open (issue #705)
+
+PR #668's own review recorded all three as advisories, and each is the same
+mistake in a different place: the harness stating a property instead of holding
+it.
+
+* **The baseline is measured in the same kind of copy as the candidates**
+  (`runDartTestInAScoredCopy`). It used to run in the pointed-at checkout while
+  every candidate runs in a temp copy, so a suite whose result depends on WHERE
+  it runs — one asserting a path, reading a fixture by absolute path, keyed on
+  its own directory name — passed for the baseline and failed for every
+  candidate. The harness charged that difference to the encoder: a whole package
+  of `behavioral-drift`, systematic and invented. The answer is not to make the
+  copy resemble the checkout; it is that such a suite cannot be a yardstick, so
+  it now fails the baseline and the package is excluded as `baseline-unstable` —
+  which is what that tag already means. (`dart pub get` stays on the checkout: it
+  is preparation, not measurement, `prepareStaticTypes()` needs the `.dart_tool/`
+  it writes, and every copy inherits it.)
+* **`_copyTree` fails loud on a link.** It skipped links on the assertion that no
+  pinned package ships one — a check, not a guard. A copy that quietly lost a
+  path is incomplete, and since `dart test` builds the whole package, whatever
+  the missing path carried is charged to the file the run believes it
+  substituted: the failure above, one layer down, with nothing left to notice it.
+  Following the link is not the alternative — it would copy from outside the
+  checkout — so the copy stops and names the path.
+* **Whole mode verifies the tree before copying.** It took its single copy with
+  no `verifyTreeUnchanged`, reasoning that one scored run has no
+  *between-candidate* window. True, and beside the point: the window that matters
+  is between the BASELINE and the copy, and whole mode has that one too. One
+  verdict built on a tree the baseline no longer describes is exactly as wrong as
+  a hundred. The check runs before the "nothing to substitute" arm as well, since
+  on a tree a stranger broke, "no file reached stage 2" is a wrong diagnosis.
 
 ### What the self-test proves
 

@@ -1,0 +1,40 @@
+# Carve-outs for tools/check_verdict_exit_status.py (issue #705).
+#
+# Every `done < <(…)` under tools/**/*.sh and cpp/test/*.sh is REJECTED unless
+# it is named here with the reason it is safe. A process substitution discards
+# its producer's exit status by construction (docs/TESTING_STRATEGY.md §3a,
+# issue #694), so "the checker found nothing" and "the checker could not run"
+# reach the verdict as the same empty stdout.
+#
+# Format — three TAB-separated fields:
+#   <repo-relative path>	<anchor>	<reason>
+#
+# `anchor` is any substring of that loop's PRODUCER (the text inside `<( … )`,
+# across as many lines as its parentheses span) that is unique to it in that
+# file. Anchoring on the producer rather than a line number keeps an entry
+# attached to the loop it justifies when the file moves around it — and means a
+# rewritten producer has to be re-justified. An entry that matches zero loops is
+# STALE and an error; one that matches two is AMBIGUOUS and an error; an empty
+# reason is an error.
+#
+# A reason must say WHICH §3a shape makes the loop safe. There are only two
+# available to this construct:
+#
+#   floor — an explicit positive floor below the loop turns "nothing came back"
+#           into a failure, so an unrunnable producer cannot reach the ok arm.
+#   pure  — the producer is a shell builtin / text transformation over a value
+#           already in memory (`printf`, `sed`, `find`, `git ls-files`). There is
+#           no separate checker whose "could not run" is being mistaken for
+#           "clean" — and every one of these ALSO has a floor below it.
+#
+# §3a shape 2 (`out="$(check "$f")"; rc=$?`) is unavailable here by
+# construction: `$?` after `done < <(cmd)` is the loop's status, never `cmd`'s.
+# A loop that genuinely needs a checker's status must be restructured, not
+# carved out.
+
+tools/check_conformance_doc_counts.sh	list_files	floor+pure: `list_files` is a `git ls-files`/`find` enumeration of the repo's own docs, and the `checked -lt 1` floor below (`the conformance-count guard scanned zero current-status occurrences`) turns an empty walk into a hard error.
+tools/check_conformance_doc_counts.sh	scan_file "$abs"	floor+pure: `scan_file` is a `grep`/`awk` scan of one already-read file, and the same `checked -lt 1` floor covers this inner loop — a scan that produced nothing for every file cannot reach the ok arm.
+tools/ci/apply_regenerated.sh	find . -type f	floor+pure: a `find` over a directory this script just verified exists, and the `${#files[@]} -eq 0` floor immediately below dies with "the artifact contains no files — nothing to apply" rather than applying nothing quietly.
+tools/ci/check_matrix_paths.sh	PROBE	floor+pure: `printf | sed` over the `$spec` string already in memory, and the `checked -lt 1` floor below ("the mapping check compared ZERO paths — a check that found nothing to check is not a pass") fails closed.
+tools/release/check_go_release_wiring.sh	go/go.work	floor+pure: `printf` plus `git ls-files '*go.mod'`, and the `${#rewritten[@]} -lt 7` floor below reports "the discovery sweep is broken, so the coverage check below is vacuous" instead of passing an empty rewrite set.
+tools/release/check_go_release_wiring.sh	grep -v '^assets$'	floor+pure: `printf | grep | tr` over the `$assets` substring already extracted from the config; an entry that matched no glob lands in `uncovered`, and the `rewritten` floor above already refuses a vacuous run.

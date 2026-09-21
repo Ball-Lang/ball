@@ -4661,6 +4661,14 @@ class DartEncoder {
     if (receiver == null) return false;
     if (!builtinAccessorGetters.contains(member)) return false;
     if (_resolvedMemberIsUserDeclared(receiver, member)) return true;
+    // `super` denotes a DIFFERENT type from the enclosing declaration, and
+    // there may be several candidates (a mixin's `on` constraints), so it
+    // cannot ride the single-name channel below.
+    if (receiver is ast.SuperExpression) {
+      return _enclosingSuperTypeNames(receiver).any(
+        (name) => _unitTypeDeclaresMember(receiver, name, member, <String>{}),
+      );
+    }
     final typeName = _syntacticReceiverTypeName(receiver);
     if (typeName == null) return false;
     return _unitTypeDeclaresMember(receiver, typeName, member, <String>{});
@@ -4692,10 +4700,71 @@ class DartEncoder {
         _startsUpperCase(receiver.methodName.name)) {
       return receiver.methodName.name;
     }
+    // `this` is the one receiver whose type needs no search at all: it is the
+    // enclosing declaration. Handled HERE rather than at the call site so the
+    // binding walk below reaches it too — `var me = this; me.isEmpty` resolves
+    // through `_declaredTypeNameOfLocal`'s initializer recursion.
+    if (receiver is ast.ThisExpression) {
+      return _enclosingThisTypeName(receiver);
+    }
     if (receiver is ast.SimpleIdentifier) {
       return _declaredTypeNameOfLocal(receiver);
     }
     return null;
+  }
+
+  /// SYNTACTIC proof, step 1a: the type name `this` denotes at [node].
+  ///
+  /// Inside an EXTENSION that is the type it is declared `on`, not the
+  /// extension itself — `extension R on String { … this.isEmpty … }` IS
+  /// `String.isEmpty` and must keep its route, while an extension on a user
+  /// class that declares the member proves it. An extension TYPE answers its
+  /// own name, so its body's members are consulted; its REPRESENTATION
+  /// parameter is not, because this encoder models that parameter nowhere (it
+  /// reaches neither the descriptor nor `metadata['fields']` — see
+  /// [_encodeExtensionTypeDeclaration]), so treating it as a declaration here
+  /// would be the only place in the encoder that believes in it.
+  static String? _enclosingThisTypeName(ast.AstNode node) {
+    for (ast.AstNode? n = node; n != null; n = n.parent) {
+      if (n is ast.ClassDeclaration) return n.namePart.typeName.lexeme;
+      if (n is ast.MixinDeclaration) return n.name.lexeme;
+      if (n is ast.EnumDeclaration) return n.namePart.typeName.lexeme;
+      if (n is ast.ExtensionDeclaration) {
+        return _bareTypeName(n.onClause?.extendedType);
+      }
+      if (n is ast.ExtensionTypeDeclaration) {
+        return n.namePart.typeName.lexeme;
+      }
+    }
+    return null;
+  }
+
+  /// SYNTACTIC proof, step 1a′: the type names `super` denotes at [node] — an
+  /// enclosing class's `extends` clause, or a mixin's `on` constraints (there
+  /// may be several, and `super` reaches all of them).
+  ///
+  /// Deliberately NOT the enclosing declaration's own name: a class that
+  /// declares `isEmpty` itself says nothing about whether its SUPERCLASS does,
+  /// and `super.isEmpty` asks only the latter. An enum, extension or extension
+  /// type has no in-unit supertype to consult, so each yields nothing and the
+  /// route stands.
+  static List<String> _enclosingSuperTypeNames(ast.AstNode node) {
+    for (ast.AstNode? n = node; n != null; n = n.parent) {
+      if (n is ast.ClassDeclaration) {
+        return <String>[?_bareTypeName(n.extendsClause?.superclass)];
+      }
+      if (n is ast.MixinDeclaration) {
+        return <String>[
+          ...?n.onClause?.superclassConstraints.map(_bareTypeName).nonNulls,
+        ];
+      }
+      if (n is ast.EnumDeclaration ||
+          n is ast.ExtensionDeclaration ||
+          n is ast.ExtensionTypeDeclaration) {
+        return const <String>[];
+      }
+    }
+    return const <String>[];
   }
 
   /// The class name a `ConstructorName` names, unwrapping the
@@ -4826,6 +4895,12 @@ class DartEncoder {
         if (decl.namePart.typeName.lexeme != typeName) continue;
         members = decl.body.members;
         supertypes = const [];
+      } else if (decl is ast.ExtensionTypeDeclaration) {
+        if (decl.namePart.typeName.lexeme != typeName) continue;
+        members = decl.body.members;
+        supertypes = [
+          ...?decl.implementsClause?.interfaces.map(_bareTypeName).nonNulls,
+        ];
       } else {
         continue;
       }

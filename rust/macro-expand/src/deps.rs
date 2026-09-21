@@ -40,6 +40,17 @@
 //! (a dangling symlink), are paths the walk *could not look at* — which is not
 //! the same answer as "no definition is there", and the two must never be
 //! conflated. Both go through the same `note_unreadable_source`.
+//!
+//! And it holds one step earlier, for the dependency EDGES themselves (issue
+//! #705). Resolving `resolve.nodes[].deps[]` to a source directory takes four
+//! lookups — the edge's `name`, its `pkg`, the `packages[]` entry that id
+//! names, and that package's library target's `src_path` — plus the library
+//! target itself. Each was a bare `else { continue }`, so a malformed document
+//! made a dependency's macros unresolvable and the next `<krate>::<macro>!`
+//! claimed the crate had no such macro. Each is now a
+//! `note_unresolvable_dependency` riding the same list into the same
+//! diagnostics. The ONE deliberate silence is a `proc-macro`-only package:
+//! that skip is an answer this crate documents, not a drop.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -54,16 +65,39 @@ impl MacroTable {
     /// is recorded on the table, and only an invocation that actually needs a
     /// dependency macro turns it into a loud error.
     pub fn seed_from_cargo_metadata(&mut self, manifest_path: &Path) {
-        let metadata = match run_cargo_metadata(manifest_path) {
-            Ok(json) => json,
-            Err(reason) => {
-                self.set_dependencies_unavailable(reason);
+        match run_cargo_metadata(manifest_path) {
+            Ok(json) => self.seed_from_cargo_metadata_json(&json),
+            Err(reason) => self.set_dependencies_unavailable(reason),
+        }
+    }
+
+    /// Seed this table from a `cargo metadata --format-version 1` document that
+    /// has already been produced.
+    ///
+    /// [`seed_from_cargo_metadata`](Self::seed_from_cargo_metadata) is this plus
+    /// running `cargo`. It is split out because the *shape* of that document is
+    /// a contract this crate depends on and cannot be exercised any other way:
+    /// `cargo` only ever emits well-formed output, so a `deps[]` node missing a
+    /// field — the case that decides whether a dependency's macros resolve or
+    /// vanish — is unreachable through the `cargo`-running entry point. Handing
+    /// the document in is what makes those shapes testable against the SHIPPED
+    /// code instead of a re-implementation of it.
+    pub fn seed_from_cargo_metadata_json(&mut self, metadata: &str) {
+        let metadata: serde_json::Value = match serde_json::from_str(metadata) {
+            Ok(value) => value,
+            Err(err) => {
+                self.set_dependencies_unavailable(format!(
+                    "`cargo metadata` output could not be parsed: {err}"
+                ));
                 return;
             }
         };
         match direct_dependency_sources(&metadata) {
-            Ok(sources) => {
-                for (krate, src_root) in sources {
+            Ok(graph) => {
+                for (what, reason) in graph.unusable {
+                    self.note_unresolvable_dependency(&what, &reason);
+                }
+                for (krate, src_root) in graph.sources {
                     self.collect_exported_macros(&krate, &src_root);
                 }
             }
@@ -141,7 +175,7 @@ fn cargo_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("cargo"))
 }
 
-fn run_cargo_metadata(manifest_path: &Path) -> Result<serde_json::Value, String> {
+fn run_cargo_metadata(manifest_path: &Path) -> Result<String, String> {
     if !manifest_path.is_file() {
         return Err(format!(
             "no crate manifest at `{}`",
@@ -164,15 +198,27 @@ fn run_cargo_metadata(manifest_path: &Path) -> Result<serde_json::Value, String>
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    serde_json::from_slice(&output.stdout)
-        .map_err(|err| format!("`cargo metadata` output could not be parsed: {err}"))
+    String::from_utf8(output.stdout)
+        .map_err(|err| format!("`cargo metadata` output is not UTF-8: {err}"))
 }
 
-/// `(dependency alias, that dependency's source directory)` for every DIRECT
-/// dependency of the resolved root package.
-fn direct_dependency_sources(
-    metadata: &serde_json::Value,
-) -> Result<Vec<(String, PathBuf)>, String> {
+/// What `cargo metadata`'s dependency edges resolved to — and every edge that
+/// could not be resolved.
+struct DependencyGraph {
+    /// `(dependency alias, that dependency's source directory)` for every
+    /// DIRECT dependency of the resolved root package whose sources were
+    /// located.
+    sources: Vec<(String, PathBuf)>,
+    /// `(what, reason)` for every `deps[]` edge that named a dependency this
+    /// walk could not locate sources for. Never a silent skip: each becomes a
+    /// note on the table and is carried into the diagnostic of any macro that
+    /// then fails to resolve.
+    unusable: Vec<(String, String)>,
+}
+
+/// Resolve the DIRECT dependencies of the root package to their source
+/// directories.
+fn direct_dependency_sources(metadata: &serde_json::Value) -> Result<DependencyGraph, String> {
     let resolve = metadata
         .get("resolve")
         .ok_or_else(|| "`cargo metadata` reported no dependency resolution".to_owned())?;
@@ -201,25 +247,53 @@ fn direct_dependency_sources(
         .ok_or_else(|| "`cargo metadata`'s `packages` is not an array".to_owned())?;
 
     let mut sources = Vec::new();
+    let mut unusable: Vec<(String, String)> = Vec::new();
     let deps = root_node
         .get("deps")
         .and_then(serde_json::Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or(&[]);
     for dep in deps {
+        let declared_pkg = dep.get("pkg").and_then(serde_json::Value::as_str);
         // `deps[].name` is the alias the dependent crate writes in a path
         // (`mini_bitflags::flags!`), which is what resolution here matches on —
         // NOT the package name, which may differ under `package = "…"`.
+        //
+        // Every arm below is an edge whose CRATE this walk never looked in, so
+        // none of them may be silent (issue #705): without a note, the next
+        // `<krate>::<macro>!` would report "no macro with that name is in that
+        // crate" — a claim the walk has no evidence for.
         let Some(alias) = dep.get("name").and_then(serde_json::Value::as_str) else {
+            unusable.push((
+                declared_pkg
+                    .unwrap_or("<a `deps[]` entry carrying neither `name` nor `pkg`>")
+                    .to_owned(),
+                "this `resolve.nodes[].deps[]` entry has no `name`, so there is no alias to \
+                 match a `<krate>::<macro>!` path against and its macros cannot be reached"
+                    .to_owned(),
+            ));
             continue;
         };
-        let Some(pkg_id) = dep.get("pkg").and_then(serde_json::Value::as_str) else {
+        let Some(pkg_id) = declared_pkg else {
+            unusable.push((
+                alias.to_owned(),
+                "this `resolve.nodes[].deps[]` entry has no `pkg`, so the package it names \
+                 cannot be found and its sources cannot be located"
+                    .to_owned(),
+            ));
             continue;
         };
         let Some(package) = packages
             .iter()
             .find(|p| p.get("id").and_then(serde_json::Value::as_str) == Some(pkg_id))
         else {
+            unusable.push((
+                alias.to_owned(),
+                format!(
+                    "its `pkg` id `{pkg_id}` has no entry in `packages[]` — the `cargo metadata` \
+                     document disagrees with itself, so this crate's sources cannot be located"
+                ),
+            ));
             continue;
         };
         let targets = package
@@ -228,7 +302,10 @@ fn direct_dependency_sources(
             .map(Vec::as_slice)
             .unwrap_or(&[]);
         // A `proc-macro` target exports no `macro_rules!` — its macros are Rust
-        // code compiled into a compiler plugin, out of scope by design.
+        // code compiled into a compiler plugin, out of scope by design. That
+        // skip is an ANSWER, not a drop, so it is deliberately NOT noted:
+        // recording it would put every ordinary `#[derive]` dependency into the
+        // diagnostic of every failing resolution.
         let lib = targets.iter().find(|target| {
             target
                 .get("kind")
@@ -239,10 +316,26 @@ fn direct_dependency_sources(
                         .any(|kind| matches!(kind.as_str(), Some("lib" | "rlib" | "dylib")))
                 })
         });
-        let Some(src_path) = lib
-            .and_then(|target| target.get("src_path"))
-            .and_then(serde_json::Value::as_str)
-        else {
+        let Some(lib) = lib else {
+            if !has_proc_macro_target(targets) {
+                unusable.push((
+                    alias.to_owned(),
+                    format!(
+                        "its package `{pkg_id}` declares no `lib`/`rlib`/`dylib` target, so there \
+                         is no library source tree to walk for `#[macro_export]`ed definitions"
+                    ),
+                ));
+            }
+            continue;
+        };
+        let Some(src_path) = lib.get("src_path").and_then(serde_json::Value::as_str) else {
+            unusable.push((
+                alias.to_owned(),
+                format!(
+                    "the library target of its package `{pkg_id}` has no `src_path`, so the \
+                     directory holding its sources is unknown"
+                ),
+            ));
             continue;
         };
         let src_root = Path::new(src_path)
@@ -251,7 +344,20 @@ fn direct_dependency_sources(
             .to_path_buf();
         sources.push((alias.to_owned(), src_root));
     }
-    Ok(sources)
+    Ok(DependencyGraph { sources, unusable })
+}
+
+/// Does this package declare a `proc-macro` target?
+///
+/// A package with one and no library target is the documented out-of-scope
+/// case, not a drop: its macros are compiled Rust, not `macro_rules!`.
+fn has_proc_macro_target(targets: &[serde_json::Value]) -> bool {
+    targets.iter().any(|target| {
+        target
+            .get("kind")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some("proc-macro")))
+    })
 }
 
 /// What walking a dependency's source directory found — and what it could not

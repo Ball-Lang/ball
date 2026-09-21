@@ -133,6 +133,36 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `List` / `int` / `double` receivers whose shortcut must survive; it surfaced
   the defect on the e2e leg as `expected true/false/true, actual false/false/false`.
   `cpp/test/test_compiler.cpp` carries the fast gate for both families.
+  **The field half of the predicate asks the whole INHERITANCE CHAIN**
+  (`class_chain_has_field`), not just this class's own descriptor fields — the
+  #697 follow-up. `class_getters_by_sname_` is FLATTENED over the chain when the
+  metadata is built, but `class_own_fields_by_sname_` is strictly own-fields by
+  name and by construction, so an inherited `int get length` proved the receiver
+  while an inherited plain `int length;` did not, and `child.length` on a
+  subclass whose BASE declares the field compiled to `ball_length(child)`. It is
+  #681's defect reached from the one side its table could not see, and it is
+  invisible to every engine row (they resolve a plain `fieldAccess` own-key-first
+  through the `__super__` chain) — only the `C++ Compiled` row can fail it.
+  `class_has_own_field` keeps its narrow meaning for the #513 slot decisions
+  that depend on it; the widened question is asked ONLY where the
+  accessor-shadowing decision is made. Fixture
+  `476_…`'s `CountedChild` half is the cross-target gate, and
+  `numeric_predicate_inherited_from_a_base_class_is_the_field` /
+  `collection_property_inherited_from_a_base_class_is_the_field` are the fast
+  ones. Every one of those fast gates asserts what the emit must CONTAIN
+  (`(*this).isNaN`) alongside what it must not — a refusal-only test also passes
+  for an emit that dropped the access entirely.
+  **The cross-target fixture's inherited reads use the NUMERIC family on
+  purpose.** An INHERITED field of the COLLECTION family (`isEmpty` /
+  `isNotEmpty` / `length`) still reads back `null` from a subclass receiver on
+  this target — **issue #800**, a THIRD defect, separate from both #697 halves
+  and from the chain walk above: the emitted access correctly names the member
+  (`compiler_tests` proves that), so the loss happens after emission, at
+  construction or member resolution. It is `C++ Compiled` only; every engine row
+  answers the same program correctly, because they resolve a plain `fieldAccess`
+  own-key-first through `__super__`. Do not re-add those lines to fixture `476_…`
+  until #800 lands — the issue body carries them verbatim, and restoring them is
+  the whole reproduction.
   The guard covers those SEVEN names. The sibling shortcuts further down in
   `compile_field_access` — `.entries`, `.keys`, `.values`, `.first`, `.last`,
   `.runtimeType` — are still unconditional, so a class declaring one of those

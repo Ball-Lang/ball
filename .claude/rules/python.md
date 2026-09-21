@@ -27,7 +27,7 @@ not stale prose.
   isolated-package convention), so run `pytest` **from each package's own dir**:
 
 ```bash
-cd python/compiler && python -m pytest -q     # 52 tests
+cd python/compiler && python -m pytest -q     # 95 tests
 cd python/encoder  && python -m pytest -q     # 42 tests
 cd python/cli      && python -m pytest -q     # all four verbs, in-process
 # Syntax gate (the Python analog of `go build`/`go vet`):
@@ -179,12 +179,31 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   (`python/compiler/ball_compiler/compiler.py`) maps all four to the real
   classes, and `ArgumentError.toString` now spells Dart's
   `Invalid argument(s)`. The class is ALSO the prerequisite for telling one
-  built-in error from another — but not the whole story: this target's `run_try`
-  still compiles `catches[0]` alone and ignores its `type`, so a typed clause
-  runs for any payload and every later clause is dropped. Measured while fixing
-  #658 and filed as **#724**; it is the defect #615 closed for Rust/C#/Go, and
-  no CI leg compiles a conformance fixture through `python/compiler`, which is
-  why it survived.
+  built-in error from another, which #724 (below) then acts on.
+
+- **A typed `on T catch` clause is a TYPE TEST, and the clause list is a
+  dispatch chain (#724).** `run_try` used to compile `catches[0]` alone, as an
+  unconditional catch-all with its `type` ignored, dropping every later clause —
+  the Python instance of the defect #615 closed for Rust/C#/Go.
+  `run_catch_clauses` (`python/compiler/ball_compiler/compiler.py`) now walks
+  the list in SOURCE ORDER and emits `if`/`elif ballrt.catch_matches(_ex.value,
+  "<Type>")`, with the first untyped `catch (e)` as the unconditional `else`
+  fallback and, when every clause is typed and none matches, a trailing `else:
+  raise _ex` so an enclosing `try` sees the ORIGINAL value (the reference
+  engine's `if (!caught) rethrow`). The `ballrt.flow._caught` push/pop still
+  wraps the whole chain, so `rethrow` works and unwinds on the re-raise path
+  too. The matching RULE is `ballrt.catch_matches` /
+  `ballrt.exception_type_name` (`python/runtime/ballrt/flow.py`), the sibling of
+  Go's `ballrt.CatchMatches` and Rust's `ball_catch_matches`: a `__type__`-tagged
+  map reports its tag, an exception object reports its class name, anything
+  untagged reports `std.throw`'s own default `Exception`, and a module-qualified
+  tag (`main:StateError`) also matches a clause naming the bare type. The
+  `python-engine` row cannot see any of this — it runs the SELF-HOSTED engine,
+  whose catch dispatch is Ball code (`_evalLazyTry`) — so the guards are
+  `python/compiler/tests/test_catch_clause_dispatch.py` plus the
+  `464_typed_catch_clause_dispatch` / `473_caught_user_thrown_builtin_error`
+  entries in `test_conformance.py`'s `PROVEN` list, which COMPILE the fixtures
+  through this compiler and diff their goldens.
 
 ### Encoder
 

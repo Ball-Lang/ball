@@ -71,6 +71,19 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
   BallReturn`; loop bodies trap `BallBreak`/`BallContinue`, and a trapped
   `continue` falls through so a C-`for` update still runs (Dart semantics).
 
+- **A `try`'s clause list is a DISPATCH CHAIN (issue #724).** `run_catch_clauses`
+  walks `catches` in source order and emits
+  `if`/`elif ballrt.catch_matches(_ex.value, "<Type>")` for each typed
+  `on T catch`, the first untyped `catch (e)` as the unconditional `else`, and —
+  when every clause is typed and none matches — a trailing `else: raise _ex`, so
+  the ORIGINAL value reaches an enclosing `try` (the reference engine's
+  `if (!caught) rethrow`). Compiling `catches[0]` as an unconditional catch-all
+  was silently-wrong output, and the `python-engine` row cannot see it: that row
+  runs the self-hosted ENGINE, whose own catch dispatch is Ball code. The guards
+  are `tests/test_catch_clause_dispatch.py` and the
+  `464_typed_catch_clause_dispatch` / `473_caught_user_thrown_builtin_error`
+  entries in `tests/test_conformance.py`.
+
 - **Fail loud (issue #55).** An unsupported base function, an unresolvable
   reference, an unknown call target, or an unsupported pattern is a
   `CompileError` — never silently-wrong code. A silently-wrong output is a bug,
@@ -78,7 +91,7 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
 
 ## Status (Phases 2 + 4)
 
-The compiler passes **52 tests** and — via **`compile_library` mode** (the
+The compiler passes **95 tests** and — via **`compile_library` mode** (the
 Ball -> Python analog of Go's `CompileLibrary`) — compiles the whole self-hosted
 engine (`dart/self_host/engine.ball.json`), which runs the conformance corpus at
 **Dart parity** (`Results: 330 passed, 0 failed`; see `../engine/AGENTS.md`).

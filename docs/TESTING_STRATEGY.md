@@ -792,8 +792,23 @@ needs; `tests/conformance/464_typed_catch_clause_dispatch` is the cross-target
 guard for that, and each compiler carries its own **per-shape** unit test
 (`go/compiler/catch_clause_dispatch_test.go`,
 `csharp/compiler/test/CatchClauseDispatchTests.cs`,
-`rust/compiler/tests/catch_clause_dispatch.rs`) — see the gate lesson below for
-why the corpus leg alone is not enough. That the throw is genuinely TYPED —
+`rust/compiler/tests/catch_clause_dispatch.rs`,
+`python/compiler/tests/test_catch_clause_dispatch.py`) — see the gate lesson
+below for why the corpus leg alone is not enough.
+
+`python/compiler` carried the identical defect for another wave (#724): it was
+not in #615's scope, and the reason nothing since then noticed is worth naming
+as its own gap class. **A target whose only corpus row is its SELF-HOSTED engine
+has no coverage of its compiler's user-program lowerings.** The `python-engine`
+row compiles the Dart engine and runs the corpus *through* it, so every fixture's
+`try` is interpreted by `_evalLazyTry` — Ball code — and the compiler's own `try`
+lowering is exercised only by whatever shapes the engine SOURCE happens to
+contain. The engine has no typed `on T catch` anywhere, so a lowering that
+ignored `type` entirely ran the whole corpus green. The closing move is the same
+one `go/compiler/user_thrown_builtin_error_test.go` makes: a leg that COMPILES a
+conformance fixture through the compiler under test and diffs its golden —
+`python/compiler/tests/test_conformance.py`'s `PROVEN` list, which #724 extended
+with `464_typed_catch_clause_dispatch` and `473_caught_user_thrown_builtin_error`. That the throw is genuinely TYPED —
 reachable by `on StateError`, not only by an untyped catch-all, which is what
 Rust's bare `panic!` gave before #597 — is pinned per runtime too, next to each
 target's implementation.

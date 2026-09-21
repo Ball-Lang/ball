@@ -155,10 +155,19 @@ def test_every_typed_clause_missing_reraises_the_original_value():
 
 
 def test_an_unmatched_typed_clause_list_leaves_the_throw_uncaught():
-    """Nothing catches it: the BallThrow escapes the program rather than being
-    swallowed by a clause whose type does not match."""
+    """Nothing catches it: the BallThrow escapes the program — carrying the
+    ORIGINAL payload — rather than being swallowed by a clause whose type does
+    not match.
+
+    The entry is called directly rather than through ``run_source``: the
+    runtime's own ``ballrt.run_entry`` is the program's top level, and it turns
+    an escaping throw into ``Unhandled exception: …`` on stderr plus exit 1, so
+    it would hide which value escaped."""
     prog = _program(_try(
         _throw("main:FormatException", "unmatched"),
         [_catch(_print(_lit("wrong")), type_name="StateError")]))
-    with pytest.raises(ballrt.BallThrow):
-        run_source(compile_program(prog))
+    ns: dict = {}
+    exec(compile(compile_program(prog), "<compiled>", "exec"), ns)
+    with pytest.raises(ballrt.BallThrow) as excinfo:
+        ns["main"](None)
+    assert ballrt.to_str(excinfo.value.value) == "FormatException: unmatched"

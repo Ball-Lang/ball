@@ -1736,14 +1736,17 @@ impl Encoder {
                 "ball-lang-encoder: {name}(...) is only encodable as                  `{name}(<object>, \"<field>\")` — a computed field name has no Ball                  `field_access` node"
             );
         }
-        if name == runtime_helpers::BALL_TRUTHY {
+        // Two coercions the compiler inserts and Ball performs implicitly:
+        // truthiness at every condition site (`std.if`/`std.and`/…) and
+        // iteration at every `std.for_in` iterable. Both encode back to their
+        // operand unchanged — see the two constants' doc comments.
+        if name == runtime_helpers::BALL_TRUTHY || name == runtime_helpers::BALL_ITERATE {
             assert_eq!(
                 args.len(),
                 1,
                 "ball-lang-encoder: {name}(...) expects exactly one argument, got {}",
                 args.len()
             );
-            // Truthiness coercion is implicit at every Ball condition site.
             return self.encode_expr(&args[0]);
         }
         // ── The is/as registry's QUERY side (issue #692) ──

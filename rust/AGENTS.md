@@ -140,12 +140,24 @@ program dispatching through `ball_lang_shared::runtime::*` over `BallValue`, whi
 read green on every run. #642 closed the three shapes that blocked EVERY fixture (the
 unconditional oneof `LazyLock` statics, the entry IIFE, the `BallValue::*` constructors) and put a
 positive floor + ratchet on the row (`RUST_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh`).
-#693 (the `&mut` alias hang) took it to 99, and #692 — the runtime's COLLECTION constructors and
+#693 (the `&mut` alias hang) took it to 99, #692 — the runtime's COLLECTION constructors and
 the `__ball_register_types` class prologue, see "Conventions" below — to **109 of 360**
 (run 35550645549; 109 of 358 when it was measured at 34803611448, before two fixtures joined the
-corpus and neither round-tripped — the denominator moves on its own, the floor does not).
-The leaders now are `ball_arg_get` (59 fixtures), `BallFlow::Normal` (25) and
-`ball_message_type_name` (21, which is #718's dispatcher scrutinee).
+corpus and neither round-tripped — the denominator moves on its own, the floor does not), and
+#712 to **121 of 361** (run 35557346693): the spliced collection-literal lowering stopped
+emitting `Vec::new()`/`matches!`, and `ball_iterate`/`ball_spread_iter` gained their
+universal-`std` inverses, so every fixture whose compiled output carries a `for-in` loop or a
+spliced literal re-encodes now.
+#692's 124 and #712's 121 are two INDEPENDENT measurements of the same row, each taken on its own
+branch against the same 109 baseline; neither is the merged total and they must never be added.
+The merged tree MEASURES **138 of 362** (run 35561847017, job 106216902719), and
+`RUST_ROUNDTRIP_FLOOR` is 138 — the number a run printed, not one derived from two. The leader at
+138 is still `ball_message_type_name` (#718), which is what the row's own "first still-failing
+fixture" line names (`101_simple_class`).
+The leader is `ball_message_type_name` (#718's dispatcher scrutinee), which is what the row's
+own "first still-failing fixture" line named at 121 (`101_simple_class`); re-measure
+`ball_arg_get` and `BallFlow::Normal` from a run's artifact before quoting their counts — the
+pre-#712 figures (59 and 25) were taken at 109 and the population moved under them.
 It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
 
 ```bash
@@ -480,30 +492,52 @@ instructions.
   RUN it, asserting the thrown message as bytes. Extend that test when you add a compiler emission
   shape; never add a second, weaker round trip.
   **Enumerate what the compiler emits — the issue named one instance and the sweep found more.**
-  Sweeping `rust/compiler/src` for constructs inside EMITTED string literals finds, besides the
+  Sweeping `rust/compiler/src` for constructs inside EMITTED string literals found, besides the
   `panic!` #632 closed: `unreachable!` (`flow_propagation` — a `break`/`continue` in a `try` with
-  no enclosing loop), and, in `compile_list_literal`'s imperative lowering,
+  no enclosing loop), and, in `compile_list_literal`'s imperative lowering as it stood then,
   `let mut __lit: Vec<BallValue> = Vec::new();` together with the null-spread guard
   `if !matches!(__sp, BallValue::Null)`.
   `unreachable!` is now MAPPED: it encodes as the same `std.throw`, carrying Rust's own
   `internal error: entered unreachable code[: …]` message — **prefix included**, since that
   prefix is part of what a `catch` binds (`library/core/src/panic.rs`'s `unreachable_2021`), and an
   encode-only assertion could not have seen it dropped.
-  The list-literal pair is **#712**, and is the broader gap of the two open ones: that lowering is
-  used by EVERY spliced collection literal (`std.spread`, `null_spread`, `collection_if`,
-  `collection_for`), so any library whose compiled output holds one fails stage 3 — measured at
-  `Vec::new()` first, with `matches!` behind it. Neither may be closed by widening the encoder:
-  `matches!` is a pattern match over a runtime-crate enum variant and `Vec::new()` an associated fn
-  on a foreign type, so an arm for either would encode a compiler-internal spelling while still
-  refusing every real-world one — which is what Tier A measures. The fix is compiler-side (a plain
-  `ball_is_null(&__sp)` helper plus the existing `BallList`/`BallValue::List` vocabulary), in the
-  same plain-call style the neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` already
-  use — but note that style no longer re-encodes *soft*: since #646 an unmapped `ball_*` is a hard
-  refusal, so a compiler-side fix owes `runtime_helpers.rs` the matching inverse, or its own pin
-  where no inverse exists. Pinned by
-  `compiled_spliced_list_literal_is_a_documented_gap` (driven through the real compiler, asserting
-  both constructs are still emitted) and `the_matches_macro_is_a_documented_gap` (the second
-  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is
+  The list-literal pair was **#712**, and is **CLOSED** — it was the broader of the two open
+  instances, because that lowering is used by EVERY spliced collection literal (`std.spread`,
+  `null_spread`, `collection_if`, `collection_for`) plus the map comprehension, so any library
+  whose compiled output held one failed stage 3 — measured at `Vec::new()` first, with `matches!`
+  behind it. Neither could be closed by widening the encoder: `matches!` is a pattern match over a
+  runtime-crate enum variant and `Vec::new()` an associated fn on a foreign type, so an arm for
+  either would encode a compiler-internal spelling while still refusing every real-world one —
+  which is what Tier A measures. So the fix is **compiler-side**, in the plain-call style the
+  neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use: the accumulator is a
+  `BallList` built with `.push()` (`runtime_ctors.rs` inverts `BallList::new()` to an empty list
+  literal, `methods.rs` maps `.push()` to `std_collections.list_push`), and the null guard is
+  `ball_truthy(ball_not_equals(__sp.clone(), BallValue::Null))`, two helpers already in the table
+  which compose to exactly what it means. That style no longer re-encodes *soft* — since #646 an
+  unmapped `ball_*` is a hard refusal — so #712 also owed `runtime_helpers.rs` the inverses of the
+  two helpers the loops themselves name: **`ball_iterate` joins `ball_truthy` as an identity
+  passthrough** (it is the iteration coercion `std.for_in` performs implicitly, emitted at four
+  sites, all for-loop iterables — so this widened re-encodability well past #712: every compiled
+  `for-in` loop named it), and **`ball_spread_iter` maps to `std.spread`**, the exact inverse of
+  the line that emits it. The two are deliberately NOT the same mapping: they differ on a portable
+  set (`ball_iterate` yields `[key, value]` entry pairs, `ball_spread_iter` the backing items), so
+  collapsing them would be silently wrong rather than loud. Gated by
+  `compile_reencode_roundtrip.rs::spliced_collection_literal_compiler_output_re_encodes` (all four
+  spliceable element kinds in one literal, driven encode → compile → encode) and its run-proof
+  `a_spliced_collection_literal_still_splices_after_the_lowering_change` (compiles and RUNS it,
+  diffing `[1, 2, 3, 4, 5, 6]` as bytes — an element that nested instead of splicing re-encodes
+  just as cleanly and prints a different answer). `documented_gaps.rs`'s pin is flipped to
+  `compiled_spliced_list_literal_re_encodes`; `the_matches_macro_is_a_documented_gap` KEEPS its
+  `#[should_panic]` and is now a pin on the encoder's permanent boundary for hand-written Rust,
+  not on a compiler emission. The **map** comprehension went through the same lowering and got the
+  same fix, but its tail — `ball_map_create` over the local accumulator — is still refused. #692
+  (#796) gave that helper a table arm AFTER #712 was written, so the refusal is now a SHAPE one
+  raised by the arm, not the unmapped-helper fallthrough: the arm inverts a LITERAL
+  `[[key, value], …]` pair list to the `entry`-shaped `std.map_create` it compiled from, and the
+  comprehension's Ball node is a larger `map_create` carrying `element` fields. Pinned as
+  `compiled_spliced_map_literal_stops_at_ball_map_create`, the compiler-output half of #692's
+  hand-written-Rust pin `a_map_create_over_a_spliced_list_fails_loud`.
+  The script-mode entry-point IIFE is
   **CLOSED**, and so is **#687**. #646's `lib.rs::as_zero_arg_closure` INLINES the closure body
   rather than emitting the `std.invoke`-over-`lambda` shape #687 proposed, and for the entry
   wrapper that is sound in both directions — a Ball `return` returns from the enclosing FUNCTION

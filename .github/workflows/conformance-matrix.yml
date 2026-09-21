@@ -1395,7 +1395,17 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "124"
+      # 124 -> 138 with #712: the compiler's spliced collection-literal lowering
+      # no longer emits `Vec::new()`/`matches!`, and `ball_iterate`/
+      # `ball_spread_iter` gained their universal-`std` inverses, so every
+      # fixture whose compiled output carries a `for-in` loop or a spliced
+      # literal now re-encodes.
+      # 138 is a MEASUREMENT of the merged tree (run 35561847017, job
+      # 106216902719: `Results: 138 passed, 224 failed, 362 total`), not a sum.
+      # #692 measured 124 and #712 measured 121, each on its own branch against
+      # the same 109 baseline — two readings of one row, so adding them would
+      # have fabricated a number neither run printed.
+      RUST_ROUNDTRIP_FLOOR: "138"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

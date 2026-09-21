@@ -27,6 +27,11 @@ impl Encoder {
     /// lookup is innermost-first, so an enclosing body's bindings stay
     /// visible — which is what a block, unlike a `fn` item, may see.
     pub(crate) fn encode_block(&mut self, block: &syn::Block) -> Expression {
+        // Claimed HERE, by the first block encoded after `encode_item_fn` set
+        // it, so it is true for the entry `fn main()`'s own top-level statement
+        // list and false for every block nested inside it (issue #789). Taken
+        // ahead of both paths below so a nested block can never inherit it.
+        let entry_main_body = std::mem::take(&mut self.entry_main_body);
         // The frame opens ahead of BOTH paths below: the message-builder idiom
         // declares its `let mut` map inside this block whether or not the whole
         // idiom matches, so a fall-through must not have skipped the scope.
@@ -41,13 +46,16 @@ impl Encoder {
         // `runtime_ctors::as_message_builder`.
         let encoded = match self.encode_message_builder(block) {
             Some(creation) => creation,
-            None => self.encode_block_statements(block),
+            None => self.encode_block_statements(block, entry_main_body),
         };
         self.pop_locals_frame();
         encoded
     }
 
-    fn encode_block_statements(&mut self, block: &syn::Block) -> Expression {
+    /// `entry_main_body` is true only for the entry `fn main()`'s own
+    /// top-level statement list — the one position the class-prologue call may
+    /// be dropped from (issue #789, see [`Encoder::entry_main_body`]).
+    fn encode_block_statements(&mut self, block: &syn::Block, entry_main_body: bool) -> Expression {
         // A `&mut` alias binding is scoped to the block that declares it, like
         // any other `let` (issue #642), so the table is saved here and restored
         // on the way out rather than leaking into the enclosing block.
@@ -72,7 +80,19 @@ impl Encoder {
                     // class prologue, inverted into each class's
                     // `metadata.superclass` and dropped here; keeping it would
                     // call a function this encoder deliberately does not emit.
-                    if semi.is_some() && is_register_types_call(expr) {
+                    //
+                    // Scoped to the ENTRY `fn main()`'s own statement list
+                    // (issue #789). The registrations are hoisted to file scope
+                    // and written onto the `TypeDefinition`s there, so this
+                    // unconditional, once-per-program call — the only one
+                    // `rust/compiler::compile_entry_main` emits — is the only
+                    // one the inversion is faithful to. A call from a helper
+                    // body or a nested `if` arm falls through to
+                    // `Encoder::encode_call`'s refusal instead of being
+                    // swallowed, because dropping it would flatten a
+                    // conditional/ordered/repeated registration into that one
+                    // static answer with nothing said.
+                    if entry_main_body && semi.is_some() && is_register_types_call(expr) {
                         continue;
                     }
                     if is_last && semi.is_none() {

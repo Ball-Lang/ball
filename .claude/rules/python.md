@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 363 passed,
-0 failed, 363 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 364 passed,
+0 failed, 364 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -275,7 +275,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 363 passed, 0 failed, 363 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 364 passed, 0 failed, 364 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -402,6 +402,15 @@ python -m conformance.runner                             # prints the CI-parseab
   does, to actually exercise it).
 - Prefer extending the compiler/encoder tests or `tests/conformance/*.ball.json` over Python-only
   unit tests, per the repo-wide "prefer conformance tests" rule.
+- **`python/encoder`'s suite needs `dart`** (or `BALL_DART`) plus a resolved workspace
+  (`dart pub get` at the repo root), and fails — never skips — without it (#785, the #730/#764
+  precedent). `tests/test_reference_engine_roundtrip.py` runs the ORIGINAL fixture and the
+  RE-ENCODED program on the **Dart reference engine** and asserts identical stdout, because every
+  other Python round-trip assertion runs under `ballrt`, which is tolerant where the engine is
+  strict (`getfield` on an absent key: `None` here, `BallRuntimeError` there). Its fixture set is
+  DERIVED from `test_ballrt_inverse`/`test_ballrt_namespaced`'s own lists — add a fixture there and
+  it is covered here. `ci.yml`'s `python` job therefore sets Dart up **before** its test steps; do
+  not move that back down.
 - `python/engine/conformance/runner.py` is the committed `tests/conformance/*.ball.json` runner — the
   `python-engine` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained count.
 - `python/engine/conformance/roundtrip.py` (`python -m conformance.roundtrip`, or

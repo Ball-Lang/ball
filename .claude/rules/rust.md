@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 363 passed, 0 failed, 363 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 364 passed, 0 failed, 364 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -625,13 +625,22 @@ cargo fmt --check && cargo clippy --workspace
   - **`pub fn __ball_register_types()` is the compiler's class prologue, and it is DROPPED.** Its
     `ball_register_superclass(child, parent)` calls invert to the child `TypeDefinition`'s
     `metadata.superclass` — where `dart/encoder` writes it and `type_emit::superclass_of` reads it
-    back — and `fn main()`'s leading call to it is dropped in `block.rs`. Resolving the
+    back — and `fn main()`'s leading call to it is dropped in `block.rs`. That drop is scoped to
+    the ENTRY `fn main()`'s own top-level statement list (`Encoder::entry_main_body`, issue #789),
+    never "any bare statement anywhere": the registrations are hoisted to file scope and written
+    onto the `TypeDefinition`s there, so a call from a helper body or a nested `if` arm falls
+    through to `encode_call`'s refusal instead of being swallowed — dropping it would flatten a
+    conditional, ordered or repeated registration into that one static answer. Resolving the
     registration's SHORT `Dog` against a declared type has to undo `sanitize_ident`: the compiled
     struct for Ball's `main:Dog` is `main_Dog`, so `apply_superclass_registrations` accepts the
     short name itself or that name behind a `_`-joined qualifier, and fails loud on zero or
     multiple matches rather than losing a class relationship silently. Any statement in that
     function that is not a two-string-literal registration is a loud failure too, because the
-    whole function is dropped.
+    whole function is dropped. **Every one of those refusals has a negative test** —
+    `rust/encoder/tests/class_prologue_refusals.rs` (issue #789), twelve hand-written cases each
+    pinning a SUBSTRING of the refusal's own message (so drift fails, not just panic-or-not) plus
+    a positive floor, because the whole-corpus round-trip legs only ever see the compiler's own
+    well-formed output and can reach none of these shapes.
   - Dropping the prologue is also what made the **whole-program fixpoint** reachable —
     `compile_reencode_roundtrip.rs::re_compiling_the_re_encoded_program_still_computes_the_same_answer`
     builds and RUNS both the first and the second compile. Before it, a second compile emitted
@@ -838,7 +847,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 363 passed, 0 failed, 363 total` (the 4
+  whole corpus with Dart-identical output: `Results: 364 passed, 0 failed, 364 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

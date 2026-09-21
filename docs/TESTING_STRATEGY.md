@@ -1214,6 +1214,40 @@ why the guard belongs in the shared conformance fixture rather than in a
 target-local test alone. When two tables answer one predicate, check they have
 the same REACH before treating either as proof.
 
+#### A guard applied to SOME of the shortcuts it should cover
+
+`declared_by_receiver` reached seven names after #664 and #697 (`length`,
+`isEmpty`, `isNotEmpty`, `isNaN`, `isFinite`, `isInfinite`, `isNegative`) — and
+`compile_field_access` carried **six more shortcuts of exactly the same shape**
+that it did not reach: `.first`, `.last`, `.runtimeType`, `.entries`, `.keys`,
+`.values` (#787). Nothing was red, because the seven that were guarded had
+fixtures and the six that were not had none. A guard is not proven by the names
+it covers; the measurable claim is about the SET the guard is applied to, and
+the only instrument that can see a missing member of that set is an enumeration
+of the set itself. The failure modes differed within the six, which is why
+per-name coverage mattered rather than one representative: `.entries` / `.keys`
+/ `.runtimeType` answered the wrong VALUE, while `.first` / `.last` lowered to
+`obj.front()` / `obj.back()` and the program did not COMPILE at all — a shape a
+"wrong output" expectation would not even have described.
+`tests/conformance/479_user_member_named_like_collection_accessor` is the gate,
+and it carries both declaration shapes (field and getter) because the
+compiler's fall-through resolves them through different paths — and `.values`
+is served correctly for a getter and wrongly for a field, so a fixture with only
+one shape would have pinned the wrong half of it.
+
+**Writing the enumeration is itself the instrument.** Two of the six names
+turned out to be broken on OTHER targets, in ways nothing in the corpus had ever
+asked about: a field named `entries` on a class with a method takes every
+self-hosted engine down (#860 — the engine binds an instance's fields into a
+method scope by iterating `selfMap.entries`, a name a user program may also
+declare), and a field named `runtimeType` throws on the TS engine at
+construction (#863 — `Object.prototype.runtimeType` is installed as a getter
+with no setter). Neither is reachable from the guard this fixture was written
+for; both were invisible until a fixture named the shapes. Each is carved out of
+the fixture with its issue number and its removed lines carried verbatim in the
+issue body — the same discipline #800 established for `476_…` — so the carve-out
+is a tracked reproduction rather than a silently narrowed test.
+
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
 `std_concurrency` shipped nine declared base functions, a dispatch arm in the
@@ -1867,6 +1901,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — ONE `full_e2e.sh` call over the PR's changed fixtures **plus** a derived four-fixture slice. One call, not two steps: the harness's positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is per-invocation, so a PR whose every changed fixture is a tracked `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the wrong cause (#651/#695) | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED. Each row's floor moves only in the PR that earns it — the job prints the exact new value; e.g. `rust-roundtrip` went 0 → 68 (#642) → 99 (#693) → 109 (#692). A floor is on the PASSED count alone, never a ratio: the corpus grows under every row, so `109 of 358` and `109 of 360` are the same measurement two fixtures apart |
+| **A Python re-encode that only the REFERENCE ENGINE can refute (#785)** — the fast Python round-trip guards (`python/encoder/tests/test_ballrt_inverse.py`, `test_ballrt_namespaced.py`) run the re-encoded fixture in-process under `ballrt` and compare to the golden. Python's runtime is tolerant where the reference engine is strict — `ballrt.getfield` answers `None` for an absent key (proto3-default tolerance) while the engine raises `BallRuntimeError: Field "…" not found` — so a re-encode that reads an absent key under the eager `std.null_coalesce` prints the golden there and DIES on the engine. The whole-corpus `python-roundtrip` row does use the engine, but it is a path-filtered floor/ratchet measurement, not a per-fixture gate on the suite that certifies those fixtures | `python/encoder/tests/test_reference_engine_roundtrip.py` — for every fixture those two suites certify (the set **derived from their own lists**, so a fixture added there is covered the same day) it runs the ORIGINAL `.ball.json` *and* the RE-ENCODED program on `dart run dart/cli/bin/ball.dart run` and asserts byte-identical stdout, with the fixture's own golden as the third leg so a failure names the guilty side. A negative control encodes two compiler-shaped programs `ballrt` cannot tell apart and the engine can, so the instrument is proven rather than trusted; a positive floor on the derivation stops an empty set from reading as green. No skip: an unresolvable `dart` FAILS (the #730/#764 precedent), which is why `ci.yml`'s `python` job sets Dart up BEFORE its test steps | every PR (the `python` job, `cd python/encoder && python -m pytest`) |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
 | **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |

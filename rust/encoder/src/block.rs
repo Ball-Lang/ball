@@ -6,10 +6,13 @@
 //! tail-expression-is-the-value rule, which this encoder gets "for free"
 //! simply by reading `syn::Stmt::Expr(expr, semi)`'s `semi` presence.
 
+use ball_lang_shared::proto::ball::v1::expression::Expr as BallExpr;
 use ball_lang_shared::proto::ball::v1::statement::Stmt as BallStmt;
-use ball_lang_shared::proto::ball::v1::{Block, Expression, LetBinding, Statement};
+use ball_lang_shared::proto::ball::v1::{
+    Block, Expression, FieldValuePair, LetBinding, MessageCreation, Statement,
+};
 
-use crate::{AliasTarget, Encoder, null_literal};
+use crate::{AliasTarget, Encoder, null_literal, runtime_ctors};
 
 impl Encoder {
     /// Encode a `syn::Block` to a Ball `block` [`Expression`].
@@ -24,8 +27,22 @@ impl Encoder {
     /// lookup is innermost-first, so an enclosing body's bindings stay
     /// visible — which is what a block, unlike a `fn` item, may see.
     pub(crate) fn encode_block(&mut self, block: &syn::Block) -> Expression {
+        // The frame opens ahead of BOTH paths below: the message-builder idiom
+        // declares its `let mut` map inside this block whether or not the whole
+        // idiom matches, so a fall-through must not have skipped the scope.
         self.push_locals_frame(&[]);
-        let encoded = self.encode_block_statements(block);
+        // `{ let mut m = BallMap::new(); m.insert("x", …); BallValue::Map(m) }`
+        // is not a block at all — it is `rust/compiler`'s emission for a Ball
+        // `message_creation` (issue #692), and its inverse is that very node.
+        // Matched here, ahead of statement-by-statement encoding, because
+        // taking it apart would need an inverse for `BallMap::insert` and would
+        // produce a DIFFERENT node from the one it compiled from. Anything that
+        // is not the whole idiom falls through unchanged — see
+        // `runtime_ctors::as_message_builder`.
+        let encoded = match self.encode_message_builder(block) {
+            Some(creation) => creation,
+            None => self.encode_block_statements(block),
+        };
         self.pop_locals_frame();
         encoded
     }
@@ -50,6 +67,14 @@ impl Encoder {
                     }
                 }
                 syn::Stmt::Expr(expr, semi) => {
+                    // `__ball_register_types();` — the first statement of every
+                    // compiled `fn main()` (issue #692). It is the COMPILER's
+                    // class prologue, inverted into each class's
+                    // `metadata.superclass` and dropped here; keeping it would
+                    // call a function this encoder deliberately does not emit.
+                    if semi.is_some() && is_register_types_call(expr) {
+                        continue;
+                    }
                     if is_last && semi.is_none() {
                         // No trailing semicolon on the last statement — this
                         // is the block's tail/result expression, not a
@@ -85,6 +110,43 @@ impl Encoder {
                 }),
             )),
         }
+    }
+
+    /// The Ball `message_creation` a `BallMap` builder block is the emission
+    /// of, or `None` when `block` is not that idiom (see
+    /// [`crate::runtime_ctors::as_message_builder`] for the exact shape and why
+    /// it is matched whole).
+    ///
+    /// A file that declares its own `BallMap`/`BallValue`/`BallMessage` wins,
+    /// the same way `enum_names` guards the `BallValue::…` arm in
+    /// [`Encoder::encode_call`]: its `BallMap::new()` is that type's own
+    /// associated function, not the runtime's.
+    fn encode_message_builder(&mut self, block: &syn::Block) -> Option<Expression> {
+        for shadowed in [
+            runtime_ctors::BALL_MAP_TYPE,
+            runtime_ctors::BALL_MESSAGE_TYPE,
+            crate::BALL_VALUE_TYPE,
+        ] {
+            if self.local_type_names.contains(shadowed) {
+                return None;
+            }
+        }
+        let builder = runtime_ctors::as_message_builder(block)?;
+        let fields = builder
+            .fields
+            .into_iter()
+            .map(|(name, value)| FieldValuePair {
+                name,
+                value: Some(self.encode_expr(value)),
+            })
+            .collect();
+        Some(Expression {
+            expr: Some(BallExpr::MessageCreation(MessageCreation {
+                type_name: builder.type_name,
+                fields,
+                metadata: None,
+            })),
+        })
     }
 
     /// Encode one `let` statement, or record it and return `None` when it is a
@@ -219,6 +281,24 @@ impl Encoder {
                 metadata,
             })),
         })
+    }
+}
+
+/// Is `expr` a bare `__ball_register_types()` call — the compiler's class
+/// prologue, invoked from every compiled `fn main()` (issue #692)?
+fn is_register_types_call(expr: &syn::Expr) -> bool {
+    let syn::Expr::Call(call) = expr else {
+        return false;
+    };
+    if !call.args.is_empty() {
+        return false;
+    }
+    match call.func.as_ref() {
+        syn::Expr::Path(path) => path
+            .path
+            .get_ident()
+            .is_some_and(|ident| ident == runtime_ctors::REGISTER_TYPES_FN),
+        _ => false,
     }
 }
 

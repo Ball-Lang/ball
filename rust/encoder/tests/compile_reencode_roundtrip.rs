@@ -30,11 +30,13 @@
 //!
 //! ## Stage 3 is an ENCODE gate, and the run-proofs sit beside it
 //!
-//! Stage 3's output is deliberately **not** compiled and run here, and neither
-//! Tier A nor this test should pretend otherwise: the compiler's output names
-//! runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not
-//! user functions, so **re-compiling stage 3's output is not a fixpoint anyone
-//! has claimed**. What stage 3 measures — the only thing it measures — is
+//! Stage 3's output is compiled and run for ONE program — the constructs #692
+//! taught the encoder, in
+//! [`re_compiling_the_re_encoded_program_still_computes_the_same_answer`] — and
+//! for nothing else, and neither Tier A nor this test should pretend otherwise:
+//! the compiler's output names runtime helpers (`ball_message_type_name`, …)
+//! that are not user functions, so **re-compiling stage 3's output is not a
+//! fixpoint at large**. What stage 3 measures for every other program is
 //! whether the encoder can read the compiler's output at all.
 //!
 //! Since #646 that reading is fail-loud: `encoder/src/runtime_helpers.rs` maps
@@ -694,16 +696,14 @@ fn script_mode_compiler_output_re_encodes() {
 /// #687's second half: the entry IIFE is LOAD-BEARING (#300), so whatever shape
 /// the encoder gives it must not cost the behaviour it buys.
 ///
-/// Three steps, and the third exists because the obvious fourth is off the
-/// table. Re-**compiling** the re-encoded program is not a fixpoint and this
-/// file's module doc says so: the compiler emits `fn __ball_register_types()`
-/// and the encoder reads that item back as an ordinary user function, so a
-/// second compile emits it twice (measured — `error[E0428]: the name
-/// `__ball_register_types` is defined multiple times`, plus an arity mismatch
-/// where the re-encoded call passes the `input` every Ball function takes).
-/// That is a property of the compiler's whole-program preamble, not of the
-/// wrapper, so the wrapper's behaviour is run-proved on a hand-written
-/// construct of the same shape instead.
+/// Three steps. The third run-proves the wrapper's own semantics on a
+/// hand-written construct of the same shape; the whole-program re-compile it
+/// used to stand in for is now its own test — see
+/// [`re_compiling_the_re_encoded_program_still_computes_the_same_answer`],
+/// which #692 unblocked by teaching the encoder that
+/// `pub fn __ball_register_types()` is the compiler's class prologue rather
+/// than a user function (re-emitting it was `error[E0428]: the name
+/// `__ball_register_types` is defined multiple times`).
 #[test]
 fn an_entry_body_return_survives_the_compile_reencode_round_trip() {
     // 1. The real entry point, end to end: Rust -> Ball -> Rust -> run.
@@ -741,5 +741,68 @@ fn an_entry_body_return_survives_the_compile_reencode_round_trip() {
         ENTRY_SHAPED_WRAPPER_EXPECTED_STDOUT,
         "the entry-point wrapper's shape must still stop at its `return` and hand the value to \
          its caller after the round trip"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The whole-program FIXPOINT (issue #692)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// One class instance, one list literal, and a read out of each — the two
+/// constructs #692 taught the encoder (the `BallMap::new()` message builder and
+/// `BallValue::List(BallList::from(vec![…]))`), in a program small enough to
+/// hand-compute.
+const COLLECTION_AND_CLASS_SOURCE: &str = r#"
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() {
+    let p = Point { x: 3, y: 4 };
+    let xs = vec![10, 20, 30];
+    println!("{}", p.x);
+    println!("{}", xs[1]);
+}
+"#;
+
+/// What `rustc` prints for [`COLLECTION_AND_CLASS_SOURCE`] itself.
+const COLLECTION_AND_CLASS_EXPECTED_STDOUT: &str = "3\n20\n";
+
+/// **The #692 run-proof, and the strongest gate in this file:** Rust -> Ball ->
+/// Rust -> Ball -> Rust, BUILT and RUN at both ends, both times printing what
+/// `rustc` prints for the original source.
+///
+/// The second compile is what makes this more than an encode-shape assertion.
+/// A re-encode that read the message builder as *some* structurally valid node
+/// — a block that mutates a map, say, or a call to a function nobody declares —
+/// still yields a Program `ball check` accepts; only compiling it again and
+/// running it can tell that node from the `message_creation` it came from.
+///
+/// It is also the fixpoint this file's module doc comment used to rule out: the
+/// compiler's `pub fn __ball_register_types()` came back as an ordinary user
+/// function, so a second compile emitted it twice
+/// (`error[E0428]: the name `__ball_register_types` is defined multiple
+/// times`). Recognizing it as the class prologue is half of #692, and this test
+/// is where that half is observed rather than asserted about.
+#[test]
+fn re_compiling_the_re_encoded_program_still_computes_the_same_answer() {
+    let stage1 = ball_lang_encoder::encode(COLLECTION_AND_CLASS_SOURCE);
+    let stage2 = Compiler::new(&stage1).compile();
+    assert_eq!(
+        compile_and_run("fixpoint_stage2", &stage2),
+        COLLECTION_AND_CLASS_EXPECTED_STDOUT,
+        "the first compile must already reproduce what `rustc` prints for the source — \
+         otherwise the second one is measuring nothing"
+    );
+
+    let stage3 = ball_lang_encoder::encode(&stage2);
+    let stage4 = Compiler::new(&stage3).compile();
+    assert_eq!(
+        compile_and_run("fixpoint_stage4", &stage4),
+        COLLECTION_AND_CLASS_EXPECTED_STDOUT,
+        "re-compiling the RE-ENCODED program must still print the same answer: a message \
+         builder or a list constructor read back as anything but the node it compiled from \
+         would produce a valid Program with a different result"
     );
 }

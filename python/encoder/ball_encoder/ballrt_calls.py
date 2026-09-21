@@ -127,6 +127,11 @@ CAUGHT_STACK = "_caught"
 #: `ballrt.stack_trace_of(_ex)` — the compiler's spelling of a `catch (e, st)`
 #: clause's SECOND binding, which reads back as the clause's `stack_trace` field.
 STACK_TRACE_OF = "stack_trace_of"
+#: `ballrt.catch_matches(_ex.value, "<Type>")` — the TEST of one typed
+#: `on <Type> catch` clause in the compiler's dispatch chain (issue #724). It is
+#: a recognised SHAPE, not a `HELPERS` entry: it has no `std` base function of
+#: its own, and what it reads back as is the clause's `type` FIELD.
+CATCH_MATCHES = "catch_matches"
 
 #: `ballrt.brk(label)` / `ballrt.cont(label)` -> `std.break` / `std.continue`.
 #: The operand is a label STRING, not an expression — and the compiler always

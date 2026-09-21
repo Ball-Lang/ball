@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 362 passed, 0 failed, 362 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 363 passed, 0 failed, 363 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -547,7 +547,38 @@ cargo fmt --check && cargo clippy --workspace
   through a `&T`, so there is nothing to lose. Guards:
   `rust/encoder/tests/mut_borrow_writes.rs` — four refused write shapes and four controls (a
   read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing).
-  A `&mut` handed to a CALLEE (`f(&mut x)`) is a different mechanism and stays with #692.
+  **And so does a MUTATING METHOD CALL through such a borrow (#775).** An assignment is not the
+  only way to mutate: `let s = &mut v[0]; s.push(x);` encodes as
+  `std_collections.list_push(list: <receiver>, value: x)`, `list_push` appends IN PLACE
+  (`dart/engine/lib/engine_std.dart`: `list.add(m['value'])`), and `encode_path_expr` resolves an
+  `Opaque` receiver to the emitted COPY — the identical silent loss, reached through `.method(…)`.
+  `methods.rs::refuse_mutating_method_through_an_unmodellable_borrow` runs before arm dispatch and
+  shares `lib.rs::refuse_mutation_through_an_unmodellable_borrow` (and therefore `write_root_name`)
+  with `encode_assign`, so a projection off the alias is refused exactly as a bare `*s` is. **The
+  covered set is exactly, and only:** a bare or compound ASSIGNMENT whose root is an `Opaque`
+  alias, and a call of a built-in arm that mutates its RECEIVER — `methods.rs`'s
+  `RECEIVER_MUTATING_METHODS`, today the single entry `("push", 1)`, matched on name AND arity so
+  it mirrors the arm's own guard. A method that is in NEITHER list and is not a user-declared one
+  is refused too, a few lines earlier than the catch-all would have refused it anyway — "not
+  provably a read" is never assumed safe, so an arm added later without being classified stays
+  closed. **Out of scope, and why:** (a) a READ through the borrow
+  (`s.len()`, a bare `s`) is never refused — a read of a borrow and a read of a copy give the same
+  answer, which is why `RECEIVER_READ_ONLY_METHODS` exists as a listed set rather than an implicit
+  "everything else"; (b) a `&mut` handed to a CALLEE (`f(&mut x)`) is a different mechanism — the
+  callee's mutation, not a local alias — and stays with #692; (c) a USER-DECLARED instance method
+  mutating its own receiver, which no receiver carries back on any call, aliased or not
+  (`type_emit.rs::method_prologue` extracts `self` from `input.clone()` — the boundary `types.rs`'s
+  module doc comment already records), also #692. The classification is a CLOSED SET over the arm
+  table, not a hand-list: `methods.rs`'s `every_built_in_method_arm_is_classified` PARSES
+  `encode_method_call` with `syn` and fails on an arm in neither list or a listed name with no arm,
+  over a measured floor of 40 arms — a regex could not tell an arm pattern from a string literal
+  inside an arm body. Guards: `rust/encoder/tests/mut_borrow_method_calls.rs` — three refused
+  shapes (an index place, a field place, an inherited-opaque alias, an unclassified method) and
+  six controls (a read-only method call through the borrow, a user-declared method through it, the
+  modelled plain-variable alias, an ordinary receiver, an unclassified method on an ordinary
+  receiver keeping the catch-all diagnostic, and shadowing). No conformance fixture exercises it: `rust/compiler/src/lvalue.rs` only ever binds
+  `(&mut <var>)`, which is `AliasTarget::Variable`, so the round-trip corpus is structurally blind
+  to the whole `Opaque` class — which is exactly why #693's assignment-only wiring survived review.
 - **The runtime's COLLECTION constructors and the compiler's CLASS PROLOGUE (#692).**
   `runtime_ctors.rs` is the sibling of `runtime_helpers.rs` for the two shapes that are not base
   CALLS at all. `BallValue::List(x)`/`BallValue::Map(x)` join the `BallValue::String(…)` identity
@@ -781,7 +812,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 362 passed, 0 failed, 362 total` (the 4
+  whole corpus with Dart-identical output: `Results: 363 passed, 0 failed, 363 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

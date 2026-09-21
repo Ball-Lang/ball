@@ -105,6 +105,24 @@
 //! type information, mirroring the `_looksLikeTypeName` caveat documented in
 //! `.claude/rules/dart.md`.
 //!
+//! ## A receiver-MUTATING arm through an unmodellable `&mut` borrow (#775)
+//!
+//! `let s = &mut v[0]; s.push(x);` means "append to `v[0]`", and Ball has no
+//! references, so `s` is emitted as a COPY of `v[0]` and
+//! `std_collections.list_push` — which appends IN PLACE — would append to that
+//! copy. [`Encoder::refuse_mutating_method_through_an_unmodellable_borrow`]
+//! refuses it before dispatch, the method-call half of the guard
+//! `encode_assign` has had since #693.
+//!
+//! Which arms that covers is a CLOSED SET over the table below, split between
+//! [`RECEIVER_MUTATING_METHODS`] and [`RECEIVER_READ_ONLY_METHODS`] and kept in
+//! agreement with the table by `arm_classification_tests`, which parses
+//! [`Encoder::encode_method_call`] itself. Read-only arms keep encoding through
+//! an opaque alias, because a read of a borrow and a read of a copy give the
+//! same answer; a USER-DECLARED instance method is out of scope (see that
+//! function's doc comment and `types.rs`'s "Why a method mutating its own field
+//! is out of scope").
+//!
 //! Slice 6 deliberately does **not** widen that bias: `.fuse()` and
 //! `.is_empty()` each carry a `!self.method_params.contains_key(..)` guard, so
 //! an `impl` block in this very file declaring `fn is_empty(&self)` still
@@ -122,9 +140,78 @@ use crate::{
     list_literal, named_message, reference, std_call, string_literal,
 };
 
+/// Every built-in arm below whose encoding MUTATES THE RECEIVER IN PLACE, as
+/// `(method name, argument count)` — the arm's own guard, spelled out, so the
+/// classification cannot claim a shape the arm does not actually take.
+///
+/// One entry today: `.push(x)` encodes as
+/// `std_collections.list_push(list: <receiver>, value: x)`, and `list_push`
+/// appends to its `list` argument in place (`dart/engine/lib/engine_std.dart`:
+/// `list.add(m['value'])`) rather than returning a new list.
+///
+/// This is the set [`Encoder::refuse_mutating_method_through_an_unmodellable_borrow`]
+/// refuses on an [`crate::AliasTarget::Opaque`] receiver (issue #775). It is
+/// kept in agreement with the arm table by this file's own
+/// `every_built_in_method_arm_is_classified` test, which PARSES
+/// [`Encoder::encode_method_call`] — so a future receiver-mutating arm cannot
+/// be added without landing here.
+pub(crate) const RECEIVER_MUTATING_METHODS: &[(&str, usize)] = &[("push", 1)];
+
+/// Every other built-in arm: each produces a NEW value from its receiver, so
+/// calling it through an unmodellable `&mut` borrow is a READ, and a read of a
+/// borrow and a read of a copy give the same answer. Listed rather than
+/// inferred so the classification is a closed set over the arm table (see
+/// [`RECEIVER_MUTATING_METHODS`]) instead of a silent "everything else".
+pub(crate) const RECEIVER_READ_ONLY_METHODS: &[&str] = &[
+    "all",
+    "any",
+    "as_bytes",
+    "as_mut",
+    "as_ref",
+    "as_slice",
+    "as_str",
+    "by_ref",
+    "chain",
+    "clone",
+    "collect",
+    "contains",
+    "ends_with",
+    "filter",
+    "find",
+    "fuse",
+    "into_iter",
+    "is_empty",
+    "iter",
+    "iter_mut",
+    "len",
+    "map",
+    "repeat",
+    "replace",
+    "skip",
+    "split",
+    "starts_with",
+    "take",
+    "to_ascii_lowercase",
+    "to_ascii_uppercase",
+    "to_lowercase",
+    "to_owned",
+    "to_string",
+    "to_uppercase",
+    "trim",
+    "trim_end",
+    "trim_start",
+    "unwrap",
+    "unwrap_or",
+];
+
 impl Encoder {
     pub(crate) fn encode_method_call(&mut self, e: &syn::ExprMethodCall) -> Expression {
         let method = e.method.to_string();
+        self.refuse_mutating_method_through_an_unmodellable_borrow(
+            &e.receiver,
+            &method,
+            e.args.len(),
+        );
         match method.as_str() {
             // ── Identity passthroughs (no Ball-level effect) ──
             "iter" | "into_iter" | "iter_mut" | "by_ref" | "as_ref" | "as_mut" | "as_str"
@@ -263,6 +350,68 @@ impl Encoder {
                  this file also encodes, or, under `encode_crate`, anywhere in the same crate)"
             ),
         }
+    }
+
+    /// Refuse a method call that MUTATES ITS RECEIVER when that receiver is
+    /// rooted at an [`crate::AliasTarget::Opaque`] borrow (issue #775) — the
+    /// method-call half of the guard `encode_assign` has had since #693.
+    ///
+    /// `let s = &mut v[0]; s.push(x);` means "append to `v[0]`". Ball has no
+    /// references, so `s` is emitted as a COPY of `v[0]` and
+    /// `std_collections.list_push` appends to that copy instead: a
+    /// structurally valid, `ball check`-clean program that computes something
+    /// else — the same silent loss as a write through the alias, reached
+    /// through `.method(…)` instead of `=`.
+    ///
+    /// Narrow by construction, and fail-loud on anything it cannot classify.
+    /// Only a receiver rooted at an `Opaque` alias is ever considered at all
+    /// (`refuse_mutation_through_an_unmodellable_borrow` returns immediately
+    /// otherwise), and then:
+    ///
+    /// - a name in [`RECEIVER_MUTATING_METHODS`] **at the arity the arm itself
+    ///   requires** is REFUSED — the defect this guard exists for;
+    /// - a name in [`RECEIVER_READ_ONLY_METHODS`] is allowed: that arm produces
+    ///   a new value from its receiver, so it is a read, and a read of a borrow
+    ///   and a read of a copy give the same answer (pinned by
+    ///   `tests/mut_borrow_method_calls.rs`'s read-only control);
+    /// - a USER-DECLARED instance method is allowed too, deliberately: the
+    ///   receiver is packed as a `"self"` field and `rust/compiler`'s
+    ///   `type_emit.rs::method_prologue` extracts it from `input.clone()`, so
+    ///   no instance method observably mutates its receiver on ANY receiver,
+    ///   aliased or not — the boundary `types.rs`'s module doc comment records,
+    ///   tracked with the rest of the reference-semantics gap in issue #692;
+    /// - anything else is refused HERE rather than a few lines later. Such a
+    ///   name has no arm today, so [`Self::encode_method_call`]'s catch-all
+    ///   would refuse it anyway — but if a future arm were added without being
+    ///   classified, this is what keeps #775 closed through it instead of
+    ///   silently mutating the copy. `arm_classification_tests` makes that
+    ///   second case a test failure rather than a surprise at encode time.
+    fn refuse_mutating_method_through_an_unmodellable_borrow(
+        &self,
+        receiver: &syn::Expr,
+        method: &str,
+        arg_count: usize,
+    ) {
+        if RECEIVER_MUTATING_METHODS
+            .iter()
+            .any(|(name, arity)| *name == method && *arity == arg_count)
+        {
+            self.refuse_mutation_through_an_unmodellable_borrow(
+                receiver,
+                &format!("mutated IN PLACE by `.{method}(…)` (issue #775)"),
+            );
+            return;
+        }
+        if RECEIVER_READ_ONLY_METHODS.contains(&method) || self.method_params.contains_key(method) {
+            return;
+        }
+        self.refuse_mutation_through_an_unmodellable_borrow(
+            receiver,
+            &format!(
+                "the RECEIVER of `.{method}(…)`, a method this encoder neither has an arm for nor \
+                 classifies as a read (issue #775)"
+            ),
+        );
     }
 
     /// Packs `receiver` under a `"self"` field, then `args` under the
@@ -800,4 +949,135 @@ fn split_format_string(s: &str) -> Vec<FormatPart> {
         parts.push(FormatPart::Literal(current));
     }
     parts
+}
+
+/// The classification behind issue #775's refusal is a CLOSED SET over
+/// [`Encoder::encode_method_call`]'s own arm table, and these tests derive that
+/// table from the source of truth — the function itself, parsed with `syn`
+/// — rather than restating it.
+///
+/// A regex over this file would be the wrong instrument twice over: it cannot
+/// tell an arm PATTERN (`"push" if …`) from a string literal inside an arm's
+/// BODY (`std_call("equals", …)`), and it cannot see the `|` alternatives of a
+/// multi-name pattern as separate names. Parsing sees exactly the patterns.
+#[cfg(test)]
+mod arm_classification_tests {
+    use std::collections::BTreeSet;
+
+    use super::{RECEIVER_MUTATING_METHODS, RECEIVER_READ_ONLY_METHODS};
+
+    /// The number of built-in arms measured when issue #775 landed. A POSITIVE
+    /// FLOOR, so a parse that silently found nothing (a renamed function, a
+    /// restructured match) fails instead of trivially agreeing with an empty
+    /// classification.
+    const MEASURED_ARM_FLOOR: usize = 40;
+
+    /// Every method name `encode_method_call` has a built-in arm for must be
+    /// classified as receiver-mutating or read-only, and nothing may be
+    /// classified that has no arm. Adding a new mutating arm without listing it
+    /// in [`RECEIVER_MUTATING_METHODS`] would silently reopen #775 — through
+    /// that arm — so it fails here instead.
+    #[test]
+    fn every_built_in_method_arm_is_classified() {
+        let arms = built_in_method_arm_names();
+        assert!(
+            arms.len() >= MEASURED_ARM_FLOOR,
+            "parsed only {} built-in method arms, below the measured floor of \
+             {MEASURED_ARM_FLOOR} — `encode_method_call`'s match was not found or not read: {arms:?}",
+            arms.len()
+        );
+        let classified: BTreeSet<String> = RECEIVER_MUTATING_METHODS
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .chain(
+                RECEIVER_READ_ONLY_METHODS
+                    .iter()
+                    .map(|name| (*name).to_string()),
+            )
+            .collect();
+
+        let unclassified: Vec<&String> = arms.difference(&classified).collect();
+        assert!(
+            unclassified.is_empty(),
+            "these `encode_method_call` arms are not classified — decide whether each MUTATES ITS \
+             RECEIVER (issue #775's refusal) or produces a new value, and add it to \
+             RECEIVER_MUTATING_METHODS or RECEIVER_READ_ONLY_METHODS: {unclassified:?}"
+        );
+        let stale: Vec<&String> = classified.difference(&arms).collect();
+        assert!(
+            stale.is_empty(),
+            "these names are classified but `encode_method_call` has no arm for them — the \
+             classification must stay a closed set over the arm table: {stale:?}"
+        );
+    }
+
+    /// A name may not be in both lists: the refusal reads the mutating list and
+    /// the read-only list is what documents "this one is safe through an
+    /// alias", so an overlap would make the classification self-contradicting.
+    #[test]
+    fn the_two_classifications_are_disjoint() {
+        let read_only: BTreeSet<&str> = RECEIVER_READ_ONLY_METHODS.iter().copied().collect();
+        let overlap: Vec<&str> = RECEIVER_MUTATING_METHODS
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| read_only.contains(name))
+            .collect();
+        assert!(
+            overlap.is_empty(),
+            "a method cannot be both receiver-mutating and read-only: {overlap:?}"
+        );
+    }
+
+    /// Every method name that appears as a PATTERN of `encode_method_call`'s
+    /// match — the built-in arms. The catch-all `other => …` arms bind an
+    /// identifier rather than a literal, so they contribute nothing, which is
+    /// correct: an unrecognised method already fails loud there.
+    fn built_in_method_arm_names() -> BTreeSet<String> {
+        let source = include_str!("methods.rs");
+        let file = syn::parse_file(source)
+            .expect("ball-lang-encoder: `src/methods.rs` must parse as Rust");
+        let mut names = BTreeSet::new();
+        for item in &file.items {
+            let syn::Item::Impl(item_impl) = item else {
+                continue;
+            };
+            for impl_item in &item_impl.items {
+                let syn::ImplItem::Fn(impl_fn) = impl_item else {
+                    continue;
+                };
+                if impl_fn.sig.ident != "encode_method_call" {
+                    continue;
+                }
+                for statement in &impl_fn.block.stmts {
+                    let syn::Stmt::Expr(syn::Expr::Match(match_expr), _) = statement else {
+                        continue;
+                    };
+                    for arm in &match_expr.arms {
+                        collect_pattern_string_literals(&arm.pat, &mut names);
+                    }
+                }
+            }
+        }
+        names
+    }
+
+    fn collect_pattern_string_literals(pat: &syn::Pat, out: &mut BTreeSet<String>) {
+        match pat {
+            syn::Pat::Lit(pat_lit) => {
+                if let syn::Lit::Str(literal) = &pat_lit.lit {
+                    out.insert(literal.value());
+                }
+            }
+            syn::Pat::Or(pat_or) => {
+                for case in &pat_or.cases {
+                    collect_pattern_string_literals(case, out);
+                }
+            }
+            syn::Pat::Paren(pat_paren) => collect_pattern_string_literals(&pat_paren.pat, out),
+            syn::Pat::Reference(pat_reference) => {
+                collect_pattern_string_literals(&pat_reference.pat, out)
+            }
+            _ => {}
+        }
+    }
 }

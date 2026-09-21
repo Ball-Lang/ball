@@ -77,12 +77,22 @@
 //!   Ball `assign`, and encoding it as a value made 28 of the corpus's loop
 //!   fixtures re-encode "clean" and then never terminate.
 //! - `&mut <anything else>` (`&mut p.x`, `&mut v[0]`) keeps its binding, so
-//!   reads still work, and a WRITE through it is REFUSED
-//!   ([`Encoder::refuse_write_through_an_unmodellable_borrow`], #693).
+//!   reads still work, and every MUTATION through it is REFUSED — both an
+//!   assignment (`*s = …`, `s.f += …`;
+//!   [`Encoder::refuse_write_through_an_unmodellable_borrow`], #693) and a
+//!   method call whose encoding mutates its receiver in place (`s.push(x)`;
+//!   `methods.rs::refuse_mutating_method_through_an_unmodellable_borrow`,
+//!   #775). Both go through the one shared
+//!   [`Encoder::refuse_mutation_through_an_unmodellable_borrow`]. A READ
+//!   through the binding — `s.len()`, a bare `s` — still encodes: a read of a
+//!   borrow and a read of a copy give the same answer.
 //!
-//! A `&mut` handed to a callee (`f(&mut x)`) is a different mechanism — the
-//! callee's mutation, not a local alias — and is tracked with the rest of the
-//! Rust round-trip gap in issue #692.
+//! Two shapes stay out of scope, deliberately. A `&mut` handed to a callee
+//! (`f(&mut x)`) is a different mechanism — the callee's mutation, not a local
+//! alias. So is a USER-DECLARED instance method mutating its own receiver,
+//! which no receiver carries back (`types.rs`'s module doc comment: the
+//! compiler's `method_prologue` extracts `self` from `input.clone()`). Both are
+//! tracked with the rest of the Rust round-trip gap in issue #692.
 //!
 //! ## Module-scope `const`/`static`/`type` alias: skipped, not a panic (#491)
 //!
@@ -1670,7 +1680,27 @@ impl Encoder {
     /// counter, never terminates. That is the #55 class, not a scope gap, so it
     /// fails loud here rather than being emitted.
     fn refuse_write_through_an_unmodellable_borrow(&self, target: &syn::Expr) {
-        let Some(root) = write_root_name(target) else {
+        self.refuse_mutation_through_an_unmodellable_borrow(target, "WRITTEN THROUGH");
+    }
+
+    /// The shared core of every refusal above: `place_expr` is a place the
+    /// program is about to MUTATE, and `mutation` says how, for the message.
+    ///
+    /// Two callers, because there are two ways to mutate through an alias and
+    /// covering only one of them is what issue #775 reopened:
+    /// [`Self::refuse_write_through_an_unmodellable_borrow`] for an assignment
+    /// (`*s = …`, `s.f += …`) and
+    /// `methods.rs::refuse_mutating_method_through_an_unmodellable_borrow` for
+    /// a method call whose encoding mutates its receiver in place
+    /// (`s.push(x)`). Both resolve the ROOT of the place through
+    /// parens/deref/field/index ([`write_root_name`]), so a projection off the
+    /// alias is refused exactly as a bare `*s` is.
+    pub(crate) fn refuse_mutation_through_an_unmodellable_borrow(
+        &self,
+        place_expr: &syn::Expr,
+        mutation: &str,
+    ) {
+        let Some(root) = write_root_name(place_expr) else {
             return;
         };
         let Some(AliasTarget::Opaque(place)) = self.ref_aliases.get(&root) else {
@@ -1678,8 +1708,8 @@ impl Encoder {
         };
         panic!(
             "ball-lang-encoder: `{root}` binds `&mut {place}` — a borrow of something other than a \
-             plain variable, which this encoder cannot model — and is then WRITTEN THROUGH. Ball \
-             has no references, so `{root}` encodes as a COPY of `{place}` and that write would be \
+             plain variable, which this encoder cannot model — and is then {mutation}. Ball has no \
+             references, so `{root}` encodes as a COPY of `{place}` and that write would be \
              silently lost, leaving a program that type-checks and computes something else (issue \
              #693: 28 loop fixtures re-encoded clean and then never terminated). Refusing instead \
              of emitting it; the wider `&mut` reference-semantics gap is tracked in issue #692."

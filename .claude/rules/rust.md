@@ -326,7 +326,11 @@ cargo fmt --check && cargo clippy --workspace
   and was not is a named `MacroError`, never flattened into "unsupported". A dependency source
   path the walk cannot LOOK at — a subdirectory whose `read_dir` fails, a dangling symlink — is
   recorded through the same `note_unreadable_source` an unparseable file uses and named in the
-  resulting diagnostic (#678); "not found" and "could not look" are never conflated. **Hygiene is an
+  resulting diagnostic (#678); "not found" and "could not look" are never conflated. The dependency
+  EDGES obey the same rule since #705: a `deps[]` entry with no `name`/`pkg`, a `pkg` id with no
+  `packages[]` entry, a package with no library target and a library target with no `src_path` are
+  each a `note_unresolvable_dependency`, never a `continue` — a `proc-macro`-only package is the
+  one deliberate silence, because that skip is an answer this crate documents. **Hygiene is an
   approximation and must be described as one** — origin-tagged α-renaming of definition-origin
   bindings to `<name>__ball_mbe<N>`, not rust-analyzer's `SyntaxContext` transparency chain —
   so it is the one part of this feature that can produce the #488 class of bug (round-trips

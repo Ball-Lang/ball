@@ -71,6 +71,18 @@
 /// cannot reach candidate N+1 through `dart test`'s persisted incremental
 /// kernel, because every candidate starts from the same baseline state.
 ///
+/// Three consequences of that were left half-done and are closed in issue #705.
+/// **The BASELINE is measured in a copy too** ([runDartTestInAScoredCopy]):
+/// running the yardstick somewhere the candidates never run made every
+/// path-sensitive suite produce a package of drift the instrument invented, one
+/// row per file. **A link stops the copy** ([_copyTree]): skipping one was an
+/// assertion ("no pinned package ships one"), and a silently incomplete copy
+/// charges whatever the missing path carried to the substituted file. **Whole
+/// mode re-checks the tree before copying** ([studyPackageWhole]): it has only
+/// one scored run and so no between-candidate window, but it has the window
+/// between the baseline and the copy, and one verdict built on a tree the
+/// baseline no longer describes is exactly as wrong as a hundred.
+///
 /// Usage (from the repo root):
 ///
 ///   dart run tools/coverage-study/rq1_tierb.dart \
@@ -623,9 +635,23 @@ void _copyTree(Directory from, Directory to, {String prefix = ''}) {
       _copyTree(entity, Directory('${to.path}/$name'), prefix: rel);
     } else if (entity is File) {
       entity.copySync('${to.path}/$name');
+    } else {
+      // A LINK, and the harness refuses rather than guesses (issue #705).
+      // Skipping it was an ASSERTION — "no pinned package ships one" — not a
+      // guard: a copy that quietly lost a path is incomplete, and `dart test`
+      // builds the whole package, so whatever the missing path carried is
+      // charged to the file this run believes it substituted. That is the
+      // #653 failure one layer down, with nothing left to notice it.
+      // Following the link is not the alternative: it would copy something
+      // from outside the checkout. So the only honest answer is to stop.
+      throw StateError(
+        'the checkout contains a link at $rel, which the scored copy can '
+        'neither reproduce nor safely follow. Copying without it would make '
+        'the copy incomplete and charge whatever it carried to the '
+        'substituted file; following it would copy from outside the '
+        'checkout. Re-clone the package without links, or exclude the pin.',
+      );
     }
-    // Links are deliberately skipped: no pinned package ships one, and
-    // following one would copy something outside the checkout.
   }
 }
 
@@ -703,6 +729,35 @@ class TierBOptions {
   final int maxFilesPerPackage;
 }
 
+/// Runs the UNMODIFIED suite the same way a candidate's is run: in a private
+/// copy of [checkout], with an empty substitution table.
+///
+/// The yardstick and the thing measured against it have to be measured the same
+/// way (issue #705). The baseline used to run in the checkout itself while every
+/// candidate runs in a temp copy, so any suite whose result depends on WHERE it
+/// runs — a test asserting a path, reading a fixture by absolute path, keyed on
+/// its own directory name — passed for the baseline and failed for every
+/// candidate. The harness charged that difference to the encoder: a whole
+/// package of `behavioral-drift`, one row per file, produced by the instrument.
+///
+/// The fix is not to make the copy resemble the checkout. It is that such a
+/// suite cannot be a yardstick at all, and running the baseline in a copy is
+/// what makes the harness SEE that: the path-sensitive suite fails here, the
+/// package is excluded as `baseline-unstable`, and nothing is scored against a
+/// yardstick that does not describe what the candidates run in.
+///
+/// `pubGet` deliberately stays on the checkout — it is preparation, not
+/// measurement, `prepareStaticTypes()` needs the `.dart_tool/` it writes, and
+/// every copy inherits it.
+Future<TestRunOutcome> runDartTestInAScoredCopy(
+  Directory checkout,
+  TierBOptions options,
+) => withSubstitutedCopy(
+  checkout,
+  const <String, String>{},
+  (workspace) => runDartTest(workspace, timeout: options.testTimeout),
+);
+
 /// Prepares [checkout] and runs its untouched suite.
 ///
 /// Returns the `baseline-unstable: …` reason when the package cannot be a
@@ -723,7 +778,7 @@ Future<({String? unstable, TestRunOutcome baseline})> establishBaseline(
       ),
     );
   }
-  final baseline = await runDartTest(checkout, timeout: options.testTimeout);
+  final baseline = await runDartTestInAScoredCopy(checkout, options);
   if (baseline.timedOut) {
     return (
       unstable:
@@ -744,7 +799,7 @@ Future<({String? unstable, TestRunOutcome baseline})> establishBaseline(
   // returns two different tallies on the same untouched checkout cannot tell a
   // pipeline regression from its own noise, so it is excluded here rather than
   // charging its flakiness to the encoder one file at a time.
-  final confirm = await runDartTest(checkout, timeout: options.testTimeout);
+  final confirm = await runDartTestInAScoredCopy(checkout, options);
   if (confirm.passed != baseline.passed || confirm.failed != baseline.failed) {
     return (
       unstable:
@@ -853,10 +908,18 @@ Future<TierBPackageResult> studyPackagePerFile(
 /// Tier B, whole-package: substitute EVERY eligible file at once, run the suite
 /// once, restore everything. The stricter signal — a package is clean only when
 /// its entire library survives the round trip simultaneously.
+/// [afterBaseline], when supplied, is awaited once the baseline has been
+/// measured and before the single scored copy is taken. It exists for ONE
+/// caller — this harness's own self-test — for the same reason
+/// [studyPackagePerFile]'s [substitutions] does: the property under test is
+/// "a tree that changed between the baseline and the copy stops the run", and
+/// the only deterministic way to produce that window is to be handed it.
+/// Production always passes `null`.
 Future<TierBPackageResult> studyPackageWhole(
   String package,
   Directory checkout, {
   TierBOptions options = const TierBOptions(),
+  Future<void> Function()? afterBaseline,
 }) async {
   final libRoot = Directory('${checkout.path}/${options.libSubdir}');
   if (!libRoot.existsSync()) {
@@ -869,6 +932,15 @@ Future<TierBPackageResult> studyPackageWhole(
 
   final (:unstable, :baseline) = await establishBaseline(checkout, options);
   if (unstable != null) return TierBPackageResult(package, unstable, const []);
+
+  // The yardstick's fine print, in whole mode too (issue #705). Per-file mode
+  // re-checks this before every candidate; whole mode has only one scored run
+  // and so no BETWEEN-candidate window — but it has the window that actually
+  // matters, between the baseline and the copy. If the tree changed after the
+  // baseline was measured, the copy is not the tree the baseline describes, and
+  // one verdict built on that is exactly as wrong as a hundred.
+  final pristine = snapshotTree(libRoot);
+  if (afterBaseline != null) await afterBaseline();
 
   // AFTER establishBaseline, never before: `prepareStaticTypes()` needs the
   // `.dart_tool/package_config.json` that `pubGet` writes, and resolving a
@@ -888,6 +960,17 @@ Future<TierBPackageResult> studyPackageWhole(
     candidates = candidates.take(options.maxFilesPerPackage).toList();
   }
   final substitutable = candidates.where((c) => c.reason == null).toList();
+
+  // Same isolation as per-file mode (issue #653): the whole substitution lands
+  // in a private copy, so this run can neither be corrupted by, nor corrupt,
+  // anything else pointed at the same checkout. Isolation makes this run
+  // harmless to others; it cannot make others harmless to it, since the copy is
+  // taken FROM the shared checkout — hence the check against the baseline's own
+  // snapshot (issue #705). It runs BEFORE the `substitutable.isEmpty` arm on
+  // purpose: on a tree a stranger broke, "no file reached stage 2" is a wrong
+  // diagnosis, and a wrong diagnosis is what this whole guard exists to refuse.
+  verifyTreeUnchanged(libRoot, pristine, package: package);
+
   if (substitutable.isEmpty) {
     return TierBPackageResult(
       package,
@@ -897,10 +980,6 @@ Future<TierBPackageResult> studyPackageWhole(
     );
   }
 
-  // Same isolation as per-file mode (issue #653): the whole substitution lands
-  // in a private copy, so this run can neither be corrupted by, nor corrupt,
-  // anything else pointed at the same checkout. There is exactly one scored run
-  // here, so there is no between-candidate snapshot to re-check.
   final reason = await withSubstitutedCopy(
     checkout,
     {

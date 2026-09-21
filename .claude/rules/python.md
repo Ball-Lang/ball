@@ -205,6 +205,24 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   entries in `test_conformance.py`'s `PROVEN` list, which COMPILE the fixtures
   through this compiler and diff their goldens.
 
+- **A `final` field declared next to a same-named SETTER gets a synthesized property (#706).**
+  That pair is legal Dart exactly because a plain `final` field contributes a getter and NOTHING
+  else, so the declared setter is the only setter for the name (`collection`'s `ListSlice` is the
+  real-world shape). Python has ONE namespace for a field and a property: a bare
+  `@windowSize.setter` has no property object to decorate, so `emit_class` refused the program
+  ("setter without matching getter"). Honest — never a silent wrong answer, unlike the Rust/Go/C#
+  half of the same issue — but still a program this target could not run that every self-hosted
+  engine runs fine. `_setter_backed_fields` is the lowering, and it is the C++ compiler's
+  backing-member answer to the same one-namespace collision (#695, closed by #680): the field
+  moves to `self._ball_backing_<name>` and a synthesized `@property` reads it, emitted BEFORE the
+  member loop so the declared setter has a property to attach to. Every `__init__`/named-factory
+  assignment routes through `_field_target`, because `self.windowSize = end` would run the
+  declared setter — which for this shape throws. Scoped to `final` fields on purpose: a NON-final
+  field contributes a setter of its own, so a same-named declared setter is a duplicate definition
+  Dart rejects, and anything else with a setter and no getter keeps failing loud. Guards:
+  `python/compiler/tests/test_final_field_setter.py` (including the negative control) and fixture
+  `472_initializer_list_field_with_setter` in `test_conformance.py`'s `PROVEN` list.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →

@@ -90,6 +90,13 @@ PROVEN = [
     # multi-clause typed `try` in a USER program ever reached this lowering.
     "464_typed_catch_clause_dispatch",
     "473_caught_user_thrown_builtin_error",
+    # A `final` field a BODYLESS constructor's own initializer list assigns,
+    # next to a user-written setter of the same name (#706). The compiler
+    # REFUSED it loudly ("setter without matching getter: FixedSlice.windowSize")
+    # because a lone `@x.setter` has no property object to decorate — but that
+    # pair is legal Dart precisely because a plain `final` field contributes a
+    # getter and NOTHING else, so the field itself IS the missing getter.
+    "472_initializer_list_field_with_setter",
 ]
 
 

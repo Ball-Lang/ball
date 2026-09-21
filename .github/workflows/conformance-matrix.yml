@@ -1016,7 +1016,7 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "275"
+      CSHARP_COMPILER_FLOOR: "281"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1507,7 +1507,7 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "276"
+      RUST_COMPILER_FLOOR: "282"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1616,7 +1616,7 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "291"
+      GO_COMPILER_FLOOR: "298"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1704,15 +1704,16 @@ jobs:
       # change (105, 106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 245, never predicted.
       #
-      # 255 -> 264 with #724 (the typed `on T catch` dispatch chain). THIS ROW
-      # WAS GREEN OVER THAT DEFECT for as long as it existed — 261 passed, 255
-      # floor, with 146_nested_try_catch_types, 464_typed_catch_clause_dispatch
-      # and 473_caught_user_thrown_builtin_error inside the 101 failures — which
-      # is the #615 lesson repeating: a ratchet is green over the regression it
-      # already tolerates. The fix flips exactly those three (261 -> 264,
-      # measured before and after, locally and on CI, never predicted); the
-      # other 6 of the 9 are gains earlier PRs measured and did not lock in.
-      PYTHON_COMPILER_FLOOR: "264"
+      # 255 -> 264 with #724 (the typed `on T catch` dispatch chain), then
+      # re-measured on the merge with main's own 262 (#706's `final` field next
+      # to a same-named setter): the two fixes are disjoint, so the merged tree
+      # measures 265. THIS ROW WAS GREEN OVER #724 for as long as that defect
+      # existed — 261 passed against a 255 floor, with 146_nested_try_catch_types,
+      # 464_typed_catch_clause_dispatch and 473_caught_user_thrown_builtin_error
+      # inside the failures — the #615 lesson repeating: a ratchet is green over
+      # the regression it already tolerates. Measured before and after, locally
+      # and on CI, never predicted.
+      PYTHON_COMPILER_FLOOR: "265"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

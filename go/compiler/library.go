@@ -60,9 +60,9 @@ var valueModelWrapperFields = map[string][]string{
 // indexConstructors records every constructor's impl name.
 //
 // Two indexes, deliberately different (issue #527):
-//   - bodyCtorImpl is the UNNAMED (`new`) body-carrying constructor only — the
-//     one a `messageCreation` for the class invokes. Keying every constructor
-//     here made the LAST named constructor win, so `Point(3, 4)` ran
+//   - unnamedCtorImpl is the UNNAMED (`new`) constructor only — the one a
+//     `messageCreation` for the class invokes. Keying every constructor here
+//     made the LAST named constructor win, so `Point(3, 4)` ran
 //     `Point.constants()`'s body instead of its own.
 //   - ctorImpl is every constructor by "<ClassShort>.<ctorShort>" — the target a
 //     `Class.name(args)` call resolves to (compileCall).
@@ -79,8 +79,17 @@ func (c *Compiler) indexConstructors() {
 			}
 			impl := memberImplName(ownerShort, m)
 			if m == unnamedCtorMember {
-				if member.GetBody() != nil {
-					c.bodyCtorImpl[ownerShort] = impl
+				// Two reasons the unnamed constructor needs an impl of its own
+				// rather than the inline field map compileMessageCreation
+				// builds: a BODY (which must run — issue #300), and an
+				// INITIALIZER LIST (`Foo(this.a, int b) : c = b;`). The inline
+				// path reads `metadata.params` and nothing else, so a bodyless
+				// constructor's initializer list was dropped whole: the
+				// instance carried the plain parameter `b` as a bogus field and
+				// never carried `c` at all, and `obj.c` then read a missing key
+				// and answered `null` — a silent wrong answer (issue #706).
+				if member.GetBody() != nil || ctorHasFieldInitializers(member) {
+					c.unnamedCtorImpl[ownerShort] = impl
 				}
 				continue
 			}
@@ -108,12 +117,23 @@ func memberImplName(ownerShort, member string) string {
 	return sanitize(ownerShort) + "__" + sanitize(member)
 }
 
-func (c *Compiler) bodyConstructorImpl(typeName string) (string, bool) {
+func (c *Compiler) unnamedConstructorImpl(typeName string) (string, bool) {
 	if typeName == "" {
 		return "", false
 	}
-	impl, ok := c.bodyCtorImpl[typeShortName(typeName)]
+	impl, ok := c.unnamedCtorImpl[typeShortName(typeName)]
 	return impl, ok
+}
+
+// ctorHasFieldInitializers reports whether ctor carries a Dart initializer list
+// — a `metadata.initializers` entry of kind "field" (issue #706).
+func ctorHasFieldInitializers(ctor *ballv1.FunctionDefinition) bool {
+	for _, init := range metaList(ctor.GetMetadata(), "initializers") {
+		if s := init.GetStructValue(); s != nil && structString(s, "kind") == "field" {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Enum + oneof + subtype namespaces ───────────────────────────────────────
@@ -229,10 +249,13 @@ func (c *Compiler) compileClassMembers() string {
 				// A NAMED constructor always needs an impl: it is only ever
 				// reached through a `Class.name(...)` call, which compiles to a
 				// direct call of this func (issue #527). The unnamed one needs
-				// an impl only when it carries a body — a bodyless unnamed
-				// constructor's instance is built inline by
-				// compileMessageCreation.
-				if member.GetBody() != nil || memberShort != unnamedCtorMember {
+				// an impl when it carries a body OR an initializer list — the
+				// two things compileMessageCreation's inline field map cannot
+				// express (issues #300 and #706). Keep this condition identical
+				// to indexConstructors': a recorded impl that is never emitted
+				// is an undefined identifier in the emitted Go.
+				if member.GetBody() != nil || memberShort != unnamedCtorMember ||
+					ctorHasFieldInitializers(member) {
 					impls.WriteString(c.compileConstructor(implName, ownerTd, member))
 					impls.WriteString("\n")
 				}
@@ -561,7 +584,7 @@ func (c *Compiler) constructDefaultInstance(shortType string, visiting map[strin
 	if !ok {
 		return ""
 	}
-	if impl, ok := c.bodyConstructorImpl(shortType); ok {
+	if impl, ok := c.unnamedConstructorImpl(shortType); ok {
 		return impl + "(ballrt.NewMap())"
 	}
 	var b strings.Builder

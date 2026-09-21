@@ -213,14 +213,19 @@ public sealed partial class CSharpCompiler
 
                 if (MetaString(member.Metadata, "kind") == "constructor")
                 {
-                    // A body-carrying constructor is emitted as an invocable method
-                    // (called directly by CompileMessageCreation, not via type
-                    // dispatch). A NAMED constructor always needs one too, body or
-                    // not: it is only ever reached through a `Class.name(...)` call,
-                    // which resolves to this method (issue #527). Only a bodyless
-                    // UNNAMED constructor needs no method — its instance is built
-                    // inline by CompileMessageCreation.
-                    if (member.Body is not null || split.Value.Member != UnnamedCtorMember)
+                    // A constructor carrying a body OR an initializer list is
+                    // emitted as an invocable method (called directly by
+                    // CompileMessageCreation, not via type dispatch) — those are
+                    // the two things the inline field map cannot express (issues
+                    // #383 and #706). A NAMED constructor always needs one too,
+                    // body or not: it is only ever reached through a
+                    // `Class.name(...)` call, which resolves to this method
+                    // (issue #527). Only a bare init-formal UNNAMED constructor
+                    // needs no method. Keep this condition identical to
+                    // IndexConstructors': a recorded impl that is never emitted
+                    // is CS0103 in the emitted C#.
+                    if (member.Body is not null || split.Value.Member != UnnamedCtorMember
+                        || CtorHasFieldInitializers(member))
                     {
                         impls.Append(CompileConstructor(implName, ownerTd, member));
                         impls.Append('\n');

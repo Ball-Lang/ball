@@ -14,7 +14,7 @@ of that compiler and the Python sibling of `go/encoder` / `rust/encoder`.
 | `ball_encoder/builders.py` | Low-level constructors for the 7 Expression node types + statements, producing proto3-JSON dicts (camelCase keys). The Python analog of `go/encoder/builders.go`. |
 | `ball_encoder/encoder.py` | The `_Encoder` class + `encode(source) -> dict`: AST walk, one-input packing, base-module accumulation, fail-loud. |
 | `ball_encoder/__main__.py` | `ballpyenc` CLI: `python -m ball_encoder <src.py> [-o out.ball.json]` — writes `@type`-enveloped proto3 JSON. |
-| `tests/` | pytest: structural encoder tests, fail-loud cases, and the round-trip suite (`testdata/*.py`). |
+| `tests/` | pytest: structural encoder tests, fail-loud cases, the round-trip suite (`testdata/*.py`), and `test_reference_engine_roundtrip.py` — the DART reference-engine half (#785), which needs `dart` on PATH. |
 
 ## Build & Test
 
@@ -33,6 +33,16 @@ PYTHONPATH=../runtime  python /tmp/fb.py
 The round-trip suite imports `../compiler` and `../runtime` off `sys.path`
 (`tests/conftest.py`), so the encoder proves itself against the real Phase-2
 compiler and runtime, no packaging step required.
+
+**`dart` is a prerequisite of this suite, not an optional extra** (#785).
+`tests/test_reference_engine_roundtrip.py` runs both the original conformance
+fixture and its re-encoded form on the **Dart reference engine** — the only
+instrument that can see a re-encode `ballrt` evaluates happily and the reference
+engine rejects (`ballrt.getfield` answers `None` for an absent key; the engine
+raises). An unresolvable `dart` FAILS, never skips (the #730/#764 precedent), so
+install the Dart SDK and run `dart pub get` at the repo root, or point
+`BALL_DART` at a specific executable. `BALL_TIMEOUT_S` / `BALL_WORKERS` tune the
+per-run kill and the concurrency, exactly as in the whole-corpus leg.
 
 Windows note: the CLI's error prefix and all diagnostics are ASCII; run with
 `PYTHONIOENCODING=utf-8` when a source's own output contains non-ASCII.

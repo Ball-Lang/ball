@@ -402,6 +402,15 @@ python -m conformance.runner                             # prints the CI-parseab
   does, to actually exercise it).
 - Prefer extending the compiler/encoder tests or `tests/conformance/*.ball.json` over Python-only
   unit tests, per the repo-wide "prefer conformance tests" rule.
+- **`python/encoder`'s suite needs `dart`** (or `BALL_DART`) plus a resolved workspace
+  (`dart pub get` at the repo root), and fails — never skips — without it (#785, the #730/#764
+  precedent). `tests/test_reference_engine_roundtrip.py` runs the ORIGINAL fixture and the
+  RE-ENCODED program on the **Dart reference engine** and asserts identical stdout, because every
+  other Python round-trip assertion runs under `ballrt`, which is tolerant where the engine is
+  strict (`getfield` on an absent key: `None` here, `BallRuntimeError` there). Its fixture set is
+  DERIVED from `test_ballrt_inverse`/`test_ballrt_namespaced`'s own lists — add a fixture there and
+  it is covered here. `ci.yml`'s `python` job therefore sets Dart up **before** its test steps; do
+  not move that back down.
 - `python/engine/conformance/runner.py` is the committed `tests/conformance/*.ball.json` runner — the
   `python-engine` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained count.
 - `python/engine/conformance/roundtrip.py` (`python -m conformance.roundtrip`, or

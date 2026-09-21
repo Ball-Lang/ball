@@ -90,3 +90,47 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.
+
+### An assignment the engine cannot perform is an ERROR, never a dropped write (#742)
+
+`engine_control_flow.dart`'s `_evalAssign` and `_evalNullAwareAssign` write
+through exactly three `std.assign` target shapes — a bare `reference`, a
+`fieldAccess` whose object reads as a map, and a `std.index` call over a
+list/map. Every other shape used to fall out of all three branches into a bare
+`return val;`, so the write was never performed and the RHS was handed back as
+if it had been. Interpreted or compiled, a caller could not tell a dropped write
+from a successful one — the exact silent-degradation class behind issue #55.
+
+Every such path now throws a `BallRuntimeError` built by `_assignErrorMessage`,
+and the message names what the engine could not do:
+
+| Situation | Message |
+|---|---|
+| no `target`/`value` field on the call | `std.assign: call is missing its 'target'/'value' fields` |
+| field write on a non-object | `std.assign: cannot write field 'f' on a non-object value of type int` |
+| malformed `std.index` target | `std.assign: std.index target is missing its 'target'/'index' fields` |
+| container/index pair not indexable | `std.assign: cannot index-assign into a value of type String with an index of type int` |
+| any other target shape | `std.assign: unsupported assignment target shape literal: expected a reference, a field access, or a std.index call` |
+
+Under `??=` the prefix carries the operator (`std.assign (??=): …`), since that
+path is `_evalNullAwareAssign` — there is **no** separate `std.assign_null_aware`
+base function; `??=` is `std.assign` with `op: '??='`.
+
+`_assignTargetShapeName` names the shape from an **exhaustive `switch` over
+`Expression_Expr`**, so a new oneof case in `ball.proto` is a compile error here
+rather than a silently unnamed shape. Its `reference`/`fieldAccess`/`call` arms
+are verified-unreachable (those targets return, throw their own message, or are
+named by the early return above) and carry the coverage-ignore analysis inline.
+
+Guards: `engine: assign to an unrecognised target fails loud (#742)` in
+`test/engine_test.dart` — one case per rejected shape under both `=` and `??=`,
+plus a closed-set completeness check that derives the rejected set from
+`Expression_Expr.values` itself, so a new Expression case fails the suite until
+it is classified. `test/engine_wave5_control_flow_coverage_test.dart`'s
+`null-aware index assign on a non-indexable target throws` is the same contract
+from the other side: it previously asserted the silent no-op's `'x'`.
+
+This is engine source, so it reaches every self-hosted engine: the whole
+conformance corpus was re-run on the Dart reference engine and on the compiled
+Go engine to confirm no fixture depended on the old fallthrough, and
+`compiled_engine.ts` / `compiled_engine.go` were regenerated in the same commit.

@@ -4862,6 +4862,21 @@ void main() {
       );
     });
 
+    test('a std.index target missing its index field throws under ??=', () {
+      expect(
+        runAndCapture(
+          assignTo(
+            stdCall('index', msg([field('target', ref('n'))])),
+            op: '??=',
+            prelude: [
+              letStmt('n', listLit([literal(1)]), keyword: 'var'),
+            ],
+          ),
+        ),
+        throwsAssignError("missing its 'target'/'index'"),
+      );
+    });
+
     test('a std.assign call missing its target throws', () {
       final program = buildProgram(
         functions: [

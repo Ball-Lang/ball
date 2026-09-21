@@ -1846,6 +1846,24 @@ func _cfWritebackIndexed(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_cfWritebackIndexed' for " + __t})
 }
 
+func _assignTargetShapeName(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___assignTargetShapeName(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_assignTargetShapeName' for " + __t})
+}
+
+func _assignErrorMessage(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___assignErrorMessage(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_assignErrorMessage' for " + __t})
+}
+
 func _evalAssign(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -21611,6 +21629,205 @@ func BallEngine___cfWritebackIndexed(input ballrt.Value) (__ret ballrt.Value) {
 	return
 }
 
+func BallEngine___assignTargetShapeName(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	target := ballrt.ArgGet(input, "target", "arg0")
+	_ = target
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(ballrt.WhichExpr(target), ballrt.FieldGet(ballOneof_Expression_Expr, "call"))) {
+				return func() ballrt.Value {
+					var mod ballrt.Value = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.StrIsEmpty(ballrt.FieldGet(ballrt.FieldGet(target, "call"), "module"))) {
+							return ""
+						}
+						return ballrt.Concat(ballrt.ToStr(ballrt.FieldGet(ballrt.FieldGet(target, "call"), "module")), ".")
+					}()
+					_ = mod
+					_ = ballrt.Return(ballrt.Concat(ballrt.Concat("call ", ballrt.ToStr(mod)), ballrt.ToStr(ballrt.FieldGet(ballrt.FieldGet(target, "call"), "function"))))
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		return func() ballrt.Value {
+			__subj62 := ballrt.WhichExpr(target)
+			_ = __subj62
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "reference")) {
+				return "reference"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "fieldAccess")) {
+				return "fieldAccess"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "call")) {
+				return "call"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "literal")) {
+				return "literal"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "messageCreation")) {
+				return "messageCreation"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "block")) {
+				return "block"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "lambda")) {
+				return "lambda"
+			}
+			if ballrt.Eq(__subj62, ballrt.FieldGet(ballOneof_Expression_Expr, "notSet")) {
+				return "notSet"
+			}
+			return ballrt.Throw(ballrt.Value("Non-exhaustive switch expression"))
+		}()
+	}()
+	return
+}
+
+func BallEngine___assignErrorMessage(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	op := ballrt.ArgGet(input, "op", "arg0")
+	_ = op
+	detail := ballrt.ArgGet(input, "detail", "arg1")
+	_ = detail
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var opLabel ballrt.Value = func() ballrt.Value {
+			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Eq(op, ballrt.Value(nil))) || ballrt.Truthy(ballrt.StrIsEmpty(op)))) || ballrt.Truthy(ballrt.Eq(op, "=")))) {
+				return ""
+			}
+			return ballrt.Concat(ballrt.Concat(" (", ballrt.ToStr(op)), ")")
+		}()
+		_ = opLabel
+		return ballrt.Concat(ballrt.Concat(ballrt.Concat("std.assign", ballrt.ToStr(opLabel)), ": "), ballrt.ToStr(detail))
+	}()
+	return
+}
+
 func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 	_ = input
 	__self := ballrt.FieldGet(input, "self")
@@ -21689,7 +21906,21 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 		_ = value
 		_ = func() ballrt.Value {
 			if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(target, ballrt.Value(nil))) || ballrt.Truthy(ballrt.Eq(value, ballrt.Value(nil))))) {
-				return ballrt.Return(ballrt.Value(nil))
+				return ballrt.Throw(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", _stringFieldVal(ballrt.WithSelf(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("arg0", fields)
+							__m.Set("arg1", "op")
+							return __m
+						}(), __self)))
+						__m.Set("arg1", "call is missing its 'target'/'value' fields")
+						return __m
+					}(), __self)))
+					return ballrt.NewMessage("main:BallRuntimeError", __m)
+				}())
 			}
 			return ballrt.Value(nil)
 		}()
@@ -21868,54 +22099,37 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 					_ = obj
 					var ball_map ballrt.Value = _cfAsMap(ballrt.Arg0WithSelf(obj, __self))
 					_ = ball_map
+					var fieldName ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "field_2")
+					_ = fieldName
 					_ = func() ballrt.Value {
-						if ballrt.Truthy(ballrt.Neq(ball_map, ballrt.Value(nil))) {
-							return func() ballrt.Value {
-								var fieldName ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "field_2")
-								_ = fieldName
-								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
-										return func() ballrt.Value {
-											var current ballrt.Value = ballrt.IndexGet(ball_map, fieldName)
-											_ = current
-											var computed ballrt.Value = _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", op)
-												__m.Set("arg1", current)
-												__m.Set("arg2", val)
-												return __m
-											}(), __self))
-											_ = computed
-											_ = ballrt.IndexSet(ball_map, fieldName, computed)
-											_ = _cfWritebackInstance(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "object"))
-												__m.Set("arg1", obj)
-												__m.Set("arg2", ball_map)
-												__m.Set("arg3", scope)
-												return __m
-											}(), __self))
-											_ = ballrt.Return(computed)
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
-								var setterResult ballrt.Value = _trySetterDispatch(ballrt.WithSelf(func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Eq(ball_map, ballrt.Value(nil))) {
+							return ballrt.Throw(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
-									__m.Set("arg0", ball_map)
-									__m.Set("arg1", fieldName)
+									__m.Set("arg0", op)
+									__m.Set("arg1", ballrt.Concat(ballrt.Concat(ballrt.Concat("cannot write field '", ballrt.ToStr(fieldName)), "' on a non-object value of type "), ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(obj, __self)))))
+									return __m
+								}(), __self)))
+								return ballrt.NewMessage("main:BallRuntimeError", __m)
+							}())
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
+							return func() ballrt.Value {
+								var current ballrt.Value = ballrt.IndexGet(ball_map, fieldName)
+								_ = current
+								var computed ballrt.Value = _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", op)
+									__m.Set("arg1", current)
 									__m.Set("arg2", val)
 									return __m
 								}(), __self))
-								_ = setterResult
-								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.Neq(setterResult, _sentinel(ballrt.Value(nil)))) {
-										return ballrt.Return(setterResult)
-									}
-									return ballrt.Value(nil)
-								}()
-								_ = ballrt.IndexSet(ball_map, fieldName, val)
+								_ = computed
+								_ = ballrt.IndexSet(ball_map, fieldName, computed)
 								_ = _cfWritebackInstance(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
 									__m.Set("arg0", ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "object"))
@@ -21924,12 +22138,36 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 									__m.Set("arg3", scope)
 									return __m
 								}(), __self))
-								_ = ballrt.Return(val)
+								_ = ballrt.Return(computed)
 								return ballrt.Value(nil)
 							}()
 						}
 						return ballrt.Value(nil)
 					}()
+					var setterResult ballrt.Value = _trySetterDispatch(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", ball_map)
+						__m.Set("arg1", fieldName)
+						__m.Set("arg2", val)
+						return __m
+					}(), __self))
+					_ = setterResult
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Neq(setterResult, _sentinel(ballrt.Value(nil)))) {
+							return ballrt.Return(setterResult)
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.IndexSet(ball_map, fieldName, val)
+					_ = _cfWritebackInstance(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "object"))
+						__m.Set("arg1", obj)
+						__m.Set("arg2", ball_map)
+						__m.Set("arg3", scope)
+						return __m
+					}(), __self))
+					_ = ballrt.Return(val)
 					return ballrt.Value(nil)
 				}()
 			}
@@ -21945,153 +22183,72 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 					var indexExpr ballrt.Value = ballrt.IndexGet(indexFields, "index")
 					_ = indexExpr
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(indexTarget, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Neq(indexExpr, ballrt.Value(nil))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(indexTarget, ballrt.Value(nil))) || ballrt.Truthy(ballrt.Eq(indexExpr, ballrt.Value(nil))))) {
+							return ballrt.Throw(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", op)
+									__m.Set("arg1", "std.index target is missing its 'target'/'index' fields")
+									return __m
+								}(), __self)))
+								return ballrt.NewMessage("main:BallRuntimeError", __m)
+							}())
+						}
+						return ballrt.Value(nil)
+					}()
+					var list ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", indexTarget)
+						__m.Set("arg1", scope)
+						return __m
+					}(), __self))
+					_ = list
+					var idx ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", indexExpr)
+						__m.Set("arg1", scope)
+						return __m
+					}(), __self))
+					_ = idx
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(_isBallSet(ballrt.Arg0WithSelf(list, __self))) {
 							return func() ballrt.Value {
-								var list ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+								_ = func() ballrt.Value { __v := _ballUserMap(ballrt.Value(nil)); list = __v; return __v }()
+								_ = _cfWritebackIndexed(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
 									__m.Set("arg0", indexTarget)
-									__m.Set("arg1", scope)
+									__m.Set("arg1", list)
+									__m.Set("arg2", scope)
 									return __m
 								}(), __self))
-								_ = list
-								var idx ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-									__m := ballrt.NewMap()
-									__m.Set("arg0", indexExpr)
-									__m.Set("arg1", scope)
-									return __m
-								}(), __self))
-								_ = idx
-								_ = func() ballrt.Value {
-									if ballrt.Truthy(_isBallSet(ballrt.Arg0WithSelf(list, __self))) {
-										return func() ballrt.Value {
-											_ = func() ballrt.Value { __v := _ballUserMap(ballrt.Value(nil)); list = __v; return __v }()
-											_ = _cfWritebackIndexed(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", indexTarget)
-												__m.Set("arg1", list)
-												__m.Set("arg2", scope)
-												return __m
-											}(), __self))
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
-								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
-										return func() ballrt.Value {
-											var computed ballrt.Value = ballrt.Value(nil)
-											_ = computed
-											var didSet ballrt.Value = false
-											_ = didSet
-											_ = func() ballrt.Value {
-												if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallList")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
-													return func() ballrt.Value {
-														_ = func() ballrt.Value {
-															__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
-																__m := ballrt.NewMap()
-																__m.Set("arg0", op)
-																__m.Set("arg1", ballrt.IndexGet(ballrt.FieldGet(list, "items"), idx))
-																__m.Set("arg2", val)
-																return __m
-															}(), __self))
-															computed = __v
-															return __v
-														}()
-														_ = ballrt.IndexSet(ballrt.FieldGet(list, "items"), idx, computed)
-														_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
-														return ballrt.Value(nil)
-													}()
-												}
-												return func() ballrt.Value {
-													if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "List")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
-														return func() ballrt.Value {
-															_ = func() ballrt.Value {
-																__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
-																	__m := ballrt.NewMap()
-																	__m.Set("arg0", op)
-																	__m.Set("arg1", ballrt.IndexGet(list, idx))
-																	__m.Set("arg2", val)
-																	return __m
-																}(), __self))
-																computed = __v
-																return __v
-															}()
-															_ = ballrt.IndexSet(list, idx, computed)
-															_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
-															return ballrt.Value(nil)
-														}()
-													}
-													return func() ballrt.Value {
-														if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallMap")) && ballrt.Truthy(ballrt.IsType(idx, "String")))) {
-															return func() ballrt.Value {
-																_ = func() ballrt.Value {
-																	__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
-																		__m := ballrt.NewMap()
-																		__m.Set("arg0", op)
-																		__m.Set("arg1", ballrt.IndexGet(ballrt.FieldGet(list, "entries"), idx))
-																		__m.Set("arg2", val)
-																		return __m
-																	}(), __self))
-																	computed = __v
-																	return __v
-																}()
-																_ = ballrt.IndexSet(ballrt.FieldGet(list, "entries"), idx, computed)
-																_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
-																return ballrt.Value(nil)
-															}()
-														}
-														return func() ballrt.Value {
-															if ballrt.Truthy(ballrt.IsType(list, "Map")) {
-																return func() ballrt.Value {
-																	_ = func() ballrt.Value {
-																		__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
-																			__m := ballrt.NewMap()
-																			__m.Set("arg0", op)
-																			__m.Set("arg1", ballrt.IndexGet(list, idx))
-																			__m.Set("arg2", val)
-																			return __m
-																		}(), __self))
-																		computed = __v
-																		return __v
-																	}()
-																	_ = ballrt.IndexSet(list, idx, computed)
-																	_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
-																	return ballrt.Value(nil)
-																}()
-															}
-															return ballrt.Value(nil)
-														}()
-													}()
-												}()
-											}()
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(didSet) {
-													return func() ballrt.Value {
-														_ = _cfWritebackIndexed(ballrt.WithSelf(func() ballrt.Value {
-															__m := ballrt.NewMap()
-															__m.Set("arg0", indexTarget)
-															__m.Set("arg1", list)
-															__m.Set("arg2", scope)
-															return __m
-														}(), __self))
-														_ = ballrt.Return(computed)
-														return ballrt.Value(nil)
-													}()
-												}
-												return ballrt.Value(nil)
-											}()
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(op, ballrt.Value(nil))) && ballrt.Truthy(ballrt.StrIsNotEmpty(op)))) && ballrt.Truthy(ballrt.Neq(op, "=")))) {
+							return func() ballrt.Value {
+								var computed ballrt.Value = ballrt.Value(nil)
+								_ = computed
 								var didSet ballrt.Value = false
 								_ = didSet
 								_ = func() ballrt.Value {
 									if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallList")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
 										return func() ballrt.Value {
-											_ = ballrt.IndexSet(ballrt.FieldGet(list, "items"), idx, val)
+											_ = func() ballrt.Value {
+												__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
+													__m := ballrt.NewMap()
+													__m.Set("arg0", op)
+													__m.Set("arg1", ballrt.IndexGet(ballrt.FieldGet(list, "items"), idx))
+													__m.Set("arg2", val)
+													return __m
+												}(), __self))
+												computed = __v
+												return __v
+											}()
+											_ = ballrt.IndexSet(ballrt.FieldGet(list, "items"), idx, computed)
 											_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
 											return ballrt.Value(nil)
 										}()
@@ -22099,7 +22256,18 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 									return func() ballrt.Value {
 										if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "List")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
 											return func() ballrt.Value {
-												_ = ballrt.IndexSet(list, idx, val)
+												_ = func() ballrt.Value {
+													__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
+														__m := ballrt.NewMap()
+														__m.Set("arg0", op)
+														__m.Set("arg1", ballrt.IndexGet(list, idx))
+														__m.Set("arg2", val)
+														return __m
+													}(), __self))
+													computed = __v
+													return __v
+												}()
+												_ = ballrt.IndexSet(list, idx, computed)
 												_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
 												return ballrt.Value(nil)
 											}()
@@ -22107,7 +22275,18 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 										return func() ballrt.Value {
 											if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallMap")) && ballrt.Truthy(ballrt.IsType(idx, "String")))) {
 												return func() ballrt.Value {
-													_ = ballrt.IndexSet(ballrt.FieldGet(list, "entries"), idx, val)
+													_ = func() ballrt.Value {
+														__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
+															__m := ballrt.NewMap()
+															__m.Set("arg0", op)
+															__m.Set("arg1", ballrt.IndexGet(ballrt.FieldGet(list, "entries"), idx))
+															__m.Set("arg2", val)
+															return __m
+														}(), __self))
+														computed = __v
+														return __v
+													}()
+													_ = ballrt.IndexSet(ballrt.FieldGet(list, "entries"), idx, computed)
 													_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
 													return ballrt.Value(nil)
 												}()
@@ -22115,7 +22294,18 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 											return func() ballrt.Value {
 												if ballrt.Truthy(ballrt.IsType(list, "Map")) {
 													return func() ballrt.Value {
-														_ = ballrt.IndexSet(list, idx, val)
+														_ = func() ballrt.Value {
+															__v := _applyCompoundOp(ballrt.WithSelf(func() ballrt.Value {
+																__m := ballrt.NewMap()
+																__m.Set("arg0", op)
+																__m.Set("arg1", ballrt.IndexGet(list, idx))
+																__m.Set("arg2", val)
+																return __m
+															}(), __self))
+															computed = __v
+															return __v
+														}()
+														_ = ballrt.IndexSet(list, idx, computed)
 														_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
 														return ballrt.Value(nil)
 													}()
@@ -22135,7 +22325,7 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 												__m.Set("arg2", scope)
 												return __m
 											}(), __self))
-											_ = ballrt.Return(val)
+											_ = ballrt.Return(computed)
 											return ballrt.Value(nil)
 										}()
 									}
@@ -22146,12 +22336,87 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 						}
 						return ballrt.Value(nil)
 					}()
+					var didSet ballrt.Value = false
+					_ = didSet
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallList")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
+							return func() ballrt.Value {
+								_ = ballrt.IndexSet(ballrt.FieldGet(list, "items"), idx, val)
+								_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
+								return ballrt.Value(nil)
+							}()
+						}
+						return func() ballrt.Value {
+							if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "List")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
+								return func() ballrt.Value {
+									_ = ballrt.IndexSet(list, idx, val)
+									_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
+									return ballrt.Value(nil)
+								}()
+							}
+							return func() ballrt.Value {
+								if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallMap")) && ballrt.Truthy(ballrt.IsType(idx, "String")))) {
+									return func() ballrt.Value {
+										_ = ballrt.IndexSet(ballrt.FieldGet(list, "entries"), idx, val)
+										_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
+										return ballrt.Value(nil)
+									}()
+								}
+								return func() ballrt.Value {
+									if ballrt.Truthy(ballrt.IsType(list, "Map")) {
+										return func() ballrt.Value {
+											_ = ballrt.IndexSet(list, idx, val)
+											_ = func() ballrt.Value { __v := true; didSet = __v; return __v }()
+											return ballrt.Value(nil)
+										}()
+									}
+									return ballrt.Value(nil)
+								}()
+							}()
+						}()
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(didSet) {
+							return func() ballrt.Value {
+								_ = _cfWritebackIndexed(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", indexTarget)
+									__m.Set("arg1", list)
+									__m.Set("arg2", scope)
+									return __m
+								}(), __self))
+								_ = ballrt.Return(val)
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Throw(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("arg0", op)
+							__m.Set("arg1", ballrt.Concat(ballrt.Concat(ballrt.Concat("cannot index-assign into a value of type ", ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(list, __self)))), " "), ballrt.Concat("with an index of type ", ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(idx, __self))))))
+							return __m
+						}(), __self)))
+						return ballrt.NewMessage("main:BallRuntimeError", __m)
+					}())
 					return ballrt.Value(nil)
 				}()
 			}
 			return ballrt.Value(nil)
 		}()
-		return val
+		_ = ballrt.Throw(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+				__m := ballrt.NewMap()
+				__m.Set("arg0", op)
+				__m.Set("arg1", ballrt.Concat(ballrt.Concat("unsupported assignment target shape ", ballrt.Concat(ballrt.ToStr(_assignTargetShapeName(ballrt.Arg0WithSelf(target, __self))), ": expected a reference, a field ")), "access, or a std.index call"))
+				return __m
+			}(), __self)))
+			return ballrt.NewMessage("main:BallRuntimeError", __m)
+		}())
+		return ballrt.Value(nil)
 	}()
 	return
 }
@@ -22278,33 +22543,40 @@ func BallEngine___evalNullAwareAssign(input ballrt.Value) (__ret ballrt.Value) {
 					_ = obj
 					var ball_map ballrt.Value = _cfAsMap(ballrt.Arg0WithSelf(obj, __self))
 					_ = ball_map
+					var fieldName ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "field_2")
+					_ = fieldName
 					_ = func() ballrt.Value {
-						if ballrt.Truthy(ballrt.Neq(ball_map, ballrt.Value(nil))) {
-							return func() ballrt.Value {
-								var fieldName ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "field_2")
-								_ = fieldName
-								var current ballrt.Value = ballrt.IndexGet(ball_map, fieldName)
-								_ = current
-								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
-										return ballrt.Return(current)
-									}
-									return ballrt.Value(nil)
-								}()
-								var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Eq(ball_map, ballrt.Value(nil))) {
+							return ballrt.Throw(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
-									__m.Set("arg0", value)
-									__m.Set("arg1", scope)
+									__m.Set("arg0", "??=")
+									__m.Set("arg1", ballrt.Concat(ballrt.Concat(ballrt.Concat("cannot write field '", ballrt.ToStr(fieldName)), "' on a non-object value of type "), ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(obj, __self)))))
 									return __m
-								}(), __self))
-								_ = val
-								_ = ballrt.IndexSet(ball_map, fieldName, val)
-								_ = ballrt.Return(val)
-								return ballrt.Value(nil)
-							}()
+								}(), __self)))
+								return ballrt.NewMessage("main:BallRuntimeError", __m)
+							}())
 						}
 						return ballrt.Value(nil)
 					}()
+					var current ballrt.Value = ballrt.IndexGet(ball_map, fieldName)
+					_ = current
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
+							return ballrt.Return(current)
+						}
+						return ballrt.Value(nil)
+					}()
+					var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", value)
+						__m.Set("arg1", scope)
+						return __m
+					}(), __self))
+					_ = val
+					_ = ballrt.IndexSet(ball_map, fieldName, val)
+					_ = ballrt.Return(val)
 					return ballrt.Value(nil)
 				}()
 			}
@@ -22320,138 +22592,160 @@ func BallEngine___evalNullAwareAssign(input ballrt.Value) (__ret ballrt.Value) {
 					var indexExpr ballrt.Value = ballrt.IndexGet(indexFields, "index")
 					_ = indexExpr
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(indexTarget, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Neq(indexExpr, ballrt.Value(nil))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(indexTarget, ballrt.Value(nil))) || ballrt.Truthy(ballrt.Eq(indexExpr, ballrt.Value(nil))))) {
+							return ballrt.Throw(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", "??=")
+									__m.Set("arg1", "std.index target is missing its 'target'/'index' fields")
+									return __m
+								}(), __self)))
+								return ballrt.NewMessage("main:BallRuntimeError", __m)
+							}())
+						}
+						return ballrt.Value(nil)
+					}()
+					var list ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", indexTarget)
+						__m.Set("arg1", scope)
+						return __m
+					}(), __self))
+					_ = list
+					var idx ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", indexExpr)
+						__m.Set("arg1", scope)
+						return __m
+					}(), __self))
+					_ = idx
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallList")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
 							return func() ballrt.Value {
-								var list ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+								var current ballrt.Value = ballrt.IndexGet(ballrt.FieldGet(list, "items"), idx)
+								_ = current
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
+										return ballrt.Return(current)
+									}
+									return ballrt.Value(nil)
+								}()
+								var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
 									__m := ballrt.NewMap()
-									__m.Set("arg0", indexTarget)
+									__m.Set("arg0", value)
 									__m.Set("arg1", scope)
 									return __m
 								}(), __self))
-								_ = list
-								var idx ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-									__m := ballrt.NewMap()
-									__m.Set("arg0", indexExpr)
-									__m.Set("arg1", scope)
-									return __m
-								}(), __self))
-								_ = idx
-								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallList")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
-										return func() ballrt.Value {
-											var current ballrt.Value = ballrt.IndexGet(ballrt.FieldGet(list, "items"), idx)
-											_ = current
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
-													return ballrt.Return(current)
-												}
-												return ballrt.Value(nil)
-											}()
-											var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", value)
-												__m.Set("arg1", scope)
-												return __m
-											}(), __self))
-											_ = val
-											_ = ballrt.IndexSet(ballrt.FieldGet(list, "items"), idx, val)
-											_ = ballrt.Return(val)
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
-								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "List")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
-										return func() ballrt.Value {
-											var current ballrt.Value = ballrt.IndexGet(list, idx)
-											_ = current
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
-													return ballrt.Return(current)
-												}
-												return ballrt.Value(nil)
-											}()
-											var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", value)
-												__m.Set("arg1", scope)
-												return __m
-											}(), __self))
-											_ = val
-											_ = ballrt.IndexSet(list, idx, val)
-											_ = ballrt.Return(val)
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
-								_ = func() ballrt.Value {
-									if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallMap")) && ballrt.Truthy(ballrt.IsType(idx, "String")))) {
-										return func() ballrt.Value {
-											var current ballrt.Value = ballrt.IndexGet(ballrt.FieldGet(list, "entries"), idx)
-											_ = current
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
-													return ballrt.Return(current)
-												}
-												return ballrt.Value(nil)
-											}()
-											var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", value)
-												__m.Set("arg1", scope)
-												return __m
-											}(), __self))
-											_ = val
-											_ = ballrt.IndexSet(ballrt.FieldGet(list, "entries"), idx, val)
-											_ = ballrt.Return(val)
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
-								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.IsType(list, "Map")) {
-										return func() ballrt.Value {
-											var current ballrt.Value = ballrt.IndexGet(list, idx)
-											_ = current
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
-													return ballrt.Return(current)
-												}
-												return ballrt.Value(nil)
-											}()
-											var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("arg0", value)
-												__m.Set("arg1", scope)
-												return __m
-											}(), __self))
-											_ = val
-											_ = ballrt.IndexSet(list, idx, val)
-											_ = ballrt.Return(val)
-											return ballrt.Value(nil)
-										}()
-									}
-									return ballrt.Value(nil)
-								}()
+								_ = val
+								_ = ballrt.IndexSet(ballrt.FieldGet(list, "items"), idx, val)
+								_ = ballrt.Return(val)
 								return ballrt.Value(nil)
 							}()
 						}
 						return ballrt.Value(nil)
 					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "List")) && ballrt.Truthy(ballrt.IsType(idx, "int")))) {
+							return func() ballrt.Value {
+								var current ballrt.Value = ballrt.IndexGet(list, idx)
+								_ = current
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
+										return ballrt.Return(current)
+									}
+									return ballrt.Value(nil)
+								}()
+								var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", value)
+									__m.Set("arg1", scope)
+									return __m
+								}(), __self))
+								_ = val
+								_ = ballrt.IndexSet(list, idx, val)
+								_ = ballrt.Return(val)
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(list, "BallMap")) && ballrt.Truthy(ballrt.IsType(idx, "String")))) {
+							return func() ballrt.Value {
+								var current ballrt.Value = ballrt.IndexGet(ballrt.FieldGet(list, "entries"), idx)
+								_ = current
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
+										return ballrt.Return(current)
+									}
+									return ballrt.Value(nil)
+								}()
+								var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", value)
+									__m.Set("arg1", scope)
+									return __m
+								}(), __self))
+								_ = val
+								_ = ballrt.IndexSet(ballrt.FieldGet(list, "entries"), idx, val)
+								_ = ballrt.Return(val)
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.IsType(list, "Map")) {
+							return func() ballrt.Value {
+								var current ballrt.Value = ballrt.IndexGet(list, idx)
+								_ = current
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Neq(current, ballrt.Value(nil))) {
+										return ballrt.Return(current)
+									}
+									return ballrt.Value(nil)
+								}()
+								var val ballrt.Value = _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", value)
+									__m.Set("arg1", scope)
+									return __m
+								}(), __self))
+								_ = val
+								_ = ballrt.IndexSet(list, idx, val)
+								_ = ballrt.Return(val)
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Throw(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("arg0", "??=")
+							__m.Set("arg1", ballrt.Concat(ballrt.Concat(ballrt.Concat("cannot index-assign into a value of type ", ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(list, __self)))), " "), ballrt.Concat("with an index of type ", ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(idx, __self))))))
+							return __m
+						}(), __self)))
+						return ballrt.NewMessage("main:BallRuntimeError", __m)
+					}())
 					return ballrt.Value(nil)
 				}()
 			}
 			return ballrt.Value(nil)
 		}()
-		return _evalExpression(ballrt.WithSelf(func() ballrt.Value {
+		_ = ballrt.Throw(func() ballrt.Value {
 			__m := ballrt.NewMap()
-			__m.Set("arg0", value)
-			__m.Set("arg1", scope)
-			return __m
-		}(), __self))
+			__m.Set("message", _assignErrorMessage(ballrt.WithSelf(func() ballrt.Value {
+				__m := ballrt.NewMap()
+				__m.Set("arg0", "??=")
+				__m.Set("arg1", ballrt.Concat(ballrt.Concat("unsupported assignment target shape ", ballrt.Concat(ballrt.ToStr(_assignTargetShapeName(ballrt.Arg0WithSelf(target, __self))), ": expected a reference, a field ")), "access, or a std.index call"))
+				return __m
+			}(), __self)))
+			return ballrt.NewMessage("main:BallRuntimeError", __m)
+		}())
+		return ballrt.Value(nil)
 	}()
 	return
 }
@@ -22875,9 +23169,9 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 	_ = val
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
-		__subj62 := op
-		_ = __subj62
-		if ballrt.Eq(__subj62, "+=") {
+		__subj63 := op
+		_ = __subj63
+		if ballrt.Eq(__subj63, "+=") {
 			return func() ballrt.Value {
 				if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(current, "String")) || ballrt.Truthy(ballrt.IsType(val, "String")))) {
 					return ballrt.Concat(ballrt.ToStr(func() ballrt.Value {
@@ -22912,7 +23206,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				}(), __self))
 			}()
 		}
-		if ballrt.Eq(__subj62, "-=") {
+		if ballrt.Eq(__subj63, "-=") {
 			return _numOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -22930,7 +23224,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "*=") {
+		if ballrt.Eq(__subj63, "*=") {
 			return _numOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -22948,10 +23242,10 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "/=") {
+		if ballrt.Eq(__subj63, "/=") {
 			return ballrt.DivDouble(_toNum(ballrt.Arg0WithSelf(current, __self)), _toNum(ballrt.Arg0WithSelf(val, __self)))
 		}
-		if ballrt.Eq(__subj62, "~/=") {
+		if ballrt.Eq(__subj63, "~/=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -22969,7 +23263,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "%=") {
+		if ballrt.Eq(__subj63, "%=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -22987,7 +23281,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "&=") {
+		if ballrt.Eq(__subj63, "&=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -23005,7 +23299,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "|=") {
+		if ballrt.Eq(__subj63, "|=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -23023,7 +23317,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "^=") {
+		if ballrt.Eq(__subj63, "^=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -23041,7 +23335,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "<<=") {
+		if ballrt.Eq(__subj63, "<<=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -23059,7 +23353,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, ">>=") {
+		if ballrt.Eq(__subj63, ">>=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -23077,7 +23371,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, ">>>=") {
+		if ballrt.Eq(__subj63, ">>>=") {
 			return _intOp(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", current)
@@ -23095,7 +23389,7 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj62, "??=") {
+		if ballrt.Eq(__subj63, "??=") {
 			return func() ballrt.Value {
 				__l := current
 				if __l != nil {
@@ -23597,9 +23891,9 @@ func BallEngine___evalLabeledLoop(input ballrt.Value) (__ret ballrt.Value) {
 	_ = scope
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
-		__subj63 := ballrt.FieldGet(loopCall, "function")
-		_ = __subj63
-		if ballrt.Eq(__subj63, "for") {
+		__subj64 := ballrt.FieldGet(loopCall, "function")
+		_ = __subj64
+		if ballrt.Eq(__subj64, "for") {
 			return _evalLabeledFor(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", loopCall)
@@ -23608,7 +23902,7 @@ func BallEngine___evalLabeledLoop(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj63, "for_in") {
+		if ballrt.Eq(__subj64, "for_in") {
 			return _evalLabeledForIn(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", loopCall)
@@ -23617,7 +23911,7 @@ func BallEngine___evalLabeledLoop(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj63, "while") {
+		if ballrt.Eq(__subj64, "while") {
 			return _evalLabeledWhile(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", loopCall)
@@ -23626,7 +23920,7 @@ func BallEngine___evalLabeledLoop(input ballrt.Value) (__ret ballrt.Value) {
 				return __m
 			}(), __self))
 		}
-		if ballrt.Eq(__subj63, "do_while") {
+		if ballrt.Eq(__subj64, "do_while") {
 			return _evalLabeledDoWhile(ballrt.WithSelf(func() ballrt.Value {
 				__m := ballrt.NewMap()
 				__m.Set("arg0", loopCall)
@@ -25607,8 +25901,8 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 				return __l
 			}
 			return func() ballrt.Value {
-				__map64 := ballrt.NewMap()
-				return __map64
+				__map65 := ballrt.NewMap()
+				return __map65
 			}()
 		}()
 		_ = args
@@ -25661,9 +25955,9 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 					var items ballrt.Value = _ballSetItems(ballrt.Arg0WithSelf(unwrappedSelf, __self))
 					_ = items
 					_ = func() ballrt.Value {
-						__subj65 := method
-						_ = __subj65
-						if ballrt.Eq(__subj65, "add") {
+						__subj66 := method
+						_ = __subj66
+						if ballrt.Eq(__subj66, "add") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.ListContains(items, arg0)) {
@@ -25677,7 +25971,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "remove") {
+						if ballrt.Eq(__subj66, "remove") {
 							_ = func() ballrt.Value {
 								var had ballrt.Value = ballrt.ListContains(items, arg0)
 								_ = had
@@ -25692,7 +25986,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "addAll") {
+						if ballrt.Eq(__subj66, "addAll") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									for _, e := range ballrt.Iterate(func() ballrt.Value {
@@ -25721,18 +26015,18 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "contains") {
+						if ballrt.Eq(__subj66, "contains") {
 							_ = ballrt.Return(ballrt.ListContains(items, arg0))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "union") {
+						if ballrt.Eq(__subj66, "union") {
 							_ = func() ballrt.Value {
 								var out ballrt.Value = func() ballrt.Value {
-									__lit66 := ballrt.NewList()
-									for _, __sp67 := range ballrt.SpreadIter(items) {
-										__lit66.Add(__sp67)
+									__lit67 := ballrt.NewList()
+									for _, __sp68 := range ballrt.SpreadIter(items) {
+										__lit67.Add(__sp68)
 									}
-									return __lit66
+									return __lit67
 								}()
 								_ = out
 								_ = func() ballrt.Value {
@@ -25762,7 +26056,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "intersection") {
+						if ballrt.Eq(__subj66, "intersection") {
 							_ = func() ballrt.Value {
 								var other ballrt.Value = func() ballrt.Value {
 									__l := _stdAsList(ballrt.Arg0WithSelf(arg0, __self))
@@ -25784,7 +26078,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "difference") {
+						if ballrt.Eq(__subj66, "difference") {
 							_ = func() ballrt.Value {
 								var other ballrt.Value = func() ballrt.Value {
 									__l := _stdAsList(ballrt.Arg0WithSelf(arg0, __self))
@@ -25806,19 +26100,19 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "toSet") {
+						if ballrt.Eq(__subj66, "toSet") {
 							_ = ballrt.Return(_ballSetOf(ballrt.Arg0WithSelf(items, __self)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "length") {
+						if ballrt.Eq(__subj66, "length") {
 							_ = ballrt.Return(ballrt.FieldGet(items, "length"))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "isEmpty") {
+						if ballrt.Eq(__subj66, "isEmpty") {
 							_ = ballrt.Return(ballrt.StrIsEmpty(items))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj65, "isNotEmpty") {
+						if ballrt.Eq(__subj66, "isNotEmpty") {
 							_ = ballrt.Return(ballrt.StrIsNotEmpty(items))
 							return ballrt.Value(nil)
 						}
@@ -25860,21 +26154,21 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 					})
 					_ = _wrapList
 					_ = func() ballrt.Value {
-						__subj68 := method
-						_ = __subj68
-						if ballrt.Eq(__subj68, "length") {
+						__subj69 := method
+						_ = __subj69
+						if ballrt.Eq(__subj69, "length") {
 							_ = ballrt.Return(ballrt.FieldGet(self, "length"))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "isEmpty") {
+						if ballrt.Eq(__subj69, "isEmpty") {
 							_ = ballrt.Return(ballrt.StrIsEmpty(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "isNotEmpty") {
+						if ballrt.Eq(__subj69, "isNotEmpty") {
 							_ = ballrt.Return(ballrt.StrIsNotEmpty(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "add") {
+						if ballrt.Eq(__subj69, "add") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value { __v := ballrt.ListPush(self, arg0); self = __v; return __v }()
 								_ = ballrt.Return(ballrt.Value(nil))
@@ -25882,15 +26176,15 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "removeLast") {
+						if ballrt.Eq(__subj69, "removeLast") {
 							_ = ballrt.Return(ballrt.ListPop(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "removeAt") {
+						if ballrt.Eq(__subj69, "removeAt") {
 							_ = ballrt.Return(ballrt.ListRemoveAt(self, _toInt(ballrt.Arg0WithSelf(arg0, __self))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "insert") {
+						if ballrt.Eq(__subj69, "insert") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									__v := ballrt.ListInsert(self, _toInt(ballrt.Arg0WithSelf(arg0, __self)), ballrt.IndexGet(args, "arg1"))
@@ -25902,7 +26196,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "clear") {
+						if ballrt.Eq(__subj69, "clear") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value { __v := ballrt.ListClear(self); self = __v; return __v }()
 								_ = ballrt.Return(ballrt.Value(nil))
@@ -25910,11 +26204,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "contains") {
+						if ballrt.Eq(__subj69, "contains") {
 							_ = ballrt.Return(ballrt.ListContains(self, arg0))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "indexOf") {
+						if ballrt.Eq(__subj69, "indexOf") {
 							_ = func() ballrt.Value {
 								var indexFrom ballrt.Value = ballrt.IndexGet(args, "arg1")
 								_ = indexFrom
@@ -25956,7 +26250,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "lastIndexOf") {
+						if ballrt.Eq(__subj69, "lastIndexOf") {
 							_ = func() ballrt.Value {
 								var lastFrom ballrt.Value = ballrt.IndexGet(args, "arg1")
 								_ = lastFrom
@@ -26001,7 +26295,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "join") {
+						if ballrt.Eq(__subj69, "join") {
 							_ = func() ballrt.Value {
 								var joinParts ballrt.Value = ballrt.NewList()
 								_ = joinParts
@@ -26030,7 +26324,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "sublist") {
+						if ballrt.Eq(__subj69, "sublist") {
 							_ = func() ballrt.Value {
 								var end ballrt.Value = ballrt.IndexGet(args, "arg1")
 								_ = end
@@ -26044,11 +26338,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "reversed") {
+						if ballrt.Eq(__subj69, "reversed") {
 							_ = ballrt.Return(ballrt.CallFunction(_wrapList, _manualReverse(ballrt.Arg0WithSelf(self, __self))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "sort") {
+						if ballrt.Eq(__subj69, "sort") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26070,14 +26364,14 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 																	if ballrt.RunLoopBody("", func() {
 																		_ = func() ballrt.Value {
 																			var r ballrt.Value = ballrt.CallFunction(arg0, func() ballrt.Value {
-																				__map69 := ballrt.NewMap()
-																				__map69.Set(ballrt.ToStr("arg0"), ballrt.IndexGet(sorted, k))
-																				__map69.Set(ballrt.ToStr("arg1"), key)
-																				__map69.Set(ballrt.ToStr("a"), ballrt.IndexGet(sorted, k))
-																				__map69.Set(ballrt.ToStr("b"), key)
-																				__map69.Set(ballrt.ToStr("left"), ballrt.IndexGet(sorted, k))
-																				__map69.Set(ballrt.ToStr("right"), key)
-																				return __map69
+																				__map70 := ballrt.NewMap()
+																				__map70.Set(ballrt.ToStr("arg0"), ballrt.IndexGet(sorted, k))
+																				__map70.Set(ballrt.ToStr("arg1"), key)
+																				__map70.Set(ballrt.ToStr("a"), ballrt.IndexGet(sorted, k))
+																				__map70.Set(ballrt.ToStr("b"), key)
+																				__map70.Set(ballrt.ToStr("left"), ballrt.IndexGet(sorted, k))
+																				__map70.Set(ballrt.ToStr("right"), key)
+																				return __map70
 																			}())
 																			_ = r
 																			_ = func() ballrt.Value {
@@ -26158,7 +26452,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "map") {
+						if ballrt.Eq(__subj69, "map") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26207,7 +26501,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "where") || ballrt.Eq(__subj68, "filter") {
+						if ballrt.Eq(__subj69, "where") || ballrt.Eq(__subj69, "filter") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26261,7 +26555,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "forEach") {
+						if ballrt.Eq(__subj69, "forEach") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26297,7 +26591,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "any") {
+						if ballrt.Eq(__subj69, "any") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26340,7 +26634,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "every") {
+						if ballrt.Eq(__subj69, "every") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26383,7 +26677,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "reduce") {
+						if ballrt.Eq(__subj69, "reduce") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26409,14 +26703,14 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 																return ballrt.Value(nil)
 															}()
 															var r ballrt.Value = ballrt.CallFunction(arg0, func() ballrt.Value {
-																__map70 := ballrt.NewMap()
-																__map70.Set(ballrt.ToStr("arg0"), acc)
-																__map70.Set(ballrt.ToStr("arg1"), item)
-																__map70.Set(ballrt.ToStr("a"), acc)
-																__map70.Set(ballrt.ToStr("b"), item)
-																__map70.Set(ballrt.ToStr("left"), acc)
-																__map70.Set(ballrt.ToStr("right"), item)
-																return __map70
+																__map71 := ballrt.NewMap()
+																__map71.Set(ballrt.ToStr("arg0"), acc)
+																__map71.Set(ballrt.ToStr("arg1"), item)
+																__map71.Set(ballrt.ToStr("a"), acc)
+																__map71.Set(ballrt.ToStr("b"), item)
+																__map71.Set(ballrt.ToStr("left"), acc)
+																__map71.Set(ballrt.ToStr("right"), item)
+																return __map71
 															}())
 															_ = r
 															_ = func() ballrt.Value {
@@ -26456,7 +26750,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "fold") {
+						if ballrt.Eq(__subj69, "fold") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(ballrt.IndexGet(args, "arg1"), "Function")) {
@@ -26471,10 +26765,10 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 													if ballrt.RunLoopBody("", func() {
 														_ = func() ballrt.Value {
 															var r ballrt.Value = ballrt.CallFunction(fn, func() ballrt.Value {
-																__map71 := ballrt.NewMap()
-																__map71.Set(ballrt.ToStr("arg0"), acc)
-																__map71.Set(ballrt.ToStr("arg1"), item)
-																return __map71
+																__map72 := ballrt.NewMap()
+																__map72.Set(ballrt.ToStr("arg0"), acc)
+																__map72.Set(ballrt.ToStr("arg1"), item)
+																return __map72
 															}())
 															_ = r
 															_ = func() ballrt.Value {
@@ -26503,11 +26797,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "toList") {
+						if ballrt.Eq(__subj69, "toList") {
 							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(self)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "toSet") {
+						if ballrt.Eq(__subj69, "toSet") {
 							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.CallMethod("toSet", func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("self", self)
@@ -26515,7 +26809,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "toString") {
+						if ballrt.Eq(__subj69, "toString") {
 							_ = func() ballrt.Value {
 								var toStrParts ballrt.Value = ballrt.NewList()
 								_ = toStrParts
@@ -26539,7 +26833,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "filled") {
+						if ballrt.Eq(__subj69, "filled") {
 							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.CallMethod("filled", func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("self", ballrt.TypeLiteral("List"))
@@ -26549,7 +26843,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}())))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "union") {
+						if ballrt.Eq(__subj69, "union") {
 							_ = func() ballrt.Value {
 								var other ballrt.Value = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "BallList")) {
@@ -26564,8 +26858,8 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 								}()
 								_ = other
 								var seen ballrt.Value = func() ballrt.Value {
-									__map72 := ballrt.NewMap()
-									return __map72
+									__map73 := ballrt.NewMap()
+									return __map73
 								}()
 								_ = seen
 								var result ballrt.Value = ballrt.NewList()
@@ -26615,7 +26909,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "intersection") {
+						if ballrt.Eq(__subj69, "intersection") {
 							_ = func() ballrt.Value {
 								var otherSet ballrt.Value = ballrt.CallMethod("toSet", func() ballrt.Value {
 									__m := ballrt.NewMap()
@@ -26645,7 +26939,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "difference") {
+						if ballrt.Eq(__subj69, "difference") {
 							_ = func() ballrt.Value {
 								var otherSet2 ballrt.Value = ballrt.CallMethod("toSet", func() ballrt.Value {
 									__m := ballrt.NewMap()
@@ -26675,7 +26969,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "addAll") {
+						if ballrt.Eq(__subj69, "addAll") {
 							_ = func() ballrt.Value {
 								var other2 ballrt.Value = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "BallList")) {
@@ -26710,7 +27004,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "expand") {
+						if ballrt.Eq(__subj69, "expand") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -26773,7 +27067,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "take") {
+						if ballrt.Eq(__subj69, "take") {
 							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.CallMethod("take", func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("self", self)
@@ -26782,7 +27076,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "skip") {
+						if ballrt.Eq(__subj69, "skip") {
 							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.CallMethod("skip", func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("self", self)
@@ -26791,7 +27085,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj68, "followedBy") {
+						if ballrt.Eq(__subj69, "followedBy") {
 							_ = func() ballrt.Value {
 								var other3 ballrt.Value = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "BallList")) {
@@ -26806,14 +27100,14 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 								}()
 								_ = other3
 								_ = ballrt.Return(ballrt.CallFunction(_wrapList, func() ballrt.Value {
-									__lit73 := ballrt.NewList()
-									for _, __sp74 := range ballrt.SpreadIter(self) {
-										__lit73.Add(__sp74)
+									__lit74 := ballrt.NewList()
+									for _, __sp75 := range ballrt.SpreadIter(self) {
+										__lit74.Add(__sp75)
 									}
-									for _, __sp75 := range ballrt.SpreadIter(other3) {
-										__lit73.Add(__sp75)
+									for _, __sp76 := range ballrt.SpreadIter(other3) {
+										__lit74.Add(__sp76)
 									}
-									return __lit73
+									return __lit74
 								}()))
 								return ballrt.Value(nil)
 							}()
@@ -26834,9 +27128,9 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 					var selfList ballrt.Value = ballrt.ListToList(self)
 					_ = selfList
 					_ = func() ballrt.Value {
-						__subj76 := method
-						_ = __subj76
-						if ballrt.Eq(__subj76, "union") {
+						__subj77 := method
+						_ = __subj77
+						if ballrt.Eq(__subj77, "union") {
 							_ = func() ballrt.Value {
 								var otherU ballrt.Value = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Set")) {
@@ -26864,7 +27158,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "intersection") {
+						if ballrt.Eq(__subj77, "intersection") {
 							_ = func() ballrt.Value {
 								var otherI ballrt.Value = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Set")) {
@@ -26892,7 +27186,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "difference") {
+						if ballrt.Eq(__subj77, "difference") {
 							_ = func() ballrt.Value {
 								var otherD ballrt.Value = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Set")) {
@@ -26920,7 +27214,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "add") {
+						if ballrt.Eq(__subj77, "add") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value { __v := ballrt.ListPush(self, arg0); self = __v; return __v }()
 								_ = ballrt.Return(ballrt.Value(nil))
@@ -26928,7 +27222,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "addAll") {
+						if ballrt.Eq(__subj77, "addAll") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Iterable")) {
@@ -26941,7 +27235,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "remove") {
+						if ballrt.Eq(__subj77, "remove") {
 							_ = func() ballrt.Value {
 								_ = ballrt.CallMethod("remove", func() ballrt.Value {
 									__m := ballrt.NewMap()
@@ -26954,31 +27248,31 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "contains") {
+						if ballrt.Eq(__subj77, "contains") {
 							_ = ballrt.Return(ballrt.ListContains(self, arg0))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "toList") {
+						if ballrt.Eq(__subj77, "toList") {
 							_ = ballrt.Return(selfList)
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "toSet") {
+						if ballrt.Eq(__subj77, "toSet") {
 							_ = ballrt.Return(self)
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "length") {
+						if ballrt.Eq(__subj77, "length") {
 							_ = ballrt.Return(ballrt.FieldGet(self, "length"))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "isEmpty") {
+						if ballrt.Eq(__subj77, "isEmpty") {
 							_ = ballrt.Return(ballrt.StrIsEmpty(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "isNotEmpty") {
+						if ballrt.Eq(__subj77, "isNotEmpty") {
 							_ = ballrt.Return(ballrt.StrIsNotEmpty(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "forEach") {
+						if ballrt.Eq(__subj77, "forEach") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -27014,7 +27308,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "map") {
+						if ballrt.Eq(__subj77, "map") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -27054,7 +27348,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj76, "where") || ballrt.Eq(__subj76, "filter") {
+						if ballrt.Eq(__subj77, "where") || ballrt.Eq(__subj77, "filter") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
 									if ballrt.Truthy(ballrt.IsType(arg0, "Function")) {
@@ -27112,13 +27406,13 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 					var self ballrt.Value = unwrappedSelf
 					_ = self
 					_ = func() ballrt.Value {
-						__subj77 := method
-						_ = __subj77
-						if ballrt.Eq(__subj77, "contains") {
+						__subj78 := method
+						_ = __subj78
+						if ballrt.Eq(__subj78, "contains") {
 							_ = ballrt.Return(ballrt.ListContains(self, ballrt.ToStr(arg0)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "substring") {
+						if ballrt.Eq(__subj78, "substring") {
 							_ = func() ballrt.Value {
 								var end ballrt.Value = ballrt.IndexGet(args, "arg1")
 								_ = end
@@ -27132,7 +27426,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "indexOf") {
+						if ballrt.Eq(__subj78, "indexOf") {
 							_ = func() ballrt.Value {
 								var strFrom ballrt.Value = ballrt.IndexGet(args, "arg1")
 								_ = strFrom
@@ -27168,23 +27462,23 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "split") {
+						if ballrt.Eq(__subj78, "split") {
 							_ = ballrt.Return(ballrt.StrSplit(self, ballrt.ToStr(arg0)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "trim") {
+						if ballrt.Eq(__subj78, "trim") {
 							_ = ballrt.Return(ballrt.StrTrim(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "toUpperCase") {
+						if ballrt.Eq(__subj78, "toUpperCase") {
 							_ = ballrt.Return(ballrt.StrUpper(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "toLowerCase") {
+						if ballrt.Eq(__subj78, "toLowerCase") {
 							_ = ballrt.Return(ballrt.StrLower(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "replaceAll") {
+						if ballrt.Eq(__subj78, "replaceAll") {
 							_ = ballrt.Return(ballrt.StrReplaceAll(self, ballrt.ToStr(arg0), ballrt.ToStr(func() ballrt.Value {
 								__l := ballrt.IndexGet(args, "arg1")
 								if __l != nil {
@@ -27194,7 +27488,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}())))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "startsWith") {
+						if ballrt.Eq(__subj78, "startsWith") {
 							_ = func() ballrt.Value {
 								var swFrom ballrt.Value = ballrt.IndexGet(args, "arg1")
 								_ = swFrom
@@ -27223,7 +27517,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "lastIndexOf") {
+						if ballrt.Eq(__subj78, "lastIndexOf") {
 							_ = func() ballrt.Value {
 								var liNeedle ballrt.Value = ballrt.ToStr(arg0)
 								_ = liNeedle
@@ -27256,7 +27550,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "replaceFirst") {
+						if ballrt.Eq(__subj78, "replaceFirst") {
 							_ = func() ballrt.Value {
 								var rfTo ballrt.Value = ballrt.ToStr(func() ballrt.Value {
 									__l := ballrt.IndexGet(args, "arg1")
@@ -27297,11 +27591,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "endsWith") {
+						if ballrt.Eq(__subj78, "endsWith") {
 							_ = ballrt.Return(ballrt.StrEndsWith(self, ballrt.ToStr(arg0)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "padLeft") {
+						if ballrt.Eq(__subj78, "padLeft") {
 							_ = ballrt.Return(ballrt.StrPadLeft(self, _toInt(ballrt.Arg0WithSelf(arg0, __self)), func() ballrt.Value {
 								__l := func() ballrt.Value {
 									var __nac_14 ballrt.Value = ballrt.IndexGet(args, "arg1")
@@ -27324,7 +27618,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "padRight") {
+						if ballrt.Eq(__subj78, "padRight") {
 							_ = ballrt.Return(ballrt.StrPadRight(self, _toInt(ballrt.Arg0WithSelf(arg0, __self)), func() ballrt.Value {
 								__l := func() ballrt.Value {
 									var __nac_15 ballrt.Value = ballrt.IndexGet(args, "arg1")
@@ -27347,11 +27641,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "toString") {
+						if ballrt.Eq(__subj78, "toString") {
 							_ = ballrt.Return(self)
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "codeUnitAt") {
+						if ballrt.Eq(__subj78, "codeUnitAt") {
 							_ = ballrt.Return(_ballCodeUnitAt(func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("arg0", self)
@@ -27360,7 +27654,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}()))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj77, "compareTo") {
+						if ballrt.Eq(__subj78, "compareTo") {
 							_ = ballrt.Return(ballrt.CompareTo(self, ballrt.ToStr(arg0)))
 							return ballrt.Value(nil)
 						}
@@ -27377,45 +27671,45 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 					var self ballrt.Value = unwrappedSelf
 					_ = self
 					_ = func() ballrt.Value {
-						__subj78 := method
-						_ = __subj78
-						if ballrt.Eq(__subj78, "toDouble") {
+						__subj79 := method
+						_ = __subj79
+						if ballrt.Eq(__subj79, "toDouble") {
 							_ = ballrt.Return(_ballToDouble(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "toInt") {
+						if ballrt.Eq(__subj79, "toInt") {
 							_ = ballrt.Return(_ballDoubleToInt64(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "toString") {
+						if ballrt.Eq(__subj79, "toString") {
 							_ = ballrt.Return(_ballToStringAsync(ballrt.Arg0WithSelf(self, __self)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "toStringAsFixed") {
+						if ballrt.Eq(__subj79, "toStringAsFixed") {
 							_ = ballrt.Return(ballrt.ToStringAsFixed(self, _toInt(ballrt.Arg0WithSelf(arg0, __self))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "abs") {
+						if ballrt.Eq(__subj79, "abs") {
 							_ = ballrt.Return(ballrt.MathAbs(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "round") {
+						if ballrt.Eq(__subj79, "round") {
 							_ = ballrt.Return(ballrt.MathRound(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "floor") {
+						if ballrt.Eq(__subj79, "floor") {
 							_ = ballrt.Return(ballrt.MathFloor(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "ceil") {
+						if ballrt.Eq(__subj79, "ceil") {
 							_ = ballrt.Return(ballrt.MathCeil(self))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "compareTo") {
+						if ballrt.Eq(__subj79, "compareTo") {
 							_ = ballrt.Return(ballrt.CompareTo(self, _toNum(ballrt.Arg0WithSelf(arg0, __self))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "clamp") {
+						if ballrt.Eq(__subj79, "clamp") {
 							_ = ballrt.Return(ballrt.MathClamp(self, _toNum(ballrt.Arg0WithSelf(arg0, __self)), _toNum(ballrt.Arg0WithSelf(func() ballrt.Value {
 								__l := ballrt.IndexGet(args, "arg1")
 								if __l != nil {
@@ -27425,11 +27719,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							}(), __self))))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "truncate") {
+						if ballrt.Eq(__subj79, "truncate") {
 							_ = ballrt.Return(_ballDoubleToInt64(ballrt.MathTrunc(self)))
 							return ballrt.Value(nil)
 						}
-						if ballrt.Eq(__subj78, "remainder") {
+						if ballrt.Eq(__subj79, "remainder") {
 							_ = ballrt.Return(ballrt.CallMethod("remainder", func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("self", self)
@@ -27456,9 +27750,9 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeName, ballrt.Value(nil))) && ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Eq(typeName, _kBallSinkTag(ballrt.Value(nil)))) || ballrt.Truthy(ballrt.StrEndsWith(typeName, ":StringBuffer")))) || ballrt.Truthy(ballrt.Eq(typeName, "StringBuffer")))))) {
 							return func() ballrt.Value {
 								_ = func() ballrt.Value {
-									__subj79 := method
-									_ = __subj79
-									if ballrt.Eq(__subj79, "write") {
+									__subj80 := method
+									_ = __subj80
+									if ballrt.Eq(__subj80, "write") {
 										_ = func() ballrt.Value {
 											_ = ballrt.IndexSet(selfMap, "__buffer__", ballrt.Add(func() ballrt.Value {
 												__l := ballrt.AsType(ballrt.IndexGet(selfMap, "__buffer__"), "String?")
@@ -27472,7 +27766,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 										}()
 										return ballrt.Value(nil)
 									}
-									if ballrt.Eq(__subj79, "writeln") {
+									if ballrt.Eq(__subj80, "writeln") {
 										_ = func() ballrt.Value {
 											_ = ballrt.IndexSet(selfMap, "__buffer__", ballrt.Add(ballrt.Add(func() ballrt.Value {
 												__l := ballrt.AsType(ballrt.IndexGet(selfMap, "__buffer__"), "String?")
@@ -27486,7 +27780,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 										}()
 										return ballrt.Value(nil)
 									}
-									if ballrt.Eq(__subj79, "writeCharCode") {
+									if ballrt.Eq(__subj80, "writeCharCode") {
 										_ = func() ballrt.Value {
 											_ = ballrt.IndexSet(selfMap, "__buffer__", ballrt.Add(func() ballrt.Value {
 												__l := ballrt.AsType(ballrt.IndexGet(selfMap, "__buffer__"), "String?")
@@ -27500,7 +27794,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 										}()
 										return ballrt.Value(nil)
 									}
-									if ballrt.Eq(__subj79, "toString") {
+									if ballrt.Eq(__subj80, "toString") {
 										_ = ballrt.Return(func() ballrt.Value {
 											__l := ballrt.IndexGet(selfMap, "__buffer__")
 											if __l != nil {
@@ -27510,7 +27804,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 										}())
 										return ballrt.Value(nil)
 									}
-									if ballrt.Eq(__subj79, "clear") {
+									if ballrt.Eq(__subj80, "clear") {
 										_ = func() ballrt.Value {
 											_ = ballrt.IndexSet(selfMap, "__buffer__", "")
 											_ = ballrt.Return(ballrt.Value(nil))
@@ -27518,7 +27812,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 										}()
 										return ballrt.Value(nil)
 									}
-									if ballrt.Eq(__subj79, "length") {
+									if ballrt.Eq(__subj80, "length") {
 										_ = ballrt.Return(ballrt.FieldGet(func() ballrt.Value {
 											__l := ballrt.AsType(ballrt.IndexGet(selfMap, "__buffer__"), "String?")
 											if __l != nil {
@@ -28025,9 +28319,9 @@ func BallEngine___ballSetOf(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		return func() ballrt.Value {
-			__map80 := ballrt.NewMap()
-			__map80.Set(ballrt.ToStr(_kBallSetTag(ballrt.Value(nil))), result)
-			return __map80
+			__map81 := ballrt.NewMap()
+			__map81.Set(ballrt.ToStr(_kBallSetTag(ballrt.Value(nil))), result)
+			return __map81
 		}()
 	}()
 	return
@@ -28201,12 +28495,12 @@ func BallEngine___tryOperatorOverride(input ballrt.Value) (__ret ballrt.Value) {
 										if ballrt.Truthy(ballrt.Neq(method, ballrt.Value(nil))) {
 											return func() ballrt.Value {
 												var methodInput ballrt.Value = func() ballrt.Value {
-													__map81 := ballrt.NewMap()
-													__map81.Set(ballrt.ToStr("self"), left)
-													__map81.Set(ballrt.ToStr("other"), right)
-													__map81.Set(ballrt.ToStr("arg0"), right)
-													__map81.Set(ballrt.ToStr("right"), right)
-													return __map81
+													__map82 := ballrt.NewMap()
+													__map82.Set(ballrt.ToStr("self"), left)
+													__map82.Set(ballrt.ToStr("other"), right)
+													__map82.Set(ballrt.ToStr("arg0"), right)
+													__map82.Set(ballrt.ToStr("right"), right)
+													return __map82
 												}()
 												_ = methodInput
 												_ = ballrt.Return(_callFunction(ballrt.WithSelf(func() ballrt.Value {
@@ -28317,9 +28611,9 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
 		_ = func() ballrt.Value {
-			__subj82 := ballrt.Concat(ballrt.Concat(ballrt.ToStr(className), "."), ballrt.ToStr(method))
-			_ = __subj82
-			if ballrt.Eq(__subj82, "List.generate") {
+			__subj83 := ballrt.Concat(ballrt.Concat(ballrt.ToStr(className), "."), ballrt.ToStr(method))
+			_ = __subj83
+			if ballrt.Eq(__subj83, "List.generate") {
 				_ = func() ballrt.Value {
 					var count ballrt.Value = func() ballrt.Value {
 						__l := ballrt.IndexGet(args, "arg0")
@@ -28342,10 +28636,10 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 						__m.Set("arg0", "std")
 						__m.Set("arg1", "dart_list_generate")
 						__m.Set("arg2", func() ballrt.Value {
-							__map83 := ballrt.NewMap()
-							__map83.Set(ballrt.ToStr("count"), count)
-							__map83.Set(ballrt.ToStr("generator"), generator)
-							return __map83
+							__map84 := ballrt.NewMap()
+							__map84.Set(ballrt.ToStr("count"), count)
+							__map84.Set(ballrt.ToStr("generator"), generator)
+							return __map84
 						}())
 						return __m
 					}(), __self)))
@@ -28353,7 +28647,7 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj82, "List.filled") {
+			if ballrt.Eq(__subj83, "List.filled") {
 				_ = func() ballrt.Value {
 					var count ballrt.Value = func() ballrt.Value {
 						__l := ballrt.IndexGet(args, "arg0")
@@ -28376,10 +28670,10 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 						__m.Set("arg0", "std")
 						__m.Set("arg1", "dart_list_filled")
 						__m.Set("arg2", func() ballrt.Value {
-							__map84 := ballrt.NewMap()
-							__map84.Set(ballrt.ToStr("count"), count)
-							__map84.Set(ballrt.ToStr("value"), value)
-							return __map84
+							__map85 := ballrt.NewMap()
+							__map85.Set(ballrt.ToStr("count"), count)
+							__map85.Set(ballrt.ToStr("value"), value)
+							return __map85
 						}())
 						return __m
 					}(), __self)))
@@ -28387,7 +28681,7 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj82, "List.of") || ballrt.Eq(__subj82, "List.from") {
+			if ballrt.Eq(__subj83, "List.of") || ballrt.Eq(__subj83, "List.from") {
 				_ = func() ballrt.Value {
 					var source ballrt.Value = func() ballrt.Value {
 						__l := ballrt.IndexGet(args, "arg0")
@@ -28436,7 +28730,7 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj82, "Map.fromEntries") {
+			if ballrt.Eq(__subj83, "Map.fromEntries") {
 				_ = func() ballrt.Value {
 					var list ballrt.Value = func() ballrt.Value {
 						__l := ballrt.IndexGet(args, "arg0")
@@ -28451,9 +28745,9 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 						__m.Set("arg0", "std")
 						__m.Set("arg1", "map_from_entries")
 						__m.Set("arg2", func() ballrt.Value {
-							__map85 := ballrt.NewMap()
-							__map85.Set(ballrt.ToStr("list"), list)
-							return __map85
+							__map86 := ballrt.NewMap()
+							__map86.Set(ballrt.ToStr("list"), list)
+							return __map86
 						}())
 						return __m
 					}(), __self)))
@@ -28591,11 +28885,11 @@ func BallEngine___callBaseFunction(input ballrt.Value) (__ret ballrt.Value) {
 								}())
 								_ = result
 								_ = func() ballrt.Value {
-									__na86 := ballrt.FieldGet(__self, "_callCounts")
-									if __na86 == nil {
+									__na87 := ballrt.FieldGet(__self, "_callCounts")
+									if __na87 == nil {
 										return ballrt.Value(nil)
 									}
-									return ballrt.IndexSet(__na86, function, ballrt.Add(func() ballrt.Value {
+									return ballrt.IndexSet(__na87, function, ballrt.Add(func() ballrt.Value {
 										__l := ballrt.IndexGet(ballrt.NullCheck(ballrt.FieldGet(__self, "_callCounts")), function)
 										if __l != nil {
 											return __l
@@ -28691,10 +28985,10 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _resolver
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
-		__map87 := ballrt.NewMap()
-		__map87.Set(ballrt.ToStr("print"), ballrt.Fn("_stdPrint", func(__arg ballrt.Value) ballrt.Value { return _stdPrint(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("add"), ballrt.Fn("_stdAdd", func(__arg ballrt.Value) ballrt.Value { return _stdAdd(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("subtract"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88 := ballrt.NewMap()
+		__map88.Set(ballrt.ToStr("print"), ballrt.Fn("_stdPrint", func(__arg ballrt.Value) ballrt.Value { return _stdPrint(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("add"), ballrt.Fn("_stdAdd", func(__arg ballrt.Value) ballrt.Value { return _stdAdd(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("subtract"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28716,7 +29010,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("multiply"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("multiply"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28768,7 +29062,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("divide"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("divide"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28790,7 +29084,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("divide_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("divide_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28812,7 +29106,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("modulo"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("modulo"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28834,7 +29128,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("negate"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("negate"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28854,7 +29148,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("equals"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("equals"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28876,7 +29170,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("not_equals"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("not_equals"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28898,7 +29192,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("less_than"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("less_than"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28920,7 +29214,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("greater_than"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("greater_than"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28942,7 +29236,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("lte"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("lte"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28964,7 +29258,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("gte"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("gte"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -28986,7 +29280,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("and"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("and"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29008,7 +29302,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("or"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("or"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29030,8 +29324,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("not"), ballrt.Fn("_stdNot", func(__arg ballrt.Value) ballrt.Value { return _stdNot(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("bitwise_and"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("not"), ballrt.Fn("_stdNot", func(__arg ballrt.Value) ballrt.Value { return _stdNot(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("bitwise_and"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29053,7 +29347,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("bitwise_or"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("bitwise_or"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29075,7 +29369,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("bitwise_xor"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("bitwise_xor"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29097,7 +29391,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("bitwise_not"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("bitwise_not"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29117,7 +29411,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("left_shift"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("left_shift"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29139,7 +29433,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("right_shift"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("right_shift"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29161,7 +29455,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("unsigned_right_shift"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("unsigned_right_shift"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29183,7 +29477,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("pre_increment"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("pre_increment"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29191,7 +29485,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.Add(ballrt.AsType(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), "num"), int64(1))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("pre_decrement"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("pre_decrement"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29199,7 +29493,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.Sub(ballrt.AsType(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), "num"), int64(1))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("post_increment"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("post_increment"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29207,7 +29501,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.Add(ballrt.AsType(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), "num"), int64(1))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("post_decrement"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("post_decrement"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29215,9 +29509,9 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.Sub(ballrt.AsType(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), "num"), int64(1))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("concat"), ballrt.Fn("_stdConcat", func(__arg ballrt.Value) ballrt.Value { return _stdConcat(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("length"), ballrt.Fn("_stdLength", func(__arg ballrt.Value) ballrt.Value { return _stdLength(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("to_string"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("concat"), ballrt.Fn("_stdConcat", func(__arg ballrt.Value) ballrt.Value { return _stdConcat(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("length"), ballrt.Fn("_stdLength", func(__arg ballrt.Value) ballrt.Value { return _stdLength(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("to_string"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29225,7 +29519,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _ballToStringAsync(ballrt.Arg0WithSelf(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("int_to_string"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("int_to_string"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29245,7 +29539,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("double_to_string"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("double_to_string"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29277,7 +29571,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_to_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_to_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29297,7 +29591,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29317,7 +29611,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29325,7 +29619,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _ballToDouble(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("to_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("to_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29333,7 +29627,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _ballDoubleToInt64(_toNum(ballrt.Arg0WithSelf(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), __self)))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("int_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("int_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29341,7 +29635,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _ballToDouble(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("double_to_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("double_to_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29349,7 +29643,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _ballDoubleToInt64(_toNum(ballrt.Arg0WithSelf(_extractUnaryArg(ballrt.Arg0WithSelf(i, __self)), __self)))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("compare_to"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("compare_to"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29361,9 +29655,9 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 						return __l
 					}
 					return func() ballrt.Value {
-						__map88 := ballrt.NewMap()
-						__map88.Set(ballrt.ToStr("value"), i)
-						return __map88
+						__map89 := ballrt.NewMap()
+						__map89.Set(ballrt.ToStr("value"), i)
+						return __map89
 					}()
 				}()
 				_ = m
@@ -29407,55 +29701,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("to_string_as_fixed"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
-			_ = input
-			i := input
-			_ = i
-			defer ballrt.CatchReturn(&__ret)
-			__ret = func() ballrt.Value {
-				var m ballrt.Value = func() ballrt.Value {
-					__l := _stdAsMap(ballrt.Arg0WithSelf(i, __self))
-					if __l != nil {
-						return __l
-					}
-					return func() ballrt.Value {
-						__map89 := ballrt.NewMap()
-						__map89.Set(ballrt.ToStr("value"), i)
-						return __map89
-					}()
-				}()
-				_ = m
-				var v ballrt.Value = func() ballrt.Value {
-					__l := ballrt.IndexGet(m, "value")
-					if __l != nil {
-						return __l
-					}
-					return ballrt.IndexGet(m, "left")
-				}()
-				_ = v
-				var digits ballrt.Value = func() ballrt.Value {
-					__l := ballrt.IndexGet(m, "digits")
-					if __l != nil {
-						return __l
-					}
-					return ballrt.IndexGet(m, "fractionDigits")
-				}()
-				_ = digits
-				var n ballrt.Value = _toNum(ballrt.Arg0WithSelf(v, __self))
-				_ = n
-				var s ballrt.Value = ballrt.ToStringAsFixed(n, _toInt(ballrt.Arg0WithSelf(digits, __self)))
-				_ = s
-				_ = func() ballrt.Value {
-					if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Eq(n, int64(0))) && ballrt.Truthy(ballrt.Lt(ballrt.DivDouble(float64(1.0), n), int64(0))))) && ballrt.Truthy(ballrt.Not(ballrt.StrStartsWith(s, "-"))))) {
-						return ballrt.Return(ballrt.Concat("-", ballrt.ToStr(s)))
-					}
-					return ballrt.Value(nil)
-				}()
-				return s
-			}()
-			return
-		}))
-		__map87.Set(ballrt.ToStr("to_string_as_exponential"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("to_string_as_fixed"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29491,16 +29737,19 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				_ = digits
 				var n ballrt.Value = _toNum(ballrt.Arg0WithSelf(v, __self))
 				_ = n
-				return func() ballrt.Value {
-					if ballrt.Truthy(ballrt.Eq(digits, ballrt.Value(nil))) {
-						return ballrt.ToStringAsExponential(n, ballrt.Value(nil))
+				var s ballrt.Value = ballrt.ToStringAsFixed(n, _toInt(ballrt.Arg0WithSelf(digits, __self)))
+				_ = s
+				_ = func() ballrt.Value {
+					if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Eq(n, int64(0))) && ballrt.Truthy(ballrt.Lt(ballrt.DivDouble(float64(1.0), n), int64(0))))) && ballrt.Truthy(ballrt.Not(ballrt.StrStartsWith(s, "-"))))) {
+						return ballrt.Return(ballrt.Concat("-", ballrt.ToStr(s)))
 					}
-					return ballrt.ToStringAsExponential(n, _toInt(ballrt.Arg0WithSelf(digits, __self)))
+					return ballrt.Value(nil)
 				}()
+				return s
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("to_string_as_precision"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("to_string_as_exponential"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29526,6 +29775,51 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 					return ballrt.IndexGet(m, "left")
 				}()
 				_ = v
+				var digits ballrt.Value = func() ballrt.Value {
+					__l := ballrt.IndexGet(m, "digits")
+					if __l != nil {
+						return __l
+					}
+					return ballrt.IndexGet(m, "fractionDigits")
+				}()
+				_ = digits
+				var n ballrt.Value = _toNum(ballrt.Arg0WithSelf(v, __self))
+				_ = n
+				return func() ballrt.Value {
+					if ballrt.Truthy(ballrt.Eq(digits, ballrt.Value(nil))) {
+						return ballrt.ToStringAsExponential(n, ballrt.Value(nil))
+					}
+					return ballrt.ToStringAsExponential(n, _toInt(ballrt.Arg0WithSelf(digits, __self)))
+				}()
+			}()
+			return
+		}))
+		__map88.Set(ballrt.ToStr("to_string_as_precision"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+			_ = input
+			i := input
+			_ = i
+			defer ballrt.CatchReturn(&__ret)
+			__ret = func() ballrt.Value {
+				var m ballrt.Value = func() ballrt.Value {
+					__l := _stdAsMap(ballrt.Arg0WithSelf(i, __self))
+					if __l != nil {
+						return __l
+					}
+					return func() ballrt.Value {
+						__map92 := ballrt.NewMap()
+						__map92.Set(ballrt.ToStr("value"), i)
+						return __map92
+					}()
+				}()
+				_ = m
+				var v ballrt.Value = func() ballrt.Value {
+					__l := ballrt.IndexGet(m, "value")
+					if __l != nil {
+						return __l
+					}
+					return ballrt.IndexGet(m, "left")
+				}()
+				_ = v
 				var precision ballrt.Value = func() ballrt.Value {
 					__l := ballrt.IndexGet(m, "precision")
 					if __l != nil {
@@ -29538,7 +29832,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_interpolation"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_interpolation"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29606,7 +29900,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("null_coalesce"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("null_coalesce"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29634,7 +29928,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("null_check"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("null_check"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29656,11 +29950,11 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("null_aware_access"), ballrt.Fn("_stdNullAwareAccess", func(__arg ballrt.Value) ballrt.Value { return _stdNullAwareAccess(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("null_aware_call"), ballrt.Fn("_stdNullAwareCall", func(__arg ballrt.Value) ballrt.Value { return _stdNullAwareCall(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("if"), ballrt.Fn("_stdIf", func(__arg ballrt.Value) ballrt.Value { return _stdIf(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("is"), ballrt.Fn("_stdTypeCheck", func(__arg ballrt.Value) ballrt.Value { return _stdTypeCheck(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("is_not"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("null_aware_access"), ballrt.Fn("_stdNullAwareAccess", func(__arg ballrt.Value) ballrt.Value { return _stdNullAwareAccess(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("null_aware_call"), ballrt.Fn("_stdNullAwareCall", func(__arg ballrt.Value) ballrt.Value { return _stdNullAwareCall(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("if"), ballrt.Fn("_stdIf", func(__arg ballrt.Value) ballrt.Value { return _stdIf(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("is"), ballrt.Fn("_stdTypeCheck", func(__arg ballrt.Value) ballrt.Value { return _stdTypeCheck(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("is_not"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29668,15 +29962,15 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.Not(ballrt.AsType(_stdTypeCheck(ballrt.Arg0WithSelf(i, __self)), "bool"))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("as"), ballrt.Fn("_extractUnaryArg", func(__arg ballrt.Value) ballrt.Value { return _extractUnaryArg(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("type_of"), ballrt.Fn("_stdTypeOf", func(__arg ballrt.Value) ballrt.Value { return _stdTypeOf(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("index"), ballrt.Fn("_stdIndex", func(__arg ballrt.Value) ballrt.Value { return _stdIndex(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("cascade"), ballrt.Fn("_stdCascade", func(__arg ballrt.Value) ballrt.Value { return _stdCascade(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("null_aware_cascade"), ballrt.Fn("_stdNullAwareCascade", func(__arg ballrt.Value) ballrt.Value { return _stdNullAwareCascade(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("spread"), ballrt.Fn("_extractUnaryArg", func(__arg ballrt.Value) ballrt.Value { return _extractUnaryArg(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("null_spread"), ballrt.Fn("_extractUnaryArg", func(__arg ballrt.Value) ballrt.Value { return _extractUnaryArg(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("invoke"), ballrt.Fn("_stdInvoke", func(__arg ballrt.Value) ballrt.Value { return _stdInvoke(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("tear_off"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("as"), ballrt.Fn("_extractUnaryArg", func(__arg ballrt.Value) ballrt.Value { return _extractUnaryArg(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("type_of"), ballrt.Fn("_stdTypeOf", func(__arg ballrt.Value) ballrt.Value { return _stdTypeOf(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("index"), ballrt.Fn("_stdIndex", func(__arg ballrt.Value) ballrt.Value { return _stdIndex(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("cascade"), ballrt.Fn("_stdCascade", func(__arg ballrt.Value) ballrt.Value { return _stdCascade(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("null_aware_cascade"), ballrt.Fn("_stdNullAwareCascade", func(__arg ballrt.Value) ballrt.Value { return _stdNullAwareCascade(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("spread"), ballrt.Fn("_extractUnaryArg", func(__arg ballrt.Value) ballrt.Value { return _extractUnaryArg(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("null_spread"), ballrt.Fn("_extractUnaryArg", func(__arg ballrt.Value) ballrt.Value { return _extractUnaryArg(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("invoke"), ballrt.Fn("_stdInvoke", func(__arg ballrt.Value) ballrt.Value { return _stdInvoke(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("tear_off"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29700,10 +29994,10 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_generate"), ballrt.Fn("_stdListGenerate", func(__arg ballrt.Value) ballrt.Value { return _stdListGenerate(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("dart_list_generate"), ballrt.Fn("_stdListGenerate", func(__arg ballrt.Value) ballrt.Value { return _stdListGenerate(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("list_filled"), ballrt.Fn("_stdListFilled", func(__arg ballrt.Value) ballrt.Value { return _stdListFilled(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("typed_list"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_generate"), ballrt.Fn("_stdListGenerate", func(__arg ballrt.Value) ballrt.Value { return _stdListGenerate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("dart_list_generate"), ballrt.Fn("_stdListGenerate", func(__arg ballrt.Value) ballrt.Value { return _stdListGenerate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("list_filled"), ballrt.Fn("_stdListFilled", func(__arg ballrt.Value) ballrt.Value { return _stdListFilled(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("typed_list"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29729,13 +30023,13 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("dart_list_filled"), ballrt.Fn("_stdListFilled", func(__arg ballrt.Value) ballrt.Value { return _stdListFilled(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("map_create"), ballrt.Fn("_stdMapCreate", func(__arg ballrt.Value) ballrt.Value { return _stdMapCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("set_create"), ballrt.Fn("_stdSetCreate", func(__arg ballrt.Value) ballrt.Value { return _stdSetCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("record"), ballrt.Fn("_stdRecord", func(__arg ballrt.Value) ballrt.Value { return _stdRecord(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("collection_if"), ballrt.Fn("_collectionMisuse", func(__arg ballrt.Value) ballrt.Value { return _collectionMisuse(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("collection_for"), ballrt.Fn("_collectionMisuse", func(__arg ballrt.Value) ballrt.Value { return _collectionMisuse(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("list_push"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("dart_list_filled"), ballrt.Fn("_stdListFilled", func(__arg ballrt.Value) ballrt.Value { return _stdListFilled(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("map_create"), ballrt.Fn("_stdMapCreate", func(__arg ballrt.Value) ballrt.Value { return _stdMapCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("set_create"), ballrt.Fn("_stdSetCreate", func(__arg ballrt.Value) ballrt.Value { return _stdSetCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("record"), ballrt.Fn("_stdRecord", func(__arg ballrt.Value) ballrt.Value { return _stdRecord(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("collection_if"), ballrt.Fn("_collectionMisuse", func(__arg ballrt.Value) ballrt.Value { return _collectionMisuse(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("collection_for"), ballrt.Fn("_collectionMisuse", func(__arg ballrt.Value) ballrt.Value { return _collectionMisuse(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("list_push"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29757,12 +30051,12 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 									return func() ballrt.Value {
 										_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(_ballPointerBytes(ballrt.Value(nil)), __self))
 										_ = ballrt.Return(_ballSetOf(ballrt.Arg0WithSelf(func() ballrt.Value {
-											__lit92 := ballrt.NewList()
-											for _, __sp93 := range ballrt.SpreadIter(items) {
-												__lit92.Add(__sp93)
+											__lit93 := ballrt.NewList()
+											for _, __sp94 := range ballrt.SpreadIter(items) {
+												__lit93.Add(__sp94)
 											}
-											__lit92.Add(value)
-											return __lit92
+											__lit93.Add(value)
+											return __lit93
 										}(), __self)))
 										return ballrt.Value(nil)
 									}()
@@ -29789,7 +30083,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_pop"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_pop"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29811,7 +30105,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_insert"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_insert"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29831,7 +30125,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_remove_at"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_remove_at"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29845,7 +30139,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29857,7 +30151,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_set"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_set"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29873,7 +30167,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29881,7 +30175,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.FieldGet(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self))), "length")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29889,7 +30183,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.StrIsEmpty(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self))))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_first"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_first"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29912,7 +30206,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_last"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_last"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29935,7 +30229,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_single"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_single"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -29969,7 +30263,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30003,7 +30297,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_index_of"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_index_of"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30042,7 +30336,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_map"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_map"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30095,7 +30389,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_filter"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_filter"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30153,7 +30447,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_reduce"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_reduce"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30198,14 +30492,14 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 									return ballrt.Value(nil)
 								}()
 								var v ballrt.Value = ballrt.CallFunction(cb, func() ballrt.Value {
-									__map94 := ballrt.NewMap()
-									__map94.Set(ballrt.ToStr("arg0"), acc)
-									__map94.Set(ballrt.ToStr("arg1"), e)
-									__map94.Set(ballrt.ToStr("a"), acc)
-									__map94.Set(ballrt.ToStr("b"), e)
-									__map94.Set(ballrt.ToStr("left"), acc)
-									__map94.Set(ballrt.ToStr("right"), e)
-									return __map94
+									__map95 := ballrt.NewMap()
+									__map95.Set(ballrt.ToStr("arg0"), acc)
+									__map95.Set(ballrt.ToStr("arg1"), e)
+									__map95.Set(ballrt.ToStr("a"), acc)
+									__map95.Set(ballrt.ToStr("b"), e)
+									__map95.Set(ballrt.ToStr("left"), acc)
+									__map95.Set(ballrt.ToStr("right"), e)
+									return __map95
 								}())
 								_ = v
 								_ = func() ballrt.Value {
@@ -30238,7 +30532,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_find"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_find"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30299,7 +30593,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_any"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_any"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30354,7 +30648,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30409,7 +30703,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_none"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_none"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30464,7 +30758,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_sort"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_sort"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30533,14 +30827,14 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 										if ballrt.RunLoopBody("", func() {
 											_ = func() ballrt.Value {
 												var r ballrt.Value = ballrt.Invoke(ballrt.AsType(cb, "Function"), func() ballrt.Value {
-													__map95 := ballrt.NewMap()
-													__map95.Set(ballrt.ToStr("left"), ballrt.IndexGet(sorted, k))
-													__map95.Set(ballrt.ToStr("right"), key)
-													__map95.Set(ballrt.ToStr("arg0"), ballrt.IndexGet(sorted, k))
-													__map95.Set(ballrt.ToStr("arg1"), key)
-													__map95.Set(ballrt.ToStr("a"), ballrt.IndexGet(sorted, k))
-													__map95.Set(ballrt.ToStr("b"), key)
-													return __map95
+													__map96 := ballrt.NewMap()
+													__map96.Set(ballrt.ToStr("left"), ballrt.IndexGet(sorted, k))
+													__map96.Set(ballrt.ToStr("right"), key)
+													__map96.Set(ballrt.ToStr("arg0"), ballrt.IndexGet(sorted, k))
+													__map96.Set(ballrt.ToStr("arg1"), key)
+													__map96.Set(ballrt.ToStr("a"), ballrt.IndexGet(sorted, k))
+													__map96.Set(ballrt.ToStr("b"), key)
+													return __map96
 												}())
 												_ = r
 												_ = func() ballrt.Value {
@@ -30589,7 +30883,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_sort_by"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_sort_by"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30662,17 +30956,17 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				}()
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(indices, "length"), _ballPointerBytes(ballrt.Value(nil))), __self))
 				return func() ballrt.Value {
-					__lit96 := ballrt.NewList()
+					__lit97 := ballrt.NewList()
 					for _, idx := range ballrt.Iterate(indices) {
 						_ = idx
-						__lit96.Add(ballrt.IndexGet(list, idx))
+						__lit97.Add(ballrt.IndexGet(list, idx))
 					}
-					return __lit96
+					return __lit97
 				}()
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_reverse"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_reverse"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30680,7 +30974,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _trackListCopy(ballrt.Arg0WithSelf(_manualReverse(ballrt.Arg0WithSelf(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self))), __self)), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_slice"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_slice"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30782,7 +31076,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_flat_map"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_flat_map"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30856,7 +31150,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_zip"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_zip"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30896,7 +31190,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_take"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_take"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30922,7 +31216,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_drop"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_drop"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30948,7 +31242,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_concat"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_concat"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -30959,33 +31253,33 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				_ = func() ballrt.Value {
 					if ballrt.Truthy(_isBallSet(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))) {
 						return ballrt.Return(_ballSetOf(ballrt.Arg0WithSelf(func() ballrt.Value {
-							__lit98 := ballrt.NewList()
-							for _, __sp99 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))) {
-								__lit98.Add(__sp99)
+							__lit99 := ballrt.NewList()
+							for _, __sp100 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))) {
+								__lit99.Add(__sp100)
 							}
-							for _, __sp100 := range ballrt.SpreadIter(func() ballrt.Value {
+							for _, __sp101 := range ballrt.SpreadIter(func() ballrt.Value {
 								__l := _stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "value"), __self))
 								if __l != nil {
 									return __l
 								}
 								return ballrt.NewList()
 							}()) {
-								__lit98.Add(__sp100)
+								__lit99.Add(__sp101)
 							}
-							return __lit98
+							return __lit99
 						}(), __self)))
 					}
 					return ballrt.Value(nil)
 				}()
 				var result ballrt.Value = func() ballrt.Value {
-					__lit101 := ballrt.NewList()
-					for _, __sp102 := range ballrt.SpreadIter(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self)))) {
-						__lit101.Add(__sp102)
+					__lit102 := ballrt.NewList()
+					for _, __sp103 := range ballrt.SpreadIter(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self)))) {
+						__lit102.Add(__sp103)
 					}
-					for _, __sp103 := range ballrt.SpreadIter(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "value"), __self)))) {
-						__lit101.Add(__sp103)
+					for _, __sp104 := range ballrt.SpreadIter(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "value"), __self)))) {
+						__lit102.Add(__sp104)
 					}
-					return __lit101
+					return __lit102
 				}()
 				_ = result
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(result, "length"), _ballPointerBytes(ballrt.Value(nil))), __self))
@@ -30993,7 +31287,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_clear"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_clear"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31029,7 +31323,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_to_list"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_to_list"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31063,7 +31357,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_foreach"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_foreach"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31128,12 +31422,12 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 													if ballrt.RunLoopBody("", func() {
 														_ = func() ballrt.Value {
 															var r ballrt.Value = ballrt.CallFunction(fn, func() ballrt.Value {
-																__map104 := ballrt.NewMap()
-																__map104.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
-																__map104.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
-																__map104.Set(ballrt.ToStr("arg0"), ballrt.FieldGet(entry, "key"))
-																__map104.Set(ballrt.ToStr("arg1"), ballrt.FieldGet(entry, "value"))
-																return __map104
+																__map105 := ballrt.NewMap()
+																__map105.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
+																__map105.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
+																__map105.Set(ballrt.ToStr("arg0"), ballrt.FieldGet(entry, "key"))
+																__map105.Set(ballrt.ToStr("arg1"), ballrt.FieldGet(entry, "value"))
+																return __map105
 															}())
 															_ = r
 															_ = func() ballrt.Value {
@@ -31162,12 +31456,12 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 														if ballrt.RunLoopBody("", func() {
 															_ = func() ballrt.Value {
 																var r ballrt.Value = ballrt.CallFunction(fn, func() ballrt.Value {
-																	__map105 := ballrt.NewMap()
-																	__map105.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
-																	__map105.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
-																	__map105.Set(ballrt.ToStr("arg0"), ballrt.FieldGet(entry, "key"))
-																	__map105.Set(ballrt.ToStr("arg1"), ballrt.FieldGet(entry, "value"))
-																	return __map105
+																	__map106 := ballrt.NewMap()
+																	__map106.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
+																	__map106.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
+																	__map106.Set(ballrt.ToStr("arg0"), ballrt.FieldGet(entry, "key"))
+																	__map106.Set(ballrt.ToStr("arg1"), ballrt.FieldGet(entry, "value"))
+																	return __map106
 																}())
 																_ = r
 																_ = func() ballrt.Value {
@@ -31228,7 +31522,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("list_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("list_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31280,7 +31574,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31299,8 +31593,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 							return raw
 						}
 						return func() ballrt.Value {
-							__map106 := ballrt.NewMap()
-							return __map106
+							__map107 := ballrt.NewMap()
+							return __map107
 						}()
 					}()
 				}()
@@ -31309,7 +31603,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_set"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_set"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31341,7 +31635,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_delete"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_delete"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31360,8 +31654,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 							return raw
 						}
 						return func() ballrt.Value {
-							__map107 := ballrt.NewMap()
-							return __map107
+							__map108 := ballrt.NewMap()
+							return __map108
 						}()
 					}()
 				}()
@@ -31376,7 +31670,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_contains_key"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_contains_key"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31412,7 +31706,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_contains_value"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_contains_value"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31431,8 +31725,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 							return raw
 						}
 						return func() ballrt.Value {
-							__map108 := ballrt.NewMap()
-							return __map108
+							__map109 := ballrt.NewMap()
+							return __map109
 						}()
 					}()
 				}()
@@ -31441,7 +31735,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_put_if_absent"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_put_if_absent"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31488,7 +31782,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_keys"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_keys"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31521,7 +31815,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_values"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_values"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31554,7 +31848,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_entries"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_entries"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31575,17 +31869,17 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 					_ = e
 					defer ballrt.CatchReturn(&__ret)
 					__ret = func() ballrt.Value {
-						__map109 := ballrt.NewMap()
-						__map109.Set(ballrt.ToStr("key"), ballrt.FieldGet(e, "key"))
-						__map109.Set(ballrt.ToStr("value"), ballrt.FieldGet(e, "value"))
-						return __map109
+						__map110 := ballrt.NewMap()
+						__map110.Set(ballrt.ToStr("key"), ballrt.FieldGet(e, "key"))
+						__map110.Set(ballrt.ToStr("value"), ballrt.FieldGet(e, "value"))
+						return __map110
 					}()
 					return
 				})))
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_from_entries"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_from_entries"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31595,8 +31889,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				_ = list
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(list, "length"), _ballMapEntryBytes(ballrt.Value(nil))), __self))
 				var result ballrt.Value = func() ballrt.Value {
-					__map110 := ballrt.NewMap()
-					return __map110
+					__map111 := ballrt.NewMap()
+					return __map111
 				}()
 				_ = result
 				_ = func() ballrt.Value {
@@ -31677,7 +31971,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_merge"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_merge"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31702,18 +31996,18 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				}()
 				_ = map2
 				var result ballrt.Value = func() ballrt.Value {
-					__map111 := ballrt.NewMap()
-					ballrt.MapSpread(__map111, ballrt.CallMethod("cast", func() ballrt.Value {
+					__map112 := ballrt.NewMap()
+					ballrt.MapSpread(__map112, ballrt.CallMethod("cast", func() ballrt.Value {
 						__m := ballrt.NewMap()
 						__m.Set("self", map1)
 						return __m
 					}()))
-					ballrt.MapSpread(__map111, ballrt.CallMethod("cast", func() ballrt.Value {
+					ballrt.MapSpread(__map112, ballrt.CallMethod("cast", func() ballrt.Value {
 						__m := ballrt.NewMap()
 						__m.Set("self", map2)
 						return __m
 					}()))
-					return __map111
+					return __map112
 				}()
 				_ = result
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(result, "length"), _ballMapEntryBytes(ballrt.Value(nil))), __self))
@@ -31721,7 +32015,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_map"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_map"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31740,8 +32034,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				var cb ballrt.Value = ballrt.IndexGet(m, "callback")
 				_ = cb
 				var result ballrt.Value = func() ballrt.Value {
-					__map114 := ballrt.NewMap()
-					return __map114
+					__map115 := ballrt.NewMap()
+					return __map115
 				}()
 				_ = result
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(ball_map, "length"), _ballMapEntryBytes(ballrt.Value(nil))), __self))
@@ -31751,10 +32045,10 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 						if ballrt.RunLoopBody("", func() {
 							_ = func() ballrt.Value {
 								var r ballrt.Value = ballrt.Invoke(ballrt.AsType(cb, "Function"), func() ballrt.Value {
-									__map115 := ballrt.NewMap()
-									__map115.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
-									__map115.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
-									return __map115
+									__map116 := ballrt.NewMap()
+									__map116.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
+									__map116.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
+									return __map116
 								}())
 								_ = r
 								_ = func() ballrt.Value {
@@ -31783,7 +32077,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_filter"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_filter"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31802,8 +32096,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				var cb ballrt.Value = ballrt.IndexGet(m, "callback")
 				_ = cb
 				var result ballrt.Value = func() ballrt.Value {
-					__map116 := ballrt.NewMap()
-					return __map116
+					__map117 := ballrt.NewMap()
+					return __map117
 				}()
 				_ = result
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(ball_map, "length"), _ballMapEntryBytes(ballrt.Value(nil))), __self))
@@ -31813,10 +32107,10 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 						if ballrt.RunLoopBody("", func() {
 							_ = func() ballrt.Value {
 								var v ballrt.Value = ballrt.Invoke(ballrt.AsType(cb, "Function"), func() ballrt.Value {
-									__map117 := ballrt.NewMap()
-									__map117.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
-									__map117.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
-									return __map117
+									__map118 := ballrt.NewMap()
+									__map118.Set(ballrt.ToStr("key"), ballrt.FieldGet(entry, "key"))
+									__map118.Set(ballrt.ToStr("value"), ballrt.FieldGet(entry, "value"))
+									return __map118
 								}())
 								_ = v
 								_ = func() ballrt.Value {
@@ -31843,7 +32137,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31861,7 +32155,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("map_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("map_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31879,7 +32173,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31907,7 +32201,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_add"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_add"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31931,7 +32225,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_remove"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_remove"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31954,7 +32248,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31966,7 +32260,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_union"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_union"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -31975,19 +32269,19 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
 				_ = m
 				return _ballSetOf(ballrt.Arg0WithSelf(func() ballrt.Value {
-					__lit118 := ballrt.NewList()
-					for _, __sp119 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "left"), __self))) {
-						__lit118.Add(__sp119)
+					__lit119 := ballrt.NewList()
+					for _, __sp120 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "left"), __self))) {
+						__lit119.Add(__sp120)
 					}
-					for _, __sp120 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "right"), __self))) {
-						__lit118.Add(__sp120)
+					for _, __sp121 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "right"), __self))) {
+						__lit119.Add(__sp121)
 					}
-					return __lit118
+					return __lit119
 				}(), __self))
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_intersection"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_intersection"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32019,7 +32313,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_difference"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_difference"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32051,7 +32345,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32059,7 +32353,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.FieldGet(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "set"), __self)), "length")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32067,22 +32361,22 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.StrIsEmpty(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "set"), __self)))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("set_to_list"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("set_to_list"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
 			__ret = func() ballrt.Value {
-				__lit121 := ballrt.NewList()
-				for _, __sp122 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "set"), __self))) {
-					__lit121.Add(__sp122)
+				__lit122 := ballrt.NewList()
+				for _, __sp123 := range ballrt.SpreadIter(_ballSetItems(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "set"), __self))) {
+					__lit122.Add(__sp123)
 				}
-				return __lit121
+				return __lit122
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("switch_expr"), ballrt.Fn("_stdSwitchExpr", func(__arg ballrt.Value) ballrt.Value { return _stdSwitchExpr(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("throw"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("switch_expr"), ballrt.Fn("_stdSwitchExpr", func(__arg ballrt.Value) ballrt.Value { return _stdSwitchExpr(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("throw"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32135,7 +32429,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("rethrow"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("rethrow"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -32158,7 +32452,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("paren"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("paren"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32166,8 +32460,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _extractUnaryArg(ballrt.Arg0WithSelf(i, __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("assert"), ballrt.Fn("_stdAssert", func(__arg ballrt.Value) ballrt.Value { return _stdAssert(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("await"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("assert"), ballrt.Fn("_stdAssert", func(__arg ballrt.Value) ballrt.Value { return _stdAssert(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("await"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32191,7 +32485,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("yield"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("yield"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32204,7 +32498,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("yield_each"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("yield_each"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32217,7 +32511,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("symbol"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("symbol"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32234,7 +32528,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("type_literal"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("type_literal"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32247,7 +32541,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("labeled"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("labeled"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -32255,7 +32549,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.Value(nil)
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_length"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32275,7 +32569,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_is_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32288,7 +32582,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_is_not_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_is_not_empty"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32308,8 +32602,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_concat"), ballrt.Fn("_stdConcat", func(__arg ballrt.Value) ballrt.Value { return _stdConcat(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("string_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_concat"), ballrt.Fn("_stdConcat", func(__arg ballrt.Value) ballrt.Value { return _stdConcat(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("string_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32331,7 +32625,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_starts_with"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_starts_with"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32353,7 +32647,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_ends_with"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_ends_with"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32375,7 +32669,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_index_of"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_index_of"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32397,7 +32691,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_last_index_of"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_last_index_of"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32419,11 +32713,11 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_substring"), ballrt.Fn("_stdStringSubstring", func(__arg ballrt.Value) ballrt.Value { return _stdStringSubstring(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("string_char_at"), ballrt.Fn("_stdStringCharAt", func(__arg ballrt.Value) ballrt.Value { return _stdStringCharAt(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("string_char_code_at"), ballrt.Fn("_stdStringCharCodeAt", func(__arg ballrt.Value) ballrt.Value { return _stdStringCharCodeAt(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("string_code_unit_at"), ballrt.Fn("_stdStringCharCodeAt", func(__arg ballrt.Value) ballrt.Value { return _stdStringCharCodeAt(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("string_from_char_code"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_substring"), ballrt.Fn("_stdStringSubstring", func(__arg ballrt.Value) ballrt.Value { return _stdStringSubstring(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("string_char_at"), ballrt.Fn("_stdStringCharAt", func(__arg ballrt.Value) ballrt.Value { return _stdStringCharAt(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("string_char_code_at"), ballrt.Fn("_stdStringCharCodeAt", func(__arg ballrt.Value) ballrt.Value { return _stdStringCharCodeAt(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("string_code_unit_at"), ballrt.Fn("_stdStringCharCodeAt", func(__arg ballrt.Value) ballrt.Value { return _stdStringCharCodeAt(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("string_from_char_code"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32443,7 +32737,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_to_upper"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_to_upper"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32463,7 +32757,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_to_lower"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_to_lower"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32483,7 +32777,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_trim"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_trim"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32503,7 +32797,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_trim_start"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_trim_start"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32523,7 +32817,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_trim_end"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_trim_end"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32543,7 +32837,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_replace"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_replace"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32556,7 +32850,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_replace_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_replace_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32569,7 +32863,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_split"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_split"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32648,7 +32942,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_runes"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_runes"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32668,8 +32962,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_repeat"), ballrt.Fn("_stdStringRepeat", func(__arg ballrt.Value) ballrt.Value { return _stdStringRepeat(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("string_pad_left"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_repeat"), ballrt.Fn("_stdStringRepeat", func(__arg ballrt.Value) ballrt.Value { return _stdStringRepeat(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("string_pad_left"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32682,7 +32976,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("string_pad_right"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("string_pad_right"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32695,10 +32989,10 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("sink_create"), ballrt.Fn("_stdSinkCreate", func(__arg ballrt.Value) ballrt.Value { return _stdSinkCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("sink_write"), ballrt.Fn("_stdSinkWrite", func(__arg ballrt.Value) ballrt.Value { return _stdSinkWrite(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("sink_to_string"), ballrt.Fn("_stdSinkToString", func(__arg ballrt.Value) ballrt.Value { return _stdSinkToString(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("regex_match"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("sink_create"), ballrt.Fn("_stdSinkCreate", func(__arg ballrt.Value) ballrt.Value { return _stdSinkCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("sink_write"), ballrt.Fn("_stdSinkWrite", func(__arg ballrt.Value) ballrt.Value { return _stdSinkWrite(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("sink_to_string"), ballrt.Fn("_stdSinkToString", func(__arg ballrt.Value) ballrt.Value { return _stdSinkToString(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("regex_match"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32729,7 +33023,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("regex_find"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("regex_find"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32774,7 +33068,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("regex_find_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("regex_find_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32817,7 +33111,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("regex_replace"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("regex_replace"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32830,7 +33124,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("regex_replace_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("regex_replace_all"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32843,7 +33137,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_abs"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_abs"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32863,7 +33157,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_floor"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_floor"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32883,7 +33177,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_ceil"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_ceil"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32903,7 +33197,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_round"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_round"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32923,7 +33217,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_trunc"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_trunc"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32943,7 +33237,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("round_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("round_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32963,7 +33257,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("floor_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("floor_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -32983,7 +33277,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("ceil_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("ceil_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33003,7 +33297,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("truncate_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("truncate_to_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33023,7 +33317,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_sqrt"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_sqrt"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33036,7 +33330,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_pow"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_pow"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33049,7 +33343,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_log"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_log"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33062,7 +33356,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_log2"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_log2"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33082,7 +33376,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_log10"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_log10"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33102,7 +33396,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_exp"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_exp"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33115,7 +33409,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_sin"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_sin"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33128,7 +33422,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_cos"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_cos"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33141,7 +33435,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_tan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_tan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33154,7 +33448,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_asin"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_asin"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33167,7 +33461,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_acos"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_acos"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33180,7 +33474,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_atan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_atan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33193,7 +33487,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_atan2"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_atan2"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33206,7 +33500,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_min"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_min"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33233,7 +33527,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_max"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_max"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33260,8 +33554,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_clamp"), ballrt.Fn("_stdMathClamp", func(__arg ballrt.Value) ballrt.Value { return _stdMathClamp(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("math_pi"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_clamp"), ballrt.Fn("_stdMathClamp", func(__arg ballrt.Value) ballrt.Value { return _stdMathClamp(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("math_pi"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33269,7 +33563,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = float64(3.141592653589793)
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_e"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_e"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33277,7 +33571,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = float64(2.718281828459045)
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_infinity"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_infinity"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33285,7 +33579,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.FieldGet(ballrt.TypeLiteral("double"), "infinity")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_nan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_nan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33293,7 +33587,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = ballrt.FieldGet(ballrt.TypeLiteral("double"), "nan")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_is_nan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_is_nan"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33306,7 +33600,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_is_finite"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_is_finite"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33319,7 +33613,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_is_infinite"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_is_infinite"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33332,7 +33626,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_sign"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_sign"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33352,7 +33646,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_gcd"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_gcd"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33374,7 +33668,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("math_lcm"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("math_lcm"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33396,7 +33690,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("print_error"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("print_error"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33435,7 +33729,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("read_line"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("read_line"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33458,7 +33752,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("exit"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("exit"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33489,7 +33783,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("panic"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("panic"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33534,7 +33828,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("sleep_ms"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("sleep_ms"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33566,7 +33860,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("timestamp_ms"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("timestamp_ms"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33578,7 +33872,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "millisecondsSinceEpoch")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("random_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("random_int"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33637,7 +33931,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("random_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("random_double"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33649,7 +33943,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}())
 			return
 		}))
-		__map87.Set(ballrt.ToStr("env_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("env_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33675,7 +33969,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("args_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("args_get"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33683,7 +33977,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = _args
 			return
 		}))
-		__map87.Set(ballrt.ToStr("json_encode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("json_encode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33702,7 +33996,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("json_decode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("json_decode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33727,7 +34021,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("utf8_encode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("utf8_encode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33752,7 +34046,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("utf8_decode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("utf8_decode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33777,7 +34071,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("base64_encode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("base64_encode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33802,7 +34096,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("base64_decode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("base64_decode"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33827,7 +34121,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("now"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("now"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33839,7 +34133,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "millisecondsSinceEpoch")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("now_micros"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("now_micros"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33851,7 +34145,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "microsecondsSinceEpoch")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("format_timestamp"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("format_timestamp"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33896,7 +34190,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("parse_timestamp"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("parse_timestamp"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33921,7 +34215,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("duration_add"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("duration_add"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33943,7 +34237,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("duration_subtract"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("duration_subtract"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -33965,7 +34259,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
-		__map87.Set(ballrt.ToStr("year"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("year"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33981,7 +34275,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "year")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("month"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("month"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -33997,7 +34291,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "month")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("day"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("day"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -34013,7 +34307,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "day")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("hour"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("hour"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -34029,7 +34323,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "hour")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("minute"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("minute"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -34045,7 +34339,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "minute")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("second"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("second"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -34061,17 +34355,17 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()), "second")
 			return
 		}))
-		__map87.Set(ballrt.ToStr("file_read"), ballrt.Fn("_stdFileRead", func(__arg ballrt.Value) ballrt.Value { return _stdFileRead(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("file_read_bytes"), ballrt.Fn("_stdFileReadBytes", func(__arg ballrt.Value) ballrt.Value { return _stdFileReadBytes(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("file_write"), ballrt.Fn("_stdFileWrite", func(__arg ballrt.Value) ballrt.Value { return _stdFileWrite(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("file_write_bytes"), ballrt.Fn("_stdFileWriteBytes", func(__arg ballrt.Value) ballrt.Value { return _stdFileWriteBytes(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("file_append"), ballrt.Fn("_stdFileAppend", func(__arg ballrt.Value) ballrt.Value { return _stdFileAppend(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("file_exists"), ballrt.Fn("_stdFileExists", func(__arg ballrt.Value) ballrt.Value { return _stdFileExists(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("file_delete"), ballrt.Fn("_stdFileDelete", func(__arg ballrt.Value) ballrt.Value { return _stdFileDelete(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("dir_list"), ballrt.Fn("_stdDirList", func(__arg ballrt.Value) ballrt.Value { return _stdDirList(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("dir_create"), ballrt.Fn("_stdDirCreate", func(__arg ballrt.Value) ballrt.Value { return _stdDirCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("dir_exists"), ballrt.Fn("_stdDirExists", func(__arg ballrt.Value) ballrt.Value { return _stdDirExists(ballrt.Arg0WithSelf(__arg, __self)) }))
-		__map87.Set(ballrt.ToStr("thread_spawn"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("file_read"), ballrt.Fn("_stdFileRead", func(__arg ballrt.Value) ballrt.Value { return _stdFileRead(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("file_read_bytes"), ballrt.Fn("_stdFileReadBytes", func(__arg ballrt.Value) ballrt.Value { return _stdFileReadBytes(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("file_write"), ballrt.Fn("_stdFileWrite", func(__arg ballrt.Value) ballrt.Value { return _stdFileWrite(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("file_write_bytes"), ballrt.Fn("_stdFileWriteBytes", func(__arg ballrt.Value) ballrt.Value { return _stdFileWriteBytes(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("file_append"), ballrt.Fn("_stdFileAppend", func(__arg ballrt.Value) ballrt.Value { return _stdFileAppend(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("file_exists"), ballrt.Fn("_stdFileExists", func(__arg ballrt.Value) ballrt.Value { return _stdFileExists(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("file_delete"), ballrt.Fn("_stdFileDelete", func(__arg ballrt.Value) ballrt.Value { return _stdFileDelete(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("dir_list"), ballrt.Fn("_stdDirList", func(__arg ballrt.Value) ballrt.Value { return _stdDirList(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("dir_create"), ballrt.Fn("_stdDirCreate", func(__arg ballrt.Value) ballrt.Value { return _stdDirCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("dir_exists"), ballrt.Fn("_stdDirExists", func(__arg ballrt.Value) ballrt.Value { return _stdDirExists(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map88.Set(ballrt.ToStr("thread_spawn"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34109,7 +34403,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("thread_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("thread_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34139,7 +34433,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("mutex_create"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("mutex_create"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			ball_blank := input
 			_ = ball_blank
@@ -34150,7 +34444,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("mutex_lock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("mutex_lock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34175,7 +34469,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("mutex_unlock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("mutex_unlock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34200,7 +34494,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("scoped_lock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("scoped_lock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34258,7 +34552,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("atomic_create"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("atomic_create"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34271,7 +34565,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("atomic_load"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("atomic_load"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34290,7 +34584,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("atomic_store"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("atomic_store"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34312,7 +34606,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("atomic_compare_exchange"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("atomic_compare_exchange"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34343,7 +34637,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("goto"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("goto"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34377,7 +34671,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		__map87.Set(ballrt.ToStr("label"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+		__map88.Set(ballrt.ToStr("label"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
 			_ = i
@@ -34395,7 +34689,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}()
 			return
 		}))
-		return __map87
+		return __map88
 	}()
 	return
 }
@@ -35708,9 +36002,9 @@ func BallEngine___ballToStringAsync(input ballrt.Value) (__ret ballrt.Value) {
 														__m.Set("arg0", ballrt.FieldGet(resolved, "module"))
 														__m.Set("arg1", ballrt.FieldGet(resolved, "func"))
 														__m.Set("arg2", func() ballrt.Value {
-															__map123 := ballrt.NewMap()
-															__map123.Set(ballrt.ToStr("self"), ball_map)
-															return __map123
+															__map124 := ballrt.NewMap()
+															__map124.Set(ballrt.ToStr("self"), ball_map)
+															return __map124
 														}())
 														return __m
 													}(), __self))
@@ -38791,8 +39085,8 @@ func BallEngine___stdSwitchExpr(input ballrt.Value) (__ret ballrt.Value) {
 							return ballrt.Value(nil)
 						}()
 						var bindings ballrt.Value = func() ballrt.Value {
-							__map124 := ballrt.NewMap()
-							return __map124
+							__map125 := ballrt.NewMap()
+							return __map125
 						}()
 						_ = bindings
 						_ = func() ballrt.Value {
@@ -39185,24 +39479,24 @@ func BallEngine___matchStringPattern(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.Neq(rhs, ballrt.Value(nil))) {
 							return ballrt.Return(func() ballrt.Value {
-								__subj125 := op
-								_ = __subj125
-								if ballrt.Eq(__subj125, "==") {
+								__subj126 := op
+								_ = __subj126
+								if ballrt.Eq(__subj126, "==") {
 									return ballrt.Eq(value, rhs)
 								}
-								if ballrt.Eq(__subj125, "!=") {
+								if ballrt.Eq(__subj126, "!=") {
 									return ballrt.Neq(value, rhs)
 								}
-								if ballrt.Eq(__subj125, ">") {
+								if ballrt.Eq(__subj126, ">") {
 									return ballrt.Gt(value, rhs)
 								}
-								if ballrt.Eq(__subj125, "<") {
+								if ballrt.Eq(__subj126, "<") {
 									return ballrt.Lt(value, rhs)
 								}
-								if ballrt.Eq(__subj125, ">=") {
+								if ballrt.Eq(__subj126, ">=") {
 									return ballrt.Gte(value, rhs)
 								}
-								if ballrt.Eq(__subj125, "<=") {
+								if ballrt.Eq(__subj126, "<=") {
 									return ballrt.Lte(value, rhs)
 								}
 								if true {
@@ -39324,9 +39618,9 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 		var kind ballrt.Value = _patternKind(ballrt.Arg0WithSelf(pattern, __self))
 		_ = kind
 		_ = func() ballrt.Value {
-			__subj126 := kind
-			_ = __subj126
-			if ballrt.Eq(__subj126, "type_test") {
+			__subj127 := kind
+			_ = __subj127
+			if ballrt.Eq(__subj127, "type_test") {
 				_ = func() ballrt.Value {
 					var typeName ballrt.Value = ballrt.AsType(ballrt.IndexGet(pattern, "type"), "String?")
 					_ = typeName
@@ -39357,7 +39651,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "var") {
+			if ballrt.Eq(__subj127, "var") {
 				_ = func() ballrt.Value {
 					var typeName ballrt.Value = ballrt.AsType(ballrt.IndexGet(pattern, "type"), "String?")
 					_ = typeName
@@ -39385,7 +39679,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "wildcard") {
+			if ballrt.Eq(__subj127, "wildcard") {
 				_ = func() ballrt.Value {
 					var typeName ballrt.Value = ballrt.AsType(ballrt.IndexGet(pattern, "type"), "String?")
 					_ = typeName
@@ -39399,7 +39693,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "const") {
+			if ballrt.Eq(__subj127, "const") {
 				_ = ballrt.Return(_ballEquals(ballrt.WithSelf(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", value)
@@ -39408,7 +39702,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}(), __self)))
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "relational") {
+			if ballrt.Eq(__subj127, "relational") {
 				_ = ballrt.Return(_matchRelationalPattern(ballrt.WithSelf(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", value)
@@ -39418,7 +39712,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}(), __self)))
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "list") {
+			if ballrt.Eq(__subj127, "list") {
 				_ = func() ballrt.Value {
 					var listVal ballrt.Value = _stdAsList(ballrt.Arg0WithSelf(value, __self))
 					_ = listVal
@@ -39549,7 +39843,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "map") {
+			if ballrt.Eq(__subj127, "map") {
 				_ = func() ballrt.Value {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(_isBallSet(ballrt.Arg0WithSelf(value, __self))) {
@@ -39626,7 +39920,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "object") {
+			if ballrt.Eq(__subj127, "object") {
 				_ = func() ballrt.Value {
 					var objMap ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(value, __self))
 					_ = objMap
@@ -39681,7 +39975,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "record") {
+			if ballrt.Eq(__subj127, "record") {
 				_ = func() ballrt.Value {
 					var recMap ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(value, __self))
 					_ = recMap
@@ -39750,11 +40044,11 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "logical_or") {
+			if ballrt.Eq(__subj127, "logical_or") {
 				_ = func() ballrt.Value {
 					var leftBindings ballrt.Value = func() ballrt.Value {
-						__map127 := ballrt.NewMap()
-						return __map127
+						__map128 := ballrt.NewMap()
+						return __map128
 					}()
 					_ = leftBindings
 					_ = func() ballrt.Value {
@@ -39784,11 +40078,11 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "logical_and") {
+			if ballrt.Eq(__subj127, "logical_and") {
 				_ = func() ballrt.Value {
 					var tempBindings ballrt.Value = func() ballrt.Value {
-						__map128 := ballrt.NewMap()
-						return __map128
+						__map129 := ballrt.NewMap()
+						return __map129
 					}()
 					_ = tempBindings
 					_ = func() ballrt.Value {
@@ -39818,7 +40112,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "cast") {
+			if ballrt.Eq(__subj127, "cast") {
 				_ = func() ballrt.Value {
 					var typeName ballrt.Value = ballrt.AsType(ballrt.IndexGet(pattern, "type"), "String?")
 					_ = typeName
@@ -39865,7 +40159,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}()
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "null_check") || ballrt.Eq(__subj126, "null_assert") {
+			if ballrt.Eq(__subj127, "null_check") || ballrt.Eq(__subj127, "null_assert") {
 				_ = ballrt.Return((ballrt.Truthy(ballrt.Neq(value, ballrt.Value(nil))) && ballrt.Truthy(_matchPattern(ballrt.WithSelf(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", value)
@@ -39875,7 +40169,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 				}(), __self)))))
 				return ballrt.Value(nil)
 			}
-			if ballrt.Eq(__subj126, "rest") {
+			if ballrt.Eq(__subj127, "rest") {
 				_ = ballrt.Return(_matchPattern(ballrt.WithSelf(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", value)
@@ -40020,48 +40314,48 @@ func BallEngine___patternKind(input ballrt.Value) (__ret ballrt.Value) {
 		var ball_type ballrt.Value = ballrt.AsType(ballrt.IndexGet(pattern, "__type__"), "String?")
 		_ = ball_type
 		return func() ballrt.Value {
-			__subj129 := ball_type
-			_ = __subj129
-			if ballrt.Eq(__subj129, "VarPattern") {
+			__subj130 := ball_type
+			_ = __subj130
+			if ballrt.Eq(__subj130, "VarPattern") {
 				return "var"
 			}
-			if ballrt.Eq(__subj129, "WildcardPattern") {
+			if ballrt.Eq(__subj130, "WildcardPattern") {
 				return "wildcard"
 			}
-			if ballrt.Eq(__subj129, "ConstPattern") {
+			if ballrt.Eq(__subj130, "ConstPattern") {
 				return "const"
 			}
-			if ballrt.Eq(__subj129, "ListPattern") {
+			if ballrt.Eq(__subj130, "ListPattern") {
 				return "list"
 			}
-			if ballrt.Eq(__subj129, "MapPattern") {
+			if ballrt.Eq(__subj130, "MapPattern") {
 				return "map"
 			}
-			if ballrt.Eq(__subj129, "RecordPattern") {
+			if ballrt.Eq(__subj130, "RecordPattern") {
 				return "record"
 			}
-			if ballrt.Eq(__subj129, "ObjectPattern") {
+			if ballrt.Eq(__subj130, "ObjectPattern") {
 				return "object"
 			}
-			if ballrt.Eq(__subj129, "LogicalAndPattern") {
+			if ballrt.Eq(__subj130, "LogicalAndPattern") {
 				return "logical_and"
 			}
-			if ballrt.Eq(__subj129, "LogicalOrPattern") {
+			if ballrt.Eq(__subj130, "LogicalOrPattern") {
 				return "logical_or"
 			}
-			if ballrt.Eq(__subj129, "CastPattern") {
+			if ballrt.Eq(__subj130, "CastPattern") {
 				return "cast"
 			}
-			if ballrt.Eq(__subj129, "NullCheckPattern") {
+			if ballrt.Eq(__subj130, "NullCheckPattern") {
 				return "null_check"
 			}
-			if ballrt.Eq(__subj129, "NullAssertPattern") {
+			if ballrt.Eq(__subj130, "NullAssertPattern") {
 				return "null_assert"
 			}
-			if ballrt.Eq(__subj129, "RelationalPattern") {
+			if ballrt.Eq(__subj130, "RelationalPattern") {
 				return "relational"
 			}
-			if ballrt.Eq(__subj129, "RestPattern") {
+			if ballrt.Eq(__subj130, "RestPattern") {
 				return "rest"
 			}
 			if true {
@@ -40154,15 +40448,15 @@ func BallEngine___patternFields(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.Eq(list, ballrt.Value(nil))) {
 				return ballrt.Return(func() ballrt.Value {
-					__map130 := ballrt.NewMap()
-					return __map130
+					__map131 := ballrt.NewMap()
+					return __map131
 				}())
 			}
 			return ballrt.Value(nil)
 		}()
 		var result ballrt.Value = func() ballrt.Value {
-			__map131 := ballrt.NewMap()
-			return __map131
+			__map132 := ballrt.NewMap()
+			return __map132
 		}()
 		_ = result
 		var positional ballrt.Value = int64(1)
@@ -40283,9 +40577,9 @@ func BallEngine___matchRelationalPattern(input ballrt.Value) (__ret ballrt.Value
 			return ballrt.Value(nil)
 		}()
 		return func() ballrt.Value {
-			__subj132 := operator
-			_ = __subj132
-			if ballrt.Eq(__subj132, "==") {
+			__subj133 := operator
+			_ = __subj133
+			if ballrt.Eq(__subj133, "==") {
 				return _ballEquals(ballrt.WithSelf(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", value)
@@ -40293,7 +40587,7 @@ func BallEngine___matchRelationalPattern(input ballrt.Value) (__ret ballrt.Value
 					return __m
 				}(), __self))
 			}
-			if ballrt.Eq(__subj132, "!=") {
+			if ballrt.Eq(__subj133, "!=") {
 				return ballrt.Not(_ballEquals(ballrt.WithSelf(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", value)
@@ -40301,16 +40595,16 @@ func BallEngine___matchRelationalPattern(input ballrt.Value) (__ret ballrt.Value
 					return __m
 				}(), __self)))
 			}
-			if ballrt.Eq(__subj132, ">") {
+			if ballrt.Eq(__subj133, ">") {
 				return (ballrt.Truthy((ballrt.Truthy(ballrt.IsType(value, "num")) && ballrt.Truthy(ballrt.IsType(operand, "num")))) && ballrt.Truthy(ballrt.Gt(value, operand)))
 			}
-			if ballrt.Eq(__subj132, "<") {
+			if ballrt.Eq(__subj133, "<") {
 				return (ballrt.Truthy((ballrt.Truthy(ballrt.IsType(value, "num")) && ballrt.Truthy(ballrt.IsType(operand, "num")))) && ballrt.Truthy(ballrt.Lt(value, operand)))
 			}
-			if ballrt.Eq(__subj132, ">=") {
+			if ballrt.Eq(__subj133, ">=") {
 				return (ballrt.Truthy((ballrt.Truthy(ballrt.IsType(value, "num")) && ballrt.Truthy(ballrt.IsType(operand, "num")))) && ballrt.Truthy(ballrt.Gte(value, operand)))
 			}
-			if ballrt.Eq(__subj132, "<=") {
+			if ballrt.Eq(__subj133, "<=") {
 				return (ballrt.Truthy((ballrt.Truthy(ballrt.IsType(value, "num")) && ballrt.Truthy(ballrt.IsType(operand, "num")))) && ballrt.Truthy(ballrt.Lte(value, operand)))
 			}
 			if true {
@@ -42988,10 +43282,10 @@ func BallEngine___toIterable(input ballrt.Value) (__ret ballrt.Value) {
 					_ = e
 					defer ballrt.CatchReturn(&__ret)
 					__ret = func() ballrt.Value {
-						__map133 := ballrt.NewMap()
-						__map133.Set(ballrt.ToStr("key"), ballrt.FieldGet(e, "key"))
-						__map133.Set(ballrt.ToStr("value"), ballrt.FieldGet(e, "value"))
-						return __map133
+						__map134 := ballrt.NewMap()
+						__map134.Set(ballrt.ToStr("key"), ballrt.FieldGet(e, "key"))
+						__map134.Set(ballrt.ToStr("value"), ballrt.FieldGet(e, "value"))
+						return __map134
 					}()
 					return
 				}))))
@@ -43006,10 +43300,10 @@ func BallEngine___toIterable(input ballrt.Value) (__ret ballrt.Value) {
 					_ = e
 					defer ballrt.CatchReturn(&__ret)
 					__ret = func() ballrt.Value {
-						__map134 := ballrt.NewMap()
-						__map134.Set(ballrt.ToStr("key"), ballrt.FieldGet(e, "key"))
-						__map134.Set(ballrt.ToStr("value"), ballrt.FieldGet(e, "value"))
-						return __map134
+						__map135 := ballrt.NewMap()
+						__map135.Set(ballrt.ToStr("key"), ballrt.FieldGet(e, "key"))
+						__map135.Set(ballrt.ToStr("value"), ballrt.FieldGet(e, "value"))
+						return __map135
 					}()
 					return
 				}))))
@@ -44388,14 +44682,14 @@ func BallEngine___toJsonSafe(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.Neq(mapVal, ballrt.Value(nil))) {
 				return ballrt.Return(func() ballrt.Value {
-					__map135 := ballrt.NewMap()
+					__map136 := ballrt.NewMap()
 					for _, e := range ballrt.Iterate(ballrt.FieldGet(mapVal, "entries")) {
 						_ = e
 						if ballrt.Truthy(ballrt.Not(ballrt.StrStartsWith(ballrt.FieldGet(e, "key"), "__"))) {
-							__map135.Set(ballrt.ToStr(ballrt.FieldGet(e, "key")), _toJsonSafe(ballrt.Arg0WithSelf(ballrt.FieldGet(e, "value"), __self)))
+							__map136.Set(ballrt.ToStr(ballrt.FieldGet(e, "key")), _toJsonSafe(ballrt.Arg0WithSelf(ballrt.FieldGet(e, "value"), __self)))
 						}
 					}
-					return __map135
+					return __map136
 				}())
 			}
 			return ballrt.Value(nil)
@@ -44403,14 +44697,14 @@ func BallEngine___toJsonSafe(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.IsType(v, "Map")) {
 				return ballrt.Return(func() ballrt.Value {
-					__map138 := ballrt.NewMap()
+					__map139 := ballrt.NewMap()
 					for _, e := range ballrt.Iterate(ballrt.FieldGet(v, "entries")) {
 						_ = e
 						if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(ballrt.FieldGet(e, "key"), "String")) && ballrt.Truthy(ballrt.Not(ballrt.StrStartsWith(ballrt.AsType(ballrt.FieldGet(e, "key"), "String"), "__"))))) {
-							__map138.Set(ballrt.ToStr(ballrt.FieldGet(e, "key")), _toJsonSafe(ballrt.Arg0WithSelf(ballrt.FieldGet(e, "value"), __self)))
+							__map139.Set(ballrt.ToStr(ballrt.FieldGet(e, "key")), _toJsonSafe(ballrt.Arg0WithSelf(ballrt.FieldGet(e, "value"), __self)))
 						}
 					}
-					return __map138
+					return __map139
 				}())
 			}
 			return ballrt.Value(nil)
@@ -45821,8 +46115,8 @@ func BallObject____op_set_index__(input ballrt.Value) (__ret ballrt.Value) {
 									return value
 								}
 								return func() ballrt.Value {
-									__map141 := ballrt.NewMap()
-									return __map141
+									__map142 := ballrt.NewMap()
+									return __map142
 								}()
 							}())
 							return __m
@@ -46179,9 +46473,9 @@ func StdModuleHandler__handles(input ballrt.Value) (__ret ballrt.Value) {
 	_ = module
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
-		__subj142 := module
-		_ = __subj142
-		if ((((((ballrt.Eq(__subj142, "std") || ballrt.Eq(__subj142, "std_collections")) || ballrt.Eq(__subj142, "std_io")) || ballrt.Eq(__subj142, "std_memory")) || ballrt.Eq(__subj142, "std_convert")) || ballrt.Eq(__subj142, "std_fs")) || ballrt.Eq(__subj142, "std_time")) || ballrt.Eq(__subj142, "std_concurrency") {
+		__subj143 := module
+		_ = __subj143
+		if ((((((ballrt.Eq(__subj143, "std") || ballrt.Eq(__subj143, "std_collections")) || ballrt.Eq(__subj143, "std_io")) || ballrt.Eq(__subj143, "std_memory")) || ballrt.Eq(__subj143, "std_convert")) || ballrt.Eq(__subj143, "std_fs")) || ballrt.Eq(__subj143, "std_time")) || ballrt.Eq(__subj143, "std_concurrency") {
 			return true
 		}
 		if true {
@@ -46380,14 +46674,14 @@ func StdModuleHandler__registeredFunctions(input ballrt.Value) (__ret ballrt.Val
 		__m := ballrt.NewMap()
 		__m.Set("self", ballrt.TypeLiteral("Set"))
 		__m.Set("arg0", ballrt.SetCreate(func() ballrt.Value {
-			__lit143 := ballrt.NewList()
-			for _, __sp144 := range ballrt.SpreadIter(ballrt.FieldGet(_dispatch, "keys")) {
-				__lit143.Add(__sp144)
+			__lit144 := ballrt.NewList()
+			for _, __sp145 := range ballrt.SpreadIter(ballrt.FieldGet(_dispatch, "keys")) {
+				__lit144.Add(__sp145)
 			}
-			for _, __sp145 := range ballrt.SpreadIter(ballrt.FieldGet(_composedDispatch, "keys")) {
-				__lit143.Add(__sp145)
+			for _, __sp146 := range ballrt.SpreadIter(ballrt.FieldGet(_composedDispatch, "keys")) {
+				__lit144.Add(__sp146)
 			}
-			return __lit143
+			return __lit144
 		}()))
 		return __m
 	}())

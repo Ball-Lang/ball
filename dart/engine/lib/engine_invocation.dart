@@ -10,6 +10,49 @@ extension BallEngineInvocation on BallEngine {
     return null;
   }
 
+  /// Whether [inputMap] is an argument bag carrying exactly ONE positional
+  /// argument — `arg0` and nothing else.
+  ///
+  /// This is the only shape in which a SINGLE-parameter callee's parameter is
+  /// the value *inside* `arg0` rather than the bag itself: a first-class
+  /// `invoke` (and any call site that does not know the callee's parameter
+  /// names) packs a lone positional argument as `{arg0: v}`.
+  ///
+  /// Any other bag must reach the callee WHOLE (#740). Two shapes depend on
+  /// it, and both used to lose data because the old gate was a bare
+  /// `containsKey('arg0')`:
+  ///
+  ///   * a callee whose sole parameter IS the whole input message — the shape
+  ///     every re-encoded compiler output has, because each target compiles a
+  ///     Ball function of ANY arity to one that takes the message and reads
+  ///     `input["a"] ?? input["arg0"]` out of it. Handed `inputMap['arg0']` it
+  ///     saw the first argument and lost every other one.
+  ///   * a callee whose sole parameter is a genuine map/record that happens to
+  ///     carry an `arg0` key of its own. Handed `inputMap['arg0']` it saw that
+  ///     key's value instead of the record.
+  ///
+  /// `__`-prefixed keys are engine-internal bookkeeping (`__type__`,
+  /// `__super__`, `__methods__`), never arguments, so they do not disqualify a
+  /// bag.
+  ///
+  /// Iterates `.entries`, NOT `.keys`: this file is compiled into every
+  /// self-hosted engine, and the bare `.keys`/`.values` getters compile to a
+  /// map-INDEX lookup there (they answer `null`, not the key list — see the
+  /// same note on `_evalFieldAccess`'s virtual `keys` field in
+  /// `engine_eval.dart`). `.entries` is the portable spelling every target
+  /// implements.
+  bool _isSinglePositionalArgBag(Map<String, Object?> inputMap) {
+    var sawArg0 = false;
+    for (final entry in inputMap.entries) {
+      if (entry.key == 'arg0') {
+        sawArg0 = true;
+      } else if (!entry.key.startsWith('__')) {
+        return false;
+      }
+    }
+    return sawArg0;
+  }
+
   Future<Object?> _callFunction(
     String moduleName,
     FunctionDefinition func,
@@ -121,8 +164,8 @@ extension BallEngineInvocation on BallEngine {
             boundParams.add(params[0]);
           } else if (inputMap != null &&
               !inputIsInstance &&
-              inputMap.containsKey('arg0') &&
-              !inputMap.containsKey(params[0])) {
+              !inputMap.containsKey(params[0]) &&
+              _isSinglePositionalArgBag(inputMap)) {
             scope.bind(params[0], inputMap['arg0']);
             boundParams.add(params[0]);
           } else {

@@ -103,7 +103,77 @@ inline bool is_builtin_exception_name(const std::string& n) {
 
 CppCompiler::CppCompiler(ball::ir::Program program)
     : program_(std::move(program)) {
+    lower_extension_members();
     build_lookup_tables();
+}
+
+// Lower every member of a `kind: "extension"` typeDef to a FREE function whose
+// FIRST parameter is the receiver, `self` — the extension-override
+// representation (issue #670).
+//
+// An override (`Ext(receiver).member`) is encoded as a call NAMING the
+// extension's own member (`<module>:<Ext>.<member>`) and carrying the receiver
+// in `self`, because the selection is the whole meaning of the node: two
+// extensions can declare the SAME member on the SAME type, so the plain
+// `receiver.member` emission resolves by ordinary lookup and can reach a
+// DIFFERENT member (measured on `collection`, #670).
+//
+// C++ has no extensions, and an extension typeDef carries no `descriptor`, so
+// its members used to be partitioned as class methods of a struct that is never
+// emitted — they vanished from the output entirely and the program did not
+// link. A free function taking the receiver explicitly is the faithful C++
+// shape, and it is ALREADY what a call site compiles to: `sanitize_name` maps
+// `main:AlphaTag.tag` to `AlphaTag_tag`, and `compile_call_arguments` passes
+// the packed `self` field first. The rename below is that same
+// `sanitize_name`, so definition and call site cannot drift apart.
+//
+// The self-hosted engine is unaffected: `parts_resolver.dart` merges an
+// `extension X on Class` whose class the library declares INTO that class
+// before encoding, so `dart/self_host/engine.ball.json` carries no extension
+// typeDef at all.
+void CppCompiler::lower_extension_members() {
+    std::set<std::string> extension_types;
+    for (const auto& mod : program_.modules) {
+        for (const auto& td : mod.typeDefs) {
+            if (!(td.metadata.is_object())) continue;
+            auto tmeta = read_type_meta(td);
+            if (tmeta.count("kind") && tmeta["kind"] == "extension")
+                extension_types.insert(td.name);
+        }
+    }
+    if (extension_types.empty()) return;
+
+    for (auto& mod : program_.modules) {
+        for (auto& func : mod.functions) {
+            if (func.isBase) continue;
+            if (!(func.metadata.is_object())) continue;
+            // Same owner-key derivation the method partition uses.
+            auto colon = func.name.find(':');
+            std::string after =
+                colon != std::string::npos ? func.name.substr(colon + 1) : func.name;
+            auto dot = after.find('.');
+            if (dot == std::string::npos) continue;
+            std::string owner = func.name.substr(
+                0, (colon != std::string::npos ? colon + 1 : 0) + dot);
+            if (extension_types.count(owner) == 0) continue;
+
+            nlohmann::json params = nlohmann::json::array();
+            params.push_back(nlohmann::json{{"name", "self"}});
+            const nlohmann::json* declared = meta_find(func.metadata, "params");
+            if (declared && declared->is_array())
+                for (const auto& p : *declared) params.push_back(p);
+
+            func.name = sanitize_name(func.name);
+            extension_free_functions_.insert(func.name);
+            func.metadata["kind"] = "function";
+            func.metadata["params"] = params;
+            // A getter/setter flag would make downstream accessor logic emit an
+            // accessor shape a free function cannot have; the member is a plain
+            // call here, exactly as the call site emits it.
+            func.metadata.erase("is_getter");
+            func.metadata.erase("is_setter");
+        }
+    }
 }
 
 void CppCompiler::emit_namespace_open() { emit_line("namespace {"); }
@@ -4719,6 +4789,14 @@ std::string CppCompiler::compile_call_arguments(
     if (pnames.empty()) return positional();  // single-record / no-param input
     const std::vector<ParamSpec> pspecs = extract_param_specs(meta);
 
+    // An extension member lowered to a free function (issue #670) carries the
+    // receiver as its declared parameter 0, so the call's own `argN` fields
+    // name slots 1..N. Without the shift `arg0` collided with `self` at index
+    // 0 and the RECEIVER was dropped from the argument list — silently, since
+    // the remaining count still matched an arity the callee could accept.
+    const int positional_base =
+        extension_free_functions_.count(cpp_name) > 0 ? 1 : 0;
+
     // Map each input field to its declared-parameter index: `argN` is
     // positional, everything else matches a parameter by name.
     std::map<int, std::string> by_index;
@@ -4733,7 +4811,7 @@ std::string CppCompiler::compile_call_arguments(
                 if (c < '0' || c > '9') { all_digits = false; break; }
                 v = v * 10 + (c - '0');
             }
-            if (all_digits) idx = v;
+            if (all_digits) idx = v + positional_base;
         }
         if (idx < 0) {
             for (size_t k = 0; k < pnames.size(); ++k)

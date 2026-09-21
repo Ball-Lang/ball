@@ -222,6 +222,22 @@ cargo fmt --check && cargo clippy --workspace
   RATCHET on a passing count, and 146's failure sat inside its floor from day
   one.
 
+- **An EXTENSION-OVERRIDE call reaches the member's associated fn (#670).**
+  `Ext(receiver).member` is encoded as a call NAMING the extension's own member
+  (`<module>:<Ext>.<member>`) with the receiver in `self`, because the selection
+  is the whole meaning of the node — two extensions can declare the SAME member
+  on the SAME type, and the short-named dispatcher
+  `compile_method_dispatchers` emits matches on the RECEIVER's message type,
+  which for an extension receiver is an ordinary list/string/map. Left to the
+  generic path the qualified name sanitized to `main_AlphaTag_tag`, an item no
+  emitted program declares, so the output did not compile.
+  `Compiler::extension_member_fns` (built in `Compiler::new` from the
+  `kind: "extension"` typeDefs, via `type_emit::type_meta_kind`) maps it to
+  `main_AlphaTag::tag`, and `compile_call` invokes that with the call's own
+  input message. Guards:
+  `tests/conformance/478_extension_override_selection` (cross-target) and
+  `rust/compiler/tests/extension_override.rs`.
+
 ### Encoder
 
 - `encode(&str) -> Program` parses with `syn` and walks items → fns → statements → expressions.

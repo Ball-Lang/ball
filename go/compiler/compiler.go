@@ -78,6 +78,20 @@ type Compiler struct {
 	// typeDefsByShort maps a type's short name to its TypeDefinition.
 	typeDefsByShort map[string]*ballv1.TypeDefinition
 
+	// extensionMemberImpl maps the QUALIFIED Ball function name of a member of
+	// a `kind: "extension"` typeDef ("main:AlphaTag.tag") to the impl func this
+	// compiler emits for it ("AlphaTag__tag") — the extension-override
+	// representation (issue #670).
+	//
+	// An override (`Ext(receiver).member`) is encoded as a call NAMING the
+	// extension's own member and carrying the receiver in `self`, because the
+	// selection is the whole meaning of the node: two extensions can declare
+	// the same member on the same type, so the by-short-name dispatcher
+	// compileClassMembers emits (it switches on the RECEIVER's message type,
+	// and an extension receiver is an ordinary list/string/map) cannot pick
+	// between them. Calling the impl directly is the only faithful emission.
+	extensionMemberImpl map[string]string
+
 	// enumShortNames is the set of user-enum short names (e.g. "Color"). A bare
 	// reference to one resolves to the emitted `ballEnum_<short>` namespace value
 	// (mirrors the oneof-discriminator branch); compileEnumNamespace emits that var.
@@ -151,22 +165,23 @@ func newLibrary(prog *ballv1.Program, pkgName string) *Compiler {
 
 func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compiler {
 	c := &Compiler{
-		prog:            prog,
-		libraryMode:     libraryMode,
-		pkgName:         pkgName,
-		baseModules:     map[string]bool{},
-		stubModules:     map[string]bool{},
-		userFuncs:       map[string]bool{},
-		instanceMethods: map[string]bool{},
-		topLevelVars:    map[string]bool{},
-		classMembers:    map[string][]*ballv1.FunctionDefinition{},
-		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
-		enumShortNames:  map[string]bool{},
-		usedOneofs:      map[string]bool{},
-		unnamedCtorImpl: map[string]string{},
-		ctorImpl:        map[string]string{},
-		volatileByOwner: map[string]map[string]bool{},
-		volatileFields:  map[string]bool{},
+		prog:                prog,
+		libraryMode:         libraryMode,
+		pkgName:             pkgName,
+		baseModules:         map[string]bool{},
+		stubModules:         map[string]bool{},
+		userFuncs:           map[string]bool{},
+		instanceMethods:     map[string]bool{},
+		topLevelVars:        map[string]bool{},
+		classMembers:        map[string][]*ballv1.FunctionDefinition{},
+		typeDefsByShort:     map[string]*ballv1.TypeDefinition{},
+		extensionMemberImpl: map[string]string{},
+		enumShortNames:      map[string]bool{},
+		usedOneofs:          map[string]bool{},
+		unnamedCtorImpl:     map[string]string{},
+		ctorImpl:            map[string]string{},
+		volatileByOwner:     map[string]map[string]bool{},
+		volatileFields:      map[string]bool{},
 	}
 	for _, m := range prog.GetModules() {
 		fns := m.GetFunctions()
@@ -220,7 +235,28 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		}
 	}
 	c.indexConstructors()
+	c.indexExtensionMembers()
 	return c
+}
+
+// indexExtensionMembers fills extensionMemberImpl. A separate pass over the
+// whole program, not a branch of the loop above: an extension declared in a
+// LATER module than the one whose body names it would not yet be in
+// typeDefsByShort there.
+func (c *Compiler) indexExtensionMembers() {
+	for owner, members := range c.classMembers {
+		td, ok := c.typeDefsByShort[typeShortName(owner)]
+		if !ok || metaString(td.GetMetadata(), "kind") != "extension" {
+			continue
+		}
+		for _, f := range members {
+			_, member, split := splitMemberName(f.GetName())
+			if !split {
+				continue
+			}
+			c.extensionMemberImpl[f.GetName()] = memberImplName(typeShortName(owner), member)
+		}
+	}
 }
 
 // Compile compiles the whole Program to a runnable Go source string (program

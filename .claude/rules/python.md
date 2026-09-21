@@ -246,6 +246,20 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `parenthesized`, `null_aware_index`, `set_create`, the `*_than_or_equal` pair) and can only
   shrink.
 
+- **An EXTENSION-OVERRIDE call reaches the member UNBOUND on its class, never
+  ``ballrt.call_method`` (#670).** ``Ext(receiver).member`` is encoded as a call
+  NAMING the extension's own member (``<module>:<Ext>.<member>``) with the
+  receiver in ``self``, because the selection is the whole meaning of the node —
+  two extensions can declare the SAME member on the SAME type, and
+  ``call_method`` asks the RECEIVER, an ordinary ``list``/``str``/``dict`` that
+  knows neither of them. ``extension_members`` (built in ``__init__`` from the
+  ``kind: "extension"`` typeDefs) routes the call to ``Ext.member(recv, …)``,
+  and to ``Ext.member.fget(recv)`` for a getter — the member is emitted as a
+  ``@property``, so ``.fget`` is how it is reached on a foreign receiver.
+  Guards: ``tests/conformance/478_extension_override_selection``
+  (cross-target) and ``python/compiler/tests/test_extension_override.py``,
+  which compiles the fixture and RUNS it against the golden.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →

@@ -327,6 +327,25 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   setter. Guard: `go/compiler/final_field_setter_test.go`, over fixture
   `472_initializer_list_field_with_setter`.
 
+- **An EXTENSION-OVERRIDE call reaches the member's impl func, never the
+  short-name dispatcher (#670).** `Ext(receiver).member` is encoded as a call
+  NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  receiver in `self`, because the selection is the whole meaning of the node —
+  two extensions can declare the SAME member on the SAME type. The dispatcher
+  `compileClassMembers` emits switches on the RECEIVER's message type, and an
+  extension receiver is an ordinary list/string/map, so it can never pick
+  between them; the qualified name also sanitizes to no Go identifier the
+  program declares, so the call used to fall through to
+  `ballrt.CallMethod("main:AlphaTag.tag", …)` — the Dart-SDK method dispatcher,
+  which knows no such method. `extensionMemberImpl` (filled by
+  `indexExtensionMembers`, a SEPARATE pass over the whole program, because an
+  extension declared in a later module is not yet in `typeDefsByShort` inside
+  the collection loop) maps the qualified name to `Ext__member`, and
+  `compileCall` calls it with the call's own input message. Guards:
+  `tests/conformance/478_extension_override_selection` (cross-target) and
+  `go/compiler/extension_override_test.go`, which compiles the fixture and RUNS
+  it against the golden.
+
 ### Encoder
 
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks declarations → statements →

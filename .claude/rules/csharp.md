@@ -225,6 +225,24 @@ compile items so the sibling projects never double-compile each other's files.
   `csharp/compiler/test/FinalFieldSetterTests.cs`, over fixture
   `472_initializer_list_field_with_setter`.
 
+- **An EXTENSION-OVERRIDE call reaches the member's impl method, never
+  <c>BallRuntime.CallMethod</c> (#670).** <c>Ext(receiver).member</c> is encoded
+  as a call NAMING the extension's own member
+  (<c>&lt;module&gt;:&lt;Ext&gt;.&lt;member&gt;</c>) with the receiver in
+  <c>self</c>, because the selection is the whole meaning of the node — two
+  extensions can declare the SAME member on the SAME type, and
+  <c>CallMethod</c> asks the RECEIVER, an ordinary list/string/map that knows
+  neither. The qualified name matched no callable, so the call fell to that
+  dispatcher. <c>_extensionMemberImpl</c> (filled by
+  <c>IndexExtensionMembers</c>, a SEPARATE pass over the whole program, because
+  an extension declared in a later module is not yet in
+  <c>_typeDefsByShortName</c> inside the collection loop) maps it to
+  <c>&lt;Module&gt;.Ext__member</c>, and <c>CompileCall</c> invokes that with
+  the call's own input message. Guards:
+  `tests/conformance/478_extension_override_selection` (cross-target) and
+  `csharp/compiler/test/ExtensionOverrideTests.cs`, which compiles the fixture
+  and RUNS it against the golden.
+
 ### Encoder
 
 - `CSharpEncoder.Encode(source) -> Program` parses with Roslyn syntax trees and walks

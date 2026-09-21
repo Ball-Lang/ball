@@ -347,11 +347,26 @@ avoid constructs that need receiver-type info:
     typeDef — no schema change, because the NAME carries the selection (the
     design record is in `docs/METADATA_SPEC.md`, "Extension overrides ride the
     function NAME"). Whether `()` is emitted comes from the member's own
-    `is_getter`, the same accessor-shape family as #501/#664. It is a
-    RESOLVED-AST-only path (`parseString` reads `Ext(x).m()` as a call on a
-    constructor invocation), so `encode(String)`,
-    `dart/self_host/engine.ball.json` and the conformance corpus never reach
-    it. `<module>` is the DECLARING module, resolved from the override's own
+    `is_getter`, the same accessor-shape family as #501/#664.
+    **The PARSE-ONLY spelling reaches the same IR (#670's last encoder slice).**
+    `parseString` has no element model, so `Ext(x).m()` arrives as an ordinary
+    `ast.MethodInvocation` `Ext(x)` in target position — and that is the path
+    `generate_conformance.dart` / `ball encode` / `/ball:convert` take, i.e. how
+    an override reaches the CORPUS and every non-Dart target. It used to fall
+    through to the generic encoding, where `Ext` ALSO names a declared typeDef,
+    so the override became a CONSTRUCTION of the extension type with the
+    receiver buried as `arg0`: no warning, and measured on the reference engine
+    as `alpha(4)` where `dart run` says `alpha(3)`. `_parseOnlyOverride` +
+    `_tryEncodeParseOnlyOverride` recognise it and emit the identical call —
+    sound without resolution because `_localExtensionNames` is collected before
+    any body is encoded and **Dart cannot construct an extension**. An extension
+    declared in another LIBRARY is deliberately NOT recognised there (the parser
+    cannot see it); the resolved path below is what names those.
+    `dart/self_host/engine.ball.json` is still untouched — `parts_resolver.dart`
+    merges an `extension X on Class` whose class the library declares INTO that
+    class, so the self-host source carries no extension declaration at all
+    (verified by regenerating all four committed artifacts: zero diff).
+    `<module>` is the DECLARING module, resolved from the override's own
     element (`_extensionOwnerModule`) against the `library URI → module` map
     `PackageEncoder.prepareStaticTypes()` records — so an extension in ANOTHER
     file of the package works, and so does an import PREFIX (a prefix is a
@@ -366,11 +381,13 @@ avoid constructs that need receiver-type info:
     warning naming the construct plus the `/* unsupported: … */` placeholder).
     The ENGINES already dispatch the qualified name by ordinary module-function
     lookup (pinned by running the cross-module program on the reference engine
-    in `test/extension_override_test.dart`); the non-Dart COMPILERS still strip
-    everything before the last `:` and in fact read `kind: 'extension'` nowhere
-    at all, so extension DECLARATIONS have to come first there — that
-    remainder, and the conformance fixture that depends on it, is the rest of
-    #670. Two neighbouring shapes are NOT refusals and each had its own silent
+    in `test/extension_override_test.dart`), and since #670's last slice every
+    non-Dart COMPILER honours it too — each reaching the member by whatever
+    shape it already emits that member under (the table is in
+    `docs/METADATA_SPEC.md`). `tests/conformance/478_extension_override_selection`
+    is the cross-target proof: two extensions on the same type declaring the
+    same members, so the override is the only thing that selects which one runs.
+    Two neighbouring shapes are NOT refusals and each had its own silent
     failure: type arguments on the MEMBER (`Ext(x).m<int>()`) ride
     `FunctionCall.typeArgs` like any other instance call — dropping them
     reified `List<dynamic>` — and a WRITE (`Ext(x).m = v`, `+= 1`, `++`)

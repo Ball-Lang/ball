@@ -158,6 +158,14 @@ pub(crate) fn func_meta_kind(func: &FunctionDefinition) -> Option<String> {
         .and_then(|m| meta_string_value(m, "kind"))
 }
 
+/// A `TypeDefinition`'s `metadata.kind` (`"class"` / `"mixin"` /
+/// `"extension"` / …), if present.
+pub(crate) fn type_meta_kind(td: &TypeDefinition) -> Option<String> {
+    td.metadata
+        .as_ref()
+        .and_then(|m| meta_string_value(m, "kind"))
+}
+
 /// The short name under which `func` is dispatched as an **instance method**
 /// (issue #298), or `None` if it isn't one. An instance method is a class
 /// member that is not a constructor, not abstract (has a real `impl` to route

@@ -1508,6 +1508,80 @@ class DartEncoder {
     return Expression()..call = call;
   }
 
+  /// The extension an UNRESOLVED `Ext(receiver)` in target position names, or
+  /// `null` when the node is not that spelling.
+  ///
+  /// `parseString` has no element model, so it cannot know an identifier names
+  /// an extension: `Ext(receiver).member` arrives as an ordinary
+  /// `ast.MethodInvocation` `Ext(receiver)` in target position.
+  /// `encode(String)` — `generate_conformance.dart`, `ball encode`,
+  /// `/ball:convert` — is exactly that path, and it used to fall through to the
+  /// generic encoding where `Ext` ALSO names a declared typeDef: the override
+  /// silently became a CONSTRUCTION of the extension type with the receiver
+  /// buried as `arg0`, and the real member was never named. Measured on the
+  /// reference engine at `542ce80d`, with no warning emitted:
+  ///
+  /// ```
+  /// BallRuntimeError: Undefined variable: "length"
+  /// ```
+  ///
+  /// — the receiver never reaches the member, so the first thing the member
+  /// reads off it is missing. That is the same silent substitution the
+  /// resolved path exists to prevent (#670), in constructor form.
+  ///
+  /// Reading it as an override is not a guess: the encoder collected
+  /// [_localExtensionNames] from this unit's declarations BEFORE any body was
+  /// encoded, and Dart cannot construct an extension, so an invocation of that
+  /// name can only be an override. An extension declared in ANOTHER library is
+  /// invisible to the parser and is deliberately not recognised here — the
+  /// resolved path ([_extensionOwnerModule]) is what names those.
+  ast.MethodInvocation? _parseOnlyOverride(ast.Expression? target) {
+    if (target is! ast.MethodInvocation) return null;
+    if (target.target != null) return null;
+    if (!_localExtensionNames.contains(target.methodName.name)) return null;
+    return target;
+  }
+
+  /// [_tryEncodeExtensionOverride] for the parse-only spelling recognised by
+  /// [_parseOnlyOverride]. Produces exactly the same IR — a call named
+  /// `<module>:<Ext>.<member>` carrying the receiver in `self` — so the
+  /// resolved and parse-only paths cannot disagree about what an override
+  /// means.
+  ///
+  /// Refuses (`null`, which the caller turns into a warning plus the
+  /// `/* unsupported: … */` placeholder) for the same shapes the resolved path
+  /// refuses and that survive into an unresolved parse: explicit type
+  /// arguments ON the extension (`Ext<int>(x).m()` — the call's `type_args`
+  /// channel renders on the MEMBER), and anything but the single positional
+  /// receiver argument. The declaring module is always this one, because
+  /// [_localExtensionNames] holds only this unit's own declarations.
+  Expression? _tryEncodeParseOnlyOverride(
+    ast.MethodInvocation override,
+    String member,
+    List<FieldValuePair> args, {
+    String? memberTypeArgs,
+  }) {
+    final arguments = override.argumentList.arguments;
+    if (override.typeArguments != null || arguments.length != 1) return null;
+    final receiver = arguments.single;
+    if (receiver is ast.NamedArgument) return null;
+
+    final extName = override.methodName.name;
+    final fields = <FieldValuePair>[
+      FieldValuePair()
+        ..name = 'self'
+        ..value = _encodeExpr(receiver.argumentExpression),
+      ...args,
+    ];
+    final call = FunctionCall()
+      ..module = _moduleName
+      ..function = '$_moduleName:$extName.$member'
+      ..input = (Expression()
+        ..messageCreation = (MessageCreation()..fields.addAll(fields)));
+    call.typeArgs.addAll(_parseTypeArgs(memberTypeArgs));
+    return Expression()..call = call;
+  }
+
   /// The warning an unencodable extension override produces, emitted from the
   /// single place that decides to refuse one.
   void _warnUnencodableExtensionOverride(ast.Expression node) {
@@ -3319,6 +3393,24 @@ class DartEncoder {
         return _unsupportedPlaceholder(expr);
       }
 
+      // The same node as an UNRESOLVED parse sees it (`encode(String)`):
+      // `Ext(receiver).getter` is an `ast.MethodInvocation` target, not an
+      // `ast.ExtensionOverride`. Routed to the identical IR, and refused just
+      // as loudly, so the two parses agree (issue #670).
+      final parseOnlyTarget = _parseOnlyOverride(target);
+      if (parseOnlyTarget != null) {
+        final routed = expr.isNullAware
+            ? null
+            : _tryEncodeParseOnlyOverride(
+                parseOnlyTarget,
+                field,
+                const <FieldValuePair>[],
+              );
+        if (routed != null) return routed;
+        _warnUnencodableExtensionOverride(expr);
+        return _unsupportedPlaceholder(expr);
+      }
+
       // Null target inside a cascade section: `..field` or `..field?.sub`
       final targetExpr = target == null
           ? _cascadeSelfExpr
@@ -3929,6 +4021,36 @@ class DartEncoder {
       _warnUnencodableExtensionOverride(expr);
       return _unsupportedPlaceholder(expr);
     }
+
+    // The same node as an UNRESOLVED parse sees it (`encode(String)`):
+    // `Ext(receiver).member(args)` is an `ast.MethodInvocation` target, not an
+    // `ast.ExtensionOverride`. Routed to the identical IR, and refused just as
+    // loudly, so the two parses agree (issue #670).
+    final parseOnlyTarget = _parseOnlyOverride(target);
+    if (parseOnlyTarget != null) {
+      final routed = expr.isNullAware
+          ? null
+          : _tryEncodeParseOnlyOverride(
+              parseOnlyTarget,
+              methodName,
+              args,
+              memberTypeArgs: typeArgSrc,
+            );
+      if (routed != null) return routed;
+      _warnUnencodableExtensionOverride(expr);
+      return _unsupportedPlaceholder(expr);
+    }
+
+    // A bare `Ext(receiver)` that no member access above claimed is an
+    // override spelling in a position this encoder cannot carry (a cascade
+    // target, say). Falling through would encode it as a CONSTRUCTION of the
+    // extension type — the silent substitution this path exists to prevent —
+    // so it is refused here, loudly (issue #670).
+    if (target == null && _localExtensionNames.contains(methodName)) {
+      _warnUnencodableExtensionOverride(expr);
+      return _unsupportedPlaceholder(expr);
+    }
+
     // `_linkShortCircuits`, not the raw lexeme: a `?.` whose guard has already
     // been hoisted to cover the whole chain is a PLAIN link now (issue #488).
     final isNullAware = _linkShortCircuits(expr);

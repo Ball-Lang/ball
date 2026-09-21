@@ -464,25 +464,16 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "tag",
+                                  "module": "main",
+                                  "function": "main:AlphaTag.tag",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
                                           "name": "self",
                                           "value": {
-                                            "messageCreation": {
-                                              "typeName": "main:AlphaTag",
-                                              "fields": [
-                                                {
-                                                  "name": "arg0",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "xs"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                            "reference": {
+                                              "name": "xs"
                                             }
                                           }
                                         }
@@ -511,25 +502,16 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "tag",
+                                  "module": "main",
+                                  "function": "main:BetaTag.tag",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
                                           "name": "self",
                                           "value": {
-                                            "messageCreation": {
-                                              "typeName": "main:BetaTag",
-                                              "fields": [
-                                                {
-                                                  "name": "arg0",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "xs"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                            "reference": {
+                                              "name": "xs"
                                             }
                                           }
                                         }
@@ -557,13 +539,14 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
+                                "call": {
+                                  "module": "main",
+                                  "function": "main:AlphaTag.label",
+                                  "input": {
                                     "messageCreation": {
-                                      "typeName": "main:AlphaTag",
                                       "fields": [
                                         {
-                                          "name": "arg0",
+                                          "name": "self",
                                           "value": {
                                             "reference": {
                                               "name": "xs"
@@ -572,46 +555,7 @@
                                         }
                                       ]
                                     }
-                                  },
-                                  "field": "label"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "messageCreation": {
-                                      "typeName": "main:BetaTag",
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "reference": {
-                                              "name": "xs"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  },
-                                  "field": "label"
+                                  }
                                 }
                               }
                             }
@@ -634,25 +578,54 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "scale",
+                                  "module": "main",
+                                  "function": "main:BetaTag.label",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
                                           "name": "self",
                                           "value": {
-                                            "messageCreation": {
-                                              "typeName": "main:AlphaTag",
-                                              "fields": [
-                                                {
-                                                  "name": "arg0",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "xs"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                            "reference": {
+                                              "name": "xs"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "main",
+                                  "function": "main:AlphaTag.scale",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "xs"
                                             }
                                           }
                                         },
@@ -689,25 +662,16 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "scale",
+                                  "module": "main",
+                                  "function": "main:BetaTag.scale",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
                                           "name": "self",
                                           "value": {
-                                            "messageCreation": {
-                                              "typeName": "main:BetaTag",
-                                              "fields": [
-                                                {
-                                                  "name": "arg0",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "xs"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                            "reference": {
+                                              "name": "xs"
                                             }
                                           }
                                         },

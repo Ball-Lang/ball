@@ -206,6 +206,24 @@ const json = toJson(ProgramSchema, program);
   loudly — `this.x` is a valid property read, so a method-local silently
   answered with the MEMBER's value (#501 family).
 
+- **An EXTENSION-OVERRIDE call reaches the member on the class PROTOTYPE, never
+  a member NAME on the receiver (#670).** `Ext(receiver).member` is encoded as a
+  call NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  receiver in `self`, because the selection is the whole meaning of the node —
+  two extensions can declare the SAME member on the SAME type. TypeScript has no
+  extensions, so the member is emitted as a method of the extension's class;
+  `compileCall` used to sanitize the qualified name into a MEMBER name and emit
+  `xs.AlphaTag_tag()`, a method no array has, so the program threw at the first
+  override. `BallCompiler.extensionMembers` (built alongside `typeDefByName`
+  from every user module, so an extension declared in another module resolves
+  too) routes it to `(Ext.prototype as any).member.call(recv, …)`, and to
+  `Reflect.get(Ext.prototype, 'member', recv)` for a getter — `Reflect.get`
+  invokes the accessor with the receiver as `this`, which a plain property read
+  cannot. Guards: `tests/conformance/478_extension_override_selection`
+  (cross-target, incl. the `TS Compiled (Direct)` row) and
+  `ts/compiler/test/extension_override.test.ts`, which compiles the fixture and
+  RUNS it against the golden.
+
 ### Engine
 
 - `compiled_engine.ts` — auto-generated, NEVER edit

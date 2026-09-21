@@ -349,6 +349,51 @@ accessor question the section above answers for `obj.x` — and a WRITE
 (`Ext(x).member = v`) encodes as that same call, so reading the setter's shape
 is what keeps the emitted left-hand side assignable. Neither widens the family.
 
+#### Recognising the override without an element model
+
+Only a RESOLVED analyzer AST carries an `ast.ExtensionOverride` node:
+`parseString` cannot know an identifier names an extension, so
+`Ext(receiver).member` arrives there as an ordinary `ast.MethodInvocation`
+`Ext(receiver)` in target position. That is the path
+`generate_conformance.dart`, `ball encode` and `/ball:convert` use, so it is how
+an override reaches the conformance corpus and every non-Dart target — and it
+must produce the SAME IR, or the two parses disagree about what a program means.
+
+The encoder reads it without resolution because `Ext` is a name it already
+collected: the unit's extension declarations are gathered before any body is
+encoded, and **Dart cannot construct an extension**, so an invocation of that
+name in target position is unambiguously an override. Left to the generic
+encoding it became a `MessageCreation` of the extension TYPE with the receiver
+buried as `arg0` — a silent, running, wrong answer.
+
+An extension declared in another LIBRARY is deliberately not recognised that
+way: the parser cannot see it, so the resolved path (which resolves the
+declaring module from the override's own element) is the only one that may name
+those.
+
+#### What a target does with the name
+
+Only Dart has extensions, so only Dart re-emits `Ext(receiver).member`. Every
+other compiler reaches the member the name selects, by whatever shape it already
+emits that member under:
+
+| target | emission for `<module>:<Ext>.<member>` with `self` |
+|---|---|
+| Dart | `Ext(receiver).member(args)` — the override form |
+| Go | the member's impl func, `Ext__member(input)` |
+| Rust | the member's associated fn, `<module>_Ext::member(input)` |
+| C# | the member's impl method, `<Module>.Ext__member(input)` |
+| Python | the member unbound on its class, `Ext.member(recv, …)` (`Ext.member.fget(recv)` for a getter) |
+| TypeScript | the member on the class PROTOTYPE with the receiver as `this` — `.call` for a method, `Reflect.get` for a getter |
+| C++ | the member lowered to a FREE function taking the receiver as parameter 0 |
+
+The three targets whose ordinary instance-call emission is a **receiver-asking
+dispatcher** (Go, Python, C#) are the reason this cannot be left to the generic
+path: such a dispatcher switches on the RECEIVER's runtime type, and an
+extension receiver is an ordinary list/string/map, so it can never pick between
+two extensions declaring the same member on the same type — which is the only
+situation an override is ever written for.
+
 ---
 
 ## Function Overloading Convention

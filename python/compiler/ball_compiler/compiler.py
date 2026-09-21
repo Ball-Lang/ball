@@ -274,6 +274,30 @@ class Compiler:
                     continue
                 self.all_method_names.add(sanitize(_member_short(mem.get("name", ""))))
 
+        # Members of a `kind: "extension"` typeDef, keyed by their QUALIFIED Ball
+        # function name ("main:AlphaTag.tag") — the extension-override
+        # representation (issue #670).
+        #
+        # An override (`Ext(receiver).member`) is encoded as a call NAMING the
+        # extension's own member and carrying the receiver in `self`, because the
+        # selection is the whole meaning of the node: two extensions can declare
+        # the same member on the same type, so the by-short-name dispatch below
+        # (``ballrt.call_method``, which asks the RECEIVER) cannot pick between
+        # them. Python has no extensions either, so the member is emitted as a
+        # method of the extension's class and must be reached UNBOUND, with the
+        # receiver passed as ``self``.
+        self.extension_members: dict[str, dict] = {}
+        for owner, members in self.class_members.items():
+            td = self.type_defs.get(owner)
+            if not td or (td.get("metadata", {}) or {}).get("kind") != "extension":
+                continue
+            for mem in members:
+                self.extension_members[mem.get("name", "")] = {
+                    "cls": sanitize(owner),
+                    "member": sanitize(_member_short(mem.get("name", ""))),
+                    "is_getter": bool((mem.get("metadata", {}) or {}).get("is_getter")),
+                }
+
     # ── Emission helpers ─────────────────────────────────────────────────────
 
     def line(self, text: str):
@@ -1608,6 +1632,31 @@ class Compiler:
             # class-static branch below never uses the result.
             def self_expr():
                 return self.value(self_raw) if self_raw is not None else "None"
+
+            # Extension override (issue #670). A call NAMING an extension's
+            # member selected that extension explicitly, and no name-based route
+            # below may see it: ``ballrt.call_method`` asks the RECEIVER, and an
+            # extension receiver is an ordinary list/str/dict, so it cannot pick
+            # between two extensions declaring the same member on the same type.
+            # The emitted member is unbound on its class, so the receiver is
+            # passed as ``self``; a getter is a ``property``, reached via
+            # ``.fget``.
+            ext = self.extension_members.get(fn)
+            if ext is not None:
+                recv = self_expr()
+                if ext["is_getter"]:
+                    return f"{ext['cls']}.{ext['member']}.fget({recv})"
+                if not rest:
+                    return f"{ext['cls']}.{ext['member']}({recv})"
+                if len(rest) == 1:
+                    return (
+                        f"{ext['cls']}.{ext['member']}"
+                        f"({recv}, {self.value(rest[0]['value'])})"
+                    )
+                ext_packed = "{" + ", ".join(
+                    f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}"
+                    for fv in rest) + "}"
+                return f"{ext['cls']}.{ext['member']}({recv}, {ext_packed})"
 
             # A static call on a builtin type (int.tryParse, List.filled, …):
             # route to a dedicated runtime helper with cleanly-extracted args.

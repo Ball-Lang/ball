@@ -638,12 +638,22 @@ the 49 blocked on `BallValue::List`).
 - **`pub fn __ball_register_types()` is the class prologue, and it is DROPPED.** Its
   `ball_register_superclass(child, parent)` calls invert to the child `TypeDefinition`'s
   `metadata.superclass` — where `dart/encoder` writes it and `type_emit::superclass_of` reads it
-  — and `fn main()`'s leading call to it is dropped in `block.rs`. Resolving the registration's
+  — and `fn main()`'s leading call to it is dropped in `block.rs`. That drop is scoped to the
+  ENTRY `fn main()`'s own top-level statement list (`Encoder::entry_main_body`, issue #789): the
+  registrations are hoisted to file scope and written onto the `TypeDefinition`s there, so the
+  unconditional once-per-program call `compile_entry_main` emits is the only one the inversion is
+  faithful to. A call from a helper body or a nested `if` arm is NOT swallowed — it falls through
+  to `encode_call`'s refusal, because dropping it would flatten a conditional, ordered or repeated
+  registration into that one static answer with nothing said. Resolving the registration's
   SHORT `Dog` against a declared type has to undo `sanitize_ident` (the compiled struct for Ball's
   `main:Dog` is `main_Dog`), so `apply_superclass_registrations` accepts the short name itself or
   that name behind a `_`-joined qualifier and fails loud on zero or multiple matches. Any
   statement in that function that is not a two-string-literal registration is loud too, because
   the whole function is dropped and anything else in it would be silently lost.
+  `rust/encoder/tests/class_prologue_refusals.rs` is the negative half of that contract (issue
+  #789): twelve cases of hand-written Rust — shapes `rust/compiler` never emits, so no generated
+  corpus can reach them — each pinning a SUBSTRING of the refusal's own message, plus a positive
+  floor so the refusals cannot be "satisfied" by an encoder that rejects the prologue outright.
 - **Dropping it is what made the whole-program FIXPOINT reachable.** Before #692 a second compile
   emitted `__ball_register_types` twice (`error[E0428]`), which is why
   `compile_reencode_roundtrip.rs`'s own module doc comment ruled such a test out.

@@ -68,7 +68,9 @@ pub enum MacroError {
         /// makes a real-code sweep actionable.
         in_scope: Vec<String>,
         /// Sources that should have contributed definitions and could not be
-        /// read, so "not in scope" is never mistaken for "does not exist".
+        /// read — or dependency edges that could not be RESOLVED to sources at
+        /// all (#705) — so "not in scope" is never mistaken for "does not
+        /// exist".
         unreadable_sources: Vec<String>,
     },
     /// A definition's rules could not be parsed by the engine.

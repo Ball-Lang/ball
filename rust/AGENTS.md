@@ -332,6 +332,17 @@ keeping proc-macros out of scope and loud costs it nothing.
   and both `Unresolved` and the `<krate>::<name>!` `DependenciesUnavailable` then name it. "Not
   found" and "could not look" are different answers, and only one of them is evidence that a
   definition does not exist.
+  **The same holds one step earlier, for the dependency EDGES** (#705).
+  `direct_dependency_sources` resolves each `deps[]` entry through its `name`, its `pkg`, the
+  `packages[]` entry that id names, that package's `lib`/`rlib`/`dylib` target and that target's
+  `src_path` — five lookups, and each used to be a bare `else { continue }`, so a malformed
+  `cargo metadata` document made a whole crate's macros unresolvable while the diagnostic claimed
+  the crate had no such macro. Each is now a `note_unresolvable_dependency` riding the same list
+  into the same two diagnostics. The ONE deliberate silence is a `proc-macro`-only package: that
+  skip is a documented answer, and noting it would put every ordinary `#[derive]` dependency into
+  the diagnostic of every failing resolution. `MacroTable::seed_from_cargo_metadata_json` exists so
+  those shapes are testable at all — `cargo` only ever emits well-formed output, so they are
+  unreachable through the `cargo`-running entry point (`tests/deps_metadata_shapes.rs`).
 - **The driver** (`encoder/src/macro_expand.rs`) runs as a **pre-pass**, before the encoder's own
   `fn_params`/`enum_names`/`method_params` collection and before `collect_symbols`, because an
   expansion introduces declarations those passes must see. It iterates to a **fixed point** (a
@@ -378,6 +389,7 @@ keeping proc-macros out of scope and loud costs it nothing.
 | dependency graph unreadable | `DependenciesUnavailable`, naming the crate and the reason |
 | a dependency source `syn` cannot parse | recorded, and named in the diagnostic of any macro that then fails to resolve |
 | a dependency DIRECTORY or entry that cannot be read (#678) | recorded the same way — an unreadable subdirectory or dangling symlink is never mistaken for "no definition there" |
+| a `cargo metadata` dependency EDGE that cannot be followed (#705) | recorded the same way — a `deps[]` entry with no `name` or no `pkg`, a `pkg` id with no `packages[]` entry, a package with no library target, a library target with no `src_path`. A `proc-macro`-only package stays silent BY DESIGN |
 | engine panic | `EnginePanic`, with the payload |
 | proc-macro / `#[derive]` / attribute macro | unchanged — the encoder's existing loud panic |
 | builtin the encoder does not model | unchanged — keeps issue #630 separately trackable |

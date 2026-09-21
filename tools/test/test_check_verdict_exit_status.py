@@ -220,6 +220,25 @@ def main() -> int:
     )
 
     case(
+        "a loop that ALREADY has a positive floor is still rejected without a "
+        "carve-out — the lint does not try to infer safety from bash source, "
+        "and an inference that guessed wrong in the permissive direction is "
+        "exactly the hole under review",
+        {"tools/floored.sh": FLOORED},
+        "",
+        want_ok=False,
+        want_fragment="tools/floored.sh:6",
+    )
+
+    case(
+        "and it passes the moment the list records that floor as the reason",
+        {"tools/floored.sh": FLOORED},
+        "tools/floored.sh\tfabricated_floored_check\t"
+        "floor: the `seen -lt 1` arm below exits 1 on empty output\n",
+        want_ok=True,
+    )
+
+    case(
         "a MULTI-LINE process substitution is found and its anchor may come "
         "from the continuation lines",
         {"tools/multi.sh": MULTILINE},
@@ -252,7 +271,7 @@ def main() -> int:
         {"tools/clean.sh": CLEAN},
         "",
         want_ok=False,
-        want_fragment="zero",
+        want_fragment="ZERO loops",
     )
 
     case(
@@ -262,7 +281,7 @@ def main() -> int:
         {"tools/clean.sh": CLEAN, "cpp/src/elsewhere.sh": OFFENDER},
         "",
         want_ok=False,
-        want_fragment="zero",
+        want_fragment="ZERO loops",
     )
 
     case(

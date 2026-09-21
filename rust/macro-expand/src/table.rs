@@ -164,11 +164,13 @@ pub struct MacroTable {
     /// macro is then a loud [`MacroError::DependenciesUnavailable`] naming this
     /// reason — never a silent skip.
     dependencies_unavailable: Option<String>,
-    /// Sources that were supposed to contribute definitions and could not be
-    /// read — a dependency file `syn` cannot parse, or a definition the engine
-    /// rejects. Named in the diagnostic of any macro that then fails to
-    /// resolve, so "this crate's macro is missing" never reads as "this crate
-    /// has no such macro".
+    /// Sources that were supposed to contribute definitions and did not: a
+    /// dependency file `syn` cannot parse, a definition the engine rejects, a
+    /// path the walk could not look at (#678), or a `cargo metadata` dependency
+    /// EDGE that could not be resolved to sources in the first place (#705).
+    /// Named in the diagnostic of any macro that then fails to resolve, so
+    /// "this crate's macro is missing" never reads as "this crate has no such
+    /// macro".
     unreadable_sources: Vec<String>,
 }
 

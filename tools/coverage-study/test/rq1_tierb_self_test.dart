@@ -65,6 +65,23 @@
 ///     last two rows cover [verifyTreeUnchanged]: an unchanged tree passes, and
 ///     a tree that changed under the run FAILS LOUD rather than charging a
 ///     stranger's edit to the substituted file.
+///  7. **THE YARDSTICK IS MEASURED THE SAME WAY (issue #705).** A package whose
+///     suite depends on WHERE it runs must come back `baseline-unstable`, never
+///     a package of `behavioral-drift`. The baseline used to run in the
+///     pointed-at checkout while every candidate runs in a copy, so the
+///     instrument manufactured one drift row per file for any path-sensitive
+///     suite. The fixture asserts its own directory NAME — a full path would
+///     also be sensitive to `/tmp` vs `/private/tmp` and would prove nothing.
+///  8. **A LINK STOPS THE COPY (issue #705).** `_copyTree` skipped links on the
+///     assertion that no pinned package ships one; an assertion is not a guard,
+///     and a copy that quietly lost a path charges whatever it carried to the
+///     substituted file. Not platform-gated: an unavailable link API FAILS this
+///     check with a configuration message rather than skipping it.
+///  9. **WHOLE MODE CHECKS THE TREE BEFORE COPYING (issue #705).** It has one
+///     scored run and so no between-candidate window, but it has the window
+///     between the baseline and the copy. The `afterBaseline` seam produces that
+///     window deterministically instead of racing a timer against two real
+///     `dart test` runs.
 ///
 /// It also covers the whole-package mode (`rq1_tierb_all.dart`), whose stricter
 /// signal is one verdict per package with no restore between files, and the

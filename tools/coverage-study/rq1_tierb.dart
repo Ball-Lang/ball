@@ -853,10 +853,18 @@ Future<TierBPackageResult> studyPackagePerFile(
 /// Tier B, whole-package: substitute EVERY eligible file at once, run the suite
 /// once, restore everything. The stricter signal — a package is clean only when
 /// its entire library survives the round trip simultaneously.
+/// [afterBaseline], when supplied, is awaited once the baseline has been
+/// measured and before the single scored copy is taken. It exists for ONE
+/// caller — this harness's own self-test — for the same reason
+/// [studyPackagePerFile]'s [substitutions] does: the property under test is
+/// "a tree that changed between the baseline and the copy stops the run", and
+/// the only deterministic way to produce that window is to be handed it.
+/// Production always passes `null`.
 Future<TierBPackageResult> studyPackageWhole(
   String package,
   Directory checkout, {
   TierBOptions options = const TierBOptions(),
+  Future<void> Function()? afterBaseline,
 }) async {
   final libRoot = Directory('${checkout.path}/${options.libSubdir}');
   if (!libRoot.existsSync()) {
@@ -869,6 +877,7 @@ Future<TierBPackageResult> studyPackageWhole(
 
   final (:unstable, :baseline) = await establishBaseline(checkout, options);
   if (unstable != null) return TierBPackageResult(package, unstable, const []);
+  if (afterBaseline != null) await afterBaseline();
 
   // AFTER establishBaseline, never before: `prepareStaticTypes()` needs the
   // `.dart_tool/package_config.json` that `pubGet` writes, and resolving a

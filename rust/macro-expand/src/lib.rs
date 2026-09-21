@@ -136,8 +136,8 @@ impl fmt::Display for MacroError {
                 if !unreadable_sources.is_empty() {
                     write!(
                         f,
-                        ". These sources could not be read, so a definition may be hiding in one \
-                         of them: [{}]",
+                        ". These sources could not be read or resolved, so a definition may be \
+                         hiding in one of them: [{}]",
                         unreadable_sources.join("; ")
                     )?;
                 }

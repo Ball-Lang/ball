@@ -54,16 +54,39 @@ impl MacroTable {
     /// is recorded on the table, and only an invocation that actually needs a
     /// dependency macro turns it into a loud error.
     pub fn seed_from_cargo_metadata(&mut self, manifest_path: &Path) {
-        let metadata = match run_cargo_metadata(manifest_path) {
-            Ok(json) => json,
-            Err(reason) => {
-                self.set_dependencies_unavailable(reason);
+        match run_cargo_metadata(manifest_path) {
+            Ok(json) => self.seed_from_cargo_metadata_json(&json),
+            Err(reason) => self.set_dependencies_unavailable(reason),
+        }
+    }
+
+    /// Seed this table from a `cargo metadata --format-version 1` document that
+    /// has already been produced.
+    ///
+    /// [`seed_from_cargo_metadata`](Self::seed_from_cargo_metadata) is this plus
+    /// running `cargo`. It is split out because the *shape* of that document is
+    /// a contract this crate depends on and cannot be exercised any other way:
+    /// `cargo` only ever emits well-formed output, so a `deps[]` node missing a
+    /// field — the case that decides whether a dependency's macros resolve or
+    /// vanish — is unreachable through the `cargo`-running entry point. Handing
+    /// the document in is what makes those shapes testable against the SHIPPED
+    /// code instead of a re-implementation of it.
+    pub fn seed_from_cargo_metadata_json(&mut self, metadata: &str) {
+        let metadata: serde_json::Value = match serde_json::from_str(metadata) {
+            Ok(value) => value,
+            Err(err) => {
+                self.set_dependencies_unavailable(format!(
+                    "`cargo metadata` output could not be parsed: {err}"
+                ));
                 return;
             }
         };
         match direct_dependency_sources(&metadata) {
-            Ok(sources) => {
-                for (krate, src_root) in sources {
+            Ok(graph) => {
+                for (what, reason) in graph.unusable {
+                    self.note_unresolvable_dependency(&what, &reason);
+                }
+                for (krate, src_root) in graph.sources {
                     self.collect_exported_macros(&krate, &src_root);
                 }
             }
@@ -141,7 +164,7 @@ fn cargo_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("cargo"))
 }
 
-fn run_cargo_metadata(manifest_path: &Path) -> Result<serde_json::Value, String> {
+fn run_cargo_metadata(manifest_path: &Path) -> Result<String, String> {
     if !manifest_path.is_file() {
         return Err(format!(
             "no crate manifest at `{}`",
@@ -164,15 +187,27 @@ fn run_cargo_metadata(manifest_path: &Path) -> Result<serde_json::Value, String>
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    serde_json::from_slice(&output.stdout)
-        .map_err(|err| format!("`cargo metadata` output could not be parsed: {err}"))
+    String::from_utf8(output.stdout)
+        .map_err(|err| format!("`cargo metadata` output is not UTF-8: {err}"))
 }
 
-/// `(dependency alias, that dependency's source directory)` for every DIRECT
-/// dependency of the resolved root package.
-fn direct_dependency_sources(
-    metadata: &serde_json::Value,
-) -> Result<Vec<(String, PathBuf)>, String> {
+/// What `cargo metadata`'s dependency edges resolved to — and every edge that
+/// could not be resolved.
+struct DependencyGraph {
+    /// `(dependency alias, that dependency's source directory)` for every
+    /// DIRECT dependency of the resolved root package whose sources were
+    /// located.
+    sources: Vec<(String, PathBuf)>,
+    /// `(what, reason)` for every `deps[]` edge that named a dependency this
+    /// walk could not locate sources for. Never a silent skip: each becomes a
+    /// note on the table and is carried into the diagnostic of any macro that
+    /// then fails to resolve.
+    unusable: Vec<(String, String)>,
+}
+
+/// Resolve the DIRECT dependencies of the root package to their source
+/// directories.
+fn direct_dependency_sources(metadata: &serde_json::Value) -> Result<DependencyGraph, String> {
     let resolve = metadata
         .get("resolve")
         .ok_or_else(|| "`cargo metadata` reported no dependency resolution".to_owned())?;
@@ -201,6 +236,7 @@ fn direct_dependency_sources(
         .ok_or_else(|| "`cargo metadata`'s `packages` is not an array".to_owned())?;
 
     let mut sources = Vec::new();
+    let unusable: Vec<(String, String)> = Vec::new();
     let deps = root_node
         .get("deps")
         .and_then(serde_json::Value::as_array)
@@ -251,7 +287,7 @@ fn direct_dependency_sources(
             .to_path_buf();
         sources.push((alias.to_owned(), src_root));
     }
-    Ok(sources)
+    Ok(DependencyGraph { sources, unusable })
 }
 
 /// What walking a dependency's source directory found — and what it could not

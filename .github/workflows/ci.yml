@@ -190,6 +190,22 @@ jobs:
       # path-filtered to python/**, so it would skip the very changes the corpus
       # check guards. Self-test first — a checker nobody has watched fail is not
       # a gate.
+      # docs/TESTING_STRATEGY.md §3a — "a leg's verdict must consume the
+      # checker's EXIT STATUS, not only its stdout" — was PROSE, and prose stops
+      # nothing. `done < <(check "$f")` discards the producer's status by
+      # construction, so a checker that could not run at all and one that found
+      # nothing both reach the verdict as empty stdout: the leg prints PASS and
+      # counts +1 toward its own positive floor for a check that never happened
+      # (#694, reproduced in PR #662's round-1 review with `python3` off PATH).
+      # This lints every such loop under tools/**/*.sh + cpp/test/*.sh against a
+      # carve-out list that has to NAME each legitimate site and say why it is
+      # safe. Self-test first: a checker nobody has watched fail is not a gate.
+      - name: Stdout-only verdict loop lint self-test (#705)
+        run: python tools/test/test_check_verdict_exit_status.py
+
+      - name: Every shell verdict loop is carved out or fixed (#705)
+        run: python tools/check_verdict_exit_status.py
+
       - name: Proto/JSON-Schema drift self-test (#609)
         run: python tools/test/test_check_proto_schema_drift.py
 

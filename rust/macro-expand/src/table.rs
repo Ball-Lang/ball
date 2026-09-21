@@ -268,6 +268,21 @@ impl MacroTable {
         self.unreadable_sources.push(format!("{what}: {reason}"));
     }
 
+    /// Record a dependency EDGE that named a crate whose sources could not be
+    /// located, and why.
+    ///
+    /// The sibling of [`note_unreadable_source`](Self::note_unreadable_source),
+    /// one step earlier in the same walk: that one answers "this file was
+    /// supposed to contribute definitions and could not be read", this one
+    /// answers "this `cargo metadata` edge was supposed to point at a crate's
+    /// sources and did not". Both are "could not look", never "nothing is
+    /// there", so both ride the same list into the diagnostic of any macro that
+    /// subsequently fails to resolve.
+    pub fn note_unresolvable_dependency(&mut self, what: &str, reason: &str) {
+        self.unreadable_sources
+            .push(format!("dependency `{what}`: {reason}"));
+    }
+
     /// Why a `<krate>::<name>!` path found nothing in that crate.
     ///
     /// Never a flat "it is not there" once part of that crate's sources could
@@ -281,8 +296,8 @@ impl MacroTable {
             return base.to_owned();
         }
         format!(
-            "{base}. These sources could not be read, so a definition may be hiding in one of \
-             them: [{}]",
+            "{base}. These sources could not be read or resolved, so a definition may be hiding \
+             in one of them: [{}]",
             self.unreadable_sources.join("; ")
         )
     }

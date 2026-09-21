@@ -35,66 +35,66 @@
 // mis-served. `Computed.values` below is the control that pins the getter half
 // against a guard that over-reaches.
 //
-// `runtimeType` must be typed `Type` in both shapes: it OVERRIDES
-// `Object.runtimeType`, and Dart rejects a narrowing override outright — which
-// is also why the values read back here are themselves `.runtimeType` reads
-// (`'abc'.runtimeType`, `stored.runtimeType`), the very shortcut the tail of
-// this fixture pins as still working for a non-user receiver.
+// `runtimeType` appears here as a GETTER only (`Computed.runtimeType`, typed
+// `Type` because it OVERRIDES `Object.runtimeType` and Dart rejects a narrowing
+// override outright). Its FIELD shape is carved out — see #863 below. The value
+// it answers is itself a `.runtimeType` read, the very shortcut the tail of this
+// fixture pins as still working for a non-user receiver.
 //
 // The tail is the control in the other direction: every one of the six must
 // still answer for a REAL list / map / string / int, exactly as before. A fix
 // that simply deleted the shortcuts would pass every read above and fail there.
 //
-// One shape is deliberately SPLIT across two classes rather than folded into
-// one: a class that declares a field named `entries` AND carries a method takes
-// EVERY self-hosted engine down — **issue #860**, a defect of the same family
-// reached from a third side. `engine_invocation.dart` binds an instance's
-// fields into a method's scope with `for (final entry in selfMap.entries)`, and
-// on a self-hosted target that `.entries` is resolved by NAME, own-key-first —
-// so it reads the user's `List<int>` and then takes `.key` off the integer `7`.
-// The Dart reference engine is immune (there `selfMap` is a real
-// `Map<String, Object?>`). So `Collected` below declares all six names and
-// carries NO methods, and `Counted` carries the `this.`-readers for the five
-// names that are safe. #860's body holds the two removed lines verbatim;
-// restoring them here and regenerating is the whole reproduction.
+// ── Two carve-outs, each a DIFFERENT target's defect of this same family ──
+//
+// **#860** — a class declaring a field named `entries` that ALSO carries a
+// method takes EVERY self-hosted engine down. `engine_invocation.dart` binds an
+// instance's fields into a method's scope with
+// `for (final entry in selfMap.entries)`, and on a self-hosted target that
+// `.entries` is resolved by NAME, own-key-first — so it reads the user's
+// `List<int>` and takes `.key` off the integer `7`. The Dart reference engine is
+// immune (there `selfMap` is a real `Map<String, Object?>`). So `Collected`
+// declares the names and carries NO methods, while `Counted` carries the
+// `this.`-readers for the names that are safe.
+//
+// **#863** — a class declaring a field named `runtimeType` throws on the TS
+// engine at CONSTRUCTION, before a line runs: `ts/compiler/src/preamble.ts`
+// installs `Object.prototype.runtimeType` as a getter with no setter (unlike
+// its `defDartGetter` siblings `entries`/`keys`/`values`/`length`), so an
+// engine-internal lookup table keyed by field name cannot take that key in
+// strict mode. Only the FIELD shape is affected; the getter above is untouched.
+//
+// Both issue bodies carry the removed lines verbatim; restoring them here and
+// regenerating is the whole reproduction in each case. Do not re-add them until
+// those issues land.
 
 class Collected {
   final int first;
   final String last;
-  @override
-  final Type runtimeType;
   final List<int> entries;
   final String keys;
   final int values;
 
-  Collected(
-    this.first,
-    this.last,
-    this.runtimeType,
-    this.entries,
-    this.keys,
-    this.values,
-  );
+  Collected(this.first, this.last, this.entries, this.keys, this.values);
 }
 
 // The same members read from INSIDE the class, through `this.` — a separate
 // dispatch site from the external `c.first`, and the one whose receiver is
 // trivially provable. No `entries` field here: see #860 above.
+//
+// `Counted` and `Collected` are also the two halves of the `this.`-vs-external
+// split; neither declares `runtimeType` (#863).
 class Counted {
   final int first;
   final String last;
-  @override
-  final Type runtimeType;
   final String keys;
   final int values;
 
-  Counted(this.first, this.last, this.runtimeType, this.keys, this.values);
+  Counted(this.first, this.last, this.keys, this.values);
 
   int readFirstViaThis() => this.first;
 
   String readLastViaThis() => this.last;
-
-  Type readRuntimeTypeViaThis() => this.runtimeType;
 
   String readKeysViaThis() => this.keys;
 
@@ -124,23 +124,21 @@ class Computed {
 
 void main() {
   // Plain data members, read through a local with an explicit type annotation.
-  Collected c = Collected(11, 'tail', 'abc'.runtimeType, <int>[7, 8], 'K', 99);
+  Collected c = Collected(11, 'tail', <int>[7, 8], 'K', 99);
   print(c.first);
   print(c.last);
-  print(c.runtimeType);
   print(c.entries);
   print(c.keys);
   print(c.values);
 
-  Counted n = Counted(31, 'inner', 4.5.runtimeType, 'Z', 12);
+  Counted n = Counted(31, 'inner', 'Z', 12);
   print(n.readFirstViaThis());
   print(n.readLastViaThis());
-  print(n.readRuntimeTypeViaThis());
   print(n.readKeysViaThis());
   print(n.readValuesViaThis());
 
   // The instance-creation receiver, which needs no local at all.
-  print(Collected(1, 'z', 'q'.runtimeType, <int>[0], 'A', 2).keys);
+  print(Collected(1, 'z', <int>[0], 'A', 2).keys);
 
   // User GETTERS of the same six names.
   var g = Computed(21);

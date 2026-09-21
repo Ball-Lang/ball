@@ -123,10 +123,6 @@
                 "is_this": true
               },
               {
-                "name": "runtimeType",
-                "is_this": true
-              },
-              {
                 "name": "entries",
                 "is_this": true
               },
@@ -153,10 +149,6 @@
               },
               {
                 "name": "last",
-                "is_this": true
-              },
-              {
-                "name": "runtimeType",
                 "is_this": true
               },
               {
@@ -199,24 +191,6 @@
                 }
               },
               "field": "last"
-            }
-          },
-          "metadata": {
-            "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
-          "name": "main:Counted.readRuntimeTypeViaThis",
-          "outputType": "Type",
-          "body": {
-            "fieldAccess": {
-              "object": {
-                "reference": {
-                  "name": "self"
-                }
-              },
-              "field": "runtimeType"
             }
           },
           "metadata": {
@@ -562,19 +536,6 @@
                           {
                             "name": "arg2",
                             "value": {
-                              "fieldAccess": {
-                                "object": {
-                                  "literal": {
-                                    "stringValue": "abc"
-                                  }
-                                },
-                                "field": "runtimeType"
-                              }
-                            }
-                          },
-                          {
-                            "name": "arg3",
-                            "value": {
                               "call": {
                                 "module": "std",
                                 "function": "typed_list",
@@ -618,7 +579,7 @@
                             }
                           },
                           {
-                            "name": "arg4",
+                            "name": "arg3",
                             "value": {
                               "literal": {
                                 "stringValue": "K"
@@ -626,7 +587,7 @@
                             }
                           },
                           {
-                            "name": "arg5",
+                            "name": "arg4",
                             "value": {
                               "literal": {
                                 "intValue": "99"
@@ -689,34 +650,6 @@
                                     }
                                   },
                                   "field": "last"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "c"
-                                    }
-                                  },
-                                  "field": "runtimeType"
                                 }
                               }
                             }
@@ -836,26 +769,13 @@
                           {
                             "name": "arg2",
                             "value": {
-                              "fieldAccess": {
-                                "object": {
-                                  "literal": {
-                                    "doubleValue": 4.5
-                                  }
-                                },
-                                "field": "runtimeType"
-                              }
-                            }
-                          },
-                          {
-                            "name": "arg3",
-                            "value": {
                               "literal": {
                                 "stringValue": "Z"
                               }
                             }
                           },
                           {
-                            "name": "arg4",
+                            "name": "arg3",
                             "value": {
                               "literal": {
                                 "intValue": "12"
@@ -922,43 +842,6 @@
                               "value": {
                                 "call": {
                                   "function": "readLastViaThis",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "self",
-                                          "value": {
-                                            "reference": {
-                                              "name": "n"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "function": "readRuntimeTypeViaThis",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -1092,19 +975,6 @@
                                         {
                                           "name": "arg2",
                                           "value": {
-                                            "fieldAccess": {
-                                              "object": {
-                                                "literal": {
-                                                  "stringValue": "q"
-                                                }
-                                              },
-                                              "field": "runtimeType"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "arg3",
-                                          "value": {
                                             "call": {
                                               "module": "std",
                                               "function": "typed_list",
@@ -1143,7 +1013,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg4",
+                                          "name": "arg3",
                                           "value": {
                                             "literal": {
                                               "stringValue": "A"
@@ -1151,7 +1021,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg5",
+                                          "name": "arg4",
                                           "value": {
                                             "literal": {
                                               "intValue": "2"
@@ -1847,26 +1717,20 @@
                 "type": "TYPE_STRING"
               },
               {
-                "name": "runtimeType",
-                "number": 3,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE"
-              },
-              {
                 "name": "entries",
-                "number": 4,
+                "number": 3,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_BYTES"
               },
               {
                 "name": "keys",
-                "number": 5,
+                "number": 4,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
               },
               {
                 "name": "values",
-                "number": 6,
+                "number": 5,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_INT64"
               }
@@ -1884,11 +1748,6 @@
               {
                 "name": "last",
                 "type": "String",
-                "is_final": true
-              },
-              {
-                "name": "runtimeType",
-                "type": "Type",
                 "is_final": true
               },
               {
@@ -1927,20 +1786,14 @@
                 "type": "TYPE_STRING"
               },
               {
-                "name": "runtimeType",
-                "number": 3,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE"
-              },
-              {
                 "name": "keys",
-                "number": 4,
+                "number": 3,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
               },
               {
                 "name": "values",
-                "number": 5,
+                "number": 4,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_INT64"
               }
@@ -1958,11 +1811,6 @@
               {
                 "name": "last",
                 "type": "String",
-                "is_final": true
-              },
-              {
-                "name": "runtimeType",
-                "type": "Type",
                 "is_final": true
               },
               {

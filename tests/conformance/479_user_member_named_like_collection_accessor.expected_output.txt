@@ -1,12 +1,10 @@
 11
 tail
-String
 [7, 8]
 K
 99
 31
 inner
-double
 Z
 12
 A

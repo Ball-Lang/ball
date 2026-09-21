@@ -263,16 +263,20 @@ cargo fmt --check && cargo clippy --workspace
   variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
   encodes — see below; the guard keys on the missing BODY, not the missing receiver), a
   `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic — the
-  largest remaining bucket), an `impl` whose **self type** is not a plain named type
-  (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
-  files), destructuring patterns (`let Pair(a, b) = p;`), a *reference* to a skipped module-scope
+  largest remaining bucket), an `impl` whose **self type** is a TUPLE or an ARRAY
+  (`impl<I> Trait for (I::Item,)`, `impl Trait for [T; M]` — `types.rs::type_short_name`; a
+  REFERENCE self type is CLOSED by #767, which looks through `&T`/`&mut T` to the referent
+  because Ball has no reference-vs-value distinction, and that halved the bucket 8 -> 4 of the 77
+  scored Tier A files), destructuring patterns (`let Pair(a, b) = p;`), a *reference* to a skipped module-scope
   `const`/`static`/`type` alias (the declaration itself is skipped — see below),
   unmapped macros (the `assert!` family; `write!`/`writeln!` are CLOSED by #630 — see the
   `write!`/`writeln!` bullet further down this section). Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 9 on 2026-09-21 (THREE of them are #632 siblings, and #712 changed *which* three: the
+  prose** — 11 on 2026-09-21, after #767 added two (`.finish()`, a PERMANENT carve-out rather
+  than a backlog item, and the ARRAY half of the `impl` self-type boundary, which had no pin at
+  all beside the tuple half). THREE of the rest are #632 siblings, and #712 changed *which* three: the
   compiled method dispatcher's `ball_message_type_name` scrutinee (#718's unmapped-helper family),
   the spliced MAP literal's `ball_map_create` tail — mapped since #692, but only over a LITERAL
   pair list, so the comprehension's local accumulator is still refused by SHAPE — plus `matches!`,
@@ -301,6 +305,27 @@ cargo fmt --check && cargo clippy --workspace
   `Results: 0 passed, 110 failed, 110 total`; all 14 files simply land on their next gap (7 on
   `write!`). See `rust/AGENTS.md`'s histogram; never let a green `documented_gaps.rs` be read as a
   moved floor. *Destructuring* a tuple struct remains a separate, still-open pattern gap.
+- **Tuple EXPRESSIONS and reference `impl` self types (#767).** `(a, b)` lowers to `std.record` —
+  the universal base function `dart/shared/std.json` declares for a positional record — with
+  components named `"0"`/`"1"`, and `()` to the Ball NULL literal (Rust's "no value", not an empty
+  record). The names are **Rust's own member spelling, not Dart's `$1`/`$2`**, and deliberately
+  so: `encode_field` already renders a `t.0` read that way and `encode_item_struct` declares a
+  tuple STRUCT's fields the same way, while `p.0` on a tuple struct is syntactically
+  indistinguishable from `t.0` on a tuple — so `$1` would have forced re-spelling the tuple-struct
+  fields too. It stays portable because every target treats a component name that is neither `$N`
+  nor `argN` as an opaque key on BOTH the `record` build side and the `field_access` read side.
+  Separately, `types.rs::type_short_name` now looks through `&T`/`&mut T`/`&'a T` to the referent:
+  Ball has no reference-vs-value distinction (`encode_expr` has always encoded `&x` as `x`), so
+  `impl Trait for &Counter` names the same Ball class as `impl Trait for Counter` — nothing is
+  guessed from a name. The consequence to keep in mind is that an inherent `impl Counter { fn f }`
+  and an `impl Trait for &Counter { fn f }` in one file now collide on one owner, exactly as
+  `impl Counter` and `impl Trait for Counter` always have. A TUPLE or ARRAY self type still fails
+  loud. Proofs: `rust/encoder/tests/tuple_expressions.rs` and
+  `rust/encoder/tests/impl_for_reference_self_type.rs` (both encode → compile → `cargo build` →
+  run). **Measured yield:** stage-1 `encoded` **7/77 -> 9/77**, `compiled back` 7 -> 9, histogram
+  exactly conserved (`tuple` 6 -> 0, `impl` self type 8 -> 4); `reencoded` stays **1**, because
+  both newly-arriving files stop at stage 3 on `ball_arg_get` (#790).
+  `tools/coverage-study/baseline.json` is raised on the first two and left alone on the third.
 - **Non-`Fn` items inside an `impl` block are SKIPPED, not thrown on (#491 slice 5).** An
   associated `const`/`type` (or an item-position macro) beside real methods no longer aborts the
   whole file — `types.rs::encode_item_impl` skips it and keeps encoding the block's methods, the
@@ -793,16 +818,19 @@ and its own encoder refuses caps that column no matter how good either half is o
   `src/tests/*.rs` alike are only reached through `#[cfg(test)] mod tests;` — so
   the denominator is **77, not the 110 every #491 histogram in this file and in
   `rust/AGENTS.md` is written against**; read those as history. Honest baseline,
-  **0/77 clean, 7/77 encoded** (1/77 before #630's `write!` slice) — the
-  encoders' documented gaps (proc-macro / `#[derive]` item invocations, the
-  unmapped `assert!` family, `impl` self types that are not a
-  plain named type) are in essentially every real crate file, and a file that
+  **0/77 clean, 9/77 encoded** (1/77 before #630's `write!` slice, 7/77 before
+  #767's tuple + reference-`impl`-self-type slice) — the encoders' documented
+  gaps (proc-macro / `#[derive]` item invocations, the unmapped `assert!` family,
+  `core::fmt`'s `.finish()` debug-builder chain, tuple/array `impl` self types)
+  are in essentially every real crate file, and a file that
   clears one lands on the next. A closed gap category usually moves the
   histogram, not the aggregate; the crate-aware slice was the first one to move
   the aggregate at all, and it moved it by one file, then #630's `write!` slice
-  took it 1 -> 7. `clean` has never moved and #630 did not move it either — its
-  remaining walls are **#692** (six of the seven stop at stage 3 on
-  ``unsupported runtime helper `ball_arg_get(...)` ``; this used to read #632, whose own
+  took it 1 -> 7 and #767's 7 -> 9. `clean` has never moved and none of those
+  moved it — its remaining walls are **#790**
+  (``unsupported runtime helper `ball_arg_get(...)` `` stops EVERY file that
+  reaches stage 3, which is why #767 raised `encoded`/`compiledBack` and left
+  `reencoded` at 1; this used to read #632, whose own
   wall #685 closed on main while #630 was open — re-measure before quoting one) and
   declaration drift. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
   `strsim` (`tools/coverage-study/packages/rust.json`), not the original 10-crate

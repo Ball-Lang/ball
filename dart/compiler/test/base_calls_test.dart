@@ -742,10 +742,22 @@ void main() {
         );
       }
     });
-    test('unsupported std function emits marker', () {
+    // Issue #654: the `std` switch's default arm fails loud like every
+    // other module's. A comment spliced where an expression belongs is
+    // the silent degradation CLAUDE.md bans.
+    test('an undeclared std function fails loud', () {
       expect(
-        _compile(_call('std', 'totally_unknown_fn', [])),
-        contains('/* unsupported: std.totally_unknown_fn */'),
+        () => _compile(_call('std', 'totally_unknown_fn', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains(
+              'std.totally_unknown_fn is not implemented by the Dart '
+              'compiler',
+            ),
+          ),
+        ),
       );
     });
   });

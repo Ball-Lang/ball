@@ -223,6 +223,29 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `python/compiler/tests/test_final_field_setter.py` (including the negative control) and fixture
   `472_initializer_list_field_with_setter` in `test_conformance.py`'s `PROVEN` list.
 
+- **Every hardcoded base-function dispatch name must be DECLARED, and a gate says so (#743).**
+  Base functions are implemented here by name (`fn == "sink_write"`, `fn in table_2`,
+  `str_1[fn]`), and nothing used to compare those names against the canonical builders. The `str_1`
+  table grew a `string_from_char_codes` (PLURAL) arm that no `dart/shared/lib/std*.dart` builder
+  declares, no encoder in the repo emits and the Dart reference engine does not dispatch —
+  unreachable in both directions, so neither `python/compiler`'s suite nor the conformance corpus
+  nor `check_encoder_completeness.dart` could ever see it, and #702's reverse closed set could not
+  either (its three populations are the Dart engine's dispatch map, the capability table and the
+  fixture corpus — a name only the Python compiler mentions is in none of them). It was DELETED,
+  not declared: the only real thing with that spelling is Dart's SDK static
+  `String.fromCharCodes`, which the compiler's `_BUILTIN_STATIC` table already serves. Never
+  conflate the two surfaces — `_BUILTIN_STATIC` maps Dart-SDK statics (`int.tryParse`,
+  `List.filled`, `String.fromCharCodes`) reached through `builtin_static`, while the `base_expr`
+  tables implement DECLARED `std` base functions. `python/compiler/tests/test_declared_base_functions.py`
+  is the guard (the Python sibling of #505's `std_routed_declarations_test.dart` and #607's
+  `cpp/test/check_declared_base_functions.py`): it AST-parses `compiler.py`, derives the dispatcher
+  set from the source, and fails on any name neither declared in
+  `tests/conformance/std_coverage.json` for a module that dispatcher serves nor a still-live entry
+  in the frozen, ratchet-only `declared_base_functions_known_gaps.txt`. That file is NOT a place to
+  put a new name — it freezes the six measured, cross-target spellings (`for_each`,
+  `parenthesized`, `null_aware_index`, `set_create`, the `*_than_or_equal` pair) and can only
+  shrink.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →

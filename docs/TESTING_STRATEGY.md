@@ -1149,6 +1149,27 @@ why the guard belongs in the shared conformance fixture rather than in a
 target-local test alone. When two tables answer one predicate, check they have
 the same REACH before treating either as proof.
 
+#### A guard applied to SOME of the shortcuts it should cover
+
+`declared_by_receiver` reached seven names after #664 and #697 (`length`,
+`isEmpty`, `isNotEmpty`, `isNaN`, `isFinite`, `isInfinite`, `isNegative`) — and
+`compile_field_access` carried **six more shortcuts of exactly the same shape**
+that it did not reach: `.first`, `.last`, `.runtimeType`, `.entries`, `.keys`,
+`.values` (#787). Nothing was red, because the seven that were guarded had
+fixtures and the six that were not had none. A guard is not proven by the names
+it covers; the measurable claim is about the SET the guard is applied to, and
+the only instrument that can see a missing member of that set is an enumeration
+of the set itself. The failure modes differed within the six, which is why
+per-name coverage mattered rather than one representative: `.entries` / `.keys`
+/ `.runtimeType` answered the wrong VALUE, while `.first` / `.last` lowered to
+`obj.front()` / `obj.back()` and the program did not COMPILE at all — a shape a
+"wrong output" expectation would not even have described.
+`tests/conformance/479_user_member_named_like_collection_accessor` is the gate,
+and it carries both declaration shapes (field and getter) because the
+compiler's fall-through resolves them through different paths — and `.values`
+is served correctly for a getter and wrongly for a field, so a fixture with only
+one shape would have pinned the wrong half of it.
+
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 
 `std_concurrency` shipped nine declared base functions, a dispatch arm in the

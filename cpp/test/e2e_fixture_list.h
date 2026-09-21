@@ -342,6 +342,7 @@ inline const std::vector<std::string>& program_names() {
         "476_user_member_named_like_builtin_accessor",
         "477_std_concurrency_handles",
         "478_setter_backing_store_disambiguation",
+        "479_user_member_named_like_collection_accessor",
     };
     return names;
 }

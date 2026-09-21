@@ -4313,6 +4313,148 @@ TEST(numeric_predicate_on_a_class_without_it_keeps_its_shortcut) {
     ASSERT_CONTAINS(out, "ball_isNaN((*this))");
 }
 
+// ================================================================
+// Tests — a COLLECTION-accessor name a class DECLARES (issue #787)
+// ================================================================
+
+// `.first` / `.last` / `.runtimeType` / `.entries` / `.keys` / `.values` are the
+// six sibling shortcuts further down `compile_field_access`, and they still
+// fired UNCONDITIONALLY after #664 and #697 had guarded `length` and the numeric
+// predicates. A class declaring one of them as a plain data member therefore
+// read back the map/iterable emulation instead of the member — and `.first` /
+// `.last` did not even BUILD, since they lower to `obj.front()` / `obj.back()`,
+// member functions no emitted struct declares. The same PROVABLE-receiver guard
+// now covers all six. Cross-target fixture:
+// 479_user_member_named_like_collection_accessor.
+TEST(collection_accessor_on_a_class_that_declares_it_is_the_field) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "first"}, {"type", "int"}},
+                                  json{{"name", "last"}, {"type", "String"}},
+                                  json{{"name", "runtimeType"},
+                                       {"type", "Type"}},
+                                  json{{"name", "entries"},
+                                       {"type", "List<int>"}},
+                                  json{{"name", "keys"}, {"type", "String"}},
+                                  json{{"name", "values"}, {"type", "int"}}});
+    auto td = cov_class_td("main:Collected",
+                           {{"first", "TYPE_INT64"},
+                            {"last", "TYPE_STRING"},
+                            {"runtimeType", "TYPE_STRING"},
+                            {"entries", "TYPE_STRING"},
+                            {"keys", "TYPE_STRING"},
+                            {"values", "TYPE_INT64"}},
+                           std::move(meta));
+
+    std::vector<json> fns;
+    for (const std::string name :
+         {"first", "last", "runtimeType", "entries", "keys", "values"}) {
+        json read_meta;
+        read_meta["kind"] = "method";
+        fns.push_back(cov_class_fn("main:Collected.read_" + name,
+                                   std::move(read_meta),
+                                   field_access(ref("self"), name), "int"));
+    }
+
+    auto prog = cov_class_program({td}, fns);
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "(*this).front()");
+    ASSERT_NOT_CONTAINS(out, "(*this).back()");
+    ASSERT_NOT_CONTAINS(out, "ball_runtime_type_name(BallDyn((*this)))");
+    ASSERT_NOT_CONTAINS(out, "ball_map_entries(BallDyn((*this)))");
+    ASSERT_NOT_CONTAINS(out, "ball_map_keys(BallDyn((*this)))");
+    ASSERT_NOT_CONTAINS(out, "(*this).values()");
+    // A refusal-only test also passes for an emit that dropped the access
+    // entirely, so pin what it must emit INSTEAD: the member read itself.
+    ASSERT_CONTAINS(out, "(*this).first");
+    ASSERT_CONTAINS(out, "(*this).last");
+    ASSERT_CONTAINS(out, "(*this).runtimeType");
+    ASSERT_CONTAINS(out, "(*this).entries");
+    ASSERT_CONTAINS(out, "(*this).keys");
+    ASSERT_CONTAINS(out, "(*this).values");
+}
+
+// The GETTER half of the same six. `emit_struct` re-exposes a getter as a no-arg
+// member function, so the read must lower to that CALL — which is also why
+// `.values` keeps the NARROWER guard: `obj.values()` already named the user's
+// accessor, and only the plain-data-member shape was ever mis-served. This test
+// is the control on that asymmetry: widening `.values` to the full
+// `declared_by_receiver` predicate would drop it through to bracket access
+// (`(*this)["values"s]`), which answers null on a struct receiver.
+TEST(collection_accessor_getter_on_a_class_is_the_accessor_call) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] =
+        json::array({json{{"name", "stored"}, {"type", "int"}}});
+    auto td = cov_class_td("main:Computed", {{"stored", "TYPE_INT64"}},
+                           std::move(meta));
+
+    std::vector<json> fns;
+    for (const std::string name :
+         {"first", "last", "runtimeType", "entries", "keys", "values"}) {
+        json getter_meta;
+        getter_meta["kind"] = "method";
+        getter_meta["is_getter"] = true;
+        fns.push_back(cov_class_fn("main:Computed." + name,
+                                   std::move(getter_meta), lit_int(1), "int"));
+
+        json read_meta;
+        read_meta["kind"] = "method";
+        fns.push_back(cov_class_fn("main:Computed.read_" + name,
+                                   std::move(read_meta),
+                                   field_access(ref("self"), name), "int"));
+    }
+
+    auto prog = cov_class_program({td}, fns);
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "(*this).front()");
+    ASSERT_NOT_CONTAINS(out, "(*this).back()");
+    ASSERT_NOT_CONTAINS(out, "ball_runtime_type_name(BallDyn((*this)))");
+    ASSERT_NOT_CONTAINS(out, "ball_map_entries(BallDyn((*this)))");
+    ASSERT_NOT_CONTAINS(out, "ball_map_keys(BallDyn((*this)))");
+    ASSERT_NOT_CONTAINS(out, "(*this)[\"values\"s]");
+    ASSERT_CONTAINS(out, "(*this).first()");
+    ASSERT_CONTAINS(out, "(*this).last()");
+    ASSERT_CONTAINS(out, "(*this).runtimeType()");
+    ASSERT_CONTAINS(out, "(*this).entries()");
+    ASSERT_CONTAINS(out, "(*this).keys()");
+    ASSERT_CONTAINS(out, "(*this).values()");
+}
+
+// The other direction: a receiver whose class does NOT declare any of the six
+// keeps the emulation it has always had — the guard is a refinement, not a
+// removal. This is the half a fix that simply deleted the shortcuts would fail.
+TEST(collection_accessor_on_a_class_without_it_keeps_its_shortcut) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] =
+        json::array({json{{"name", "payload"}, {"type", "List<int>"}}});
+    auto td = cov_class_td("main:Box", {{"payload", "TYPE_STRING"}},
+                           std::move(meta));
+
+    std::vector<json> fns;
+    for (const std::string name :
+         {"first", "last", "runtimeType", "entries", "keys", "values"}) {
+        json read_meta;
+        read_meta["kind"] = "method";
+        fns.push_back(cov_class_fn("main:Box.probe_" + name,
+                                   std::move(read_meta),
+                                   field_access(ref("self"), name), "int"));
+    }
+
+    auto prog = cov_class_program({td}, fns);
+    auto out = compile_program(prog);
+
+    ASSERT_CONTAINS(out, "(*this).front()");
+    ASSERT_CONTAINS(out, "(*this).back()");
+    ASSERT_CONTAINS(out, "ball_runtime_type_name(BallDyn((*this)))");
+    ASSERT_CONTAINS(out, "ball_map_entries(BallDyn((*this)))");
+    ASSERT_CONTAINS(out, "ball_map_keys(BallDyn((*this)))");
+    ASSERT_CONTAINS(out, "(*this).values()");
+}
+
 // An ordinary (non-shadowing) field on a subclass must be emitted exactly as
 // before: a plain public data member, no backing rename, no accessor pair. This
 // pins the blast radius of the shadow pass to the classes that actually shadow.

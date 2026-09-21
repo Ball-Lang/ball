@@ -123,6 +123,69 @@ public class ReferenceEngineExecutionTests
         Assert.Equal(new[] { "41" }, output);
     }
 
+    /// <summary>
+    /// The compiler's OBJECT MODEL, end to end (issue #689): a typed
+    /// <c>new BallMessage(type, new BallMap { … })</c> instance, an instance-method call packed
+    /// into an untyped <c>new BallMap { ["self"] = … }</c>, the <c>MessageTypeName</c> receiver
+    /// probe the emitted dispatcher opens with, and a <c>FieldSet</c> WRITE that a later read
+    /// must observe.
+    ///
+    /// <para>This source is <c>Ball.Compiler</c>'s own emission shape, trimmed — compiling
+    /// <c>tests/conformance/101_simple_class.ball.json</c> produces exactly these constructs (a
+    /// descriptor class per Ball type, one dispatcher per method name, <c>__t</c> compared
+    /// against the full <c>module:Type</c> name and the short one). The assertion is a POSITIVE
+    /// result on the Dart reference engine, not merely "it did not throw": <c>3!</c> proves the
+    /// dispatcher resolved the receiver's type and read its field, and <c>9!</c> proves the
+    /// field write landed on the SAME shared instance rather than on a copy.</para>
+    ///
+    /// <para>The dispatcher is what makes <c>MessageTypeName</c> → <c>std.type_of</c> testable at
+    /// all: the probe's value is never printed, only compared, so only a run can show that the
+    /// comparison the compiler emitted still selects the right arm.</para>
+    /// </summary>
+    private const string ObjectModelSource = """
+        using Ball.Shared;
+        using static Ball.Shared.BallValue;
+
+        internal static class BallProgram
+        {
+            // Ball type main:Point — the compiler's descriptor shape.
+            public sealed class Point
+            {
+                public BallValue? x { get; set; }
+            }
+
+            public static BallValue describe(BallValue input)
+            {
+                var __self = BallRuntime.FieldGet(input, "self");
+                var __t = BallRuntime.MessageTypeName(__self);
+                if (__t == "main:Point" || __t == "Point") return Point__describe(input);
+                return BallRuntime.ToStringValue(__self);
+            }
+
+            private static BallValue Point__describe(BallValue __in0)
+            {
+                var self__L0 = BallRuntime.FieldGet(__in0, "self");
+                return BallRuntime.Add(BallRuntime.ToStringValue(BallRuntime.FieldGet(self__L0, "x")), Str("!"));
+            }
+
+            public static void Main(string[] args)
+            {
+                var p__L1 = (BallValue)new BallMessage("main:Point", new BallMap { ["x"] = Int(3L) });
+                BallRuntime.Print(describe((BallValue)new BallMap { ["self"] = p__L1 }));
+                BallRuntime.FieldSet(p__L1, "x", Int(9L));
+                BallRuntime.Print(describe((BallValue)new BallMap { ["self"] = p__L1 }));
+            }
+        }
+        """;
+
+    [Fact]
+    public void CompilerObjectModelRunsOnTheReferenceEngine()
+    {
+        var output = EncodeAndRun(ObjectModelSource);
+
+        Assert.Equal(new[] { "3!", "9!" }, output);
+    }
+
     // ── harness ───────────────────────────────────────────────────────────
 
     private static readonly JsonFormatter JsonFormat = new(JsonFormatter.Settings.Default);

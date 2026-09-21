@@ -703,6 +703,29 @@ compile items so the sibling projects never double-compile each other's files.
   the `engine` leg is what CI gates on; quote its `Results:` line, not a hand-maintained count.
   Its mismatch reporting goes through `Fixtures.DescribeMismatch` (first **differing** line, never
   line 0) and is pinned by `engine/test/MismatchDescriptionTests.cs`.
+- **The round-trip leg launches the Dart reference CLI ONCE per sweep, never once per fixture
+  (#784).** `DartCli.Prepare` AOT-compiles `dart/cli/bin/ball.dart` into the leg's temp directory
+  and `DartCli.PlanFor` then names that executable plus `["run", <ball.json>]` — no shell, no
+  interpreter, no `.dart` script. It used to spend a `dart run dart/cli/bin/ball.dart run …` per
+  fixture, on Windows through `cmd.exe /c` (.NET's `Process.Start` resolves a bare command via
+  `CreateProcess`, which does not apply `PATHEXT` to find the SDK's `dart.bat` shim — that reason
+  is real, it is simply paid once now). `dart run` of a package script re-resolves the package
+  config and pays JIT front-end work EVERY time: **15.8 s warm / 25–31 s cold** on the Windows
+  machine that filed #784 and **12.6 s warm** on an ubuntu-latest runner, where a `dart run` of a
+  NONEXISTENT path still costs 23 s — essentially all startup, none of it the program. Against the
+  30 s per-fixture cap that turned ~14 fixtures CI counted as PASS into local `TIMEOUT`s, so the
+  **Windows-reported number was not a proxy for the gated CI number** (81 vs 95 on the same
+  commit). A prepared native executable runs the same fixture in **42–74 ms**, so the ~26 s
+  one-time compile pays for itself after about two fixtures of a 350+ corpus. Two consequences to
+  keep: the 30 s cap now budgets a fixture's own EXECUTION, which is what the no-fixture-may-hang
+  gate (#693) needs it to mean — do NOT raise it to paper over launch latency; and a failed
+  preparation is a loud exit-1 printing no `Results:` line (itself a hard error in
+  `tools/ci/roundtrip_floor.sh`), never a sweep of `dart exec:` errors that read like encoder gaps.
+  `engine/test/DartCliLaunchTests.cs` is the guard, and its timing half SELF-CALIBRATES — four
+  prepared launches must cost less than ONE warm `dart run` measured on the same machine — so it
+  carries no absolute millisecond constant to rot across runners. `csharp/encoder/test/
+  ReferenceEngineExecutionTests.cs` keeps the per-test `cmd.exe /c dart run` shape on purpose: four
+  tests, not a corpus sweep, and it undercounts nothing.
 - `csharp/cli/test/CliCoreParityTests.cs` is the golden-fixture parity gate against the real Dart
   CLI (checked-in `.txt` goldens in `test/golden/cli_core/`) — the C# analog of
   `rust/cli/tests/cli_core_parity.rs`.

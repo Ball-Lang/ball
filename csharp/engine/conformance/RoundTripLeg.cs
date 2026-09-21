@@ -36,8 +36,20 @@ internal static class RoundTripLeg
         try
         {
             // Prepared ONCE for the whole sweep; every fixture below then costs a
-            // single process spawn (issue #784).
-            var dartCli = DartCli.Prepare(dartExecutable, tempDir.FullName);
+            // single process spawn (issue #784). A preparation failure aborts the
+            // leg loudly — printing no `Results:` line, which is itself a hard
+            // error in tools/ci/roundtrip_floor.sh — rather than reporting a
+            // corpus of `dart exec:` errors that read like encoder gaps.
+            DartCli dartCli;
+            try
+            {
+                dartCli = DartCli.Prepare(dartExecutable, tempDir.FullName);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"round-trip leg: cannot prepare the Dart reference CLI: {ex.Message}");
+                return 1;
+            }
 
             foreach (var name in names)
             {

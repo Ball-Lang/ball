@@ -73,8 +73,9 @@ outputs:
   matrix_self:
     description: >-
       true when the diff touches the conformance matrix's OWN definition —
-      .github/workflows/conformance-matrix.yml or tools/ci/roundtrip_floor.sh.
-      Both are in that workflow's `paths:` filter (#642), and EVERY row ORs this
+      .github/workflows/conformance-matrix.yml, tools/ci/roundtrip_floor.sh or
+      tools/ci/compiler_floor.sh. All three are in that workflow's `paths:` filter
+      (#642, #792), and EVERY row ORs this
       in: a change to the matrix definition can move any row, and without the
       signal such a PR would start the workflow with every row's `if:` false.
     value: ${{ steps.detect.outputs.matrix_self }}

@@ -212,16 +212,17 @@ ball_classify_stacks() {
   if m '^dart/(engine|shared|compiler|self_host)/'; then dart_core=true; fi
 
   # matrix_self = the conformance matrix's OWN definition: the workflow file and
-  # the shared gate script its round-trip rows invoke. Both are in the workflow's
-  # `paths:` filter since #642 — a PR that only re-floors a row, or only edits
-  # tools/ci/roundtrip_floor.sh, MUST re-run the matrix, or the commit meant to
+  # the two shared gate scripts its rows invoke (tools/ci/roundtrip_floor.sh,
+  # #642; tools/ci/compiler_floor.sh, #792). All three are in the workflow's
+  # `paths:` filter — a PR that only re-floors a row, or only edits one of those
+  # scripts, MUST re-run the matrix, or the commit meant to
   # prove a floor RED proves nothing (an absent check reads as green). They map
   # onto `infra` alone, which no matrix row reads, so without this signal those
   # two entries would start the workflow with every row's `if:` false — the
   # silently-green shape tools/ci/check_matrix_paths.sh exists to catch. Every
   # row ORs this in, because a change to the matrix definition can move ANY row.
   local matrix_self=false
-  if m '^\.github/workflows/conformance-matrix\.yml$|^tools/ci/roundtrip_floor\.sh$'; then matrix_self=true; fi
+  if m '^\.github/workflows/conformance-matrix\.yml$|^tools/ci/(roundtrip|compiler)_floor\.sh$'; then matrix_self=true; fi
 
   out dart '^dart/'
   out ts '^ts/'

@@ -167,6 +167,18 @@ too, without a colour-forced CI leg.
 > name" is the bug-locking test 2b warns about — execute a receiver that can
 > tell the difference instead.
 
+> **A test that pins a REFUSAL is a contract about the encoder, not about the
+> program.** `extension_override_test.dart` asserted that a cross-library
+> extension override warns and falls to the `/* unsupported: … */` placeholder.
+> That test was green, and stayed green, while the shape real code actually
+> writes — an extension declared in another file of the same package — could not
+> be encoded at all (#670). A refusal assertion says "the encoder declines
+> loudly"; it says nothing about whether declining was necessary, so it cannot
+> notice when the decline becomes avoidable. Pair every refusal with a probe
+> that RUNS the construct three ways — natively, on the engine, and compiled
+> back — so the suite states what the program DOES, and the refusal is left
+> covering only the cases where those three cannot be made to agree.
+
 > **An assertion that cannot fail documents an intent; it does not enforce it.**
 > Before adding an assertion, name the concrete change that would make it red. A
 > loop that appends one result per entry of a static table and then asserts

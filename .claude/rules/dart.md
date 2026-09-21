@@ -849,7 +849,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   `dart/encoder/test/extension_override_test.dart`, which now RUNS its encoded
   program on the reference engine — every assertion it had read the COMPILED
   DART, which is why the whole group was green while no engine could write.
-  **The COMPILERS' write half is still open**: only `dart/compiler` re-emits
+  **The COMPILERS' write half is still open (#865)**: only `dart/compiler` re-emits
   `Ext(x).m = v` (the Go compiler emits `ballrt.UnsupportedBaseCall("std",
   "assign")` and gives an extension getter/setter pair two identically-named Go
   funcs; the Python compiler reports `assign: unsupported lvalue`), so

@@ -416,7 +416,7 @@ Only `dart/compiler` re-emits a WRITE through an override today; the other six
 compilers refuse it loudly (measured: Go emits
 `ballrt.UnsupportedBaseCall("std", "assign")`, Python reports
 `assign: unsupported lvalue`), so the write shape is engine-only for now and
-`tests/conformance/479_extension_override_selection` carries no setter arm.
+`tests/conformance/479_extension_override_selection` carries no setter arm (#865).
 
 ---
 

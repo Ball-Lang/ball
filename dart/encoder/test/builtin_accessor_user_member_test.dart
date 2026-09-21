@@ -124,18 +124,30 @@ const expectedBuiltinAccessorGetters = <String>{
 /// one. An assertion written inline against the real table can only ever show
 /// that today's table passes, which is the very same green a gate with no
 /// teeth prints (issue #786).
+///
+/// It is exact SET EQUALITY, not a bound on the size. A count — even one
+/// pinned at the measured value — answers a question about how many names are
+/// routed when the question is which, and it cannot move at all for the
+/// mutation that matters most: one name out, one name in. Both halves are
+/// reported separately so a failure names the mutation rather than a number.
 List<String> closedSetComplaints(Set<String> candidate) {
   final complaints = <String>[];
-  if (candidate.length < expectedBuiltinAccessorGetters.length) {
+  final missing = (expectedBuiltinAccessorGetters.difference(candidate).toList()
+    ..sort());
+  final unexpected =
+      (candidate.difference(expectedBuiltinAccessorGetters).toList()..sort());
+  if (missing.isNotEmpty) {
     complaints.add(
-      'the set holds ${candidate.length} names, below the measured '
-      '${expectedBuiltinAccessorGetters.length}',
+      'no longer routed: $missing — a name that leaves the table also leaves '
+      'the per-name matrix below, which simply gets smaller and stays green',
     );
   }
-  for (final name in const ['isEmpty', 'isNotEmpty']) {
-    if (!candidate.contains(name)) {
-      complaints.add('`$name` is missing');
-    }
+  if (unexpected.isNotEmpty) {
+    complaints.add(
+      'newly routed: $unexpected — add each to `expectedBuiltinAccessorGetters` '
+      'and update the "ten getter names" prose in .claude/rules/dart.md, '
+      'docs/TESTING_STRATEGY.md and dart/encoder/AGENTS.md to match',
+    );
   }
   return complaints;
 }

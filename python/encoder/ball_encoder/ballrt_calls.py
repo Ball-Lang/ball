@@ -93,6 +93,36 @@ INDEX_SET = "index_set"
 #: back as `std.not` over `std.is` — the same test.)
 TYPE_OPS = {"is_type": "is", "as_type": "as"}
 
+# ── The statement lowerings' vocabulary (issue #690) ─────────────────────────
+# `python/compiler` emits a Python `try:` for four distinct reasons, and only
+# one of them is a Ball `std.try` (`compiler.run_try`): the other three are the
+# loop-body break/continue trap (`_loop_body`, `run_forin`), the
+# `except ballrt.BallReturn` function-body wrapper (`emit_body`), and that
+# wrapper's value-less constructor form. `encoder.encode_try` tells them apart
+# by the exception class each handler names, so the names live here beside the
+# rest of the inverse table rather than as literals buried in the recogniser.
+#
+# `python/encoder/tests/test_ballrt_inverse.py` closes them against
+# `python/runtime`: a rename there would otherwise turn every recogniser into a
+# silent no-match, quietly putting the whole corpus back to
+# `unsupported statement Try`.
+
+#: `except ballrt.BallBreak as _brk:` / `except ballrt.BallContinue as _cnt:` —
+#: the trap that turns a Ball `break`/`continue` back into Python's own.
+FLOW_BREAK = "BallBreak"
+FLOW_CONTINUE = "BallContinue"
+#: `except ballrt.BallReturn as _r:` — the function-body return wrapper.
+FLOW_RETURN = "BallReturn"
+#: `except ballrt.BallThrow as _ex:` — the ONE shape that is a real `std.try`.
+FLOW_THROW = "BallThrow"
+#: `ballrt.flow._caught` — the rethrow stack a compiled catch pushes the caught
+#: value onto for the duration of the handler, popped in its own `finally`.
+FLOW_MODULE = "flow"
+CAUGHT_STACK = "_caught"
+#: `ballrt.stack_trace_of(_ex)` — the compiler's spelling of a `catch (e, st)`
+#: clause's SECOND binding, which reads back as the clause's `stack_trace` field.
+STACK_TRACE_OF = "stack_trace_of"
+
 _UNARY = ("value",)
 _BINARY = ("left", "right")
 

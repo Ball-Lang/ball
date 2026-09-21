@@ -252,7 +252,11 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         engine._enumValues = BallDyn(BallMap{});
         engine._constructors = BallDyn(BallMap{});
         engine._callCounts = BallDyn(BallMap{});
-        engine._nextMutexId = 0;
+        // std_concurrency handle tables (issue #608 replaced the single
+        // _nextMutexId counter with three real tables).
+        engine._threadJoined = BallDyn(BallList{});
+        engine._mutexLocked = BallDyn(BallList{});
+        engine._atomicCells = BallDyn(BallList{});
         // Set stdout_ to a function that captures output to a string buffer
         engine.stdout_ = BallDyn(BallFunc([captured](std::any arg) -> std::any {
             *captured += ball_to_string(arg) + "\n";
@@ -508,7 +512,11 @@ static bool run_fs_dir_selfhost(std::string& failure_msg) {
         engine._enumValues = BallDyn(BallMap{});
         engine._constructors = BallDyn(BallMap{});
         engine._callCounts = BallDyn(BallMap{});
-        engine._nextMutexId = 0;
+        // std_concurrency handle tables (issue #608 replaced the single
+        // _nextMutexId counter with three real tables).
+        engine._threadJoined = BallDyn(BallList{});
+        engine._mutexLocked = BallDyn(BallList{});
+        engine._atomicCells = BallDyn(BallList{});
         engine.stdout_ = BallDyn(BallFunc([cap](std::any arg) -> std::any {
             *cap += ball_to_string(arg) + "\n";
             return std::any{};
@@ -716,7 +724,11 @@ static bool run_fs_write_selfhost(std::string& failure_msg) {
         engine._enumValues = BallDyn(BallMap{});
         engine._constructors = BallDyn(BallMap{});
         engine._callCounts = BallDyn(BallMap{});
-        engine._nextMutexId = 0;
+        // std_concurrency handle tables (issue #608 replaced the single
+        // _nextMutexId counter with three real tables).
+        engine._threadJoined = BallDyn(BallList{});
+        engine._mutexLocked = BallDyn(BallList{});
+        engine._atomicCells = BallDyn(BallList{});
         engine.stdout_ = BallDyn(BallFunc([cap](std::any arg) -> std::any {
             *cap += ball_to_string(arg) + "\n";
             return std::any{};

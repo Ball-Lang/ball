@@ -1395,12 +1395,14 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      # 109 -> 121 with #712: the compiler's spliced collection-literal lowering
-      # no longer emits `Vec::new()`/`matches!`, and `ball_iterate`/
-      # `ball_spread_iter` gained their universal-`std` inverses — so every
-      # fixture whose compiled output carries a `for-in` loop or a spliced
-      # literal now re-encodes. Measured by run 35557346693.
-      RUST_ROUNDTRIP_FLOOR: "121"
+      # #712 raised this branch's own measurement 109 -> 121: the compiler's
+      # spliced collection-literal lowering no longer emits `Vec::new()`/
+      # `matches!`, and `ball_iterate`/`ball_spread_iter` gained their
+      # universal-`std` inverses, so every fixture whose compiled output carries
+      # a `for-in` loop or a spliced literal now re-encodes. main reached 124
+      # independently via #692 (#796), so the merged floor is main's higher
+      # number until this PR's own run measures the combined total.
+      RUST_ROUNDTRIP_FLOOR: "124"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1442,10 +1444,13 @@ jobs:
             echo "the Ball -> Rust compiler dispatches through"
             echo "\`ball_lang_shared::runtime::*\` over \`BallValue\`, and the syntactic"
             echo "\`syn\` encoder reads idiomatic hand-written Rust. #692's own two"
-            echo "buckets are CLOSED (the collection constructors and the"
-            echo "\`__ball_register_types\` class prologue); the measured leaders now are"
-            echo "\`ball_arg_get\` (59 fixtures), \`BallFlow::Normal\` (25) and"
-            echo "\`ball_message_type_name\` (21, tracked separately as #718)."
+            echo "buckets are CLOSED — the collection constructors (empty in #739,"
+            echo "\`ball_map_create\`/\`ball_set_create\` in #796), the"
+            echo "\`__ball_register_types\` class prologue, and the is/as registry"
+            echo "(\`ball_is\`/\`is_not\`/\`as\`/\`is_type\`); not one of them appears in the"
+            echo "histogram any more. The measured leaders now are \`ball_arg_get\`"
+            echo "(61 fixtures), \`ball_message_type_name\` (23, tracked separately as"
+            echo "#718), \`ball_unsupported_base_call\` (18) and \`ball_iterate\` (16)."
             echo "The method-dispatcher \`panic!\` sub-case is #632, a different metric."
           } > "$RUNNER_TEMP/roundtrip.note"
 

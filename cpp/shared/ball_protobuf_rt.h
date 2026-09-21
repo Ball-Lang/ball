@@ -5820,6 +5820,138 @@ inline void ball_object_set_field(BallDyn obj, const std::string& field,
   obj.setField(field, val);
 }
 
+// ── std_concurrency runtime (single-threaded handle tables, #606/#608) ──
+// A handle is an OPAQUE 1-based index into one of these tables; a portable
+// program may compare handles, never depend on their numbering. The semantics
+// mirror dart/engine/lib/engine_std.dart exactly, so an interpreted and a
+// compiled program answer identically. (The cross-target fixture is named on
+// compile_concurrency_call instead: THIS comment is spliced verbatim into
+// cpp/shared/ball_protobuf_rt.h, so a fixture NUMBER here would make that
+// committed artifact stale on every renumber.) Before #607 this module
+// compiled to DECLARATION STATEMENTS (`std::thread _thread(...)`,
+// `std::mutex _mtx`) spliced where a value was expected, so the declared
+// `-> int` of thread_spawn/mutex_create could not be honoured at all.
+inline std::vector<bool>& _ball_threads() { static std::vector<bool> v; return v; }
+inline std::vector<bool>& _ball_mutexes() { static std::vector<bool> v; return v; }
+inline std::vector<BallDyn>& _ball_atomics() { static std::vector<BallDyn> v; return v; }
+
+inline int64_t _ball_concurrency_handle(int64_t handle, const char* fn, size_t count) {
+  if (handle < 1 || handle > static_cast<int64_t>(count)) {
+    // NOTE: this block is spliced into every emitted program from a C++ RAW
+    // STRING, so no message here may contain the sequence `)` immediately
+    // followed by `"` - that ends the raw string early and closes `namespace
+    // ball` in the middle of the file. Hence "; handles 1..N" rather than a
+    // parenthetical.
+    throw std::runtime_error(std::string("std_concurrency.") + fn + ": " +
+        std::to_string(handle) + " is not a live handle; handles 1.." +
+        std::to_string(count) + " have been created");
+  }
+  return handle;
+}
+
+// Runs a concurrency body callback and normalises its result to BallDyn. A Ball
+// lambda compiles to a C++ closure whose return type is DEDUCED, and a
+// statement body deduces to void — so the void case must be handled rather
+// than assumed away.
+template <class F>
+inline BallDyn _ball_run_concurrency_body(F&& body) {
+  if constexpr (std::is_void_v<decltype(body(BallDyn()))>) {
+    body(BallDyn());
+    return BallDyn();
+  } else {
+    return BallDyn(body(BallDyn()));
+  }
+}
+
+template <class F>
+inline int64_t _ball_thread_spawn(F&& body) {
+  _ball_run_concurrency_body(body);
+  _ball_threads().push_back(false);
+  return static_cast<int64_t>(_ball_threads().size());
+}
+
+inline BallDyn _ball_thread_join(int64_t handle) {
+  int64_t h = _ball_concurrency_handle(handle, "thread_join", _ball_threads().size());
+  if (_ball_threads()[static_cast<size_t>(h - 1)]) {
+    throw std::runtime_error("std_concurrency.thread_join: thread handle " +
+        std::to_string(h) + " was already joined");
+  }
+  _ball_threads()[static_cast<size_t>(h - 1)] = true;
+  return BallDyn();
+}
+
+inline int64_t _ball_mutex_create() {
+  _ball_mutexes().push_back(false);
+  return static_cast<int64_t>(_ball_mutexes().size());
+}
+
+inline void _ball_lock_mutex(int64_t h, const char* fn) {
+  if (_ball_mutexes()[static_cast<size_t>(h - 1)]) {
+    throw std::runtime_error(std::string("std_concurrency.") + fn +
+        ": mutex handle " + std::to_string(h) + " is already locked - this "
+        "target runs single-threaded, so no other thread can ever release it");
+  }
+  _ball_mutexes()[static_cast<size_t>(h - 1)] = true;
+}
+
+inline void _ball_unlock_mutex(int64_t h, const char* fn) {
+  if (!_ball_mutexes()[static_cast<size_t>(h - 1)]) {
+    throw std::runtime_error(std::string("std_concurrency.") + fn +
+        ": mutex handle " + std::to_string(h) + " is not locked");
+  }
+  _ball_mutexes()[static_cast<size_t>(h - 1)] = false;
+}
+
+inline BallDyn _ball_mutex_lock(int64_t handle) {
+  _ball_lock_mutex(
+      _ball_concurrency_handle(handle, "mutex_lock", _ball_mutexes().size()),
+      "mutex_lock");
+  return BallDyn();
+}
+
+inline BallDyn _ball_mutex_unlock(int64_t handle) {
+  _ball_unlock_mutex(
+      _ball_concurrency_handle(handle, "mutex_unlock", _ball_mutexes().size()),
+      "mutex_unlock");
+  return BallDyn();
+}
+
+template <class F>
+inline BallDyn _ball_scoped_lock(int64_t handle, F&& body) {
+  int64_t h = _ball_concurrency_handle(handle, "scoped_lock", _ball_mutexes().size());
+  _ball_lock_mutex(h, "scoped_lock");
+  BallDyn v = _ball_run_concurrency_body(body);
+  _ball_unlock_mutex(h, "scoped_lock");
+  return v;
+}
+
+inline int64_t _ball_atomic_create(BallDyn value) {
+  _ball_atomics().push_back(value);
+  return static_cast<int64_t>(_ball_atomics().size());
+}
+
+inline BallDyn _ball_atomic_load(int64_t handle) {
+  return _ball_atomics()[static_cast<size_t>(
+      _ball_concurrency_handle(handle, "atomic_load", _ball_atomics().size()) - 1)];
+}
+
+inline BallDyn _ball_atomic_store(int64_t handle, BallDyn value) {
+  _ball_atomics()[static_cast<size_t>(
+      _ball_concurrency_handle(handle, "atomic_store", _ball_atomics().size()) - 1)] = value;
+  return BallDyn();
+}
+
+inline bool _ball_atomic_compare_exchange(int64_t handle, BallDyn expected, BallDyn value) {
+  int64_t h = _ball_concurrency_handle(
+      handle, "atomic_compare_exchange", _ball_atomics().size());
+  size_t i = static_cast<size_t>(h - 1);
+  if (_ball_atomics()[i] == expected) {
+    _ball_atomics()[i] = value;
+    return true;
+  }
+  return false;
+}
+
 // List/Map copy helpers for List.of / Map.from
 // Std function to operator mapping (used by _tryOperatorOverride).
 // Must be a BallMap (std::map<string, any>) — the engine reads it via

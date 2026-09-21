@@ -1,0 +1,43 @@
+# Base functions cpp/compiler/src/compiler.cpp implements by hardcoded name that
+# NO dart/shared/lib/std*.dart builder declares.
+#
+# cpp/test/check_declared_base_functions.py (ci.yml's always-on `proto` job)
+# fails when a module-scoped `compile_*_call` dispatcher tests for a name that is
+# neither declared in tests/conformance/std_coverage.json nor listed here — so a
+# NEW undeclared name can never slip in again (issue #607, the C++ sibling of
+# issue #505's dart/shared/test/std_routed_declarations_test.dart).
+#
+# This file freezes the drift that already exists, MEASURED by running the guard
+# with an empty list, never assumed. It started at 27 names; 22 of them
+# (`cascade`, `spread`, `record`, `string_interpolation`, `switch_expr`,
+# `type_literal`, the `null_aware_*` family, the `*_to_double` family, …) are
+# gone because `main` DECLARED them while this branch was open — the canonical
+# inventory grew from 275 to 305 functions — and the ratchet below is what
+# forced them out rather than letting them rot as a passing exemption. The three
+# `std_concurrency` names #607 was filed about (`thread_detach`, `unique_lock`,
+# `atomic_fetch_add`) were never here: they were deleted with the same change,
+# because the canonical builder wins and nothing anywhere consumed them.
+#
+# It is a RATCHET, not a dumping ground. The guard also fails when an entry is
+# now declared, or names a function the compiler no longer implements, so the
+# list can only shrink. To close one: declare the function in the relevant
+# dart/shared/lib/std*.dart builder, regenerate the inventory
+# (`cd dart/shared && dart run bin/gen_std.dart` plus
+# `cd dart/encoder && dart run bin/gen_std_coverage.dart`), and delete its line.
+#
+# Not done in the same change as the guard on purpose: a declaration is not a
+# C++-local edit. It ripples through every compiler, every engine, the capability
+# table, the std-output-type contract gate and the coverage inventory. The five
+# that remain are constructors and accessors whose place in the declared surface
+# is a design question, not a typo — `set_create` and `string_join` shadow
+# `std_collections` declarations under the `std` module name, `map_create` is
+# declared by neither module, and `timestamp_ms` overlaps `std_time`'s declared
+# clock surface.
+#
+# One `<module>.<function>` per line; `#` starts a comment.
+
+std.null_aware_index
+std.set_create
+std.string_join
+std_collections.map_create
+std_time.timestamp_ms

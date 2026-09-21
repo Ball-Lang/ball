@@ -813,18 +813,15 @@ TEST(compile_negate) {
 }
 
 // ================================================================
-// Tests — Gap closures (concurrency + conversion operators)
+// Tests — Gap closures (conversion operators)
+//
+// `compile_std_concurrency_mutex_lock` used to live here, asserting `.lock()`
+// was appended to a `mutex` field. Issue #607 changed both halves of that: the
+// declared input for `mutex_lock` is `UnaryInput` (field `value`, not `mutex`),
+// and the emission is a helper call over the handle tables rather than a method
+// appended to whatever text the field held. The whole module's dispatch is
+// covered together in `compile_std_concurrency_*` further down.
 // ================================================================
-
-TEST(compile_std_concurrency_mutex_lock) {
-    auto prog = build_program(
-        call("std_concurrency", "mutex_lock", make_msg("LockInput", {
-            {"mutex", ref("mtx")}
-        }))
-    );
-    auto out = compile_program(prog);
-    ASSERT_CONTAINS(out, ".lock()");
-}
 
 TEST(compile_conversion_operator_method) {
     json program;
@@ -1816,69 +1813,107 @@ TEST(compile_cpp_std_scope_exit_and_destructor) {
 }
 
 // ================================================================
-// Tests — remaining std_concurrency dispatch (compile_concurrency_call)
-// beyond the pre-existing mutex_lock coverage.
+// Tests -- std_concurrency dispatch (compile_concurrency_call)
+//
+// Issue #607 rewrote this dispatch. Every arm now lowers to a HELPER CALL over
+// the emitted preamble's handle tables, because the previous emission produced
+// declaration STATEMENTS (`std::thread _thread(...)`, `std::mutex _mtx`) where
+// a value was expected -- so `let h = thread_spawn(...)` could not honour the
+// declared `-> int`. The three functions that dispatch used to implement but no
+// module builder declares (`thread_detach`, `unique_lock`, `atomic_fetch_add`)
+// are gone with their tests; cpp/test/check_declared_base_functions.py is the
+// gate that keeps this set and dart/shared/lib/std_concurrency.dart in sync.
+//
+// These assert on emitted TEXT. The behavioural half -- that the emitted
+// program actually runs and prints the right answers -- is conformance fixture
+// 477_std_concurrency_handles, wired into cpp/test/e2e_fixture_list.h.
 // ================================================================
 
-TEST(compile_std_concurrency_thread_spawn_join_detach) {
-    auto spawn = build_program(call("std_concurrency", "thread_spawn", make_msg("", {
+TEST(compile_std_concurrency_threads) {
+    auto spawn = build_program(call("std_concurrency", "thread_spawn", make_msg("ThreadInput", {
         {"body", print_call(lit_string("running"))}
     })));
-    ASSERT_CONTAINS(compile_program(spawn), "std::thread ");
+    ASSERT_CONTAINS(compile_program(spawn), "_ball_thread_spawn(");
 
     auto join = build_program(
-        call("std_concurrency", "thread_join", make_msg("", {{"handle", ref("t")}})));
-    ASSERT_CONTAINS(compile_program(join), ".join()");
-
-    auto detach = build_program(
-        call("std_concurrency", "thread_detach", make_msg("", {{"handle", ref("t")}})));
-    ASSERT_CONTAINS(compile_program(detach), ".detach()");
+        call("std_concurrency", "thread_join", make_msg("UnaryInput", {{"value", ref("t")}})));
+    ASSERT_CONTAINS(compile_program(join), "_ball_thread_join(");
 }
 
-TEST(compile_std_concurrency_mutex_create_and_unlock) {
-    auto create = build_program(call("std_concurrency", "mutex_create", make_msg("", {
-        {"name", lit_string("mtx")}
-    })));
-    ASSERT_CONTAINS(compile_program(create), "std::mutex ");
+TEST(compile_std_concurrency_mutexes) {
+    auto create = build_program(call("std_concurrency", "mutex_create", make_msg("MutexInput", {})));
+    ASSERT_CONTAINS(compile_program(create), "_ball_mutex_create()");
+
+    auto lock = build_program(
+        call("std_concurrency", "mutex_lock", make_msg("UnaryInput", {{"value", ref("mtx")}})));
+    ASSERT_CONTAINS(compile_program(lock), "_ball_mutex_lock(");
 
     auto unlock = build_program(
-        call("std_concurrency", "mutex_unlock", make_msg("", {{"mutex", ref("mtx")}})));
-    ASSERT_CONTAINS(compile_program(unlock), ".unlock()");
-}
+        call("std_concurrency", "mutex_unlock", make_msg("UnaryInput", {{"value", ref("mtx")}})));
+    ASSERT_CONTAINS(compile_program(unlock), "_ball_mutex_unlock(");
 
-TEST(compile_std_concurrency_scoped_and_unique_lock) {
-    auto scoped = build_program(call("std_concurrency", "scoped_lock", make_msg("", {
+    auto scoped = build_program(call("std_concurrency", "scoped_lock", make_msg("LockInput", {
         {"mutex", ref("mtx")}, {"body", print_call(lit_string("critical"))}
     })));
-    ASSERT_CONTAINS(compile_program(scoped), "lock_guard<std::mutex>");
-
-    auto unique = build_program(call("std_concurrency", "unique_lock", make_msg("", {
-        {"mutex", ref("mtx")}, {"name", lit_string("lk")}
-    })));
-    ASSERT_CONTAINS(compile_program(unique), "unique_lock<std::mutex>");
+    ASSERT_CONTAINS(compile_program(scoped), "_ball_scoped_lock(");
 }
 
 TEST(compile_std_concurrency_atomics) {
-    auto load = build_program(print_call(std_unary("to_string",
-        call("std_concurrency", "atomic_load", make_msg("", {{"value", ref("x")}})))));
-    ASSERT_CONTAINS(compile_program(load), ".load()");
-
-    auto store = build_program(call("std_concurrency", "atomic_store", make_msg("", {
-        {"value", ref("x")}, {"new_value", lit_int(5)}
+    auto create = build_program(call("std_concurrency", "atomic_create", make_msg("AtomicInput", {
+        {"value", lit_int(7)}
     })));
-    ASSERT_CONTAINS(compile_program(store), ".store(");
+    ASSERT_CONTAINS(compile_program(create), "_ball_atomic_create(");
+
+    auto load = build_program(print_call(std_unary("to_string",
+        call("std_concurrency", "atomic_load", make_msg("UnaryInput", {{"value", ref("x")}})))));
+    ASSERT_CONTAINS(compile_program(load), "_ball_atomic_load(");
+
+    auto store = build_program(call("std_concurrency", "atomic_store", make_msg("AtomicOpInput", {
+        {"atomic", ref("x")}, {"value", lit_int(5)}
+    })));
+    ASSERT_CONTAINS(compile_program(store), "_ball_atomic_store(");
 
     auto cmpxchg = build_program(print_call(std_unary("to_string",
-        call("std_concurrency", "atomic_compare_exchange", make_msg("", {
-            {"value", ref("x")}, {"expected", ref("e")}, {"desired", ref("d")}
+        call("std_concurrency", "atomic_compare_exchange", make_msg("AtomicOpInput", {
+            {"atomic", ref("x")}, {"expected", ref("e")}, {"value", ref("d")}
         })))));
-    ASSERT_CONTAINS(compile_program(cmpxchg), ".compare_exchange_strong(");
+    ASSERT_CONTAINS(compile_program(cmpxchg), "_ball_atomic_compare_exchange(");
+}
 
-    auto fetch_add = build_program(print_call(std_unary("to_string",
-        call("std_concurrency", "atomic_fetch_add", make_msg("", {
-            {"value", ref("x")}, {"delta", lit_int(1)}
-        })))));
-    ASSERT_CONTAINS(compile_program(fetch_add), ".fetch_add(");
+// The fail-loud half of the same dispatch. Before #607 both of these cases
+// produced OUTPUT instead of an error: a missing field became a default
+// identifier (`"x"`, `"mtx"`, `"t"`) spliced into the emission, and an
+// undeclared name fell through to `/* std_concurrency.<fn> */` — a comment
+// where a value was expected, so the GENERATED program failed to compile with
+// an error pointing nowhere near the real mistake. The Dart compiler's
+// siblings are in `dart/compiler/test/std_concurrency_test.dart`.
+static std::string compile_expecting_throw(const json& prog) {
+    try {
+        compile_program(prog);
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    throw std::runtime_error(
+        "expected compile_program to throw, but it returned normally");
+}
+
+TEST(compile_std_concurrency_missing_field_fails_loud) {
+    // `atomic_store` declares AtomicOpInput{atomic, value}; drop `value`.
+    auto prog = build_program(call("std_concurrency", "atomic_store",
+        make_msg("AtomicOpInput", {{"atomic", ref("x")}})));
+    auto msg = compile_expecting_throw(prog);
+    ASSERT_CONTAINS(msg, "std_concurrency.atomic_store");
+    ASSERT_CONTAINS(msg, "value");
+}
+
+TEST(compile_std_concurrency_undeclared_function_fails_loud) {
+    // `atomic_fetch_add` is one of the three names #607 deleted: no module
+    // builder declares it, so it must not compile to anything at all.
+    auto prog = build_program(call("std_concurrency", "atomic_fetch_add",
+        make_msg("AtomicOpInput", {{"atomic", ref("x")}, {"value", lit_int(1)}})));
+    auto msg = compile_expecting_throw(prog);
+    ASSERT_CONTAINS(msg, "std_concurrency.atomic_fetch_add");
+    ASSERT_CONTAINS(msg, "is not a base function");
 }
 
 // ================================================================
@@ -4182,6 +4217,79 @@ TEST(numeric_predicate_on_a_class_that_declares_it_is_the_field) {
     ASSERT_NOT_CONTAINS(out, "ball_isFinite((*this))");
     ASSERT_NOT_CONTAINS(out, "ball_isInfinite((*this))");
     ASSERT_NOT_CONTAINS(out, "ball_isNegative((*this))");
+    // An emit that dropped the access entirely would satisfy every refusal
+    // above, so pin what it must emit INSTEAD: the member read itself.
+    ASSERT_CONTAINS(out, "(*this).isNaN");
+    ASSERT_CONTAINS(out, "(*this).isFinite");
+    ASSERT_CONTAINS(out, "(*this).isInfinite");
+    ASSERT_CONTAINS(out, "(*this).isNegative");
+}
+
+// #697 follow-up: the same predicate reached through INHERITANCE. The getter
+// table is flattened over the chain when the metadata is built, so an inherited
+// GETTER named `isNaN` was already provable — but `class_own_fields_by_sname_`
+// is, by name and by construction, strictly this class's OWN descriptor fields.
+// So a plain data field declared by the BASE and read through a subclass
+// receiver proved nothing, the shortcut fired, and `child.isNaN` compiled to
+// `ball_isNaN(child)` — "is this OBJECT a NaN double", always false — instead
+// of reading the member. Same family as the own-field case above, reached from
+// the one side its table could not see. The cross-target guard is conformance
+// 476_user_member_named_like_builtin_accessor's `CountedChild` half.
+TEST(numeric_predicate_inherited_from_a_base_class_is_the_field) {
+    json base_meta;
+    base_meta["kind"] = "class";
+    base_meta["fields"] =
+        json::array({json{{"name", "isNaN"}, {"type", "bool"}}});
+    auto base_td =
+        cov_class_td("main:Base", {{"isNaN", "TYPE_BOOL"}},
+                     std::move(base_meta));
+
+    // The subclass declares NOTHING of its own — the member is purely
+    // inherited, which is exactly the shape the own-fields table misses.
+    json child_meta;
+    child_meta["kind"] = "class";
+    child_meta["superclass"] = "Base";
+    auto child_td = cov_class_td("main:Child", {}, std::move(child_meta));
+
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn("main:Child.read", std::move(read_meta),
+                                field_access(ref("self"), "isNaN"), "bool");
+
+    auto prog = cov_class_program({base_td, child_td}, {read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_isNaN((*this))");
+    ASSERT_CONTAINS(out, "(*this).isNaN");
+}
+
+// The collection family reached the same way. `.length` / `.isEmpty` /
+// `.isNotEmpty` share the one `declared_by_receiver` predicate with the numeric
+// family, so the chain walk has to answer for them too — #681's `ListSlice`
+// shape is exactly this one plus a subclass.
+TEST(collection_property_inherited_from_a_base_class_is_the_field) {
+    json base_meta;
+    base_meta["kind"] = "class";
+    base_meta["fields"] =
+        json::array({json{{"name", "length"}, {"type", "int"}}});
+    auto base_td = cov_class_td("main:Base", {{"length", "TYPE_INT64"}},
+                                std::move(base_meta));
+
+    json child_meta;
+    child_meta["kind"] = "class";
+    child_meta["superclass"] = "Base";
+    auto child_td = cov_class_td("main:Child", {}, std::move(child_meta));
+
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn("main:Child.read", std::move(read_meta),
+                                field_access(ref("self"), "length"), "int");
+
+    auto prog = cov_class_program({base_td, child_td}, {read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_length((*this))");
+    ASSERT_CONTAINS(out, "(*this).length");
 }
 
 // The other direction: a receiver whose class does NOT declare the name keeps

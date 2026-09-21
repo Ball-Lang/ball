@@ -230,6 +230,41 @@ private:
         return it != class_own_fields_by_sname_.end() &&
                it->second.count(sfield) > 0;
     }
+    // #697 follow-up: the same question asked over the whole inheritance
+    // chain. `class_own_fields_by_sname_` is strictly own-fields, by name and
+    // by construction, while `class_getters_by_sname_` IS flattened when the
+    // metadata is built — so an inherited GETTER named like a virtual property
+    // was provable and an inherited plain data FIELD was not, and
+    // `declared_by_receiver` then let the shortcut fire on a subclass receiver
+    // (`child.isEmpty` -> `self.empty()`, the emptiness of the OBJECT).
+    // Own-fields keeps its narrow meaning for the #513 slot decisions that
+    // depend on it; this is the widened question, asked only where the
+    // ACCESSOR-SHADOWING decision is made.
+    bool class_chain_has_field(const std::string& sclass,
+                               const std::string& sfield) const {
+        std::string cur = sclass;
+        std::unordered_set<std::string> seen;
+        while (!cur.empty() && seen.insert(cur).second) {
+            if (class_has_own_field(cur, sfield)) return true;
+            cur = sanitized_superclass_of(cur);
+        }
+        return false;
+    }
+    // The sanitized bare superclass name of a sanitized bare class name, or ""
+    // when there is none. `class_superclass_` is keyed by FULL class key
+    // ("main:Dog") and holds a BARE superclass name ("Animal"), so a
+    // by-sname caller cannot index it directly.
+    std::string sanitized_superclass_of(const std::string& sclass) const {
+        for (const auto& [cls, sup] : class_superclass_) {
+            if (sup.empty()) continue;
+            auto c = cls.find(':');
+            const std::string bare =
+                c != std::string::npos ? cls.substr(c + 1) : cls;
+            if (sanitize_name_const(bare) == sclass)
+                return sanitize_name_const(sup);
+        }
+        return "";
+    }
     // The sanitized bare class of the value `expr` denotes, when it can be
     // proven statically; "" when it cannot. Deliberately narrow — a wrong answer
     // here is the silent-wrong-dispatch class of bug #501/#509 fixed. (#515)

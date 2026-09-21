@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 361 passed, 0
-failed, 361 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 362 passed, 0
+failed, 362 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -148,6 +148,10 @@ corpus and neither round-tripped — the denominator moves on its own, the floor
 emitting `Vec::new()`/`matches!`, and `ball_iterate`/`ball_spread_iter` gained their
 universal-`std` inverses, so every fixture whose compiled output carries a `for-in` loop or a
 spliced literal re-encodes now.
+#692's 124 and #712's 121 are two INDEPENDENT measurements of the same row, each taken on its own
+branch against 109; neither is the merged total and they must not be added. `RUST_ROUNDTRIP_FLOOR`
+is the higher of the two (124) until a run on the merged tree prints the combined number, which is
+then what the floor is raised to.
 The leader is `ball_message_type_name` (#718's dispatcher scrutinee), which is what the row's
 own "first still-failing fixture" line named at 121 (`101_simple_class`); re-measure
 `ball_arg_get` and `BallFlow::Normal` from a run's artifact before quoting their counts — the
@@ -338,6 +342,17 @@ keeping proc-macros out of scope and loud costs it nothing.
   and both `Unresolved` and the `<krate>::<name>!` `DependenciesUnavailable` then name it. "Not
   found" and "could not look" are different answers, and only one of them is evidence that a
   definition does not exist.
+  **The same holds one step earlier, for the dependency EDGES** (#705).
+  `direct_dependency_sources` resolves each `deps[]` entry through its `name`, its `pkg`, the
+  `packages[]` entry that id names, that package's `lib`/`rlib`/`dylib` target and that target's
+  `src_path` — five lookups, and each used to be a bare `else { continue }`, so a malformed
+  `cargo metadata` document made a whole crate's macros unresolvable while the diagnostic claimed
+  the crate had no such macro. Each is now a `note_unresolvable_dependency` riding the same list
+  into the same two diagnostics. The ONE deliberate silence is a `proc-macro`-only package: that
+  skip is a documented answer, and noting it would put every ordinary `#[derive]` dependency into
+  the diagnostic of every failing resolution. `MacroTable::seed_from_cargo_metadata_json` exists so
+  those shapes are testable at all — `cargo` only ever emits well-formed output, so they are
+  unreachable through the `cargo`-running entry point (`tests/deps_metadata_shapes.rs`).
 - **The driver** (`encoder/src/macro_expand.rs`) runs as a **pre-pass**, before the encoder's own
   `fn_params`/`enum_names`/`method_params` collection and before `collect_symbols`, because an
   expansion introduces declarations those passes must see. It iterates to a **fixed point** (a
@@ -384,6 +399,7 @@ keeping proc-macros out of scope and loud costs it nothing.
 | dependency graph unreadable | `DependenciesUnavailable`, naming the crate and the reason |
 | a dependency source `syn` cannot parse | recorded, and named in the diagnostic of any macro that then fails to resolve |
 | a dependency DIRECTORY or entry that cannot be read (#678) | recorded the same way — an unreadable subdirectory or dangling symlink is never mistaken for "no definition there" |
+| a `cargo metadata` dependency EDGE that cannot be followed (#705) | recorded the same way — a `deps[]` entry with no `name` or no `pkg`, a `pkg` id with no `packages[]` entry, a package with no library target, a library target with no `src_path`. A `proc-macro`-only package stays silent BY DESIGN |
 | engine panic | `EnginePanic`, with the payload |
 | proc-macro / `#[derive]` / attribute macro | unchanged — the encoder's existing loud panic |
 | builtin the encoder does not model | unchanged — keeps issue #630 separately trackable |
@@ -398,8 +414,8 @@ was not an option; it carries `version.workspace = true` and sits in the publish
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 361 passed, 0 failed,
-361 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 362 passed, 0 failed,
+362 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -607,6 +623,55 @@ the 49 blocked on `BallValue::List`).
   `main:main_Dog` while the instances the same program builds still carry
   `BallMessage::new("main:Dog", …)`. That type-NAME infidelity predates #692; it is asserted, not
   papered over, in `the_compiled_class_registry_re_encodes_as_superclass_metadata`.
+
+### The is/as registry and the map/set literal constructors (issue #692, second half)
+
+Four more `ball_*` helpers that are NOT table rows, because the table's contract is "one
+positional argument per input field". They have their own arms in
+`lib.rs::encode_runtime_helper_call`; the gate is
+`rust/encoder/tests/compiled_type_ops_and_literals.rs`.
+
+- **The is/as registry's query side.** `ball_is`/`ball_is_not`/`ball_as` (`base_call.rs::
+  compile_type_op`) and `ball_is_type` (`pattern.rs::type_check`, emitted for EVERY pattern type
+  test) all invert through `runtime_helpers.rs::type_op_helper`. `ball_is_type` maps to the same
+  `std.is` as `ball_is`, because it is the same discrimination — `ball_is` is literally
+  `BallValue::Bool(ball_is_type(&value, type_name))` — and its bare-`bool` result has no Ball
+  counterpart to preserve, since a Ball condition site coerces truthiness implicitly. The second
+  operand must be a string LITERAL: `std.is`'s `type` field is one in the Ball node too
+  (`dart/encoder` writes `type.toSource()` into it), so a computed type name genuinely has no
+  node and fails loud. The old `runtime_helpers.rs` doc bullet excluding these ("no type-name
+  string operands") is retired — it was keeping a supported shape out.
+- **`ball_map_create` and `ball_set_create`** are the compiler's non-empty map/set literals
+  (`BallMap::new()`/`BallList::new()` above are only the EMPTY ones). Their Ball inputs are
+  *shaped*, not positional: `std.map_create` takes one repeated `entry` field per pair, each an
+  anonymous `{key, value}` message-creation, and `std.set_create` names its list `elements`.
+- **The operand is matched AFTER encoding, not on the `syn` tree.** A pair list arrives as
+  `BallValue::List(BallList::from(vec![…]))` — three identity wrappers deep — and `encode_expr`
+  already reduces every one of them to the list literal underneath, so `lib.rs::
+  list_literal_elements` is the whole reader.
+- **The COMPREHENSION lowering fails loud, deliberately.** `{for e in m.entries: k: v}` compiles
+  to an imperative block that splices into a local `Vec` and hands `ball_map_create` that
+  variable. Its Ball node is a `map_create` with `element` fields — a different, larger inverse —
+  so encoding it as an entry-less `map_create` would silently compute `{}` (the issue #55 class).
+  Both helpers panic naming the shape instead; `a_map_create_over_a_spliced_list_fails_loud` and
+  its set twin are the pins.
+- **Stated, pre-existing gap surfaced while measuring this: every compiled STRING literal
+  re-encodes wrapped in `std.to_string`.** `compile_expression` emits a Ball string literal as
+  `BallValue::String("a".to_string())`, and `.to_string()` is NOT one of `methods.rs`'s identity
+  passthroughs — in hand-written Rust, which is this encoder's actual input, it genuinely IS
+  `std.to_string`. Over a `String` that op returns its operand unchanged, so the re-encoded
+  program computes the same answer; the extra node is a node-fidelity difference, not a
+  behavioural one, and making it an identity would special-case a literal receiver on evidence
+  nobody has measured. It is ASSERTED, not normalized away, in
+  `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
+  `std.to_string({value: "a"})`), so the day it changes, a test says so.
+- **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
+  `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
+  PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`
+  21, `ball_is_type` 18, `ball_set_create` 7 and `ball_is` 3 are each now zero. The leaders are
+  `ball_arg_get` 61, `ball_message_type_name` 23 (#718), `ball_unsupported_base_call` 18 and
+  `ball_iterate` 16. Quote the PASSED count, never the ratio: the denominator moves with the
+  corpus and the floor is on the numerator alone.
 
 ### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
 

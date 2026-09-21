@@ -111,6 +111,13 @@ gh run download <run-id> --repo Ball-Lang/ball \
 cp /tmp/rt/ball_protobuf_rt.h cpp/shared/ball_protobuf_rt.h
 ```
 
+**Keep renumber-prone references OUT of the spliced preamble.** Because the
+preamble is copied verbatim into this header, a conformance-fixture NUMBER in
+one of its comments makes the committed artifact stale on every fixture
+renumber — and a renumber is routine (`main` took four numbers out from under
+one PR in #663). A comment inside `compile_*_call`, which is NOT spliced, is the
+place for that cross-reference; the preamble states the semantics only.
+
 The header's INPUTS are `cpp/compiler/` + `cpp/shared/include/` (the preamble)
 and `dart/shared/ball_protobuf.json` (encoded from `dart/ball_protobuf/lib/**`).
 The second pair used to map to `dart=true` alone, so a change to the portable

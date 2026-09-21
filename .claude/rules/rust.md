@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 361 passed, 0 failed, 361 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 362 passed, 0 failed, 362 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -259,10 +259,11 @@ cargo fmt --check && cargo clippy --workspace
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
   prose** — 9 on 2026-09-21 (THREE of them are #632 siblings, and #712 changed *which* three: the
-  compiled method dispatcher's `ball_message_type_name` scrutinee and the spliced MAP literal's
-  `ball_map_create` tail, both #718's unmapped-helper family, plus `matches!` — which is no longer
-  a #712 instance at all, since the compiler stopped emitting it, but the encoder's permanent
-  boundary for hand-written Rust). Everything else in that file is a flipped, positive assertion.
+  compiled method dispatcher's `ball_message_type_name` scrutinee (#718's unmapped-helper family),
+  the spliced MAP literal's `ball_map_create` tail — mapped since #692, but only over a LITERAL
+  pair list, so the comprehension's local accumulator is still refused by SHAPE — plus `matches!`,
+  which is no longer a #712 instance at all, since the compiler stopped emitting it, but the
+  encoder's permanent boundary for hand-written Rust). Everything else in that file is a flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -326,7 +327,11 @@ cargo fmt --check && cargo clippy --workspace
   and was not is a named `MacroError`, never flattened into "unsupported". A dependency source
   path the walk cannot LOOK at — a subdirectory whose `read_dir` fails, a dangling symlink — is
   recorded through the same `note_unreadable_source` an unparseable file uses and named in the
-  resulting diagnostic (#678); "not found" and "could not look" are never conflated. **Hygiene is an
+  resulting diagnostic (#678); "not found" and "could not look" are never conflated. The dependency
+  EDGES obey the same rule since #705: a `deps[]` entry with no `name`/`pkg`, a `pkg` id with no
+  `packages[]` entry, a package with no library target and a library target with no `src_path` are
+  each a `note_unresolvable_dependency`, never a `continue` — a `proc-macro`-only package is the
+  one deliberate silence, because that skip is an answer this crate documents. **Hygiene is an
   approximation and must be described as one** — origin-tagged α-renaming of definition-origin
   bindings to `<name>__ball_mbe<N>`, not rust-analyzer's `SyntaxContext` transparency chain —
   so it is the one part of this feature that can produce the #488 class of bug (round-trips
@@ -536,6 +541,46 @@ cargo fmt --check && cargo clippy --workspace
     Both buckets' fixtures now stop on their NEXT blocker — `101_simple_class`/
     `102_inheritance` on `ball_message_type_name` (#718). A closed bucket moves the histogram; it
     does not on its own make every fixture in it pass.
+- **The IS/AS REGISTRY and the MAP/SET literal constructors (#692, second half).** Four more
+  `ball_*` helpers that are not table rows — the table's contract is "one positional argument per
+  input field" — so they have their own arms in `lib.rs::encode_runtime_helper_call`. Gate:
+  `rust/encoder/tests/compiled_type_ops_and_literals.rs`.
+  - **`ball_is`/`ball_is_not`/`ball_as`/`ball_is_type` -> `std.is`/`is_not`/`as`**
+    (`runtime_helpers.rs::type_op_helper`). `ball_is_type` (`pattern.rs::type_check`, emitted for
+    every pattern type test) maps to the SAME `std.is` as `ball_is`, because it is the same
+    discrimination — `ball_is` is literally `BallValue::Bool(ball_is_type(&value, type_name))` —
+    and its bare-`bool` result has no Ball counterpart, a condition site coercing truthiness
+    implicitly. The second operand must be a string LITERAL (`std.is`'s `type` field is one in the
+    Ball node too — `dart/encoder` writes `type.toSource()` into it), so a computed type name
+    fails loud. `runtime_helpers.rs`'s old "no type-name string operands" exclusion is retired: it
+    was keeping a supported shape out, not describing an unsupported one.
+  - **`ball_map_create`/`ball_set_create`** are the NON-EMPTY map/set literals (`BallMap::new()`/
+    `BallList::new()` above are only the empty ones). Their Ball inputs are *shaped*:
+    `std.map_create` takes one repeated `entry` field per pair, each an anonymous `{key, value}`
+    message-creation; `std.set_create` names its list `elements`.
+  - **Match the operand AFTER encoding it, never on the `syn` tree.** A pair list arrives as
+    `BallValue::List(BallList::from(vec![…]))`, three identity wrappers deep, and `encode_expr`
+    already reduces all of them to the list literal underneath — `lib.rs::list_literal_elements`
+    is the whole reader.
+  - **The COMPREHENSION lowering fails loud on purpose.** `{for e in m.entries: k: v}` compiles to
+    an imperative block that splices into a local `Vec` and hands `ball_map_create` that variable;
+    its Ball node is a `map_create` with `element` fields, a different and larger inverse.
+    Encoding it as an entry-less `map_create` would silently compute `{}` — the issue #55 class —
+    so both helpers panic naming the shape. `a_map_create_over_a_spliced_list_fails_loud` and its
+    set twin are the pins.
+  - **Stated gap (pre-existing, surfaced here): every compiled STRING literal re-encodes wrapped
+    in `std.to_string`.** `compile_expression` emits one as `BallValue::String("a".to_string())`,
+    and `.to_string()` is not one of `methods.rs`'s identity passthroughs — in hand-written Rust
+    it genuinely IS `std.to_string`, which over a `String` returns its operand unchanged. A
+    node-fidelity difference, not a behavioural one; asserted (map KEYS come back as
+    `std.to_string({value: "a"})`) rather than normalized away, so a change to it is loud.
+  - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950,
+    job `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the
+    same PR. All FOUR of #692's blockers left the first-blocker histogram entirely
+    (`ball_map_create` 21, `ball_is_type` 18, `ball_set_create` 7, `ball_is` 3 -> zero each); the
+    leaders are now `ball_arg_get` 61, `ball_message_type_name` 23 (#718),
+    `ball_unsupported_base_call` 18 and `ball_iterate` 16. Quote the PASSED count, never the
+    ratio — the denominator moves with the corpus and the floor is on the numerator alone.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -655,10 +700,13 @@ and its own encoder refuses caps that column no matter how good either half is o
   pin is flipped to `compiled_spliced_list_literal_re_encodes`;
   `the_matches_macro_is_a_documented_gap` KEEPS its `#[should_panic]`, now pinning the encoder's
   **permanent** boundary for hand-written Rust rather than a compiler emission. The **map**
-  comprehension got the same lowering fix but keeps one refusal — `ball_map_create`, whose Ball
-  inverse is a map-literal node built from entries computed at run time, and `dart/shared/std.json`
-  declares no call taking "a list of `[key, value]` pairs". That is #718's family, pinned as
-  `compiled_spliced_map_literal_stops_at_ball_map_create`.
+  comprehension got the same lowering fix but keeps one refusal — `ball_map_create` over the local
+  accumulator. #692 (#796) gave that helper a table arm AFTER #712 was written, so the refusal is
+  now a SHAPE one from that arm, not the unmapped-helper fallthrough: it inverts a LITERAL
+  `[[key, value], …]` list to the `entry`-shaped `std.map_create` it compiled from, and the
+  comprehension's Ball node is a larger `map_create` carrying `element` fields instead. Pinned as
+  `compiled_spliced_map_literal_stops_at_ball_map_create` (the compiler-output half of
+  `a_map_create_over_a_spliced_list_fails_loud`).
 - The invariant has **one** OPEN instance left, pinned fail-loud in `documented_gaps.rs`:
   - the compiled **method dispatcher's scrutinee**, tracked as **#718**, and the one that turned
     `main` red: `compile_method_dispatchers` opens every instance-method dispatcher with
@@ -678,7 +726,7 @@ and its own encoder refuses caps that column no matter how good either half is o
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 361 passed, 0 failed, 361 total` (the 4
+  whole corpus with Dart-identical output: `Results: 362 passed, 0 failed, 362 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -813,7 +861,10 @@ and its own encoder refuses caps that column no matter how good either half is o
   fixture whose compiled output carries a `for-in` loop or a spliced literal re-encodes now.
   At 121 the row's own "first still-failing fixture" line names `ball_message_type_name`
   (#718); re-measure the other leaders from a run artifact rather than quoting the pre-#712
-  figures, which were taken at 109. The
+  figures, which were taken at 109. **#692's 124 and #712's 121 are two INDEPENDENT measurements
+  against the same 109 baseline, each taken on its own branch — never add them.** The floor is the
+  higher of the two until a run on the merged tree prints the combined number; raise it to THAT.
+  The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`

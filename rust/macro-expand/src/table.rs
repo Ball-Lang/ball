@@ -164,11 +164,13 @@ pub struct MacroTable {
     /// macro is then a loud [`MacroError::DependenciesUnavailable`] naming this
     /// reason — never a silent skip.
     dependencies_unavailable: Option<String>,
-    /// Sources that were supposed to contribute definitions and could not be
-    /// read — a dependency file `syn` cannot parse, or a definition the engine
-    /// rejects. Named in the diagnostic of any macro that then fails to
-    /// resolve, so "this crate's macro is missing" never reads as "this crate
-    /// has no such macro".
+    /// Sources that were supposed to contribute definitions and did not: a
+    /// dependency file `syn` cannot parse, a definition the engine rejects, a
+    /// path the walk could not look at (#678), or a `cargo metadata` dependency
+    /// EDGE that could not be resolved to sources in the first place (#705).
+    /// Named in the diagnostic of any macro that then fails to resolve, so
+    /// "this crate's macro is missing" never reads as "this crate has no such
+    /// macro".
     unreadable_sources: Vec<String>,
 }
 
@@ -268,6 +270,21 @@ impl MacroTable {
         self.unreadable_sources.push(format!("{what}: {reason}"));
     }
 
+    /// Record a dependency EDGE that named a crate whose sources could not be
+    /// located, and why.
+    ///
+    /// The sibling of [`note_unreadable_source`](Self::note_unreadable_source),
+    /// one step earlier in the same walk: that one answers "this file was
+    /// supposed to contribute definitions and could not be read", this one
+    /// answers "this `cargo metadata` edge was supposed to point at a crate's
+    /// sources and did not". Both are "could not look", never "nothing is
+    /// there", so both ride the same list into the diagnostic of any macro that
+    /// subsequently fails to resolve.
+    pub fn note_unresolvable_dependency(&mut self, what: &str, reason: &str) {
+        self.unreadable_sources
+            .push(format!("dependency `{what}`: {reason}"));
+    }
+
     /// Why a `<krate>::<name>!` path found nothing in that crate.
     ///
     /// Never a flat "it is not there" once part of that crate's sources could
@@ -281,8 +298,8 @@ impl MacroTable {
             return base.to_owned();
         }
         format!(
-            "{base}. These sources could not be read, so a definition may be hiding in one of \
-             them: [{}]",
+            "{base}. These sources could not be read or resolved, so a definition may be hiding \
+             in one of them: [{}]",
             self.unreadable_sources.join("; ")
         )
     }

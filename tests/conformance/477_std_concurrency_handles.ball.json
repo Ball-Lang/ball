@@ -1,0 +1,1052 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "std_concurrency_handles",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "not_equals",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "std_concurrency",
+      "functions": [
+        {
+          "name": "thread_spawn",
+          "isBase": true
+        },
+        {
+          "name": "thread_join",
+          "isBase": true
+        },
+        {
+          "name": "mutex_create",
+          "isBase": true
+        },
+        {
+          "name": "mutex_lock",
+          "isBase": true
+        },
+        {
+          "name": "mutex_unlock",
+          "isBase": true
+        },
+        {
+          "name": "scoped_lock",
+          "isBase": true
+        },
+        {
+          "name": "atomic_create",
+          "isBase": true
+        },
+        {
+          "name": "atomic_load",
+          "isBase": true
+        },
+        {
+          "name": "atomic_store",
+          "isBase": true
+        },
+        {
+          "name": "atomic_compare_exchange",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "ThreadInput",
+          "descriptor": {
+            "name": "ThreadInput",
+            "field": [
+              {
+                "name": "body",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MutexInput",
+          "descriptor": {
+            "name": "MutexInput"
+          }
+        },
+        {
+          "name": "LockInput",
+          "descriptor": {
+            "name": "LockInput",
+            "field": [
+              {
+                "name": "mutex",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "body",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          }
+        },
+        {
+          "name": "AtomicInput",
+          "descriptor": {
+            "name": "AtomicInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          }
+        },
+        {
+          "name": "AtomicOpInput",
+          "descriptor": {
+            "name": "AtomicOpInput",
+            "field": [
+              {
+                "name": "atomic",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "expected",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "value",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "ta",
+                    "value": {
+                      "call": {
+                        "module": "std_concurrency",
+                        "function": "thread_spawn",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "ThreadInput",
+                            "fields": [
+                              {
+                                "name": "body",
+                                "value": {
+                                  "lambda": {
+                                    "name": "",
+                                    "body": {
+                                      "call": {
+                                        "module": "std",
+                                        "function": "print",
+                                        "input": {
+                                          "messageCreation": {
+                                            "typeName": "PrintInput",
+                                            "fields": [
+                                              {
+                                                "name": "message",
+                                                "value": {
+                                                  "literal": {
+                                                    "stringValue": "thread a"
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "metadata": {
+                                      "kind": "lambda",
+                                      "expression_body": true,
+                                      "has_return": true,
+                                      "params": [
+                                        {
+                                          "name": "_"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "tb",
+                    "value": {
+                      "call": {
+                        "module": "std_concurrency",
+                        "function": "thread_spawn",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "ThreadInput",
+                            "fields": [
+                              {
+                                "name": "body",
+                                "value": {
+                                  "lambda": {
+                                    "name": "",
+                                    "body": {
+                                      "call": {
+                                        "module": "std",
+                                        "function": "print",
+                                        "input": {
+                                          "messageCreation": {
+                                            "typeName": "PrintInput",
+                                            "fields": [
+                                              {
+                                                "name": "message",
+                                                "value": {
+                                                  "literal": {
+                                                    "stringValue": "thread b"
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "metadata": {
+                                      "kind": "lambda",
+                                      "expression_body": true,
+                                      "has_return": true,
+                                      "params": [
+                                        {
+                                          "name": "_"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "not_equals",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "ta"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "tb"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std_concurrency",
+                      "function": "thread_join",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "UnaryInput",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "reference": {
+                                  "name": "ta"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std_concurrency",
+                      "function": "thread_join",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "UnaryInput",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "reference": {
+                                  "name": "tb"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "joined"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "m",
+                    "value": {
+                      "call": {
+                        "module": "std_concurrency",
+                        "function": "mutex_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "MutexInput"
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std_concurrency",
+                      "function": "mutex_lock",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "UnaryInput",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "reference": {
+                                  "name": "m"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std_concurrency",
+                      "function": "mutex_unlock",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "UnaryInput",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "reference": {
+                                  "name": "m"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "scoped_lock",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "LockInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "mutex",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "m"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "body",
+                                                      "value": {
+                                                        "lambda": {
+                                                          "name": "",
+                                                          "body": {
+                                                            "literal": {
+                                                              "stringValue": "in lock"
+                                                            }
+                                                          },
+                                                          "metadata": {
+                                                            "kind": "lambda",
+                                                            "expression_body": true,
+                                                            "has_return": true,
+                                                            "params": [
+                                                              {
+                                                                "name": "_"
+                                                              }
+                                                            ]
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "c",
+                    "value": {
+                      "call": {
+                        "module": "std_concurrency",
+                        "function": "atomic_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "AtomicInput",
+                            "fields": [
+                              {
+                                "name": "value",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "7"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "atomic_load",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "UnaryInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "c"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std_concurrency",
+                      "function": "atomic_store",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "AtomicOpInput",
+                          "fields": [
+                            {
+                              "name": "atomic",
+                              "value": {
+                                "reference": {
+                                  "name": "c"
+                                }
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "9"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "atomic_load",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "UnaryInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "c"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "atomic_compare_exchange",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "AtomicOpInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "atomic",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "c"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "expected",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "9"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "11"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "atomic_load",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "UnaryInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "c"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "atomic_compare_exchange",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "AtomicOpInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "atomic",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "c"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "expected",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "9"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "13"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std_concurrency",
+                                              "function": "atomic_load",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "UnaryInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "c"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

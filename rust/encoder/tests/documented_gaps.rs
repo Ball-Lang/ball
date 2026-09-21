@@ -529,26 +529,32 @@ fn the_matches_macro_is_a_documented_gap() {
 }
 
 /// The spliced **MAP** literal's remaining refusal — which is NOT #712's, and
-/// belongs to #718's unmapped-`ball_*`-helper family instead.
+/// belongs to #718's not-yet-invertible-`ball_*` family instead.
 ///
 /// `compile_map_create`'s comprehension branch went through the same
 /// `Vec::new()`/`matches!` lowering and #712 fixed it there too (the assertion
 /// below holds that, so the two halves cannot drift apart). What it cannot fix
-/// is the branch's TAIL: `ball_map_create(<entry list>)`, a runtime helper
-/// `runtime_helpers.rs` does not map.
+/// is the branch's TAIL: `ball_map_create(BallValue::List(__map_entries))`,
+/// over an entry list computed at run time.
 ///
-/// It cannot be mapped the way `ball_spread_iter` was. `ball_map_create`'s Ball
-/// inverse is a map-literal NODE built from its entries, and in the spliced
-/// form that entry list is computed at run time — there is no universal-`std`
-/// call whose input is "a list of `[key, value]` pairs" for the table to name
-/// (`dart/shared/std.json`, the canonical base-function inventory, declares
-/// none). Inventing one, or inverting it to a `std_collections` call the table
-/// cannot express, is the #55 silent-degradation class.
+/// #692 (#796) gave `ball_map_create` a table arm AFTER this pin was written,
+/// so the refusal now comes from that arm rather than from the unmapped-helper
+/// fallthrough — and only for THIS operand shape. The arm inverts a LITERAL
+/// `[[key, value], …]` list to the `std.map_create` node it compiled from (one
+/// repeated `entry` field per pair) and fails loud on anything else, which is
+/// exactly the spliced form: its pair list is a local accumulator, so its Ball
+/// inverse is a larger `map_create` carrying `element` fields — `collection_for`
+/// / `spread` parts — not `entry`s. Inverting it to the entry-shaped node
+/// anyway would silently compute `{}`; that is the #55 class the arm's
+/// fail-loud posture exists to prevent.
 ///
-/// Pinned so the map path's state is OBSERVED rather than assumed: after #712
-/// the refusal is this ONE helper, where it used to be three constructs.
+/// `compiled_type_ops_and_literals.rs::a_map_create_over_a_spliced_list_fails_loud`
+/// pins the same refusal over HAND-WRITTEN Rust. This one is the compiler-output
+/// half: it drives the real `compile_map_create` comprehension branch through
+/// the pipeline, so the map path's state is OBSERVED rather than assumed. After
+/// #712 the stop is this ONE construct, where it used to be three.
 #[test]
-#[should_panic(expected = "unsupported runtime helper `ball_map_create")]
+#[should_panic(expected = "`ball_map_create(...) is only encodable over a LITERAL")]
 fn compiled_spliced_map_literal_stops_at_ball_map_create() {
     let program = map_comprehension_program();
     let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
@@ -604,11 +610,12 @@ impl Point {
 ///
 /// **The gap is one construct wide here, and much wider in general.** The table
 /// maps the universal-`std` subset only; `rust/compiler/src` emits many more
-/// `ball_*` helpers than it maps (`ball_map_create` — pinned above —
-/// `ball_with_self`, `ball_call_function`, …), so a compiled library naming any
-/// of them stops at the first one. `ball_iterate` and `ball_spread_iter` left
-/// this list in #712, which owed them inverses. Sweep it, never quote it from
-/// memory:
+/// `ball_*` helpers than it maps (`ball_with_self`, `ball_call_function`, …),
+/// so a compiled library naming any of them stops at the first one.
+/// `ball_iterate` and `ball_spread_iter` left this list in #712, which owed them
+/// inverses, and `ball_map_create`/`ball_set_create` gained OPERAND-SHAPED arms
+/// in #692 — invertible over a literal, still loud over the comprehension
+/// lowering (pinned above). Sweep it, never quote it from memory:
 /// `grep -ohrE '\bball_[a-z0-9_]+' rust/compiler/src/*.rs | sort -u` against the
 /// quoted names in `rust/encoder/src/runtime_helpers.rs`.
 ///

@@ -133,6 +133,36 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `List` / `int` / `double` receivers whose shortcut must survive; it surfaced
   the defect on the e2e leg as `expected true/false/true, actual false/false/false`.
   `cpp/test/test_compiler.cpp` carries the fast gate for both families.
+  **The field half of the predicate asks the whole INHERITANCE CHAIN**
+  (`class_chain_has_field`), not just this class's own descriptor fields — the
+  #697 follow-up. `class_getters_by_sname_` is FLATTENED over the chain when the
+  metadata is built, but `class_own_fields_by_sname_` is strictly own-fields by
+  name and by construction, so an inherited `int get length` proved the receiver
+  while an inherited plain `int length;` did not, and `child.length` on a
+  subclass whose BASE declares the field compiled to `ball_length(child)`. It is
+  #681's defect reached from the one side its table could not see, and it is
+  invisible to every engine row (they resolve a plain `fieldAccess` own-key-first
+  through the `__super__` chain) — only the `C++ Compiled` row can fail it.
+  `class_has_own_field` keeps its narrow meaning for the #513 slot decisions
+  that depend on it; the widened question is asked ONLY where the
+  accessor-shadowing decision is made. Fixture
+  `476_…`'s `CountedChild` half is the cross-target gate, and
+  `numeric_predicate_inherited_from_a_base_class_is_the_field` /
+  `collection_property_inherited_from_a_base_class_is_the_field` are the fast
+  ones. Every one of those fast gates asserts what the emit must CONTAIN
+  (`(*this).isNaN`) alongside what it must not — a refusal-only test also passes
+  for an emit that dropped the access entirely.
+  **The cross-target fixture's inherited reads use the NUMERIC family on
+  purpose.** An INHERITED field of the COLLECTION family (`isEmpty` /
+  `isNotEmpty` / `length`) still reads back `null` from a subclass receiver on
+  this target — **issue #800**, a THIRD defect, separate from both #697 halves
+  and from the chain walk above: the emitted access correctly names the member
+  (`compiler_tests` proves that), so the loss happens after emission, at
+  construction or member resolution. It is `C++ Compiled` only; every engine row
+  answers the same program correctly, because they resolve a plain `fieldAccess`
+  own-key-first through `__super__`. Do not re-add those lines to fixture `476_…`
+  until #800 lands — the issue body carries them verbatim, and restoring them is
+  the whole reproduction.
   The guard covers those SEVEN names. The sibling shortcuts further down in
   `compile_field_access` — `.entries`, `.keys`, `.values`, `.first`, `.last`,
   `.runtimeType` — are still unconditional, so a class declaring one of those
@@ -301,6 +331,35 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   only target that spelled Dart's `toString()` all along.
   See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`std_concurrency` lowers to HELPER CALLS over handle tables, and the set of
+  names it implements is GATED (#606/#607).** `compile_concurrency_call` used to
+  emit declaration STATEMENTS where a value was expected (`std::thread
+  _thread(<body>)`, `std::mutex _mtx`), so `thread_spawn`/`mutex_create` could
+  not honour their declared `-> int` and `thread_join`/`mutex_unlock` blindly
+  appended `.join()`/`.unlock()` to whatever field text they were handed. Every
+  arm now emits `_ball_<op>(...)` over the `_ball_threads` / `_ball_mutexes` /
+  `_ball_atomics` tables spliced into the preamble, with the SAME
+  single-threaded semantics as `dart/engine/lib/engine_std.dart` — opaque
+  1-based handles, a real cell store, a CAS that compares and exchanges, and
+  fail-loud misuse. `tests/conformance/477_std_concurrency_handles` is the
+  cross-target guard (wired into `cpp/test/e2e_fixture_list.h`).
+  It also implemented three functions **no module builder declares**
+  (`thread_detach`, `unique_lock`, `atomic_fetch_add`), reachable by no encoder
+  and implemented by no engine; the canonical builder wins, so they are gone.
+  `cpp/test/check_declared_base_functions.py` (ci.yml's always-on `proto` job,
+  `--self-test` first) is the C++ sibling of #505's
+  `dart/shared/test/std_routed_declarations_test.dart`: every `fn == "..."` a
+  module-scoped `compile_*_call` tests for must be declared in
+  `tests/conformance/std_coverage.json` — the ALL-module inventory, since
+  `dart/shared/std.json` carries only `buildStdModule()` — or be named in the
+  frozen `cpp/test/declared_base_functions_known_gaps.txt` ratchet.
+- **The preamble is spliced from a C++ RAW STRING, so no literal in it may
+  contain `)` immediately followed by `"`.** That two-character sequence ends
+  `R"( … )"` early and closes `namespace ball` in the middle of the file,
+  producing a cascade of "not declared in this scope" errors hundreds of lines
+  BEFORE the real mistake. A parenthetical at the end of an error message
+  (`"… (handles 1..N have been created)"`) is the easy way to trip it; use a
+  semicolon clause instead.
 - **A CAUGHT exception renders through ONE table (#640).**
   `catch (e) { print('$e'); }` lowers to `ball_to_string(e)`, and the `try`
   lowering binds `e` two ways — `const BallException&` when any clause is typed,

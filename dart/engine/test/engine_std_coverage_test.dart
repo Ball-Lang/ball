@@ -2317,46 +2317,151 @@ void main() {
       );
       expect(await runAndCapture(program), ['done']);
     });
-    test('mutex_create returns id and lock/unlock no-op', () async {
+    // ── std_concurrency (issue #608) ──
+    // These four used to assert the PLACEHOLDER behaviour they were written
+    // against: `mutex_create returns id and lock/unlock no-op`,
+    // `atomic_load / atomic_store` (which loaded 9 straight back off its own
+    // call input, with no cell anywhere), `atomic_compare_exchange returns
+    // true` (an EMPTY input — nothing to compare) and `thread_join no-op`
+    // (also an empty input). Every one of them passed BECAUSE the engine
+    // fabricated an answer. They now assert the real single-threaded contract:
+    // opaque handles, a real cell store, and a CAS that can FAIL.
+    test('mutex_create mints a handle that lock/unlock accept', () async {
       final program = buildProgram(
         functions: [
           mainFn([
             letStmt('m', stdCall('mutex_create', msg([]))),
-            stmt(stdCall('mutex_lock', ref('m'))),
-            stmt(stdCall('mutex_unlock', ref('m'))),
+            stmt(stdCall('mutex_lock', msg([field('value', ref('m'))]))),
+            stmt(stdCall('mutex_unlock', msg([field('value', ref('m'))]))),
             stmt(printToString(ref('m'))),
           ]),
         ],
       );
       final lines = await runAndCapture(program);
-      expect(int.parse(lines.single), greaterThanOrEqualTo(0));
+      // A handle is opaque, but it is never 0: handles are 1-based so the
+      // `return 0` placeholder can never be mistaken for one.
+      expect(int.parse(lines.single), greaterThanOrEqualTo(1));
     });
-    test('scoped_lock runs body', () async {
-      final body = lambdaExpr(literal(42));
-      expect(
-        await evalPrint(stdCall('scoped_lock', msg([field('body', body)]))),
-        '42',
-      );
-    });
-    test('atomic_load / atomic_store', () async {
-      expect(await evalPrint(stdCall('atomic_load', unMsg(9))), '9');
-    });
-    test('atomic_compare_exchange returns true', () async {
-      expect(
-        await evalPrint(stdCall('atomic_compare_exchange', msg([]))),
-        'true',
-      );
-    });
-    test('thread_join no-op', () async {
+    test('scoped_lock runs the body and releases the mutex', () async {
       final program = buildProgram(
         functions: [
           mainFn([
-            stmt(stdCall('thread_join', msg([]))),
+            letStmt('m', stdCall('mutex_create', msg([]))),
+            stmt(
+              printToString(
+                stdCall(
+                  'scoped_lock',
+                  msg([
+                    field('mutex', ref('m')),
+                    field('body', lambdaExpr(literal(42))),
+                  ]),
+                ),
+              ),
+            ),
+            // Only reachable if the first scoped_lock actually UNLOCKED.
+            stmt(
+              printToString(
+                stdCall(
+                  'scoped_lock',
+                  msg([
+                    field('mutex', ref('m')),
+                    field('body', lambdaExpr(literal(43))),
+                  ]),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['42', '43']);
+    });
+    test('atomic_create / atomic_store / atomic_load round-trip', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            letStmt(
+              'c',
+              stdCall('atomic_create', msg([field('value', literal(9))])),
+            ),
+            stmt(
+              printToString(
+                stdCall('atomic_load', msg([field('value', ref('c'))])),
+              ),
+            ),
+            stmt(
+              printToString(
+                stdCall(
+                  'atomic_store',
+                  msg([field('atomic', ref('c')), field('value', literal(11))]),
+                ),
+              ),
+            ),
+            stmt(
+              printToString(
+                stdCall('atomic_load', msg([field('value', ref('c'))])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      // `atomic_store` is declared `void`, so it answers nothing — and the
+      // write it performed is visible to the next load.
+      expect(await runAndCapture(program), ['9', 'null', '11']);
+    });
+    test('atomic_compare_exchange exchanges only on a match', () async {
+      Map<String, dynamic> cas(int expected, int value) => stdCall(
+        'atomic_compare_exchange',
+        msg([
+          field('atomic', ref('c')),
+          field('expected', literal(expected)),
+          field('value', literal(value)),
+        ]),
+      );
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            letStmt(
+              'c',
+              stdCall('atomic_create', msg([field('value', literal(1))])),
+            ),
+            stmt(printToString(cas(1, 2))),
+            stmt(
+              printToString(
+                stdCall('atomic_load', msg([field('value', ref('c'))])),
+              ),
+            ),
+            // The stale expected value: this is the line an unconditional
+            // `true` could never pass.
+            stmt(printToString(cas(1, 3))),
+            stmt(
+              printToString(
+                stdCall('atomic_load', msg([field('value', ref('c'))])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['true', '2', 'false', '2']);
+    });
+    test('thread_join accepts the handle thread_spawn minted', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            letStmt(
+              't',
+              stdCall(
+                'thread_spawn',
+                msg([
+                  field('body', lambdaExpr(printExpr(literal('in-thread')))),
+                ]),
+              ),
+            ),
+            stmt(stdCall('thread_join', msg([field('value', ref('t'))]))),
             stmt(printExpr(literal('ok'))),
           ]),
         ],
       );
-      expect(await runAndCapture(program), ['ok']);
+      expect(await runAndCapture(program), ['in-thread', 'ok']);
     });
   });
 
@@ -2627,16 +2732,38 @@ void main() {
       );
       expect(await runAndCapture(program), ['in-thread']);
     });
-    test('atomic_store returns null (no-op)', () async {
+    test('thread_spawn hands back a DISTINCT handle per thread', () async {
+      // `return 0` used to satisfy every shape of this test that did not
+      // compare two handles; comparing them is what it takes to see it.
       final program = buildProgram(
         functions: [
           mainFn([
-            stmt(stdCall('atomic_store', msg([field('value', literal(1))]))),
-            stmt(printExpr(literal('ok'))),
+            letStmt(
+              'a',
+              stdCall(
+                'thread_spawn',
+                msg([field('body', lambdaExpr(literal(0)))]),
+              ),
+            ),
+            letStmt(
+              'b',
+              stdCall(
+                'thread_spawn',
+                msg([field('body', lambdaExpr(literal(0)))]),
+              ),
+            ),
+            stmt(
+              printToString(
+                stdCall(
+                  'not_equals',
+                  msg([field('left', ref('a')), field('right', ref('b'))]),
+                ),
+              ),
+            ),
           ]),
         ],
       );
-      expect(await runAndCapture(program), ['ok']);
+      expect(await runAndCapture(program), ['true']);
     });
   });
 

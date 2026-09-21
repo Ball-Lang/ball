@@ -190,6 +190,22 @@ jobs:
       # path-filtered to python/**, so it would skip the very changes the corpus
       # check guards. Self-test first — a checker nobody has watched fail is not
       # a gate.
+      # docs/TESTING_STRATEGY.md §3a — "a leg's verdict must consume the
+      # checker's EXIT STATUS, not only its stdout" — was PROSE, and prose stops
+      # nothing. `done < <(check "$f")` discards the producer's status by
+      # construction, so a checker that could not run at all and one that found
+      # nothing both reach the verdict as empty stdout: the leg prints PASS and
+      # counts +1 toward its own positive floor for a check that never happened
+      # (#694, reproduced in PR #662's round-1 review with `python3` off PATH).
+      # This lints every such loop under tools/**/*.sh + cpp/test/*.sh against a
+      # carve-out list that has to NAME each legitimate site and say why it is
+      # safe. Self-test first: a checker nobody has watched fail is not a gate.
+      - name: Stdout-only verdict loop lint self-test (#705)
+        run: python tools/test/test_check_verdict_exit_status.py
+
+      - name: Every shell verdict loop is carved out or fixed (#705)
+        run: python tools/check_verdict_exit_status.py
+
       - name: Proto/JSON-Schema drift self-test (#609)
         run: python tools/test/test_check_proto_schema_drift.py
 
@@ -413,6 +429,23 @@ jobs:
         run: |
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
+
+      # cpp/compiler/src/compiler.cpp implements base functions by hardcoded
+      # name, and nothing compared those names against the canonical
+      # dart/shared/lib/std*.dart declarations — so compile_concurrency_call
+      # grew three functions no builder declares, no encoder can emit and no
+      # engine implements (#607). This is the C++ sibling of #505's
+      # dart/shared/test/std_routed_declarations_test.dart.
+      # It lives HERE, in the always-on job, and not in the path-filtered `cpp`
+      # job: BOTH of its inputs can move it — the C++ dispatch AND the Dart
+      # builders — so a PR that only DROPS a declaration would skip a cpp-gated
+      # guard, and an absent check reads as green. It needs no C++ toolchain.
+      # `--self-test` first, so a guard that found nothing to compare cannot
+      # report success.
+      - name: C++ declared-base-function drift guard (#607)
+        run: |
+          python3 cpp/test/check_declared_base_functions.py --self-test
+          python3 cpp/test/check_declared_base_functions.py
 
       # The cpp job's compiler-cache gate (#594) reads ccache/sccache statistics
       # and fails when a job compiled cacheable TUs with the cache recording zero
@@ -2801,7 +2834,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 361 passed, 0 failed, 361 total (4 skipped carve-outs)" — the
+      # "Results: 362 passed, 0 failed, 362 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2996,7 +3029,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 361 passed, 0 failed, 361 total (4 skipped carve-outs)" — the 4
+      # "Results: 362 passed, 0 failed, 362 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3151,7 +3184,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 361 passed, 0 failed, 361 total (4 skipped carve-outs)" — the 4
+      # "Results: 362 passed, 0 failed, 362 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

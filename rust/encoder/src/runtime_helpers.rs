@@ -28,8 +28,21 @@
 //!   rather than guessed at;
 //! - a `std` base function `dart/shared/std.json` actually declares (the
 //!   canonical base-function inventory);
-//! - no type-name string operands (`ball_is`/`ball_as` take a Rust string
-//!   literal, not an encodable expression).
+//! - no type-name string operands, and no operand whose Ball counterpart is a
+//!   shaped input rather than one positional argument per field.
+//!
+//! The helpers those last two exclusions cover are not *unsupported* — they
+//! have their own arms in `Encoder::encode_runtime_helper_call`, because their
+//! inverse is not "map N positional arguments onto N field names":
+//!
+//! - [`BALL_FIELD_GET`] and [`BALL_TRUTHY`] — a Ball `field_access` NODE, and a
+//!   coercion Ball performs implicitly at every condition site;
+//! - the is/as registry's query side, [`type_op_helper`] — `ball_is(v, "T")`
+//!   and friends carry a type NAME, which is a string literal in the Ball node
+//!   too, so only a literal operand has a Ball node at all;
+//! - the collection-literal constructors [`BALL_MAP_CREATE`] and
+//!   [`BALL_SET_CREATE`], whose Ball inputs are shaped (repeated `entry`
+//!   messages; a single `elements` list) rather than positional.
 //!
 //! Statement-shaped lowerings (`if`/`for`/`while`/`match`) are not here at all:
 //! the compiler emits them as native Rust control flow, which the encoder
@@ -60,6 +73,39 @@ pub(crate) const BALL_TRUTHY: &str = "ball_truthy";
 /// pairs for a map-backed value, `ball_spread_iter` the set's backing items),
 /// so collapsing them would be a silently wrong answer rather than a loud one.
 pub(crate) const BALL_ITERATE: &str = "ball_iterate";
+
+/// `ball_map_create(<[[key, value], …] list>)` — the compiler's MAP-literal
+/// constructor (`rust/compiler/src/base_call.rs::compile_map_create`). Its Ball
+/// input is not one positional argument: `std.map_create` takes one repeated
+/// `entry` field per pair, each a `{key, value}` message-creation (see
+/// `dart/encoder/lib/encoder.dart::_encodeSetOrMapLiteral`).
+pub(crate) const BALL_MAP_CREATE: &str = "ball_map_create";
+
+/// `ball_set_create(<element list>)` — the compiler's SET-literal constructor
+/// (`base_call.rs`'s `"set_create"` arm, which passes `field_list_or_empty`'s
+/// compiled `elements`). `std.set_create`'s input names that list `elements`,
+/// so the inverse is a rename, not the table's `value`.
+pub(crate) const BALL_SET_CREATE: &str = "ball_set_create";
+
+/// The is/as registry's QUERY side (issue #692) — `ball_<name>` -> the `std`
+/// base function it is the emission of, or `None` when `name` is not one.
+///
+/// `rust/compiler/src/base_call.rs::compile_type_op` emits `ball_is`,
+/// `ball_is_not` and `ball_as` for `std.is`/`is_not`/`as`, and
+/// `rust/compiler/src/pattern.rs::type_test` emits the bare-`bool`
+/// `ball_is_type` for a pattern's type test — which is the SAME discrimination
+/// (`ball_lang_shared::runtime::ball_is` is literally
+/// `BallValue::Bool(ball_is_type(&value, type_name))`), so it inverts to the
+/// same `std.is`. A Ball condition site coerces truthiness implicitly, so the
+/// `bool`-vs-`BallValue` difference has no Ball counterpart to preserve.
+pub(crate) fn type_op_helper(name: &str) -> Option<&'static str> {
+    match name {
+        "ball_is" | "ball_is_type" => Some("is"),
+        "ball_is_not" => Some("is_not"),
+        "ball_as" => Some("as"),
+        _ => None,
+    }
+}
 
 const UNARY: &[&str] = &["value"];
 const BINARY: &[&str] = &["left", "right"];

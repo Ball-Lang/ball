@@ -79,6 +79,17 @@ PROVEN = [
     # `except ballrt.BallThrow` never saw it and the program died instead of
     # catching.
     "465_state_error_message",
+    # Typed `on T catch` clause DISPATCH (#615's own guard) and the mismatch
+    # arm of #658's rendering fixture (#724). `run_try` used to compile
+    # `catches[0]` alone, as an unconditional catch-all, ignoring its `type`
+    # and dropping every later clause — so 464 printed the first clause's
+    # "wrong" body on all four cases and 473's `mismatch()` printed `wrong:`
+    # where Dart prints `fallback:`. Silently wrong output, never an error, and
+    # the `python-engine` row could not see it: that row runs the SELF-HOSTED
+    # engine, whose own catch dispatch is Ball code (`_evalLazyTry`), so no
+    # multi-clause typed `try` in a USER program ever reached this lowering.
+    "464_typed_catch_clause_dispatch",
+    "473_caught_user_thrown_builtin_error",
 ]
 
 

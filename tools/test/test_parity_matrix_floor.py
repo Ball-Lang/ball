@@ -97,6 +97,12 @@ FLOOR_START = "engine_rows_run=0\n"
 FLOOR_NEEDLE = "executed ZERO engine rows"
 FLOOR_END = "\nfi\n"
 
+# The SIBLING-ROW floor (the #725 review): a language group runs whole or not
+# at all. Its own anchors, so the two negative controls stay independent.
+SIBLING_START = "# ── SIBLING-ROW FLOOR"
+SIBLING_NEEDLE = "ran PARTIALLY"
+SIBLING_END = 'group_check "Python" \\\n'
+
 
 def strip_floor(script: str) -> str:
     """The summary step WITHOUT the zero-row floor — the negative control.
@@ -153,6 +159,7 @@ def run_case(
     want_exit: int = 0,
     needle: str = "",
     without_floor: bool = False,
+    without_sibling_floor: bool = False,
 ) -> bool:
     results = {"changes": changes}
     for row in ENGINE_ROWS:
@@ -163,6 +170,8 @@ def run_case(
     source = load_summary_script()
     if without_floor:
         source = strip_floor(source)
+    if without_sibling_floor:
+        source = strip_sibling_floor(source)
     script = render(source, event, results, failed_counts or {})
     # Fed on stdin rather than written to a temp file: a Windows temp PATH is
     # not a path the bash on PATH can open, and a harness that cannot start the
@@ -186,6 +195,63 @@ def run_case(
         for line in out.splitlines():
             print(f"    | {line}")
     return ok
+
+
+def strip_sibling_floor(script: str) -> str:
+    """The summary step WITHOUT the sibling-row floor — its negative control.
+
+    Run against a PARTIALLY executed language group this must exit 0, which is
+    the state the #725 review found: rust-engine ran, rust-roundtrip was
+    skipped, the ratcheted RUST_ROUNDTRIP_FLOOR was never evaluated, and the
+    matrix was green. If the block can no longer be located the harness fails
+    loud rather than quietly testing the unmodified script twice."""
+    try:
+        i = script.index(SIBLING_START)
+        j = script.index(SIBLING_NEEDLE, i)
+        k = script.index(SIBLING_END, j)
+        # ...through the end of the final group_check invocation (a `\`
+        # continuation run that ends at the first line not ending in `\`).
+        lines = script[k:].split("\n")
+        n = 0
+        for n, line in enumerate(lines):  # noqa: B007 - n is the result
+            if not line.rstrip().endswith("\\"):
+                break
+        k += sum(len(line) + 1 for line in lines[: n + 1])
+    except ValueError:
+        raise SystemExit(
+            "::error::could not locate the sibling-row floor in the summary "
+            "step — the negative control cannot be built, so this harness "
+            "would prove nothing about it. Re-anchor strip_sibling_floor() or "
+            "restore the floor."
+        )
+    return script[:i] + script[k:]
+
+
+def check_group_table_covers_every_row() -> bool:
+    """Every matrix row job must appear in the summary's group_check table.
+
+    The closed set is read from the WORKFLOW ITSELF (`jobs:` minus the
+    classifier and the summary), never from a second hand-kept list here: a row
+    added to `needs:` but forgotten in the table would otherwise be exempt from
+    the sibling floor forever, and an unchecked row is the shape this floor
+    exists to catch.
+    """
+    with open(WORKFLOW, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    rows = sorted(set(doc["jobs"]) - {"changes", "summary"})
+    if not rows:
+        print("FAIL group table coverage (the workflow declares no matrix rows)")
+        return False
+    script = load_summary_script()
+    missing = [r for r in rows if f'"{r}=' not in script]
+    if missing:
+        print(
+            "FAIL group table coverage — rows absent from the group_check "
+            f"table: {', '.join(missing)}"
+        )
+        return False
+    print(f"PASS group table coverage ({len(rows)} matrix rows, all grouped)")
+    return True
 
 
 def main() -> int:
@@ -280,6 +346,49 @@ def main() -> int:
                 needle="reported 3 conformance failure(s)",
             ),
         ),
+        # THE SIBLING FLOOR (the #725 review). One language's engine row ran
+        # and its round-trip sibling did not: `engine_rows_run` is 1, nothing
+        # "failed", and before this floor the run was GREEN while the ratcheted
+        # RUST_ROUNDTRIP_FLOOR was never evaluated at all.
+        (
+            "a PARTIALLY executed language group FAILS",
+            dict(
+                name="a PARTIALLY executed language group FAILS",
+                event="pull_request",
+                engine={"rust-engine": "success"},
+                other={"rust-compiler": "success"},  # rust-roundtrip skipped
+                want_exit=1,
+                needle="ran PARTIALLY",
+            ),
+        ),
+        # NEGATIVE CONTROL: the SAME scenario without the sibling block is
+        # green — that is what proves the case above is this floor biting.
+        (
+            "without the sibling floor the partial group is GREEN",
+            dict(
+                name="without the sibling floor the partial group is GREEN",
+                event="pull_request",
+                engine={"rust-engine": "success"},
+                other={"rust-compiler": "success"},
+                want_exit=0,
+                needle="All engines this diff requires passed conformance",
+                without_sibling_floor=True,
+            ),
+        ),
+        # The sibling floor is NOT pull_request-only: on push every condition is
+        # unconditionally true, so a partial group there is a broken workflow,
+        # not a narrowing, and must still fail.
+        (
+            "a PARTIAL group on push also FAILS",
+            dict(
+                name="a PARTIAL group on push also FAILS",
+                event="push",
+                engine={r: "success" for r in ENGINE_ROWS},
+                other={r: "success" for r in OTHER_ROWS if r != "go-roundtrip"},
+                want_exit=1,
+                needle="ran PARTIALLY",
+            ),
+        ),
         (
             "a broken classifier still fails",
             dict(
@@ -302,10 +411,17 @@ def main() -> int:
         else:
             failed += 1
 
+    # Structural, not scenario-driven: counted with the rest so the positive
+    # floor below covers it too.
+    if check_group_table_covers_every_row():
+        passed += 1
+    else:
+        failed += 1
+
     print(f"Results: {passed} passed, {failed} failed, {passed + failed} total")
-    if passed < len(cases):
+    if passed < len(cases) + 1:  # +1: the group-table coverage check
         print(
-            f"::error::executed fewer cases than expected ({passed} < {len(cases)}) — "
+            f"executed fewer cases than expected ({passed} < {len(cases) + 1}) — "
             "a harness that ran nothing is not a passing harness."
         )
         return 1

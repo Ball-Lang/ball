@@ -1144,8 +1144,8 @@ signals. The per-row conditions are all
 full-matrix safety net does not move.
 
 **"Every filter path maps onto a row signal" is a correctness invariant, and it
-is guarded twice.** Leaving `infra` out of the row conditions is only safe while
-that holds. An entry in the filter that lights up no signal a row reads is
+is guarded three ways.** Leaving `infra` out of the row conditions is only safe
+while that holds. An entry in the filter that lights up no signal a row reads is
 SILENTLY GREEN: the workflow starts (the path matched), all 17 rows evaluate
 false, and a summary that correctly treats `skipped` as benign prints a full
 table of SKIPs and exits 0 — a green Conformance Matrix that executed zero rows.
@@ -1165,8 +1165,23 @@ So:
   returned all-false). Push, schedule and dispatch runs are exempt because their
   rows are unconditional. `tools/test/test_parity_matrix_floor.py` (also the
   `proto` job) renders that summary step out of the workflow and executes it
-  under bash across eight scenarios, including a negative control that strips
+  under bash across eleven scenarios, including a negative control that strips
   the floor and asserts the same all-skipped run then goes green.
+- **Also at run time**, the same `Parity Matrix` step fails a run in which a
+  language's rows executed only PARTIALLY — `rust-engine` ran, `rust-roundtrip`
+  did not. The zero-row floor above cannot see that case: `engine_rows_run` is
+  1, `skipped` is benign, and the run is green while the skipped row's ratcheted
+  floor (`RUST_ROUNDTRIP_FLOOR`, raised to 100 by #687/#725) was never evaluated
+  on the diff that could break it. Every row of a language carries the identical
+  condition, so a partial group means one drifted; the floor asserts the OUTCOME
+  those conditions must produce rather than restating them, and it applies on
+  every event (on push/schedule/dispatch the conditions are unconditionally
+  true, so a partial group is unreachable there and it cannot fire spuriously).
+  `test_parity_matrix_floor.py` drives it, its negative control (strip the block
+  ⇒ the same partial run goes green), and a structural check that the group
+  table covers EVERY matrix row job — the row set read from the workflow's own
+  `jobs:`, so a row added to `needs:` but forgotten in the table is RED rather
+  than silently exempt.
 
 The detect-changed-stacks truth table pins `corpus`/`dart_core`/`matrix_self`
 themselves.
@@ -1470,7 +1485,8 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs `dart/shared/lib/std*.dart` and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose). Truth-table rows both ways, including `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
 | **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
-| **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 8 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |
+| **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 11 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |
+| **A language's matrix rows run whole, or not at all** (#687/#725 review) | `conformance-matrix.yml`'s `Parity Matrix` — a group whose rows ran PARTIALLY (e.g. `rust-engine` executed, `rust-roundtrip` skipped) is a hard failure on every event. The zero-row floor above cannot see it: one engine row ran, `skipped` is benign, and the skipped row's ratcheted floor was never evaluated. `tools/test/test_parity_matrix_floor.py` drives the partial group (RED), its negative control (block stripped ⇒ the same run GREEN), a partial group on `push`, and a structural check that the group table covers every job in the workflow's own `jobs:` | every PR (the always-on `proto` job) + every matrix run |
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |

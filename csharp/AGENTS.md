@@ -1466,7 +1466,6 @@ Three legs, one runner, selected via `--leg=`:
   `std_collections` helpers it structurally could not name (a row names a FUNCTION and its only
   emitter, `Builders.StdCall`, hard-codes `module = "std"`), which was the largest remaining
   family of measured first blockers. The
-
   serialize → subprocess → diff plumbing itself is verified independently: swapping in the
   *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
   through the real `dart run` subprocess, so a future encoder improvement that closes this gap will

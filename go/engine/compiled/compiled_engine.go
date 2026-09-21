@@ -1504,6 +1504,33 @@ func _writeBackingField(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_writeBackingField' for " + __t})
 }
 
+func _setterBackingStore(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___setterBackingStore(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_setterBackingStore' for " + __t})
+}
+
+func _collectBackingStoreWrites(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___collectBackingStoreWrites(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_collectBackingStoreWrites' for " + __t})
+}
+
+func _backingStoreTargetName(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___backingStoreTargetName(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_backingStoreTargetName' for " + __t})
+}
+
 func _syncFieldToSelf(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -3200,6 +3227,8 @@ func BallEngine___consumeGeneratorFlow(input ballrt.Value) (__ret ballrt.Value) 
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -3372,6 +3401,7 @@ func BallEngine__new(input ballrt.Value) ballrt.Value {
 	__fields.Set("_functions", ballrt.NewMap())
 	__fields.Set("_getters", ballrt.NewMap())
 	__fields.Set("_setters", ballrt.NewMap())
+	__fields.Set("_setterBackingStores", ballrt.NewMap())
 	__fields.Set("_globalScope", func() ballrt.Value {
 		__f := ballrt.NewMap()
 		__f.Set("_bindings", ballrt.NewMap())
@@ -3425,6 +3455,8 @@ func BallEngine__new(input ballrt.Value) ballrt.Value {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	_paramCache := ballrt.FieldGet(__self, "_paramCache")
@@ -3503,6 +3535,8 @@ func BallEngine__profilingReport(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -3586,6 +3620,8 @@ func BallEngine__callFunction(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -3667,6 +3703,8 @@ func BallEngine___validateProgramLimits(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -3777,6 +3815,8 @@ func BallEngine___validateStaticExpressionDepth(input ballrt.Value) (__ret ballr
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -3877,6 +3917,8 @@ func BallEngine___validateExpressionDepth(input ballrt.Value) (__ret ballrt.Valu
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -4223,6 +4265,8 @@ func BallEngine___checkExpressionDepth(input ballrt.Value) (__ret ballrt.Value) 
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -4305,6 +4349,8 @@ func BallEngine___exitExpression(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -4374,6 +4420,8 @@ func BallEngine___buildLookupTables(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -4668,6 +4716,8 @@ func BallEngine___registerDeclaredFieldFinality(input ballrt.Value) (__ret ballr
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -4817,6 +4867,8 @@ func BallEngine___registerFunctionDispatchTables(input ballrt.Value) (__ret ball
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5059,6 +5111,8 @@ func BallEngine___resolveInstanceMethodDispatch(input ballrt.Value) (__ret ballr
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5166,6 +5220,8 @@ func BallEngine___lookupTypeMethodWithInheritance(input ballrt.Value) (__ret bal
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5385,6 +5441,8 @@ func BallEngine___initTopLevelVariables(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5558,6 +5616,8 @@ func BallEngine__run(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5656,6 +5716,8 @@ func BallEngine___checkExecutionTimeout(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5756,6 +5818,8 @@ func BallEngine___trackStringAllocation(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5830,6 +5894,8 @@ func BallEngine___trackByteListAllocation(input ballrt.Value) (__ret ballrt.Valu
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5904,6 +5970,8 @@ func BallEngine___trackMemoryAllocation(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -5999,6 +6067,8 @@ func BallEngine___asMap(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -6097,6 +6167,8 @@ func BallEngine___isSinglePositionalArgBag(input ballrt.Value) (__ret ballrt.Val
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -6193,6 +6265,8 @@ func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -6893,6 +6967,8 @@ func BallEngine___callObjectConstructor(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -7198,6 +7274,8 @@ func BallEngine___applyConstructorInitializers(input ballrt.Value) (__ret ballrt
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -7489,6 +7567,8 @@ func BallEngine___buildConstructorInstance(input ballrt.Value) (__ret ballrt.Val
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -7830,6 +7910,8 @@ func BallEngine___invokeSuperConstructor(input ballrt.Value) (__ret ballrt.Value
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -8107,6 +8189,8 @@ func BallEngine___lookupConstructor(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -8228,6 +8312,8 @@ func BallEngine___parseSuperArgs(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -8336,6 +8422,8 @@ func BallEngine___extractParamsMeta(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -8489,6 +8577,8 @@ func BallEngine___extractParams(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -8606,6 +8696,8 @@ func BallEngine___resolveAndCallFunction(input ballrt.Value) (__ret ballrt.Value
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -8880,6 +8972,8 @@ func BallEngine___tryLazyResolve(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -9000,6 +9094,8 @@ func BallEngine___indexModule(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -9179,6 +9275,8 @@ func BallEngine___asList(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -9363,6 +9461,8 @@ func BallEngine___evalExpression(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -9511,6 +9611,8 @@ func BallEngine___unwrapFuture(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -9582,6 +9684,8 @@ func BallEngine___evalCall(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -10319,6 +10423,8 @@ func BallEngine___evalLiteral(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -10426,6 +10532,8 @@ func BallEngine___evalListLiteral(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -10525,6 +10633,8 @@ func BallEngine___evalCollectionIf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -10668,6 +10778,8 @@ func BallEngine___evalCollectionFor(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -10960,6 +11072,8 @@ func BallEngine___addCollectionElement(input ballrt.Value) (__ret ballrt.Value) 
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11109,6 +11223,8 @@ func BallEngine___spliceSpread(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11232,6 +11348,8 @@ func BallEngine___evalLazyMapCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11368,6 +11486,8 @@ func BallEngine___addMapEntryExpr(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11453,6 +11573,8 @@ func BallEngine___putMapEntryValue(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11576,6 +11698,8 @@ func BallEngine___addMapCollectionElement(input ballrt.Value) (__ret ballrt.Valu
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11721,6 +11845,8 @@ func BallEngine___evalMapCollectionIf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -11854,6 +11980,8 @@ func BallEngine___evalMapCollectionFor(input ballrt.Value) (__ret ballrt.Value) 
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -12144,6 +12272,8 @@ func BallEngine___spliceMapSpread(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -12278,6 +12408,8 @@ func BallEngine___evalReference(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -12814,6 +12946,8 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -13806,6 +13940,8 @@ func BallEngine___tryGetterDispatch(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -13994,6 +14130,8 @@ func BallEngine___isGetter(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14089,6 +14227,8 @@ func BallEngine___isSetter(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14178,6 +14318,8 @@ func BallEngine___nearestFieldDeclarationIsFinal(input ballrt.Value) (__ret ball
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14290,6 +14432,8 @@ func BallEngine___trySetterDispatch(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14413,6 +14557,7 @@ func BallEngine___trySetterDispatch(input ballrt.Value) (__ret ballrt.Value) {
 						__m.Set("arg0", object)
 						__m.Set("arg1", fieldName)
 						__m.Set("arg2", result)
+						__m.Set("arg3", setterFunc)
 						return __m
 					}(), __self))
 					_ = ballrt.Return(result)
@@ -14489,6 +14634,7 @@ func BallEngine___trySetterDispatch(input ballrt.Value) (__ret ballrt.Value) {
 													__m.Set("arg0", object)
 													__m.Set("arg1", fieldName)
 													__m.Set("arg2", result)
+													__m.Set("arg3", superSetterFunc)
 													return __m
 												}(), __self))
 												_ = ballrt.Return(result)
@@ -14533,6 +14679,8 @@ func BallEngine___writeBackingField(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14587,6 +14735,8 @@ func BallEngine___writeBackingField(input ballrt.Value) (__ret ballrt.Value) {
 	_ = fieldName
 	assignedValue := ballrt.ArgGet(input, "assignedValue", "arg2")
 	_ = assignedValue
+	setterFunc := ballrt.ArgGet(input, "setterFunc", "arg3")
+	_ = setterFunc
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
 		_ = func() ballrt.Value {
@@ -14598,15 +14748,15 @@ func BallEngine___writeBackingField(input ballrt.Value) (__ret ballrt.Value) {
 			}
 			return ballrt.Value(nil)
 		}()
-		var backing ballrt.Value = ballrt.Concat("_", ballrt.ToStr(fieldName))
-		_ = backing
+		var written ballrt.Value = _setterBackingStore(ballrt.Arg0WithSelf(setterFunc, __self))
+		_ = written
 		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.MapContainsKey(object, backing)) {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(written, ballrt.Value(nil))) && ballrt.Truthy(ballrt.MapContainsKey(object, written)))) {
 				return func() ballrt.Value {
 					_ = ballObjectSetField(func() ballrt.Value {
 						__m := ballrt.NewMap()
 						__m.Set("arg0", object)
-						__m.Set("arg1", backing)
+						__m.Set("arg1", written)
 						__m.Set("arg2", assignedValue)
 						return __m
 					}())
@@ -14616,15 +14766,513 @@ func BallEngine___writeBackingField(input ballrt.Value) (__ret ballrt.Value) {
 			}
 			return ballrt.Value(nil)
 		}()
+		var backing ballrt.Value = ballrt.Concat("_", ballrt.ToStr(fieldName))
+		_ = backing
 		_ = func() ballrt.Value {
-			if ballrt.Truthy(ballrt.MapContainsKey(object, "_celsius")) {
+			if ballrt.Truthy(ballrt.MapContainsKey(object, backing)) {
 				return ballObjectSetField(func() ballrt.Value {
 					__m := ballrt.NewMap()
 					__m.Set("arg0", object)
-					__m.Set("arg1", "_celsius")
+					__m.Set("arg1", backing)
 					__m.Set("arg2", assignedValue)
 					return __m
 				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		return ballrt.Value(nil)
+	}()
+	return
+}
+
+func BallEngine___setterBackingStore(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	ball_func := ballrt.ArgGet(input, "func", "arg0")
+	_ = ball_func
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var cached ballrt.Value = ballrt.IndexGet(_setterBackingStores, ballrt.FieldGet(ball_func, "name"))
+		_ = cached
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Neq(cached, ballrt.Value(nil))) {
+				return ballrt.Return(func() ballrt.Value {
+					if ballrt.Truthy(ballrt.StrIsEmpty(cached)) {
+						return ballrt.Value(nil)
+					}
+					return cached
+				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		var found ballrt.Value = ballrt.NewList()
+		_ = found
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.HasField(ball_func, "body")) {
+				return _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", ballrt.FieldGet(ball_func, "body"))
+					__m.Set("arg1", found)
+					return __m
+				}(), __self))
+			}
+			return ballrt.Value(nil)
+		}()
+		var resolved ballrt.Value = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(found, "length"), int64(1))) {
+				return ballrt.IndexGet(found, int64(0))
+			}
+			return ""
+		}()
+		_ = resolved
+		_ = ballrt.IndexSet(_setterBackingStores, ballrt.FieldGet(ball_func, "name"), resolved)
+		return func() ballrt.Value {
+			if ballrt.Truthy(ballrt.StrIsEmpty(resolved)) {
+				return ballrt.Value(nil)
+			}
+			return resolved
+		}()
+	}()
+	return
+}
+
+func BallEngine___collectBackingStoreWrites(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	expr := ballrt.ArgGet(input, "expr", "arg0")
+	_ = expr
+	out := ballrt.ArgGet(input, "out", "arg1")
+	_ = out
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var kind ballrt.Value = ballrt.WhichExpr(expr)
+		_ = kind
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "call"))) {
+				return func() ballrt.Value {
+					var call ballrt.Value = ballrt.FieldGet(expr, "call")
+					_ = call
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(call, "function"), "assign")) && ballrt.Truthy((ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(call, "module"), "std")) || ballrt.Truthy(ballrt.StrIsEmpty(ballrt.FieldGet(call, "module"))))))) {
+							return func() ballrt.Value {
+								var target ballrt.Value = ballrt.IndexGet(_lazyFields(ballrt.Arg0WithSelf(call, __self)), "target")
+								_ = target
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Neq(target, ballrt.Value(nil))) {
+										return func() ballrt.Value {
+											var name ballrt.Value = _backingStoreTargetName(ballrt.Arg0WithSelf(target, __self))
+											_ = name
+											_ = func() ballrt.Value {
+												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(name, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.ListContains(out, name))))) {
+													return func() ballrt.Value { __v := ballrt.ListPush(out, name); out = __v; return __v }()
+												}
+												return ballrt.Value(nil)
+											}()
+											return ballrt.Value(nil)
+										}()
+									}
+									return ballrt.Value(nil)
+								}()
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.HasField(call, "input")) {
+							return _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("arg0", ballrt.FieldGet(call, "input"))
+								__m.Set("arg1", out)
+								return __m
+							}(), __self))
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Return(ballrt.Value(nil))
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "messageCreation"))) {
+				return func() ballrt.Value {
+					_ = func() ballrt.Value {
+						for _, f := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(expr, "messageCreation"), "fields")) {
+							_ = f
+							if ballrt.RunLoopBody("", func() {
+								_ = _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+									__m := ballrt.NewMap()
+									__m.Set("arg0", ballrt.FieldGet(f, "value"))
+									__m.Set("arg1", out)
+									return __m
+								}(), __self))
+							}) {
+								break
+							}
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Return(ballrt.Value(nil))
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "block"))) {
+				return func() ballrt.Value {
+					_ = func() ballrt.Value {
+						for _, stmt := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "statements")) {
+							_ = stmt
+							if ballrt.RunLoopBody("", func() {
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Eq(ballrt.WhichStmt(stmt), ballrt.FieldGet(ballOneof_Statement_Stmt, "let"))) {
+										return _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("arg0", ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+											__m.Set("arg1", out)
+											return __m
+										}(), __self))
+									}
+									return func() ballrt.Value {
+										if ballrt.Truthy(ballrt.Eq(ballrt.WhichStmt(stmt), ballrt.FieldGet(ballOneof_Statement_Stmt, "expression"))) {
+											return _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+												__m := ballrt.NewMap()
+												__m.Set("arg0", ballrt.FieldGet(stmt, "expression"))
+												__m.Set("arg1", out)
+												return __m
+											}(), __self))
+										}
+										return ballrt.Value(nil)
+									}()
+								}()
+							}) {
+								break
+							}
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
+							return _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("arg0", ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+								__m.Set("arg1", out)
+								return __m
+							}(), __self))
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Return(ballrt.Value(nil))
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "literal"))) {
+				return func() ballrt.Value {
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Eq(ballrt.WhichValue(ballrt.FieldGet(expr, "literal")), ballrt.FieldGet(ballOneof_Literal_Value, "listValue"))) {
+							return func() ballrt.Value {
+								_ = func() ballrt.Value {
+									for _, element := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(ballrt.FieldGet(expr, "literal"), "listValue"), "elements")) {
+										_ = element
+										if ballrt.RunLoopBody("", func() {
+											_ = _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+												__m := ballrt.NewMap()
+												__m.Set("arg0", element)
+												__m.Set("arg1", out)
+												return __m
+											}(), __self))
+										}) {
+											break
+										}
+									}
+									return ballrt.Value(nil)
+								}()
+								return ballrt.Value(nil)
+							}()
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Return(ballrt.Value(nil))
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "fieldAccess"))) {
+				return func() ballrt.Value {
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
+							return _collectBackingStoreWrites(ballrt.WithSelf(func() ballrt.Value {
+								__m := ballrt.NewMap()
+								__m.Set("arg0", ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+								__m.Set("arg1", out)
+								return __m
+							}(), __self))
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Return(ballrt.Value(nil))
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		return ballrt.Value(nil)
+	}()
+	return
+}
+
+func BallEngine___backingStoreTargetName(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	target := ballrt.ArgGet(input, "target", "arg0")
+	_ = target
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var kind ballrt.Value = ballrt.WhichExpr(target)
+		_ = kind
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "reference"))) {
+				return func() ballrt.Value {
+					var name ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "reference"), "name")
+					_ = name
+					_ = ballrt.Return(func() ballrt.Value {
+						if ballrt.Truthy(ballrt.StrStartsWith(name, "_")) {
+							return name
+						}
+						return ballrt.Value(nil)
+					}())
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(kind, ballrt.FieldGet(ballOneof_Expression_Expr, "fieldAccess"))) {
+				return func() ballrt.Value {
+					var field ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "field_2")
+					_ = field
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Not(ballrt.StrStartsWith(field, "_"))) {
+							return ballrt.Return(ballrt.Value(nil))
+						}
+						return ballrt.Value(nil)
+					}()
+					var object ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(target, "fieldAccess"), "object")
+					_ = object
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Neq(ballrt.WhichExpr(object), ballrt.FieldGet(ballOneof_Expression_Expr, "reference"))) {
+							return ballrt.Return(ballrt.Value(nil))
+						}
+						return ballrt.Value(nil)
+					}()
+					var receiver ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(object, "reference"), "name")
+					_ = receiver
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(receiver, "self")) || ballrt.Truthy(ballrt.Eq(receiver, "this")))) {
+							return ballrt.Return(field)
+						}
+						return ballrt.Value(nil)
+					}()
+					_ = ballrt.Return(ballrt.Value(nil))
+					return ballrt.Value(nil)
+				}()
 			}
 			return ballrt.Value(nil)
 		}()
@@ -14649,6 +15297,8 @@ func BallEngine___syncFieldToSelf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14794,6 +15444,8 @@ func BallEngine___isBareSelfConstruction(input ballrt.Value) (__ret ballrt.Value
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -14921,6 +15573,8 @@ func BallEngine___evalMessageCreation(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -15791,6 +16445,8 @@ func BallEngine___findTypeDef(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -15997,6 +16653,8 @@ func BallEngine___initFieldDefaults(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -16181,6 +16839,8 @@ func BallEngine___parseInitializer(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -16370,6 +17030,8 @@ func BallEngine___getMetaString(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -16451,6 +17113,8 @@ func BallEngine___isInstanceValue(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -16538,6 +17202,8 @@ func BallEngine___buildSuperObject(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -16713,6 +17379,8 @@ func BallEngine___resolveTypeMethods(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -16947,6 +17615,8 @@ func BallEngine___resolveTypeMethodsWithInheritance(input ballrt.Value) (__ret b
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17088,6 +17758,8 @@ func BallEngine___evalBlock(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17212,6 +17884,8 @@ func BallEngine___evalStatement(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17386,6 +18060,8 @@ func BallEngine___evalLambda(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17609,6 +18285,8 @@ func BallEngine___cfAsMap(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17707,6 +18385,8 @@ func BallEngine___lazyFields(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17803,6 +18483,8 @@ func BallEngine___evalLazyIf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -17924,6 +18606,8 @@ func BallEngine___evalLazyFor(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -18165,6 +18849,8 @@ func BallEngine___evalForInit(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -18394,6 +19080,8 @@ func BallEngine___evalSimpleInitExpr(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -18872,6 +19560,8 @@ func BallEngine___evalLazyForIn(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -19043,6 +19733,8 @@ func BallEngine___evalLazyWhile(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -19204,6 +19896,8 @@ func BallEngine___evalLazyDoWhile(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -19371,6 +20065,8 @@ func BallEngine___evalLazySwitch(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -19707,6 +20403,8 @@ func BallEngine___evalLazySwitchExpr(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -19929,6 +20627,8 @@ func BallEngine___caseIsDefault(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -20012,6 +20712,8 @@ func BallEngine___scopeWithPatternBindings(input ballrt.Value) (__ret ballrt.Val
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -20116,6 +20818,8 @@ func BallEngine___matchesSwitchCasePattern(input ballrt.Value) (__ret ballrt.Val
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -20300,6 +21004,8 @@ func BallEngine___stringLiteral(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -20379,6 +21085,8 @@ func BallEngine___ballEquals(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -20472,6 +21180,8 @@ func BallEngine___matchSwitchPattern(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -20700,6 +21410,8 @@ func BallEngine___evalLazyTry(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21027,6 +21739,8 @@ func BallEngine___evalShortCircuitAnd(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21132,6 +21846,8 @@ func BallEngine___evalShortCircuitOr(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21237,6 +21953,8 @@ func BallEngine___evalReturn(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21333,6 +22051,8 @@ func BallEngine___evalBreak(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21422,6 +22142,8 @@ func BallEngine___evalContinue(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21511,6 +22233,8 @@ func BallEngine___cfWritebackInstance(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21627,6 +22351,8 @@ func BallEngine___cfWritebackIndexed(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21750,6 +22476,8 @@ func BallEngine___assignTargetShapeName(input ballrt.Value) (__ret ballrt.Value)
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21867,6 +22595,8 @@ func BallEngine___assignErrorMessage(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -21949,6 +22679,8 @@ func BallEngine___evalAssign(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -22542,6 +23274,8 @@ func BallEngine___evalNullAwareAssign(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -22871,6 +23605,8 @@ func BallEngine___evalIncDec(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -23218,6 +23954,8 @@ func BallEngine___applyCompoundOp(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -23527,6 +24265,8 @@ func BallEngine___numOp(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -23607,6 +24347,8 @@ func BallEngine___intOp(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -23687,6 +24429,8 @@ func BallEngine___evalLabeled(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -23825,6 +24569,8 @@ func BallEngine___extractLoopFromBody(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -23940,6 +24686,8 @@ func BallEngine___evalLabeledLoop(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -24071,6 +24819,8 @@ func BallEngine___evalLabeledFor(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -24450,6 +25200,8 @@ func BallEngine___evalLabeledForIn(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -24649,6 +25401,8 @@ func BallEngine___evalLabeledWhile(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -24838,6 +25592,8 @@ func BallEngine___evalLabeledDoWhile(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25057,6 +25813,8 @@ func BallEngine___evalGoto(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25147,6 +25905,8 @@ func BallEngine___gotoSignalLabel(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25269,6 +26029,8 @@ func BallEngine___evalLabel(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25412,6 +26174,8 @@ func BallEngine___evalLazyCascade(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25559,6 +26323,8 @@ func BallEngine___evalAwaitFor(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25637,6 +26403,8 @@ func BallEngine___evalYield(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25779,6 +26547,8 @@ func BallEngine___evalYieldEach(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -25942,6 +26712,8 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -27966,6 +28738,8 @@ func BallEngine___stdAsMap(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28064,6 +28838,8 @@ func BallEngine___stdAsList(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28155,6 +28931,8 @@ func BallEngine___isBallSet(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28226,6 +29004,8 @@ func BallEngine___ballSetItems(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28353,6 +29133,8 @@ func BallEngine___ballSetOf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28448,6 +29230,8 @@ func BallEngine___tryOperatorOverride(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28659,6 +29443,8 @@ func BallEngine___dispatchBuiltinClassMethod(input ballrt.Value) (__ret ballrt.V
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -28884,6 +29670,8 @@ func BallEngine___callBaseFunction(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -29040,6 +29828,8 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -34815,6 +35605,8 @@ func BallEngine___concurrencyHandle(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -34928,6 +35720,8 @@ func BallEngine___lockMutex(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35014,6 +35808,8 @@ func BallEngine___unlockMutex(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35100,6 +35896,8 @@ func BallEngine___trackListCopy(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35174,6 +35972,8 @@ func BallEngine___manualReverse(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35266,6 +36066,8 @@ func BallEngine___resolveMethod(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35440,6 +36242,8 @@ func BallEngine___getMixins(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35571,6 +36375,8 @@ func BallEngine___stdPrint(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35671,6 +36477,8 @@ func BallEngine___dartErrorPrefix(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -35768,6 +36576,8 @@ func BallEngine___ballToStringAsync(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36224,6 +37034,8 @@ func BallEngine___stdIf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36317,6 +37129,8 @@ func BallEngine___stdIndex(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36442,6 +37256,8 @@ func BallEngine___stdCascade(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36523,6 +37339,8 @@ func BallEngine___stdNullAwareCascade(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36612,6 +37430,8 @@ func BallEngine___stdListGenerate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36768,6 +37588,8 @@ func BallEngine___stdListFilled(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -36874,6 +37696,8 @@ func BallEngine___stdInvoke(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37038,6 +37862,8 @@ func BallEngine___stdNullAwareAccess(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37137,6 +37963,8 @@ func BallEngine___stdNullAwareCall(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37226,6 +38054,8 @@ func BallEngine___stdSinkCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37325,6 +38155,8 @@ func BallEngine___stdSinkWrite(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37420,6 +38252,8 @@ func BallEngine___stdSinkToString(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37507,6 +38341,8 @@ func BallEngine___stdSinkBacking(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37594,6 +38430,8 @@ func BallEngine___stdTypeCheck(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37690,6 +38528,8 @@ func BallEngine___stdTypeOf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37775,6 +38615,8 @@ func BallEngine___typeNameOf(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -37925,6 +38767,8 @@ func BallEngine___typeMatches(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38299,6 +39143,8 @@ func BallEngine___objectTypeMatches(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38430,6 +39276,8 @@ func BallEngine___typeNameMatches(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38539,6 +39387,8 @@ func BallEngine___splitTypeArgs(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38664,6 +39514,8 @@ func BallEngine___stdMapCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38824,6 +39676,8 @@ func BallEngine___stdSetCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38919,6 +39773,8 @@ func BallEngine___collectionMisuse(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -38994,6 +39850,8 @@ func BallEngine___stdRecord(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -39081,6 +39939,8 @@ func BallEngine___stdSwitchExpr(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -39297,6 +40157,8 @@ func BallEngine___matchPattern(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -39415,6 +40277,8 @@ func BallEngine___matchStringPattern(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -39664,6 +40528,8 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -40356,6 +41222,8 @@ func BallEngine___patternKind(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -40488,6 +41356,8 @@ func BallEngine___patternFields(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -40619,6 +41489,8 @@ func BallEngine___matchRelationalPattern(input ballrt.Value) (__ret ballrt.Value
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -40737,6 +41609,8 @@ func BallEngine___matchesObjectType(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -40853,6 +41727,8 @@ func BallEngine___ballToStringSimple(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41039,6 +41915,8 @@ func BallEngine___matchesTypePattern(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41207,6 +42085,8 @@ func BallEngine___stdAssert(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41307,6 +42187,8 @@ func BallEngine___stdAdd(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41404,6 +42286,8 @@ func BallEngine___repeatString(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41494,6 +42378,8 @@ func BallEngine___stdBinary(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41580,6 +42466,8 @@ func BallEngine___stdBinaryInt(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41666,6 +42554,8 @@ func BallEngine___stdBinaryDouble(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41752,6 +42642,8 @@ func BallEngine___stdBinaryComp(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41838,6 +42730,8 @@ func BallEngine___stdBinaryBool(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -41924,6 +42818,8 @@ func BallEngine___stdBinaryAny(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42010,6 +42906,8 @@ func BallEngine___stdUnaryNum(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42087,6 +42985,8 @@ func BallEngine___stdNot(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42162,6 +43062,8 @@ func BallEngine___stdValueIsEmpty(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42275,6 +43177,8 @@ func BallEngine___stdConcat(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42357,6 +43261,8 @@ func BallEngine___stdLength(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42457,6 +43363,8 @@ func BallEngine___stdConvert(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42534,6 +43442,8 @@ func BallEngine___extractBinaryArgs(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42625,6 +43535,8 @@ func BallEngine___extractUnaryArg(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42706,6 +43618,8 @@ func BallEngine___extractField(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42789,6 +43703,8 @@ func BallEngine___stringFieldVal(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -42878,6 +43794,8 @@ func BallEngine___toInt(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43031,6 +43949,8 @@ func BallEngine___toDouble(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43145,6 +44065,8 @@ func BallEngine___toNum(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43303,6 +44225,8 @@ func BallEngine___toIterable(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43447,6 +44371,8 @@ func BallEngine___toBool(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43537,6 +44463,8 @@ func BallEngine___stdStringSubstring(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43636,6 +44564,8 @@ func BallEngine___stdStringCharAt(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43725,6 +44655,8 @@ func BallEngine___stdStringCharCodeAt(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43831,6 +44763,8 @@ func BallEngine___stdStringReplace(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -43932,6 +44866,8 @@ func BallEngine___stdRegexReplace(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44039,6 +44975,8 @@ func BallEngine___stdStringRepeat(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44131,6 +45069,8 @@ func BallEngine___stdStringPad(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44238,6 +45178,8 @@ func BallEngine___stdMathUnary(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44315,6 +45257,8 @@ func BallEngine___stdMathBinary(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44401,6 +45345,8 @@ func BallEngine___stdMathClamp(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44530,6 +45476,8 @@ func BallEngine___jsonEncode(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44609,6 +45557,8 @@ func BallEngine___jsonDecode(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44688,6 +45638,8 @@ func BallEngine___toJsonSafe(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44849,6 +45801,8 @@ func BallEngine___utf8Encode(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44920,6 +45874,8 @@ func BallEngine___utf8Decode(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -44991,6 +45947,8 @@ func BallEngine___base64Encode(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45062,6 +46020,8 @@ func BallEngine___base64Decode(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45133,6 +46093,8 @@ func BallEngine___checkSandbox(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45213,6 +46175,8 @@ func BallEngine___stdFileRead(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45306,6 +46270,8 @@ func BallEngine___stdFileReadBytes(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45399,6 +46365,8 @@ func BallEngine___stdFileWrite(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45481,6 +46449,8 @@ func BallEngine___stdFileWriteBytes(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45563,6 +46533,8 @@ func BallEngine___stdFileAppend(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45646,6 +46618,8 @@ func BallEngine___stdFileExists(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45739,6 +46713,8 @@ func BallEngine___stdFileDelete(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45833,6 +46809,8 @@ func BallEngine___stdDirList(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -45933,6 +46911,8 @@ func BallEngine___stdDirCreate(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")
@@ -46028,6 +47008,8 @@ func BallEngine___stdDirExists(input ballrt.Value) (__ret ballrt.Value) {
 	_ = _getters
 	_setters := ballrt.FieldGet(__self, "_setters")
 	_ = _setters
+	_setterBackingStores := ballrt.FieldGet(__self, "_setterBackingStores")
+	_ = _setterBackingStores
 	_globalScope := ballrt.FieldGet(__self, "_globalScope")
 	_ = _globalScope
 	stdout := ballrt.FieldGet(__self, "stdout")

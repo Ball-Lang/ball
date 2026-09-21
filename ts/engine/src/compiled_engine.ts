@@ -2252,6 +2252,21 @@ export class BallEngine {
     }
   }
 
+  _isSinglePositionalArgBag(inputMap: any): any {
+    const input = inputMap;
+    let sawArg0 = false;
+    for (const entry of inputMap.entries) {
+      if (__ball_eq(entry.key, 'arg0')) {
+        sawArg0 = true;
+      } else {
+        if (!entry.key.startsWith('__')) {
+          return false;
+        }
+      }
+    }
+    return sawArg0;
+  }
+
   async _callFunction(moduleName: any, func: any, input: any): Promise<any> {
     let kind = (hasMetadata(func) ? (() => {
       let __naa_2 = __ball_index(func.metadata.fields, 'kind');
@@ -2299,7 +2314,7 @@ export class BallEngine {
             scope.bind(__ball_index(params, 0), __ball_index(inputMap, __ball_index(params, 0)));
             boundParams = (boundParams.push(__ball_index(params, 0)), boundParams);
           } else {
-            if ((((!__ball_eq(inputMap, null) && !inputIsInstance) && __ball_map_has(inputMap, 'map_contains_key', 'arg0')) && !__ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
+            if ((((!__ball_eq(inputMap, null) && !inputIsInstance) && !__ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0))) && this._isSinglePositionalArgBag(inputMap))) {
               scope.bind(__ball_index(params, 0), __ball_index(inputMap, 'arg0'));
               boundParams = (boundParams.push(__ball_index(params, 0)), boundParams);
             } else {

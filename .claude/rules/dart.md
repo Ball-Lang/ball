@@ -653,6 +653,25 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   deliberate and bounded, see `docs/METADATA_SPEC.md`'s "Accessor shape" and
   `dart/engine/AGENTS.md`.
 
+- **`arg0` is the sole argument only when it is the bag's ONLY argument
+  (#740).** A call site that knows the callee's parameter names packs
+  `{name: …}`; one that does not — a first-class `invoke`, or a target compiler
+  that lowered every Ball function to one taking the whole message — packs
+  `{arg0: …, arg1: …}`. `engine_invocation.dart`'s SINGLE-parameter binding
+  path used to unwrap `arg0` out of any bag that carried it, which lost data in
+  two shapes: a callee whose sole parameter IS the whole message (the shape
+  every re-encoded compiler output has, reading `input["a"] ?? input["arg0"]`
+  out of it) saw only the first argument, and a callee whose sole parameter is a
+  genuine map/record carrying an `arg0` key of its own saw that key's value
+  instead of the record. `_isSinglePositionalArgBag` now gates the unwrap on the
+  bag carrying `arg0` and nothing else (engine-internal `__`-prefixed keys
+  excepted); every other bag reaches the sole parameter WHOLE. By-name
+  extraction is still checked first and is unaffected. The guard is
+  `dart/engine/test/single_param_input_bag_test.dart` — the shape is not
+  producible from Dart source, so no generated `tests/conformance` fixture can
+  express it. The `self`-keyed twin (a 1-parameter callee whose input map
+  carries `self`) is a DIFFERENT and genuinely ambiguous case and is still open;
+  see `.claude/rules/csharp.md`.
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

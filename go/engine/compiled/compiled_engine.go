@@ -1162,6 +1162,15 @@ func _asMap(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_asMap' for " + __t})
 }
 
+func _isSinglePositionalArgBag(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___isSinglePositionalArgBag(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_isSinglePositionalArgBag' for " + __t})
+}
+
 func _callFunction(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -6054,6 +6063,102 @@ func BallEngine___asMap(input ballrt.Value) (__ret ballrt.Value) {
 	return
 }
 
+func BallEngine___isSinglePositionalArgBag(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_declaredFieldIsFinal := ballrt.FieldGet(__self, "_declaredFieldIsFinal")
+	_ = _declaredFieldIsFinal
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	inputMap := ballrt.ArgGet(input, "inputMap", "arg0")
+	_ = inputMap
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var sawArg0 ballrt.Value = false
+		_ = sawArg0
+		_ = func() ballrt.Value {
+			for _, entry := range ballrt.Iterate(ballrt.FieldGet(inputMap, "entries")) {
+				_ = entry
+				if ballrt.RunLoopBody("", func() {
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(entry, "key"), "arg0")) {
+							return func() ballrt.Value { __v := true; sawArg0 = __v; return __v }()
+						}
+						return func() ballrt.Value {
+							if ballrt.Truthy(ballrt.Not(ballrt.StrStartsWith(ballrt.FieldGet(entry, "key"), "__"))) {
+								return ballrt.Return(false)
+							}
+							return ballrt.Value(nil)
+						}()
+					}()
+				}) {
+					break
+				}
+			}
+			return ballrt.Value(nil)
+		}()
+		return sawArg0
+	}()
+	return
+}
+
 func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 	_ = input
 	__self := ballrt.FieldGet(input, "self")
@@ -6302,7 +6407,7 @@ func BallEngine___callFunction(input ballrt.Value) (__ret ballrt.Value) {
 										}()
 									}
 									return func() ballrt.Value {
-										if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(inputMap, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(inputIsInstance)))) && ballrt.Truthy(ballrt.MapContainsKey(inputMap, "arg0")))) && ballrt.Truthy(ballrt.Not(ballrt.MapContainsKey(inputMap, ballrt.IndexGet(params, int64(0))))))) {
+										if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Neq(inputMap, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(inputIsInstance)))) && ballrt.Truthy(ballrt.Not(ballrt.MapContainsKey(inputMap, ballrt.IndexGet(params, int64(0))))))) && ballrt.Truthy(_isSinglePositionalArgBag(ballrt.Arg0WithSelf(inputMap, __self))))) {
 											return func() ballrt.Value {
 												_ = bind(func() ballrt.Value {
 													__m := ballrt.NewMap()

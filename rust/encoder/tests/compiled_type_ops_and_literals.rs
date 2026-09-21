@@ -224,9 +224,10 @@ fn walk(expr: &Expression, out: &mut Vec<Expression>) {
 
 /// Every `std.<function>` call in `program`, as
 /// `(function, [(field name, field summary)])`. A field summary is its string
-/// or int literal spelled out, `[…]` for a list literal, `{a, b}` for a
-/// message-creation, and `<expr>` for anything else — enough to assert the
-/// exact node without asserting on unrelated detail.
+/// or int literal spelled out, `[…]` for a list literal, `{a: …}` for a
+/// message-creation, `std.f({…})` for a nested `std` call, and `<expr>` for
+/// anything else — enough to assert the exact node without asserting on
+/// unrelated detail.
 fn std_calls(program: &Program) -> Vec<(String, Vec<(String, String)>)> {
     all_expressions(program)
         .iter()
@@ -288,6 +289,16 @@ fn summarize_expression(expr: &Expression) -> String {
                 ))
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+        Some(Expr::Call(call)) => format!(
+            "{}.{}({})",
+            call.module,
+            call.function,
+            call.input
+                .as_ref()
+                .map_or_else(|| "<absent>".to_string(), |input| summarize_expression(
+                    input
+                ))
         ),
         _ => "<expr>".to_string(),
     }
@@ -463,6 +474,16 @@ fn main() {
 /// (`base_call.rs::compile_map_create`) and must read back as the same
 /// `map_create` node: one repeated `entry` field per pair, each an anonymous
 /// `{key, value}` message-creation.
+///
+/// The `std.to_string({value: "a"})` around each string KEY is expected, and is
+/// asserted rather than normalized away. `compile_expression` emits a Ball
+/// string literal as `BallValue::String("a".to_string())`, and `.to_string()`
+/// is NOT one of `methods.rs`'s identity passthroughs — in hand-written Rust,
+/// which is this encoder's actual input, it genuinely IS `std.to_string`. Over
+/// a `String` that op returns its operand unchanged, so the re-encoded program
+/// computes the same map; the extra node is a node-fidelity difference, not a
+/// behavioural one. It applies to EVERY compiled string literal, predates this
+/// slice, and is out of #692's scope — see `rust/AGENTS.md`.
 #[test]
 fn a_compiled_map_literal_re_encodes_as_std_map_create() {
     let program = program_printing(
@@ -495,11 +516,11 @@ fn a_compiled_map_literal_re_encodes_as_std_map_create() {
         vec![
             (
                 "entry".to_string(),
-                "{key: \"a\", value: 1}".to_string()
+                "{key: std.to_string({value: \"a\"}), value: 1}".to_string(),
             ),
             (
                 "entry".to_string(),
-                "{key: \"b\", value: 2}".to_string()
+                "{key: std.to_string({value: \"b\"}), value: 2}".to_string(),
             ),
         ],
     );

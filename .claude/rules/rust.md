@@ -563,6 +563,12 @@ cargo fmt --check && cargo clippy --workspace
     Encoding it as an entry-less `map_create` would silently compute `{}` — the issue #55 class —
     so both helpers panic naming the shape. `a_map_create_over_a_spliced_list_fails_loud` and its
     set twin are the pins.
+  - **Stated gap (pre-existing, surfaced here): every compiled STRING literal re-encodes wrapped
+    in `std.to_string`.** `compile_expression` emits one as `BallValue::String("a".to_string())`,
+    and `.to_string()` is not one of `methods.rs`'s identity passthroughs — in hand-written Rust
+    it genuinely IS `std.to_string`, which over a `String` returns its operand unchanged. A
+    node-fidelity difference, not a behavioural one; asserted (map KEYS come back as
+    `std.to_string({value: "a"})`) rather than normalized away, so a change to it is loud.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which

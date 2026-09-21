@@ -615,6 +615,16 @@ positional argument per input field". They have their own arms in
   so encoding it as an entry-less `map_create` would silently compute `{}` (the issue #55 class).
   Both helpers panic naming the shape instead; `a_map_create_over_a_spliced_list_fails_loud` and
   its set twin are the pins.
+- **Stated, pre-existing gap surfaced while measuring this: every compiled STRING literal
+  re-encodes wrapped in `std.to_string`.** `compile_expression` emits a Ball string literal as
+  `BallValue::String("a".to_string())`, and `.to_string()` is NOT one of `methods.rs`'s identity
+  passthroughs — in hand-written Rust, which is this encoder's actual input, it genuinely IS
+  `std.to_string`. Over a `String` that op returns its operand unchanged, so the re-encoded
+  program computes the same answer; the extra node is a node-fidelity difference, not a
+  behavioural one, and making it an identity would special-case a literal receiver on evidence
+  nobody has measured. It is ASSERTED, not normalized away, in
+  `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
+  `std.to_string({value: "a"})`), so the day it changes, a test says so.
 
 ### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
 

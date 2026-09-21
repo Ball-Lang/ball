@@ -78,8 +78,9 @@ python -m ball_cli check   <program.ball.json>                        # or compi
 
 ## Status
 Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
-**compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
-four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
+**compiler** passes **124 tests**, the **encoder 138** (which need `dart` — see
+`encoder/AGENTS.md`), and the **CLI** drives all four verbs in-process
+(`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
 `Results: 363 passed, 0 failed, 363 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the

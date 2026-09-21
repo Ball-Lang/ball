@@ -245,8 +245,8 @@ cd ../engine && go test -v -run TestConformance -timeout 3600s ./conformance/
 # fails — never skips — when `dart` is unresolvable (#785, the #730 precedent).
 # ci.yml's python job sets Dart up BEFORE its test steps for exactly that.
 python -m pip install "protobuf>=5.29" "pytest>=8.3,<10"
-cd python/compiler && python -m pytest -q              # 95 tests
-cd python/encoder  && python -m pytest -q              # 42 tests
+cd python/compiler && python -m pytest -q              # 124 tests
+cd python/encoder  && python -m pytest -q              # 138 tests (needs dart, see above)
 cd python/cli      && python -m pytest -q              # all four verbs, in-process
 python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   python/encoder/ball_encoder python/engine/ball_engine python/cli/ball_cli \

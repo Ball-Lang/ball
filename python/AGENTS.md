@@ -54,6 +54,10 @@ python -m compileall ../runtime/ballrt ball_compiler                  # syntax g
 python -m ball_compiler <program.ball.json> -o out.py                 # compile
 PYTHONPATH=../runtime python out.py                                   # run
 
+# NEEDS `dart` (or BALL_DART) + a resolved workspace (`dart pub get` at the repo
+# root): tests/test_reference_engine_roundtrip.py runs the original AND the
+# re-encoded program on the DART reference engine (#785). An unresolvable `dart`
+# FAILS this suite, it never skips it.
 cd python/encoder && python -m pytest -q                              # structural + round-trip
 python -m ball_encoder <src.py> -o out.ball.json                      # encode Python -> Ball
 
@@ -74,8 +78,9 @@ python -m ball_cli check   <program.ball.json>                        # or compi
 
 ## Status
 Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
-**compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
-four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
+**compiler** passes **124 tests**, the **encoder 138** (which need `dart` — see
+`encoder/AGENTS.md`), and the **CLI** drives all four verbs in-process
+(`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
 `Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
@@ -124,6 +129,28 @@ CI home: the `python-roundtrip` row in `.github/workflows/conformance-matrix.yml
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:`
 trigger sharing its `push` filter, and `python/**` is in that filter, so the row
 runs on any PR touching this directory with no `gh workflow run` dispatch.
+
+### The reference-engine half of the FAST suite (#785)
+
+The whole-corpus leg above is the only place the Python pipeline used to meet the
+Dart reference engine. The fast in-package guards
+(`encoder/tests/test_ballrt_inverse.py`, `test_ballrt_namespaced.py`) re-encode a
+fixture and run it **in-process under `ballrt`**, so a re-encoded tree that
+Python's own runtime evaluates happily and the reference engine rejects was
+structurally invisible to them — `ballrt.getfield` answers `None` for an absent
+key (`runtime/ballrt/values.py`, proto3-default tolerance) where the engine fails
+loud with `BallRuntimeError: Field "…" not found`.
+
+`encoder/tests/test_reference_engine_roundtrip.py` closes that. For every fixture
+those two suites certify — the set is **derived from their own lists**, never kept
+there — it runs the ORIGINAL `.ball.json` *and* the RE-ENCODED program on
+`dart run dart/cli/bin/ball.dart run` and asserts byte-identical stdout, with the
+fixture's golden as the third leg. Its negative control encodes two
+compiler-shaped programs that `ballrt` cannot tell apart and the reference engine
+can, so the instrument is proven rather than trusted. This is the Python sibling
+of `csharp/encoder/test/ReferenceEngineExecutionTests.cs` (#689/#730), including
+its no-skip rule: an unresolvable `dart` is a FAILURE. `ci.yml`'s `python` job
+therefore sets Dart up **before** its test steps — do not move that back down.
 
 ## Publishing (PyPI)
 

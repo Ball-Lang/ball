@@ -1393,7 +1393,7 @@ extension BallEngineEval on BallEngine {
         'self': object,
         'value': value,
       });
-      _writeBackingField(object, fieldName, result);
+      _writeBackingField(object, fieldName, result, setterFunc);
       return result;
     }
 
@@ -1420,7 +1420,7 @@ extension BallEngineEval on BallEngine {
             superSetterFunc,
             <String, Object?>{'self': object, 'value': value},
           );
-          _writeBackingField(object, fieldName, result);
+          _writeBackingField(object, fieldName, result, superSetterFunc);
           return result;
         }
       }
@@ -1432,12 +1432,15 @@ extension BallEngineEval on BallEngine {
   }
 
   /// After a setter, mirror the assigned backing-store value onto the instance.
-  /// Dart fields use `_name` (e.g. setter `celsius` → `_celsius`). Uses
+  /// Dart fields use `_name` (e.g. setter `celsius` → `_celsius`), but a
+  /// COMPUTED property's store carries an unrelated name (`set fahrenheit(v)
+  /// => _kelvin = …`), so [setterFunc]'s own body is consulted first. Uses
   /// [assignedValue] (the setter's result), not the raw input value.
   void _writeBackingField(
     Map<String, Object?> object,
     String fieldName,
     Object? assignedValue,
+    FunctionDefinition setterFunc,
   ) {
     // `assignedValue` is the setter function's RETURN value. An
     // expression-bodied setter (`set x(v) => _x = v`) returns the stored value,
@@ -1447,16 +1450,124 @@ extension BallEngineEval on BallEngine {
     // would CLOBBER the field the body just set. Skip when there is nothing to
     // mirror.
     if (assignedValue == null) return;
+
+    // The store the setter's body ACTUALLY writes. Evidence beats convention:
+    // until #768 this fell back to the literal name `_celsius` whenever
+    // `_<property>` was absent, so every class that happened to declare a
+    // `_celsius` field had it silently overwritten by any unrelated computed
+    // setter — a wrong answer with no diagnostic.
+    final written = _setterBackingStore(setterFunc);
+    if (written != null && object.containsKey(written)) {
+      ballObjectSetField(object, written, assignedValue);
+      return;
+    }
+
+    // Dart's `_name` convention for the property itself. Still the answer for a
+    // setter whose body writes no single store this engine can name (it calls a
+    // helper, writes several fields, …) — a guess about the PROPERTY, never
+    // about some other field that happens to exist beside it.
     final backing = '_$fieldName';
     if (object.containsKey(backing)) {
       ballObjectSetField(object, backing, assignedValue);
+    }
+  }
+
+  /// The single backing store [func]'s own body writes, or `null` when there is
+  /// no unambiguous one.
+  ///
+  /// A setter's property name is NOT its store's name — `set fahrenheit(v) =>
+  /// _kelvin = …` stores into `_kelvin` — and the only sound source for that
+  /// name is the body. Only `_`-prefixed targets count: a backing store is
+  /// private by construction, and mirroring onto a public field would write
+  /// past whatever the class exposes. Ambiguity (zero targets, or more than
+  /// one) answers `null` so the caller falls back to the naming convention
+  /// rather than picking one at random (#768).
+  String? _setterBackingStore(FunctionDefinition func) {
+    final cached = _setterBackingStores[func.name];
+    if (cached != null) return cached.isEmpty ? null : cached;
+    final found = <String>[];
+    if (func.hasBody()) _collectBackingStoreWrites(func.body, found);
+    final resolved = found.length == 1 ? found[0] : '';
+    _setterBackingStores[func.name] = resolved;
+    return resolved.isEmpty ? null : resolved;
+  }
+
+  /// Collect the distinct `_`-prefixed assignment targets [expr] writes into
+  /// [out] (order-preserving, deduplicated).
+  ///
+  /// A nested `lambda` body is deliberately NOT walked: a closure's write
+  /// happens only if something invokes it, so counting it would attribute a
+  /// store to a setter that may never touch it.
+  void _collectBackingStoreWrites(Expression expr, List<String> out) {
+    final kind = expr.whichExpr();
+    if (kind == Expression_Expr.call) {
+      final call = expr.call;
+      if (call.function == 'assign' &&
+          (call.module == 'std' || call.module.isEmpty)) {
+        final target = _lazyFields(call)['target'];
+        if (target != null) {
+          final name = _backingStoreTargetName(target);
+          if (name != null && !out.contains(name)) out.add(name);
+        }
+      }
+      if (call.hasInput()) _collectBackingStoreWrites(call.input, out);
       return;
     }
-    // Computed property setters (e.g. `fahrenheit`) write `_celsius` but the
-    // property name differs; the setter result is the stored field value.
-    if (object.containsKey('_celsius')) {
-      ballObjectSetField(object, '_celsius', assignedValue);
+    if (kind == Expression_Expr.messageCreation) {
+      for (final f in expr.messageCreation.fields) {
+        _collectBackingStoreWrites(f.value, out);
+      }
+      return;
     }
+    if (kind == Expression_Expr.block) {
+      for (final stmt in expr.block.statements) {
+        if (stmt.whichStmt() == Statement_Stmt.let) {
+          _collectBackingStoreWrites(stmt.let.value, out);
+        } else if (stmt.whichStmt() == Statement_Stmt.expression) {
+          _collectBackingStoreWrites(stmt.expression, out);
+        }
+      }
+      if (expr.block.hasResult()) {
+        _collectBackingStoreWrites(expr.block.result, out);
+      }
+      return;
+    }
+    if (kind == Expression_Expr.literal) {
+      if (expr.literal.whichValue() == Literal_Value.listValue) {
+        for (final element in expr.literal.listValue.elements) {
+          _collectBackingStoreWrites(element, out);
+        }
+      }
+      return;
+    }
+    if (kind == Expression_Expr.fieldAccess) {
+      if (expr.fieldAccess.hasObject()) {
+        _collectBackingStoreWrites(expr.fieldAccess.object, out);
+      }
+      return;
+    }
+  }
+
+  /// The backing-store name a `std.assign` [target] names, or `null` when the
+  /// target is not a private store on the receiver itself — a bare `_name`
+  /// (the encoder's implicit-`this` shape) or an explicit `self._name` /
+  /// `this._name`.
+  String? _backingStoreTargetName(Expression target) {
+    final kind = target.whichExpr();
+    if (kind == Expression_Expr.reference) {
+      final name = target.reference.name;
+      return name.startsWith('_') ? name : null;
+    }
+    if (kind == Expression_Expr.fieldAccess) {
+      final field = target.fieldAccess.field_2;
+      if (!field.startsWith('_')) return null;
+      final object = target.fieldAccess.object;
+      if (object.whichExpr() != Expression_Expr.reference) return null;
+      final receiver = object.reference.name;
+      if (receiver == 'self' || receiver == 'this') return field;
+      return null;
+    }
+    return null;
   }
 
   /// When inside a method, sync a field assignment back to the self object.

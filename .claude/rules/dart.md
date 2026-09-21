@@ -302,11 +302,25 @@ avoid constructs that need receiver-type info:
     RESOLVED-AST-only path (`parseString` reads `Ext(x).m()` as a call on a
     constructor invocation), so `encode(String)`,
     `dart/self_host/engine.ball.json` and the conformance corpus never reach
-    it. An override this encoder cannot name soundly — an import prefix,
-    type arguments on the EXTENSION (`Ext<int>(x)`), or an extension another
-    module declares — stays a LOUD refusal (a warning naming the construct plus
-    the `/* unsupported: … */` placeholder), and the other compilers/engines
-    still strip everything before the last `:`; that remainder is the rest of
+    it. `<module>` is the DECLARING module, resolved from the override's own
+    element (`_extensionOwnerModule`) against the `library URI → module` map
+    `PackageEncoder.prepareStaticTypes()` records — so an extension in ANOTHER
+    file of the package works, and so does an import PREFIX (a prefix is a
+    spelling of the same library, not a different selection). The Dart compiler
+    restores the prefix from `_dartModuleAliases[call.module]` and scans EVERY
+    module's typeDefs for `kind: 'extension'`, not just the one being compiled.
+    An override this encoder cannot name soundly — type arguments on the
+    EXTENSION (`Ext<int>(x)`), a NULL-AWARE override (`Ext(x)?.m()`, whose `?`
+    the override branch would drop because it runs before the null-aware
+    lowering: "skip the call" silently becoming "call it on null"), or an
+    extension NO module of this encode declares — stays a LOUD refusal (a
+    warning naming the construct plus the `/* unsupported: … */` placeholder).
+    The ENGINES already dispatch the qualified name by ordinary module-function
+    lookup (pinned by running the cross-module program on the reference engine
+    in `test/extension_override_test.dart`); the non-Dart COMPILERS still strip
+    everything before the last `:` and in fact read `kind: 'extension'` nowhere
+    at all, so extension DECLARATIONS have to come first there — that
+    remainder, and the conformance fixture that depends on it, is the rest of
     #670. Two neighbouring shapes are NOT refusals and each had its own silent
     failure: type arguments on the MEMBER (`Ext(x).m<int>()`) ride
     `FunctionCall.typeArgs` like any other instance call — dropping them

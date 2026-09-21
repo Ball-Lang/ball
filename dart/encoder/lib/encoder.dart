@@ -168,6 +168,10 @@ class DartEncoder {
     warnings.clear();
     // The encoded output always uses a single module named 'main'.
     _moduleName = 'main';
+    // `parseString` cannot produce a resolved AST, so no extension override can
+    // reach this path — but the field is reset anyway so a reused encoder
+    // instance never carries another call's module map into it.
+    _libraryUriToModule = const <String, String>{};
 
     final result = parseString(
       content: source,
@@ -243,16 +247,25 @@ class DartEncoder {
   ///
   /// Use this when you have already parsed the source (e.g. to inspect
   /// `part of` directives) and want to avoid parsing it a second time.
+  ///
+  /// [libraryUriToModule] maps a resolved library's URI (what
+  /// `Element.library.uri` answers) to the Ball module that library becomes.
+  /// `PackageEncoder.prepareStaticTypes()` supplies it; it is how an extension
+  /// OVERRIDE naming an extension from ANOTHER file of the package finds the
+  /// module its Ball function lives in (issue #670). Empty for every caller
+  /// that does not supply it, which keeps those encodes byte-identical.
   ({Module module, List<Module> importStubs}) encodeModuleFromUnit(
     ast.CompilationUnit unit, {
     required String moduleName,
     Map<String, String> uriToModuleOverrides = const {},
+    Map<String, String> libraryUriToModule = const {},
   }) {
     _prefixToModule.clear();
     _importedModules.clear();
     _importDetails.clear();
     _exportDetails.clear();
     _moduleName = moduleName;
+    _libraryUriToModule = libraryUriToModule;
     // NOTE: _usedBaseFunctions is intentionally NOT cleared here so
     // PackageEncoder can accumulate across files.
 
@@ -1358,6 +1371,38 @@ class DartEncoder {
   /// is encoded so a forward reference resolves (issue #670).
   final Set<String> _localExtensionNames = <String>{};
 
+  /// `library URI → Ball module` for every library the caller resolved, set by
+  /// [encodeModuleFromUnit]. Empty unless a caller supplies it, which is what
+  /// keeps every other encode byte-identical (issue #670).
+  Map<String, String> _libraryUriToModule = const <String, String>{};
+
+  /// The Ball module whose functions declare [override]'s extension members,
+  /// or `null` when this encode produces no such module.
+  ///
+  /// An extension member's Ball function is `<module>:<Ext>.<member>` (see
+  /// [_encodeExtensionDeclaration]), so naming the override needs the module
+  /// the extension is DECLARED in — not the one doing the calling. Two ways to
+  /// find it, in order:
+  ///
+  ///  1. this module declares it (unprefixed), which is the only case a
+  ///     per-file encode can settle on its own;
+  ///  2. a caller supplied [_libraryUriToModule] and the extension's resolved
+  ///     element comes from one of those libraries. An import PREFIX is just a
+  ///     Dart-source spelling of the same library, so it needs no special case
+  ///     here and does not change the selection.
+  ///
+  /// `null` means refuse: there is no Ball function to name, so anything
+  /// emitted would resolve by ordinary lookup and can pick a DIFFERENT member.
+  String? _extensionOwnerModule(ast.ExtensionOverride override) {
+    if (override.importPrefix == null &&
+        _localExtensionNames.contains(override.name.lexeme)) {
+      return _moduleName;
+    }
+    // An empty map (no caller supplied one) simply misses, which is the
+    // refusal — there is no module to name.
+    return _libraryUriToModule[override.element.library.uri.toString()];
+  }
+
   /// Encodes `Ext(receiver).member(args)` / `Ext(receiver).getter` as a call
   /// that NAMES the extension member, or returns `null` to refuse.
   ///
@@ -1369,17 +1414,31 @@ class DartEncoder {
   /// semantic content and survives metadata stripping (invariant 2; see
   /// `docs/METADATA_SPEC.md`). No schema change is needed.
   ///
+  /// The extension may be declared by ANY module this encode produces — this
+  /// one, or another file of the package, imported plainly or through a PREFIX
+  /// — because [_extensionOwnerModule] resolves the declaring module from the
+  /// override's own element. A prefix is a Dart-source spelling of the same
+  /// library, not a different selection.
+  ///
   /// Returns `null` — a LOUD refusal, warned about and left to the
   /// `/* unsupported: … */` placeholder — for every override this encoder
   /// cannot name soundly:
   ///
-  ///  * an import PREFIX (`p.Ext(x)`) or an extension this module does not
-  ///    declare: its Ball function lives in another module whose name this
-  ///    per-file encoder cannot derive;
+  ///  * an extension no module of this encode declares (an external package's,
+  ///    or one in a directory `PackageEncoder` does not scan): there is no
+  ///    Ball function to name;
   ///  * explicit type arguments ON THE EXTENSION (`Ext<int>(x).m()`): the
   ///    call's structured `type_args` channel renders on the MEMBER
   ///    (`m<int>()`), a different instantiation, so the extension's own
-  ///    arguments have nowhere sound to go.
+  ///    arguments have nowhere sound to go;
+  ///  * a NULL-AWARE override (`Ext(x)?.m()`). The `?` decides whether the
+  ///    member runs AT ALL, and this branch runs BEFORE the encoder's
+  ///    null-aware lowering, so encoding the call here would drop the guard
+  ///    and call the member on `null` — "skip it" silently becoming "do it",
+  ///    which is the measured-unsound erasure in null-guard form. Lowering it
+  ///    needs the receiver let-bound so the guard does not evaluate it twice;
+  ///    until then it is refused, like every other shape that cannot be
+  ///    carried faithfully.
   ///
   /// Type arguments on the MEMBER (`Ext(x).m<int>()`) are a different thing,
   /// and they are carried FAITHFULLY: [memberTypeArgs] is the invocation's own
@@ -1403,10 +1462,12 @@ class DartEncoder {
   /// unaffected by this path. `PackageEncoder.prepareStaticTypes()` is the
   /// opt-in that supplies the resolved units.
   ///
-  /// Matching the extension by its written NAME is sound because Dart's own
-  /// scoping already is: an unprefixed extension name that resolved at all
-  /// names exactly one extension in scope, and the prefixed form is refused
-  /// above.
+  /// The extension's WRITTEN name is what the Ball function carries, and that
+  /// is sound because the module it is qualified with comes from the resolved
+  /// ELEMENT, not from the spelling: two extensions of the same name in two
+  /// libraries land on two different `<module>:<Ext>` names, and a prefix
+  /// changes neither. Within one library Dart's own scoping already
+  /// guarantees uniqueness.
   Expression? _tryEncodeExtensionOverride(
     ast.ExtensionOverride override,
     String member,
@@ -1420,12 +1481,13 @@ class DartEncoder {
     // being guessed at.
     final extName = override.name.lexeme;
     final arguments = override.argumentList.arguments;
-    if (override.importPrefix != null ||
-        override.typeArguments != null ||
-        arguments.length != 1 ||
-        !_localExtensionNames.contains(extName)) {
+    if (override.typeArguments != null ||
+        override.isNullAware ||
+        arguments.length != 1) {
       return null;
     }
+    final ownerModule = _extensionOwnerModule(override);
+    if (ownerModule == null) return null;
 
     final fields = <FieldValuePair>[
       FieldValuePair()
@@ -1434,8 +1496,8 @@ class DartEncoder {
       ...args,
     ];
     final call = FunctionCall()
-      ..module = _moduleName
-      ..function = '$_moduleName:$extName.$member'
+      ..module = ownerModule
+      ..function = '$ownerModule:$extName.$member'
       ..input = (Expression()
         ..messageCreation = (MessageCreation()..fields.addAll(fields)));
     // Type arguments written on the MEMBER ride the same structured channel as
@@ -1452,9 +1514,11 @@ class DartEncoder {
     _warn(
       'Extension-override syntax is not encodable here: it names which '
       'extension supplies the member, and this encoder can only name an '
-      'extension THIS module declares without an import prefix or explicit '
-      'type arguments (issue #670). Encoding it as the plain member access '
-      'would silently resolve to a DIFFERENT member.',
+      'extension that a module of THIS encode declares, written without '
+      'explicit type arguments on the extension and without a null-aware '
+      '`?.` (issue #670). Encoding it as the plain member access would '
+      'silently resolve to a DIFFERENT member, and dropping a `?.` would '
+      'call the member on null.',
       source: node.toSource(),
     );
   }

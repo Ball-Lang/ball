@@ -1310,7 +1310,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      GO_ROUNDTRIP_FLOOR: "31"
+      GO_ROUNDTRIP_FLOOR: "79"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1340,12 +1340,41 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/roundtrip.log"
 
+          # The remaining gap is NAMED from THIS run's own failure text, never
+          # from a list kept beside it: a hand-written ranking is stale the
+          # moment the encoder learns one more helper, and a stale "next step"
+          # sends the next lane at a blocker that no longer blocks. Only the
+          # un-truncated `unsupported runtime helper ballrt.<Name>` bullets are
+          # counted (`errorDetail` clips a detail at 200 chars, and a clipped
+          # name is not a name).
+          #
+          # No `|| true` here and none is needed: `grep` heads the pipeline, so
+          # with errexit-but-not-pipefail (this workflow sets no `shell:`, i.e.
+          # `bash -e {0}`) a no-match leaves the pipeline's status that of the
+          # trailing `sed` — 0 with empty output. The branch below is driven by
+          # the CONTENT, so nothing is swallowed. Both paths are verified
+          # against this row's real log before shipping.
+          top_refused=$(grep -oE 'unsupported runtime helper ballrt\.[A-Za-z0-9_]+' \
+            "$RUNNER_TEMP/roundtrip.log" \
+            | sed -E 's/^.*ballrt\.//' | sort | uniq -c | sort -rn | head -6 \
+            | awk '{printf "`ballrt.%s` (%s), ", $2, $1}' | sed 's/, $//')
+          if [ -z "$top_refused" ]; then
+            echo "::error::Go round-trip leg: could not derive a single refused \`ballrt.*\` helper from the leg's own log. Either every helper now has an inverse (raise the floor and rewrite this note) or the failure text changed shape and this summary would silently name nothing."
+            exit 1
+          fi
+
           {
             echo "**Gap, tracked in #691.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Go compiler dispatches through \`ballrt.*\` helpers over"
             echo "\`ballrt.Value\`, and the syntactic \`go/ast\` encoder reads idiomatic"
-            echo "hand-written Go. #691 carries the measured first blocker (no"
-            echo "\`std_collections\` helper has an inverse yet) and the smallest next step."
+            echo "hand-written Go. \`go/encoder/ballrt.go\` now inverts the"
+            echo "\`std_collections\` family and four emitted shapes (\`FieldGet\`,"
+            echo "\`NewList\`, the loop-body guard, the named-result function body)."
+            echo ""
+            echo "Most-refused helpers in THIS run, counted from its own failure"
+            echo "bullets — the smallest next step is the head of this list:"
+            echo ""
+            echo "$top_refused"
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
@@ -1366,7 +1395,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "100"
+      RUST_ROUNDTRIP_FLOOR: "109"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1407,9 +1436,12 @@ jobs:
             echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Rust compiler dispatches through"
             echo "\`ball_lang_shared::runtime::*\` over \`BallValue\`, and the syntactic"
-            echo "\`syn\` encoder reads idiomatic hand-written Rust. #692 carries the"
-            echo "measured first blocker (\`BallMap::new()\`) and the smallest next step;"
-            echo "the method-dispatcher \`panic!\` sub-case is #632, a different metric."
+            echo "\`syn\` encoder reads idiomatic hand-written Rust. #692's own two"
+            echo "buckets are CLOSED (the collection constructors and the"
+            echo "\`__ball_register_types\` class prologue); the measured leaders now are"
+            echo "\`ball_arg_get\` (59 fixtures), \`BallFlow::Normal\` (25) and"
+            echo "\`ball_message_type_name\` (21, tracked separately as #718)."
+            echo "The method-dispatcher \`panic!\` sub-case is #632, a different metric."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"

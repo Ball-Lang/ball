@@ -110,10 +110,38 @@ fn fixture_timeout() -> Duration {
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let canonical = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
-        .expect("the repo root must resolve from rust/engine")
+        .expect("the repo root must resolve from rust/engine");
+    strip_verbatim_prefix(&canonical)
+}
+
+/// Drop Windows' `\\?\` VERBATIM prefix, which `Path::canonicalize` always
+/// returns there.
+///
+/// Not cosmetic, and not Windows-pedantry: a verbatim path is not a path every
+/// tool accepts, and the Dart CLI is one that does not — handed
+/// `\\?\D:\…\ball.dart` it prints `\\?\ prefix is not supported` on stderr and
+/// **exits 0**. So the sweep's `code != 0` arm never fired; every fixture came
+/// back as a golden MISMATCH (`expected(5): 1 | actual(0): <none>`) and the leg
+/// reported a confident `Results: 0 passed` that was entirely an artifact of the
+/// launcher. A measurement that is silently wrong is worse than one that fails,
+/// which is why this is stripped rather than worked around at the call site.
+/// (CI runs the row on `ubuntu-latest`, where `canonicalize` adds no prefix, so
+/// the row itself was never affected — only every local Windows run of it.)
+///
+/// A verbatim UNC path (`\\?\UNC\server\share`) maps back to `\\server\share`;
+/// anything else keeps its own spelling.
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path.to_path_buf(),
+    }
 }
 
 fn conformance_dir() -> PathBuf {
@@ -347,8 +375,50 @@ fn first_line(text: &str) -> String {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// The harness's own correctness: the per-fixture budget, self-tested
+// The harness's own correctness: the launcher path, and the per-fixture budget
 // ════════════════════════════════════════════════════════════════════════════
+
+/// **The root this sweep hands the Dart CLI must be a path the Dart CLI
+/// accepts.** On Windows `canonicalize` returns a `\\?\` VERBATIM path, and
+/// `dart run \\?\…\ball.dart` prints `\\?\ prefix is not supported` and exits
+/// **0** — so the sweep's `code != 0` arm never fires and every fixture is
+/// reported as a golden mismatch instead. That is a silently wrong measurement,
+/// which is exactly what a measurement row must never produce, so the prefix is
+/// stripped ([`strip_verbatim_prefix`]) and asserted here rather than assumed.
+///
+/// Both halves matter. The prefix assertion alone would pass on a root that no
+/// longer points at anything, so the launcher script this sweep actually runs
+/// has to exist under it — the positive floor.
+#[test]
+fn the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path() {
+    let root = repo_root();
+    let text = root.to_string_lossy().into_owned();
+    assert!(
+        !text.starts_with(r"\\?\"),
+        "repo_root() must not carry Windows' verbatim prefix — the Dart CLI rejects one and \
+         exits 0, turning every fixture into a phantom golden mismatch: {text}"
+    );
+    let launcher = root.join("dart/cli/bin/ball.dart");
+    assert!(
+        launcher.is_file(),
+        "…and it must still resolve the launcher this sweep runs: {}",
+        launcher.display()
+    );
+
+    // The mapping itself, on both spellings, independent of the host OS.
+    assert_eq!(
+        strip_verbatim_prefix(Path::new(r"\\?\D:\packages\ball")),
+        PathBuf::from(r"D:\packages\ball")
+    );
+    assert_eq!(
+        strip_verbatim_prefix(Path::new(r"\\?\UNC\host\share\ball")),
+        PathBuf::from(r"\\host\share\ball")
+    );
+    assert_eq!(
+        strip_verbatim_prefix(Path::new("/home/runner/work/ball/ball")),
+        PathBuf::from("/home/runner/work/ball/ball")
+    );
+}
 
 /// A fabricated runaway: a program that ignores every argument and never exits.
 /// Compiled with `rustc` at test time rather than shipped as a `[[bin]]` — a

@@ -468,14 +468,23 @@ compile items so the sibling projects never double-compile each other's files.
   `WithSelf`, `UnresolvedReference`, `MapCreate`, `ListPush`, `SetCreate`, `CallMethod` and
   `IsType`) — read the live number and the live first
   blocker off that row, never off this line.
-- **Known, pre-existing: a positionally-packed input does not survive the re-encode.** The
-  compiler's `__in` is the whole input message, but the reference engine destructures a
-  SINGLE-parameter function's input when that map carries `arg0` and not the parameter's own name
-  (`dart/engine/lib/engine_invocation.dart`'s parameter binding), so a re-encoded callee receives
-  the bare `arg0` VALUE instead of the message. That is independent of the `ArgGet` arm — it
-  applies to any re-encoded compiler output — and is one of the reasons the `csharp-roundtrip` row
-  is a ratchet rather than a parity gate. Do not "fix" the `ArgGet` arm for it.
-  **The same mismatch has a `self`-keyed form**, reproduced while writing #689's object-model
+- **FIXED in #740: a positionally-packed input now survives the re-encode.** The compiler's `__in`
+  is the whole input message, and the reference engine used to destructure a SINGLE-parameter
+  function's input whenever that map carried `arg0` and not the parameter's own name, so a
+  re-encoded callee received the bare `arg0` VALUE and lost every later argument.
+  `dart/engine/lib/engine_invocation.dart`'s `_isSinglePositionalArgBag` now gates that unwrap on
+  the bag carrying `arg0` and NOTHING else (engine-internal `__`-prefixed keys excepted) — the one
+  shape it was written for, a first-class `invoke` packing a lone positional argument. Any other
+  bag reaches the sole parameter whole. It was never specific to the `ArgGet` arm (it applied to
+  any re-encoded compiler output), so do not re-derive it there; the guard is
+  `dart/engine/test/single_param_input_bag_test.dart`, and the fix propagates to every self-hosted
+  engine through the regenerated compiled artifacts.
+  **Measured yield:** the `csharp-roundtrip` row moved **95 -> 115** of 362 — this PR's head run
+  35562887923 (job 106219337391) against main at `313aef1c`, which measures 95 in run 35563056170
+  (job 106219875519). `CSHARP_ROUNDTRIP_FLOOR` is raised to **115** in the same PR: a ratchet that
+  is not raised is a hole the size of the fix, since reverting `_isSinglePositionalArgBag` would
+  drop the leg back to 95 and still pass every gate.
+  **The `self`-keyed form is still OPEN**, reproduced while writing #689's object-model
   guard: a 1-parameter callee whose input map carries `self` also takes the by-NAME extraction
   path (`params.length == 1 && !inputMap.containsKey('self')` is the gate), so the compiler's
   `Point__describe(BallValue __in0)` impl is left with `__in0` UNBOUND and fails loud with

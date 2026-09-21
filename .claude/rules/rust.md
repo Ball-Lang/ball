@@ -108,6 +108,20 @@ cargo fmt --check && cargo clippy --workspace
   subtyping, multi-parameter lambdas) — read it before assuming something is a bug vs. a known,
   documented boundary.
 
+- **A constructor's INITIALIZER LIST is applied even when the constructor is BODYLESS (#706).**
+  `unnamed_constructor_fn` (was `body_constructor_fn`) resolves a class's unnamed constructor when
+  it carries a body **or** a `metadata.initializers` field entry, and `compile_message_creation`
+  invokes the associated fn for either. Only the associated fn runs `constructor_self_init`, which
+  is the single place an initializer list is read; the inline field map beside it knows
+  `metadata.params` and nothing else. So `FixedSlice(this.source, int end) : windowSize = end;`
+  used to build an instance carrying the plain parameter `end` as a bogus field and no
+  `windowSize` at all, and `slice.windowSize` answered `null` — a SILENT wrong answer, not a build
+  failure. `compile_constructor_with_body` takes `Option<&Expression>` now: a constructor with only
+  an initializer list emits no body IIFE and no write-back, because its whole effect is already in
+  `self_init`. Guard: `rust/compiler/tests/final_field_setter.rs`, over fixture
+  `472_initializer_list_field_with_setter`. The same one-boolean gap was live on Go and C#; the
+  fixture's own comment records why the shape looked like a setter problem and is not one.
+
 - **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
   `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
   `dart/shared/lib/std_collections.dart` says ("Find first:

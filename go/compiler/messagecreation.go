@@ -171,8 +171,10 @@ func (c *Compiler) compileMessageCreation(mc *ballv1.MessageCreation) string {
 		return b.String()
 	}
 
-	// A body-carrying constructor MUST be invoked (its body builds the instance).
-	if impl, ok := c.bodyConstructorImpl(mc.GetTypeName()); ok {
+	// The class's unnamed constructor MUST be invoked when it has an impl — it
+	// carries a body (which builds the instance) or an initializer list (which
+	// only the impl applies; issue #706).
+	if impl, ok := c.unnamedConstructorImpl(mc.GetTypeName()); ok {
 		mapBuild := buildMap() + "\t\treturn __m\n\t}()"
 		return fmt.Sprintf("%s(%s)", impl, mapBuild)
 	}

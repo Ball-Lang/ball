@@ -299,6 +299,118 @@
           }
         },
         {
+          "name": "main:Counted.new",
+          "outputType": "main:Counted",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "isEmpty",
+                "is_this": true
+              },
+              {
+                "name": "isNaN",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Counted.readIsEmptyViaThis",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "isEmpty"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Counted.readIsNaNViaThis",
+          "outputType": "bool",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "isNaN"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:CountedChild.new",
+          "outputType": "main:CountedChild",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(e, n)"
+              }
+            ],
+            "params": [
+              {
+                "name": "e",
+                "type": "int"
+              },
+              {
+                "name": "n",
+                "type": "bool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:CountedChild.readIsNaNViaSuper",
+          "outputType": "bool",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "super"
+                }
+              },
+              "field": "isNaN"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:CountedChild.readIsNaNViaThisInherited",
+          "outputType": "bool",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "isNaN"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
           "name": "main",
           "outputType": "void",
           "body": {
@@ -955,6 +1067,276 @@
                                     }
                                   },
                                   "field": "isNotEmpty"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "counted",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Counted",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "boolValue": true
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readIsEmptyViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "counted"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readIsNaNViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "counted"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "child",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:CountedChild",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "5"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "boolValue": false
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readIsNaNViaSuper",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "child"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readIsNaNViaThisInherited",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "child"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "inherited",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:CountedChild",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "6"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "boolValue": true
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "CountedChild"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "inherited"
+                                    }
+                                  },
+                                  "field": "isNaN"
                                 }
                               }
                             }
@@ -1767,6 +2149,51 @@
                 "is_final": true
               }
             ]
+          }
+        },
+        {
+          "name": "main:Counted",
+          "descriptor": {
+            "name": "main:Counted",
+            "field": [
+              {
+                "name": "isEmpty",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "isNaN",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BOOL"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Counted",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "isEmpty",
+                "type": "int"
+              },
+              {
+                "name": "isNaN",
+                "type": "bool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:CountedChild",
+          "descriptor": {
+            "name": "main:CountedChild"
+          },
+          "description": "Class metadata for main:CountedChild",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Counted"
           }
         }
       ]

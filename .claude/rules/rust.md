@@ -540,6 +540,46 @@ cargo fmt --check && cargo clippy --workspace
     Both buckets' fixtures now stop on their NEXT blocker — `101_simple_class`/
     `102_inheritance` on `ball_message_type_name` (#718). A closed bucket moves the histogram; it
     does not on its own make every fixture in it pass.
+- **The IS/AS REGISTRY and the MAP/SET literal constructors (#692, second half).** Four more
+  `ball_*` helpers that are not table rows — the table's contract is "one positional argument per
+  input field" — so they have their own arms in `lib.rs::encode_runtime_helper_call`. Gate:
+  `rust/encoder/tests/compiled_type_ops_and_literals.rs`.
+  - **`ball_is`/`ball_is_not`/`ball_as`/`ball_is_type` -> `std.is`/`is_not`/`as`**
+    (`runtime_helpers.rs::type_op_helper`). `ball_is_type` (`pattern.rs::type_check`, emitted for
+    every pattern type test) maps to the SAME `std.is` as `ball_is`, because it is the same
+    discrimination — `ball_is` is literally `BallValue::Bool(ball_is_type(&value, type_name))` —
+    and its bare-`bool` result has no Ball counterpart, a condition site coercing truthiness
+    implicitly. The second operand must be a string LITERAL (`std.is`'s `type` field is one in the
+    Ball node too — `dart/encoder` writes `type.toSource()` into it), so a computed type name
+    fails loud. `runtime_helpers.rs`'s old "no type-name string operands" exclusion is retired: it
+    was keeping a supported shape out, not describing an unsupported one.
+  - **`ball_map_create`/`ball_set_create`** are the NON-EMPTY map/set literals (`BallMap::new()`/
+    `BallList::new()` above are only the empty ones). Their Ball inputs are *shaped*:
+    `std.map_create` takes one repeated `entry` field per pair, each an anonymous `{key, value}`
+    message-creation; `std.set_create` names its list `elements`.
+  - **Match the operand AFTER encoding it, never on the `syn` tree.** A pair list arrives as
+    `BallValue::List(BallList::from(vec![…]))`, three identity wrappers deep, and `encode_expr`
+    already reduces all of them to the list literal underneath — `lib.rs::list_literal_elements`
+    is the whole reader.
+  - **The COMPREHENSION lowering fails loud on purpose.** `{for e in m.entries: k: v}` compiles to
+    an imperative block that splices into a local `Vec` and hands `ball_map_create` that variable;
+    its Ball node is a `map_create` with `element` fields, a different and larger inverse.
+    Encoding it as an entry-less `map_create` would silently compute `{}` — the issue #55 class —
+    so both helpers panic naming the shape. `a_map_create_over_a_spliced_list_fails_loud` and its
+    set twin are the pins.
+  - **Stated gap (pre-existing, surfaced here): every compiled STRING literal re-encodes wrapped
+    in `std.to_string`.** `compile_expression` emits one as `BallValue::String("a".to_string())`,
+    and `.to_string()` is not one of `methods.rs`'s identity passthroughs — in hand-written Rust
+    it genuinely IS `std.to_string`, which over a `String` returns its operand unchanged. A
+    node-fidelity difference, not a behavioural one; asserted (map KEYS come back as
+    `std.to_string({value: "a"})`) rather than normalized away, so a change to it is loud.
+  - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950,
+    job `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the
+    same PR. All FOUR of #692's blockers left the first-blocker histogram entirely
+    (`ball_map_create` 21, `ball_is_type` 18, `ball_set_create` 7, `ball_is` 3 -> zero each); the
+    leaders are now `ball_arg_get` 61, `ball_message_type_name` 23 (#718),
+    `ball_unsupported_base_call` 18 and `ball_iterate` 16. Quote the PASSED count, never the
+    ratio — the denominator moves with the corpus and the floor is on the numerator alone.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which

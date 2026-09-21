@@ -1041,9 +1041,47 @@ test edit**, which is the property a hand-listed test set does not have.
 `tests/conformance/476_user_member_named_like_builtin_accessor` is the
 cross-target half, pinning every engine row against `dart run`.
 
+**Deriving the NAMES is only half of it — the receiver SHAPES have to be
+derived-or-enumerated too.** The first cut of this gate derived its ten names
+from the table and then hand-listed the receiver shapes under a separate
+heading, and `this.` / `super.` were simply absent from that hand-list. They
+are the two receivers whose type is *trivially* provable (the enclosing
+declaration, and its `extends` clause), so the seam declined them and the
+original wrong answer survived at full strength — `this.isEmpty` inside the very
+class that declares `isEmpty` still encoded as `std.string_is_empty(self)`. A
+shape that is absent from a hand-list is indistinguishable, in a green run, from
+a shape that is handled. The fix puts every PER-NAME receiver shape inside the
+derived loop (FIELD / GETTER / INSTANCE-CREATION / INHERITED / `this.` /
+`super.` / the `dart:core` control) and keeps only the genuinely one-off shapes
+outside it — and every DECLINE is pinned by a case asserting the route still
+fires, so "not handled" can never be mistaken for "deliberately declined".
+
+The **floor on the derived set must sit at its MEASURED value** for the same
+reason. `expect(builtinAccessorGetters.length, greaterThanOrEqualTo(6))` while
+the set holds ten leaves four routes deletable in silence: the per-name matrix
+would shrink with the table and the suite would stay green on a smaller
+population. A floor is a claim about what was measured, not a round number
+below it.
+
 The same rule generalises: whenever a component decides something by NAME —
 a route table, a method-arity window, a rendering table (#641) — the test that
-bounds it must read the table, not a copy of it.
+bounds it must read the table, not a copy of it, and it must enumerate the
+INPUT SHAPES that table is applied to.
+
+#### A guard whose table is flattened for one member kind and not another
+
+The C++ compiler's own by-name shortcut (`declared_by_receiver`) is the same
+decision made at the other end of the pipeline, and it carried a matching hole
+for a different reason: `class_getters_by_sname_` is FLATTENED over the
+inheritance chain when the metadata is built, while `class_own_fields_by_sname_`
+is strictly own-fields. So an inherited `int get length` proved the receiver and
+an inherited plain `int length;` did not — `child.length` on a subclass whose
+BASE declares the field compiled to `ball_length(child)`. **No engine row can
+fail this**: the engines resolve a plain `fieldAccess` own-key-first through the
+`__super__` chain, so only the `C++ Compiled` row sees it, which is precisely
+why the guard belongs in the shared conformance fixture rather than in a
+target-local test alone. When two tables answer one predicate, check they have
+the same REACH before treating either as proof.
 
 ### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
 

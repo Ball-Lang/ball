@@ -382,16 +382,46 @@ avoid constructs that need receiver-type info:
   `_userMemberShadowsBuiltinAccessor` is the seam, and it suppresses the route
   only on PROOF, by either of two routes — RESOLVED (`lookUpGetter` on the
   receiver's static type resolves the member outside the SDK) or SYNTACTIC (the
-  receiver's declared type name is a class/mixin/enum THIS unit declares that
-  declares the member, walking `extends`/`with`/`implements`/`on` within the
-  unit). No proof ⇒ the route stands exactly as before, which is what keeps it a
-  refinement: the SYNTACTIC half matters because `generate_conformance.dart` and
-  every self-host regeneration parse with `parseString`, where `staticType` is
-  null. Guards: `tests/conformance/476_user_member_named_like_builtin_accessor`
+  receiver's declared type name is a class/mixin/enum/extension-type THIS unit
+  declares that declares the member, walking
+  `extends`/`with`/`implements`/`on` within the unit). No proof ⇒ the route
+  stands exactly as before, which is what keeps it a refinement: the SYNTACTIC
+  half matters because `generate_conformance.dart` and every self-host
+  regeneration parse with `parseString`, where `staticType` is null.
+  **`this` and `super` are the two receivers whose type is TRIVIALLY provable,
+  and the first cut of the seam consulted neither** — so `this.isEmpty` inside
+  the very class that declares `isEmpty` still encoded as
+  `std.string_is_empty(self)` and every engine still answered `false` where
+  `dart run` says `44`. `_enclosingThisTypeName` answers `this` (the enclosing
+  class/mixin/enum/extension-type, and inside an EXTENSION the type it is
+  declared `on` — `extension R on String` must keep its route, since there
+  `this.isEmpty` IS `String.isEmpty`), and it lives in
+  `_syntacticReceiverTypeName` rather than at the call site so the binding walk
+  reaches it too (`var me = this; me.isEmpty`). `super` cannot ride that
+  single-name channel — it denotes a DIFFERENT type from the enclosing
+  declaration and a mixin's `on` clause may name several — so
+  `_enclosingSuperTypeNames` answers a LIST (a class's `extends` clause, a
+  mixin's `on` constraints) and never the enclosing declaration's own name: a
+  class declaring `isEmpty` itself says nothing about whether its SUPERCLASS
+  does, and `super.isEmpty` asks only the latter. One decline is deliberate and
+  pinned: an extension type's REPRESENTATION parameter is not a declaration
+  here, because the encoder models it nowhere — it reaches neither the
+  descriptor nor `metadata['fields']` — so believing in it at this one site
+  would be the only place in the encoder that does. Its BODY members are
+  consulted normally. Guards:
+  `tests/conformance/476_user_member_named_like_builtin_accessor`
   (cross-target, and it pins the `String`/`List`/`int`/`double` receivers whose
   route must survive) and `dart/encoder/test/builtin_accessor_user_member_test.dart`,
-  which derives one case per name from `builtinAccessorGetters` — add a route
-  without the seam and that gate fails with no test edit. The SYNTACTIC proof is
+  which derives its cases per name from `builtinAccessorGetters` — add a route
+  without the seam and that gate fails with no test edit. Its per-NAME matrix
+  covers FIELD / GETTER / INSTANCE-CREATION / INHERITED / `this.` / `super.`
+  plus the `dart:core` control whose route must survive; the receiver SHAPES
+  that are not per-name (mixin, `on`, enum, interface, extension, enclosing
+  field, top-level variable, named constructor, and the declines) sit beside it.
+  Its closed-set assertion is a floor at the MEASURED count of ten, not at a
+  lower round number — a floor below the measured value stays green through the
+  silent deletion of a route, which would silently shrink the matrix with it.
+  The SYNTACTIC proof is
   unit-local by construction, so it cannot see a member declared in another FILE;
   `dart/encoder/test/builtin_accessor_resolved_receiver_test.dart` is the gate
   for the RESOLVED half alone (its subject file declares no type at all, so a

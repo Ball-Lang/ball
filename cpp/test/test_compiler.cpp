@@ -4217,6 +4217,79 @@ TEST(numeric_predicate_on_a_class_that_declares_it_is_the_field) {
     ASSERT_NOT_CONTAINS(out, "ball_isFinite((*this))");
     ASSERT_NOT_CONTAINS(out, "ball_isInfinite((*this))");
     ASSERT_NOT_CONTAINS(out, "ball_isNegative((*this))");
+    // An emit that dropped the access entirely would satisfy every refusal
+    // above, so pin what it must emit INSTEAD: the member read itself.
+    ASSERT_CONTAINS(out, "(*this).isNaN");
+    ASSERT_CONTAINS(out, "(*this).isFinite");
+    ASSERT_CONTAINS(out, "(*this).isInfinite");
+    ASSERT_CONTAINS(out, "(*this).isNegative");
+}
+
+// #697 follow-up: the same predicate reached through INHERITANCE. The getter
+// table is flattened over the chain when the metadata is built, so an inherited
+// GETTER named `isNaN` was already provable — but `class_own_fields_by_sname_`
+// is, by name and by construction, strictly this class's OWN descriptor fields.
+// So a plain data field declared by the BASE and read through a subclass
+// receiver proved nothing, the shortcut fired, and `child.isNaN` compiled to
+// `ball_isNaN(child)` — "is this OBJECT a NaN double", always false — instead
+// of reading the member. Same family as the own-field case above, reached from
+// the one side its table could not see. The cross-target guard is conformance
+// 476_user_member_named_like_builtin_accessor's `CountedChild` half.
+TEST(numeric_predicate_inherited_from_a_base_class_is_the_field) {
+    json base_meta;
+    base_meta["kind"] = "class";
+    base_meta["fields"] =
+        json::array({json{{"name", "isNaN"}, {"type", "bool"}}});
+    auto base_td =
+        cov_class_td("main:Base", {{"isNaN", "TYPE_BOOL"}},
+                     std::move(base_meta));
+
+    // The subclass declares NOTHING of its own — the member is purely
+    // inherited, which is exactly the shape the own-fields table misses.
+    json child_meta;
+    child_meta["kind"] = "class";
+    child_meta["superclass"] = "Base";
+    auto child_td = cov_class_td("main:Child", {}, std::move(child_meta));
+
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn("main:Child.read", std::move(read_meta),
+                                field_access(ref("self"), "isNaN"), "bool");
+
+    auto prog = cov_class_program({base_td, child_td}, {read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_isNaN((*this))");
+    ASSERT_CONTAINS(out, "(*this).isNaN");
+}
+
+// The collection family reached the same way. `.length` / `.isEmpty` /
+// `.isNotEmpty` share the one `declared_by_receiver` predicate with the numeric
+// family, so the chain walk has to answer for them too — #681's `ListSlice`
+// shape is exactly this one plus a subclass.
+TEST(collection_property_inherited_from_a_base_class_is_the_field) {
+    json base_meta;
+    base_meta["kind"] = "class";
+    base_meta["fields"] =
+        json::array({json{{"name", "length"}, {"type", "int"}}});
+    auto base_td = cov_class_td("main:Base", {{"length", "TYPE_INT64"}},
+                                std::move(base_meta));
+
+    json child_meta;
+    child_meta["kind"] = "class";
+    child_meta["superclass"] = "Base";
+    auto child_td = cov_class_td("main:Child", {}, std::move(child_meta));
+
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn("main:Child.read", std::move(read_meta),
+                                field_access(ref("self"), "length"), "int");
+
+    auto prog = cov_class_program({base_td, child_td}, {read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_length((*this))");
+    ASSERT_CONTAINS(out, "(*this).length");
 }
 
 // The other direction: a receiver whose class does NOT declare the name keeps

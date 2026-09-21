@@ -31,12 +31,14 @@
 //! inheritance, so `encode_item_struct` never writes a `metadata.superclass`).
 //! It is therefore built by encoding two plain structs and then setting that
 //! one cosmetic metadata key — the smallest honest way to make the compiler
-//! emit the prologue at all. A *behavioural* `is`/`as` proof is deliberately
-//! NOT attempted here: `ball_is` has no entry in `runtime_helpers.rs`, so such
-//! a program stops one construct earlier, on a different gap. The behavioural
-//! half of THIS slice — the re-encoded program still computing the same answer
-//! — lives in `compile_reencode_roundtrip.rs`, which owns the `cargo build`
-//! harness.
+//! emit the prologue at all. An `is`/`as` proof is deliberately NOT attempted
+//! here — at the time this file was written `ball_is` had no inverse at all, so
+//! such a program stopped one construct earlier, on a different gap. That gap
+//! is closed (`runtime_helpers.rs::type_op_helper`), and the is/as registry's
+//! query side now has its own stage-3 gate in
+//! `compiled_type_ops_and_literals.rs`. The behavioural half of THIS slice —
+//! the re-encoded program still computing the same answer — lives in
+//! `compile_reencode_roundtrip.rs`, which owns the `cargo build` harness.
 use ball_lang_compiler::Compiler;
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;

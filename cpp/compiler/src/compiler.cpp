@@ -2229,6 +2229,14 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // shadowing field in sight — and `class_has_own_field` is what answers it;
     // `tests/conformance/475_instance_field_named_length` is its gate.
     //
+    // The field half of that predicate asks the whole INHERITANCE CHAIN
+    // (`class_chain_has_field`), not just this class's own descriptor fields.
+    // Getters were already flattened over the chain when the metadata was
+    // built, so an inherited `int get length` answered while an inherited
+    // plain `int length;` did not — and `child.length` on a subclass whose
+    // BASE declares the field compiled to `ball_length(child)`. Same defect as
+    // #681, reached from the one side its table could not see.
+    //
     // #697 extends that SAME predicate to the numeric predicates below, which
     // is why it is a named lambda rather than an inline `bool`: a class
     // declaring `bool isNaN` compiled `b.isNaN` to `ball_isNaN(b)`, i.e. "is
@@ -2241,7 +2249,7 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
         const std::string vprop_field = sanitize_name(name);
         return class_has_getter(vprop_cls, vprop_field) ||
                class_field_shadows_getter(vprop_cls, vprop_field) ||
-               class_has_own_field(vprop_cls, vprop_field);
+               class_chain_has_field(vprop_cls, vprop_field);
     };
     if ((field == "length" || field == "isEmpty" || field == "isNotEmpty") &&
         !declared_by_receiver(field)) {

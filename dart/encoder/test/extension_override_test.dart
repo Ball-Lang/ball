@@ -35,16 +35,19 @@
 /// the `kind: 'extension'` typeDef.
 ///
 /// The contract this suite pins, in both directions:
-///   * an override on an extension THIS module declares encodes as that
-///     extension's member and compiles back to the override form — with the
-///     MEMBER's own type arguments (`Ext(x).m<int>()`, which reify a type and
-///     so may not be dropped) and in a WRITE position (`Ext(x).m = v`, whose
-///     setter must come back as an assignable left-hand side, not `Ext(x).m()`);
-///   * an override the encoder cannot name soundly (an imported or
-///     cross-module extension, or one carrying explicit type arguments ON THE
-///     EXTENSION) is REFUSED LOUDLY — a warning that names the construct, and a
-///     placeholder that breaks the front end — never a plain member access,
-///     because that can resolve to a different member than the source named.
+///   * an override on an extension ANY module of this encode declares — this
+///     one, another file of the package, imported plainly or through a PREFIX —
+///     encodes as that extension's member, RUNS on the reference engine, and
+///     compiles back to the override form, with the MEMBER's own type
+///     arguments (`Ext(x).m<int>()`, which reify a type and so may not be
+///     dropped) and in a WRITE position (`Ext(x).m = v`, whose setter must come
+///     back as an assignable left-hand side, not `Ext(x).m()`);
+///   * an override the encoder cannot name soundly — an extension no module of
+///     this encode declares, one carrying explicit type arguments ON THE
+///     EXTENSION, or a NULL-AWARE override whose `?.` guard has nowhere to go —
+///     is REFUSED LOUDLY: a warning that names the construct, and a placeholder
+///     that breaks the front end. Never a plain member access, and never an
+///     unguarded call, because either can behave differently from the source.
 @TestOn('vm')
 library;
 
@@ -54,6 +57,7 @@ import 'dart:io';
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/package_encoder.dart';
+import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
 
 /// The shape `collection/lib/src/iterable_extensions.dart` actually uses: two
@@ -96,26 +100,106 @@ extension Natural on List<int> {
 }
 ''';
 
-/// An override the encoder must still REFUSE: the extension lives in another
-/// library, so this module cannot name its Ball function soundly.
-const _importedOverrideSource = r'''
-import 'elsewhere.dart';
+/// A CROSS-MODULE override: the extension lives in another file of the same
+/// package, which is where real code puts it (`collection` declares
+/// `IterableExtension` in `lib/src/iterable_extensions.dart` and overrides it
+/// from other files). The importing library declares its OWN extension with
+/// the same members on the same type, so a bare `xs.tag()` is ambiguous — the
+/// override is the only thing that resolves, in both directions.
+///
+/// Both import forms appear, because the Ball name of an extension member is
+/// its DECLARING module's, not the importing library's: an import prefix is a
+/// Dart-source spelling of the same extension, so `p.Remote(xs).tag()` must
+/// select exactly what `Remote(xs).tag()` does.
+const _crossModuleSubjectSource = r'''
+import 'remote.dart';
+import 'remote.dart' as p;
 
-int firstOrZero(List<int> xs) => Elsewhere(xs).firstOrZero();
+extension Local on List<int> {
+  String tag() => 'Local';
 
-int head(List<int> xs) => Elsewhere(xs).headOrZero;
+  String get head => 'LocalHead';
+}
 
-int viaCascade(List<int> xs) {
-  Elsewhere(xs)..firstOrZero();
-  return 0;
+List<String> probe() {
+  final xs = <int>[1, 2];
+  return <String>[
+    Local(xs).tag(),
+    Remote(xs).tag(),
+    p.Remote(xs).tag(),
+    Remote(xs).head,
+    Local(xs).head,
+  ];
 }
 ''';
 
-const _elsewhereSource = r'''
-extension Elsewhere on List<int> {
-  int firstOrZero() => isEmpty ? 0 : this[0];
+const _crossModuleRemoteSource = r'''
+extension Remote on List<int> {
+  String tag() => 'Remote';
 
-  int get headOrZero => isEmpty ? 0 : this[0];
+  String get head => 'RemoteHead';
+}
+''';
+
+const _crossModuleEntrySource = r'''
+import '../lib/subject.dart';
+
+void main() {
+  for (final s in probe()) {
+    print(s);
+  }
+}
+''';
+
+/// The output `_crossModuleSubjectSource` produces when Dart itself runs it.
+/// Spelled out so a change to the probe cannot quietly make the suite vacuous.
+const _crossModuleExpected = <String>[
+  'Local',
+  'Remote',
+  'Remote',
+  'RemoteHead',
+  'LocalHead',
+];
+
+/// A NULL-AWARE override (`Ext(x)?.m()`). The `?.` is not cosmetic: it decides
+/// whether the member runs AT ALL. Dropping it calls the member on `null`,
+/// which is the same silent substitution the whole override path exists to
+/// prevent — so this shape is REFUSED until the encoder can lower the guard.
+const _nullAwareOverrideSource = r'''
+extension Nullish on List<int> {
+  String tag() => 'Nullish';
+}
+
+String probe(List<int>? xs) => Nullish(xs)?.tag() ?? 'null-branch';
+''';
+
+/// The two shapes the encoder must still REFUSE, each for its own reason:
+///
+///  * `Outside` is declared in `tool/`, which is not one of the directories a
+///    [PackageEncoder] turns into modules, so its member has no Ball function
+///    to name;
+///  * `Boxed<int>(xs)` writes type arguments ON THE EXTENSION, and the call's
+///    structured `type_args` channel renders on the MEMBER — a different
+///    instantiation, so they have nowhere sound to go.
+const _refusedOverrideSource = r'''
+import '../tool/outside.dart';
+
+extension Boxed<T> on List<T> {
+  String tag() => 'Boxed';
+}
+
+String fromOutside(List<int> xs) => Outside(xs).tag();
+
+String outsideGetter(List<int> xs) => Outside(xs).head;
+
+String explicitExtensionTypeArgs(List<int> xs) => Boxed<int>(xs).tag();
+''';
+
+const _outsideSource = r'''
+extension Outside on List<int> {
+  String tag() => 'Outside';
+
+  String get head => 'OutsideHead';
 }
 ''';
 
@@ -196,7 +280,15 @@ String _runDart(String source, Directory scratch, String name) {
 }
 
 /// Creates a self-contained scratch package: `pubspec.yaml` + library files.
-Directory _scratchPackage(String name, Map<String, String> libFiles) {
+///
+/// [otherFiles] keys are paths relative to the package root (`bin/main.dart`,
+/// `tool/outside.dart`), so a probe can span the directories a
+/// [PackageEncoder] scans AND one it does not.
+Directory _scratchPackage(
+  String name,
+  Map<String, String> libFiles, {
+  Map<String, String> otherFiles = const {},
+}) {
   final dir = Directory.systemTemp.createTempSync('ball_$name');
   File('${dir.path}/pubspec.yaml').writeAsStringSync(
     'name: $name\n'
@@ -207,7 +299,35 @@ Directory _scratchPackage(String name, Map<String, String> libFiles) {
   for (final MapEntry(key: relName, value: source) in libFiles.entries) {
     File('${dir.path}/lib/$relName').writeAsStringSync(source);
   }
+  for (final MapEntry(key: relPath, value: source) in otherFiles.entries) {
+    final file = File('${dir.path}/$relPath');
+    file.parent.createSync(recursive: true);
+    file.writeAsStringSync(source);
+  }
   return dir;
+}
+
+/// Runs `bin/main.dart` of a scratch package and returns its normalised stdout
+/// as lines. A non-zero exit is a failure, never a silent empty list.
+List<String> _runPackage(Directory pkg, {required String what}) {
+  final result = Process.runSync(
+    Platform.resolvedExecutable,
+    ['run', '${pkg.path}/bin/main.dart'],
+    stdoutEncoding: utf8,
+    stderrEncoding: utf8,
+  );
+  if (result.exitCode != 0) {
+    fail(
+      '`dart run` of the $what package failed (rc=${result.exitCode})\n'
+      'stderr:\n${result.stderr}',
+    );
+  }
+  return (result.stdout as String)
+      .replaceAll('\r\n', '\n')
+      .trim()
+      .split('\n')
+      .map((l) => l.trim())
+      .toList();
 }
 
 /// Every `module.function` the expression tree calls, flattened.
@@ -437,6 +557,232 @@ void main() {
   );
 
   group(
+    'a CROSS-MODULE extension override names its declaring module (#670)',
+    timeout: const Timeout(Duration(minutes: 5)),
+    () {
+      late Directory pkg;
+      late Directory out;
+      late PackageEncoder encoder;
+      late Program program;
+      late Map<String, String> compiled;
+
+      setUpAll(() async {
+        pkg = _scratchPackage(
+          'extension_override_cross',
+          {
+            'subject.dart': _crossModuleSubjectSource,
+            'remote.dart': _crossModuleRemoteSource,
+          },
+          otherFiles: {'bin/main.dart': _crossModuleEntrySource},
+        );
+        encoder = PackageEncoder(pkg);
+        await encoder.prepareStaticTypes();
+        expect(
+          encoder.hasStaticTypes,
+          isTrue,
+          reason:
+              'the analyzer resolved no file in the scratch package, so this '
+              'suite would be vacuous. Warnings: ${encoder.warnings}',
+        );
+        program = encoder.encode(entryFile: 'bin/main.dart');
+        final c = DartCompiler(program);
+        compiled = <String, String>{
+          'lib/subject.dart': c.compileModule('lib.subject'),
+          'lib/remote.dart': c.compileModule('lib.remote'),
+          'bin/main.dart': c.compileModule('bin.main'),
+        };
+
+        out = _scratchPackage(
+          'extension_override_cross_out',
+          {
+            'subject.dart': compiled['lib/subject.dart']!,
+            'remote.dart': compiled['lib/remote.dart']!,
+          },
+          otherFiles: {'bin/main.dart': compiled['bin/main.dart']!},
+        );
+      });
+
+      tearDownAll(() {
+        if (pkg.existsSync()) pkg.deleteSync(recursive: true);
+        if (out.existsSync()) out.deleteSync(recursive: true);
+      });
+
+      test('the probe itself observes which extension answered', () {
+        expect(
+          _runPackage(pkg, what: 'original'),
+          equals(_crossModuleExpected),
+          reason:
+              'if this changes, the suite is no longer measuring what it '
+              'claims to.',
+        );
+      });
+
+      test('the override names the DECLARING module’s extension member', () {
+        final subject = program.modules.firstWhere(
+          (m) => m.name == 'lib.subject',
+        );
+        final called = _calledFunctions(
+          subject.functions.firstWhere((f) => f.name == 'probe').body,
+        );
+        expect(
+          called,
+          contains('lib.remote.lib.remote:Remote.tag'),
+          reason:
+              'the extension lives in `lib/remote.dart`, so its Ball function '
+              'is `lib.remote:Remote.tag` in module `lib.remote`. Calls were: '
+              '$called',
+        );
+        expect(
+          called,
+          contains('lib.subject.lib.subject:Local.tag'),
+          reason:
+              'the local override must keep naming THIS module. Calls were: '
+              '$called',
+        );
+      });
+
+      test('an import PREFIX selects the same extension member', () {
+        final subject = program.modules.firstWhere(
+          (m) => m.name == 'lib.subject',
+        );
+        final remoteCalls = _calledFunctions(
+          subject.functions.firstWhere((f) => f.name == 'probe').body,
+        ).where((c) => c.contains(':Remote.tag')).toList();
+        expect(
+          remoteCalls,
+          equals(<String>['lib.remote.lib.remote:Remote.tag']),
+          reason:
+              '`Remote(xs).tag()` and `p.Remote(xs).tag()` name the SAME '
+              'extension member; a prefix is a Dart-source spelling, not a '
+              'different selection. Calls were: $remoteCalls',
+        );
+      });
+
+      test('nothing falls to the placeholder', () {
+        for (final MapEntry(key: path, value: src) in compiled.entries) {
+          expect(
+            src,
+            isNot(contains('unsupported:')),
+            reason: 'compiled $path was:\n$src',
+          );
+        }
+        expect(
+          encoder.warnings.where((w) => w.contains('Extension-override')),
+          isEmpty,
+          reason:
+              'every extension here is declared by a module this encode '
+              'produces. Warnings were: ${encoder.warnings}',
+        );
+      });
+
+      test(
+        'the Ball program dispatches the qualified name on the ENGINE',
+        () async {
+          // #670's other half: a compiler that re-emits the override proves
+          // nothing about the ENGINES, which must resolve
+          // `<module>:<Ext>.<member>` by NAME. The reference engine is the one
+          // every self-hosted engine is compiled FROM, so running it here is
+          // the cross-target statement — the program is data, and the name
+          // that carries the selection is not mangled by any target.
+          final lines = <String>[];
+          await BallEngine(program, stdout: lines.add).run();
+          expect(
+            lines,
+            equals(_crossModuleExpected),
+            reason:
+                'the engine resolved a different extension member than the '
+                'source selected.',
+          );
+        },
+      );
+
+      test('the compiled-back package prints what the source did', () {
+        expect(
+          _runPackage(out, what: 'compiled-back'),
+          equals(_crossModuleExpected),
+          reason:
+              'the round trip selected a different extension.\n'
+              '--- compiled lib/subject.dart ---\n${compiled['lib/subject.dart']}',
+        );
+      });
+
+      test('the compiled Dart passes the real `dart analyze`', () async {
+        final analyze = await Process.run('dart', [
+          'analyze',
+          '--format=machine',
+          out.path,
+        ]);
+        final diagnostics = (analyze.stdout as String)
+            .split('\n')
+            .where((l) => l.startsWith('ERROR|'))
+            .toList();
+        expect(
+          diagnostics,
+          isEmpty,
+          reason:
+              'the compiled-back cross-module override must be valid Dart. '
+              'Compiled output was:\n${compiled['lib/subject.dart']}',
+        );
+      });
+    },
+  );
+
+  group(
+    'a NULL-AWARE extension override never loses its guard (#670)',
+    timeout: const Timeout(Duration(minutes: 3)),
+    () {
+      late Directory pkg;
+      late PackageEncoder encoder;
+      late String compiled;
+
+      setUpAll(() async {
+        pkg = _scratchPackage('extension_override_null_aware', {
+          'subject.dart': _nullAwareOverrideSource,
+        });
+        encoder = PackageEncoder(pkg);
+        await encoder.prepareStaticTypes();
+        expect(encoder.hasStaticTypes, isTrue);
+        final program = encoder.encode(entryFile: 'lib/subject.dart');
+        compiled = DartCompiler(program).compileModule('lib.subject');
+      });
+
+      tearDownAll(() {
+        if (pkg.existsSync()) pkg.deleteSync(recursive: true);
+      });
+
+      test('the encoder REPORTS it instead of dropping the `?`', () {
+        expect(
+          encoder.warnings.where(
+            (w) =>
+                w.contains('Extension-override') && w.contains('Nullish(xs)'),
+          ),
+          isNotEmpty,
+          reason:
+              'a dropped `?.` turns "skip the call" into "call it on null" — '
+              'silently. All warnings were: ${encoder.warnings}',
+        );
+      });
+
+      test('the compiled Dart does not emit an unguarded call', () {
+        expect(
+          compiled,
+          isNot(contains('Nullish(xs).tag()')),
+          reason:
+              'erasing the `?` is the measured-unsound repair in null-guard '
+              'form. Compiled output was:\n$compiled',
+        );
+        expect(
+          compiled,
+          contains('unsupported:'),
+          reason:
+              'until the encoder can lower the guard, this shape must break '
+              'the front end LOUDLY. Compiled output was:\n$compiled',
+        );
+      });
+    },
+  );
+
+  group(
     'an unnameable extension override is refused LOUDLY (#670)',
     timeout: const Timeout(Duration(minutes: 3)),
     () {
@@ -445,14 +791,15 @@ void main() {
       late String compiled;
 
       setUpAll(() async {
-        pkg = _scratchPackage('extension_override_imported', {
-          'subject.dart': _importedOverrideSource,
-          'elsewhere.dart': _elsewhereSource,
-        });
+        pkg = _scratchPackage(
+          'extension_override_refused',
+          {'subject.dart': _refusedOverrideSource},
+          otherFiles: {'tool/outside.dart': _outsideSource},
+        );
         encoder = PackageEncoder(pkg);
         await encoder.prepareStaticTypes();
         expect(encoder.hasStaticTypes, isTrue);
-        final program = encoder.encode();
+        final program = encoder.encode(entryFile: 'lib/subject.dart');
         compiled = DartCompiler(program).compileModule('lib.subject');
       });
 
@@ -474,30 +821,35 @@ void main() {
         final warning = encoder.warnings.firstWhere(
           (w) => w.contains('Extension-override'),
         );
-        expect(warning, contains('Elsewhere(xs)'));
         expect(warning, contains('#670'));
       });
 
-      test('every refused shape is reported, not just the first', () {
+      test('an extension outside the encoded module set is refused', () {
         final reported = encoder.warnings
             .where((w) => w.contains('Extension-override'))
             .toList();
-        // The method call, the getter access and the cascade target each reach
-        // the refusal through a DIFFERENT encoder path.
+        // The method call and the getter access reach the refusal through
+        // DIFFERENT encoder paths.
         expect(
-          reported.where((w) => w.contains('Elsewhere(xs).firstOrZero()')),
+          reported.where((w) => w.contains('Outside(xs).tag()')),
           isNotEmpty,
+          reason: 'all warnings were: ${encoder.warnings}',
         );
         expect(
-          reported.where((w) => w.contains('Elsewhere(xs).headOrZero')),
+          reported.where((w) => w.contains('Outside(xs).head')),
           isNotEmpty,
+          reason: 'all warnings were: ${encoder.warnings}',
         );
+      });
+
+      test('explicit type arguments ON THE EXTENSION are refused', () {
         expect(
-          reported.where((w) => w.endsWith('Elsewhere(xs)')),
+          encoder.warnings.where((w) => w.contains('Boxed<int>(xs)')),
           isNotEmpty,
           reason:
-              'a bare override (here a cascade target) reaches `_encodeExpr` '
-              'itself. All warnings were: ${encoder.warnings}',
+              "the call's `type_args` channel renders on the MEMBER, so the "
+              'extension’s own arguments have nowhere sound to go. All '
+              'warnings were: ${encoder.warnings}',
         );
       });
 
@@ -508,7 +860,7 @@ void main() {
         expect(compiled, contains('unsupported:'));
         expect(
           compiled,
-          isNot(contains('xs.firstOrZero()')),
+          isNot(contains('xs.tag()')),
           reason:
               'erasing the override to the plain access is the measured-unsound '
               'repair (#670). Compiled output was:\n$compiled',

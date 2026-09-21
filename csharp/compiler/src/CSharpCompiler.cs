@@ -924,11 +924,15 @@ public sealed partial class CSharpCompiler
             entries.Add($"[{Naming.StringLiteral(fieldName)}] = {value}");
         }
 
-        // A type with a body-carrying constructor MUST be built by invoking that
-        // constructor — otherwise its body (lookup-table building, entry refresh)
-        // never runs and the instance is half-built (issue #383). The constructor
-        // itself seeds field defaults, runs the body, and writes fields back.
-        if (BodyConstructorImpl(mc.TypeName) is { } implName)
+        // A type whose unnamed constructor carries a body MUST be built by
+        // invoking that constructor — otherwise its body (lookup-table building,
+        // entry refresh) never runs and the instance is half-built (issue #383).
+        // So must one carrying an INITIALIZER LIST (`FixedSlice(this.source,
+        // int end) : windowSize = end;`): the inline field map below cannot
+        // express it, so the field it seeds read back `null` (issue #706). The
+        // constructor itself seeds field defaults, runs the body, and writes
+        // fields back.
+        if (UnnamedConstructorImpl(mc.TypeName) is { } implName)
         {
             var inputMap = entries.Count == 0 ? "new BallMap()" : $"new BallMap {{ {string.Join(", ", entries)} }}";
             return $"{implName}((BallValue){inputMap})";

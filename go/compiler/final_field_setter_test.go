@@ -52,7 +52,11 @@ func TestFinalFieldWithSetterReadsBackItsInitializedValue(t *testing.T) {
 	if !strings.Contains(src, `__fields.Set("windowSize", end)`) {
 		t.Errorf("initializer list `windowSize = end` not applied\n---\n%s", src)
 	}
-	if strings.Contains(src, `__m.Set("end", `) {
+	// ...and the plain (non-`this.`) parameter must NOT be grafted on as an
+	// instance field of its own. `__fields` is the INSTANCE map the constructor
+	// impl builds; `__m` is the ARGUMENT map the call site packs, where an
+	// entry keyed by the parameter's own name is correct.
+	if strings.Contains(src, `__fields.Set("end", `) {
 		t.Errorf("constructor parameter `end` emitted as an instance field\n---\n%s", src)
 	}
 

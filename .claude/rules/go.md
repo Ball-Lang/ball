@@ -312,6 +312,21 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `go-compiler` matrix row is a PR gate since #619, but it is a RATCHET on a
   passing count, and 146's failure sat inside its floor from day one.
 
+- **A constructor's INITIALIZER LIST is applied even when the constructor is BODYLESS (#706).**
+  `unnamedCtorImpl` (was `bodyCtorImpl`) records a class's unnamed constructor when it carries a
+  body **or** a `metadata.initializers` field entry, and `compileMessageCreation` invokes the impl
+  for either; `compileClassMembers` emits the impl under the identical condition (a recorded impl
+  that is never emitted is an undefined identifier in the emitted Go). Only the impl reads the
+  initializer list; the inline field map beside it knows `metadata.params` and nothing else. So
+  `FixedSlice(this.source, int end) : windowSize = end;` used to build an instance carrying the
+  plain parameter `end` as a bogus field and no `windowSize` at all, and `slice.windowSize`
+  answered `null` — a SILENT wrong answer, not a build failure. Note it is NOT the emitted setter
+  shadowing the read, which is what #706 hypothesised: the setter is the free function
+  `windowSize(input)` and the read is `ballrt.FieldGet(slice, "windowSize")` — two namespaces that
+  never meet, and the bug bites every bodyless constructor with an initializer list, setter or no
+  setter. Guard: `go/compiler/final_field_setter_test.go`, over fixture
+  `472_initializer_list_field_with_setter`.
+
 ### Encoder
 
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks declarations → statements →

@@ -49,14 +49,28 @@ public class FinalFieldSetterTests
         Assert.Equal(Golden(RepoPaths.Conformance("472_initializer_list_field_with_setter.expected_output.txt")), output);
     }
 
-    /// <summary>The construction site must INVOKE the constructor impl — the only place the initializer list is applied — and must not graft the plain parameter on as a field.</summary>
+    /// <summary>
+    /// The construction site must INVOKE the constructor impl — the only place
+    /// the initializer list is applied — and the INSTANCE map that impl builds
+    /// must carry the initialized field, not the plain constructor parameter.
+    ///
+    /// <para>The distinction matters: the ARGUMENT map the call site packs is
+    /// keyed by parameter name, so <c>["end"] = Int(3L)</c> is correct there.
+    /// Only the <c>new BallMessage(...)</c> map is the instance, so the
+    /// assertion is scoped to it.</para>
+    /// </summary>
     [Fact]
     public void BodylessConstructorWithAnInitializerList_IsInvoked()
     {
         var source = CSharpCompiler.Compile(BallJson.Load(RepoPaths.Conformance("472_initializer_list_field_with_setter.ball.json")));
         Assert.Contains("FixedSlice__new(", source, StringComparison.Ordinal);
-        Assert.Contains("[\"windowSize\"] = ", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("[\"end\"] = ", source, StringComparison.Ordinal);
+
+        const string marker = "new BallMessage(\"main:FixedSlice\", new BallMap { ";
+        var start = source.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"no FixedSlice instance map in the emitted C#\n---\n{source}");
+        var instanceMap = source[(start + marker.Length)..source.IndexOf('}', start)];
+        Assert.Contains("[\"windowSize\"] = end", instanceMap, StringComparison.Ordinal);
+        Assert.DoesNotContain("[\"end\"] = ", instanceMap, StringComparison.Ordinal);
     }
 
     /// <summary>The control: a constructor that DOES carry a body already applied its initializer list (issue #527) and must keep doing so.</summary>

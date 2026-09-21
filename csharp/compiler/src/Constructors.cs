@@ -39,8 +39,15 @@ public sealed partial class CSharpCompiler
     /// <summary>The member short name the encoders give Dart's unnamed constructor (<c>main:Point.new</c>).</summary>
     private const string UnnamedCtorMember = "new";
 
-    /// <summary>Short type name → the impl method name of its body-carrying UNNAMED constructor (if any).</summary>
-    private readonly Dictionary<string, string> _bodyCtorImplByShort = new(StringComparer.Ordinal);
+    /// <summary>
+    /// Short type name → the impl method name of its UNNAMED constructor, when
+    /// that constructor needs one: it carries a BODY (which must run) or an
+    /// INITIALIZER LIST (which only the impl applies — the inline field map
+    /// <see cref="CompileMessageCreation"/> builds reads <c>metadata.params</c>
+    /// and nothing else, so a bodyless <c>Foo(this.a, int b) : c = b;</c>
+    /// silently lost <c>c</c>, issue #706).
+    /// </summary>
+    private readonly Dictionary<string, string> _unnamedCtorImplByShort = new(StringComparer.Ordinal);
 
     /// <summary><c>"&lt;ClassShort&gt;.&lt;ctorShort&gt;"</c> → that NAMED constructor's impl method name (issue #527).</summary>
     private readonly Dictionary<string, string> _namedCtorImplByShort = new(StringComparer.Ordinal);
@@ -57,8 +64,8 @@ public sealed partial class CSharpCompiler
     /// Register every constructor's impl name (called from the ctor, before any
     /// emission). Two indexes, deliberately different (issue #527):
     /// <list type="bullet">
-    /// <item><see cref="_bodyCtorImplByShort"/> holds the UNNAMED (<c>new</c>)
-    /// body-carrying constructor only — the one a <c>messageCreation</c> for the
+    /// <item><see cref="_unnamedCtorImplByShort"/> holds the UNNAMED
+    /// (<c>new</c>) constructor only — the one a <c>messageCreation</c> for the
     /// class invokes. Keying every constructor here made the LAST named
     /// constructor win, so <c>Point(3, 4)</c> ran <c>Point.constants()</c>'s
     /// body instead of its own.</item>
@@ -82,9 +89,16 @@ public sealed partial class CSharpCompiler
                 var impl = MemberImplName(ownerShort, split.Member);
                 if (split.Member == UnnamedCtorMember)
                 {
-                    if (member.Body is not null)
+                    // A BODY (it must run — issue #383) or an INITIALIZER LIST
+                    // (`Foo(this.a, int b) : c = b;`) is what the inline field
+                    // map cannot express. Without the second condition the
+                    // initializer list was dropped whole: the instance carried
+                    // the plain parameter `b` as a bogus field and never
+                    // carried `c` at all, so `obj.c` read a missing key and
+                    // answered `null` — a silent wrong answer (issue #706).
+                    if (member.Body is not null || CtorHasFieldInitializers(member))
                     {
-                        _bodyCtorImplByShort[ownerShort] = impl;
+                        _unnamedCtorImplByShort[ownerShort] = impl;
                     }
 
                     continue;
@@ -118,11 +132,32 @@ public sealed partial class CSharpCompiler
     private static string MemberImplName(string ownerShort, string member, bool isSetter = false) =>
         $"{Naming.Sanitize(ownerShort)}__{Naming.Sanitize(member).TrimStart('@')}{(isSetter ? "__set" : string.Empty)}";
 
-    /// <summary>The impl method name of <paramref name="typeName"/>'s body-carrying constructor, or <c>null</c>.</summary>
-    private string? BodyConstructorImpl(string typeName) =>
-        typeName.Length > 0 && _bodyCtorImplByShort.TryGetValue(Naming.TypeShortName(typeName), out var impl)
+    /// <summary>The impl method name of <paramref name="typeName"/>'s unnamed constructor when it has one, or <c>null</c>.</summary>
+    private string? UnnamedConstructorImpl(string typeName) =>
+        typeName.Length > 0 && _unnamedCtorImplByShort.TryGetValue(Naming.TypeShortName(typeName), out var impl)
             ? impl
             : null;
+
+    /// <summary>Whether <paramref name="ctor"/> carries a Dart initializer list — a <c>metadata.initializers</c> entry of kind <c>"field"</c> (issue #706).</summary>
+    private static bool CtorHasFieldInitializers(FunctionDefinition ctor)
+    {
+        var initializers = MetaList(ctor.Metadata, "initializers");
+        if (initializers is null)
+        {
+            return false;
+        }
+
+        foreach (var init in initializers)
+        {
+            if (init.KindCase == Value.KindOneofCase.StructValue
+                && StructString(init.StructValue, "kind") == "field")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     // ════════════════════════════════════════════════════════════
     // Class-hierarchy field resolution
@@ -314,7 +349,7 @@ public sealed partial class CSharpCompiler
                 return null;
             }
 
-            if (BodyConstructorImpl(shortType) is { } implName)
+            if (UnnamedConstructorImpl(shortType) is { } implName)
             {
                 return $"{implName}((BallValue)new BallMap())";
             }

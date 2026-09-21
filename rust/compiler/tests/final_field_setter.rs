@@ -10,9 +10,10 @@
 //!
 //! ## The mechanism, measured
 //!
-//! [`Compiler::body_constructor_fn`] resolved a class's UNNAMED constructor
-//! only when it carried a BODY, and `compile_message_creation` invokes the
-//! constructor's associated fn only for a class that resolves. A bodyless
+//! `Compiler::unnamed_constructor_fn` (was `body_constructor_fn`) resolved a
+//! class's UNNAMED constructor only when it carried a BODY, and
+//! `compile_message_creation` invokes the constructor's associated fn only for
+//! a class that resolves. A bodyless
 //! `FixedSlice(this.source, int end) : windowSize = end;` therefore took the
 //! inline-field-map path, which knows `metadata.params` (the `this.`-formals)
 //! but NOT `metadata.initializers` — so the emitted instance carried the
@@ -63,7 +64,10 @@ fn load_program(path: &Path) -> Program {
 }
 
 fn compile_fixture(name: &str) -> String {
-    Compiler::new(&load_program(&repo_root().join("tests/conformance").join(name))).compile()
+    Compiler::new(&load_program(
+        &repo_root().join("tests/conformance").join(name),
+    ))
+    .compile()
 }
 
 /// The field-READ pin: the fixture's `print(slice.windowSize)` must resolve to

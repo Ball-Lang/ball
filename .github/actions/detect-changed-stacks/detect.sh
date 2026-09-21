@@ -139,8 +139,27 @@ ball_classify_stacks() {
   # Same shape as `ball_protobuf_src` above (#708), and deliberately just as
   # narrow: ts/, go/ and cpp/ reference these files only in prose, so they stay
   # out rather than dragging the ~25-min C++ matrix into every std edit.
+  #
+  # The match set below is GENERATED, not hand-written (#774). It used to be a
+  # SHAPE regex — `std(_[a-z_]+)?\.dart` — which all eight current builders
+  # happen to fit; a ninth named outside that shape would have failed to trip
+  # this signal silently, and rust/csharp/python would then have run their
+  # parity gates against a stale inventory. It is now the literal set of files
+  # that DECLARE a `Module buildStd*Module(`, plus the artifacts gen_std.dart
+  # writes, and tools/ci/check_std_inventory_signal.sh (always-on `proto` job)
+  # re-derives it on every PR and fails when this block has drifted. That guard
+  # also carries the other half of the same closed-set assumption: it scans
+  # every stack NOT ORed in below for a code (not comment) reference to the
+  # inventory, so a new off-disk reader in ts/, go/ or cpp/ is forced to join
+  # the OR-list instead of silently running stale.
+  # BEGIN generated std_inventory pattern — DO NOT EDIT BY HAND.
+  # Derived from the `Module buildStd*Module(` declarations under
+  # dart/shared/lib/ and the artifacts dart/shared/bin/gen_std.dart writes.
+  # Regenerate: bash tools/ci/check_std_inventory_signal.sh --write
+  local std_inventory_re='^dart/shared/lib/(std|std_collections|std_concurrency|std_convert|std_fs|std_io|std_memory|std_time)\.dart$|^dart/shared/std\.bin$|^dart/shared/std\.json$'
+  # END generated std_inventory pattern
   local std_inventory=false
-  if m '^dart/shared/lib/std(_[a-z_]+)?\.dart$|^dart/shared/std\.(json|bin)$'; then std_inventory=true; fi
+  if m "$std_inventory_re"; then std_inventory=true; fi
 
   # New/changed conformance fixtures (never deleted) under
   # tests/conformance/*.ball.json, as bare fixture stems (no dir, no

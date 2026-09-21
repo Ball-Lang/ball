@@ -1408,6 +1408,59 @@ So:
 The detect-changed-stacks truth table pins `corpus`/`dart_core`/`matrix_self`
 themselves.
 
+### The `std_inventory` signal's closed-set assumption, and its guard (#774)
+
+`detect-changed-stacks`' `std_inventory` signal is what re-enables the
+`rust`/`csharp`/`python` jobs when the canonical Dart std inventory moves —
+those three suites read `dart/shared/lib/std*.dart` / `dart/shared/std.json`
+**off disk** as their source of truth, so a dart-only inventory edit is
+precisely the commit each of them exists to catch and precisely the commit on
+which their jobs used to skip.
+
+The signal rests on a **closed-set assumption in two directions**, and the truth
+table can check neither. It drives the classifier with synthetic inputs, one row
+per path that already exists; it cannot see a file that does not exist yet.
+
+1. **Which files ARE the inventory.** This used to be a hand-written *shape*
+   regex, `^dart/shared/lib/std(_[a-z_]+)?\.dart$`. All eight builders happen to
+   fit it. A ninth named outside that shape — a digit, a capital, a `_std.dart`
+   suffix order — would have failed to trip the signal silently.
+2. **Which stacks READ the inventory.** The exclusion of `ts/`, `go/` and `cpp/`
+   came from one grep at review time. A new off-disk reader in any of them would
+   simply have started running stale on every std-only PR.
+
+`tools/ci/check_std_inventory_signal.sh` (always-on `proto` job) closes both by
+deriving, never describing:
+
+- The builder set comes from the `Module buildStd*Module(` **declarations**
+  themselves, and the artifact names from `dart/shared/bin/gen_std.dart`'s own
+  `$outputDir/<file>` writes — so renaming `std.json`/`std.bin` moves the signal
+  with it. `detect.sh` carries that pattern in a **generated, marker-delimited
+  block**; the gate re-derives it on every PR and fails on drift, and
+  `--write` regenerates it. A builder added under any filename is drift.
+- The stacks to scan are derived too: the stack set from `detect.sh`'s `infra`
+  prefix list, the OR-list from its own `$std_inventory` references. Adding a
+  stack to the OR-list removes it from the scan automatically, so there is no
+  second table to keep in sync.
+- Both of those are static and would still pass if `std_inventory` were computed
+  and read by nobody, so a third invariant runs every derived path through the
+  REAL classifier (sourced — the contract `truth_table.sh` and
+  `check_matrix_paths.sh` also use) and requires `rust=true csharp=true
+  python=true`. Non-builder `dart/shared/lib` siblings are the negative control,
+  so the pattern cannot quietly widen into `^dart/shared/`.
+
+**Known limit, stated rather than implied.** The cross-stack scan is a literal
+scan over tracked source files after comment- and docstring-stripping. It counts
+a reference when the needle sits in a **path-shaped string literal** (one with no
+whitespace — `"dart/shared/std.json"`, `join("dart/shared/lib", name)`,
+`` `${root}/dart/shared/std.json` ``), in a **segmented path join**
+(`os.path.join(root, "dart", "shared", …)`), in a **`//go:embed`** directive, or
+unquoted in a shell/CMake/YAML file. A needle inside a literal that also contains
+whitespace is a *sentence* — `ts/compiler` and `cpp/compiler` carry five such
+diagnostic messages today, and flagging them would make the gate noise instead of
+a signal. A path assembled from variables at run time is therefore out of reach;
+that is the grade of check this is, and the reason invariant 3 exists beside it.
+
 **The matrix gates changes to itself** (#642). `conformance-matrix.yml` and
 `tools/ci/roundtrip_floor.sh` are in the filter, so a PR that only moves a row's
 floor re-runs the matrix — before #642 such a PR started no matrix run at all,
@@ -1708,7 +1761,8 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |
 | **§3a itself is enforced, not merely documented** (#705) | `tools/check_verdict_exit_status.py` — every `done < <(…)` under `tools/**/*.sh` + `cpp/test/*.sh` must be named in `tools/verdict_loop_carveouts.tsv` WITH the reason it is safe (anchored on the loop's producer, so a rewritten producer is re-justified). A stale entry, an ambiguous anchor, an empty reason, an undelimitable substitution and a scan that inspected zero loops are each an error. A reviewed LIST rather than an inference: a wrong answer in the permissive direction is the exact hole §3a exists to close. `tools/test/test_check_verdict_exit_status.py` drives 18 offline cases first — an uncarved offender, a carved one, a floored-but-uncarved one, the stale/ambiguous/empty-reason refusals, the multi-line shape, a `)` inside a multi-line quoted string (quote state must carry across lines or the producer handed back is not what runs), the undelimitable shape, the scanned scope in both directions, the zero-loops floor — and ends on the real tree as the positive control | every PR (the always-on `proto` job, stdlib-only) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
-| **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs `dart/shared/lib/std*.dart` and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose). Truth-table rows both ways, including `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |
+| **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs the std builders and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose — an exclusion that is ENFORCED since #774, see the next row). One truth-table row per builder — all eight, not a sample — plus `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |
+| **That signal's match set is DERIVED from source, and its ts/go/cpp exclusion is enforced** (#774) — the signal used to be a hand-written SHAPE regex (`std(_[a-z_]+)?\.dart`) plus a hand-reasoned exclusion checked once, by grep, at review time. Both are closed-set assumptions about source that the truth table structurally cannot re-check: it drives the classifier with synthetic inputs for files that ALREADY exist, so a ninth builder named outside that shape never trips the signal (and rust/csharp/python then run their parity gates against a stale inventory), and a new off-disk reader in ts/, go/ or cpp/ never joins the OR-list. Same failure shape as #719 and #708 | `tools/ci/check_std_inventory_signal.sh` — three derived invariants. (1) The builder set comes from the `Module buildStd*Module(` DECLARATIONS under `dart/shared/lib/` (cross-checked against `ball_base.dart`'s re-exports) and the artifact names from `gen_std.dart`'s own `$outputDir/<file>` writes; the resulting pattern must equal the GENERATED, marker-delimited block in `detect.sh` (`--write` regenerates it), so a builder added under ANY filename is drift. (2) Every stack NOT already ORing `std_inventory` — the stack set and the OR-list both scraped from `detect.sh`, never a second table — is scanned over `git ls-files` for a CODE reference to the inventory; adding a stack to the OR-list removes it from the scan automatically. (3) Every derived path is run through the REAL classifier and must come back `rust=true csharp=true python=true`, with non-builder `dart/shared/lib` siblings as the negative control, because (1) and (2) are static and would both pass if the signal were computed and read by nobody. `--min-builders` is the MEASURED count (8); zero builders, zero scanned files, zero checked paths and zero negative controls are hard errors. `--self-test` drives 15 cases | every PR (the always-on `proto` job, no toolchain) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
 | **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
 | **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 8 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |

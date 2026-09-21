@@ -686,7 +686,11 @@ const MEASURED_FAILURES: &[(&str, &str, &str)] = &[
         "ball-lang-encoder: unsupported call target `BallValue :: Function (BallFunction :: new (\"label\" , move | __ball_arg : BallValue | -> BallValue { label (ball_arg0_with_self (__ball_arg , __self_recv . …",
         "unsupported call target `BallValue :: Function`",
     ),
-    ("fail", "expected(8): int?:7 | actual(8): other", "golden mismatch"),
+    (
+        "fail",
+        "expected(8): int?:7 | actual(8): other",
+        "golden mismatch",
+    ),
     (
         "error",
         "dart run exited 255: <asynchronous suspension>",
@@ -752,8 +756,14 @@ fn the_histogram_orders_by_frequency_and_accounts_for_every_failure() {
         histogram,
         vec![
             ("unsupported runtime helper `ball_arg_get`".to_string(), 3),
-            ("unsupported call target `BallFlow :: Normal`".to_string(), 2),
-            ("unsupported runtime helper `ball_message_type_name`".to_string(), 2),
+            (
+                "unsupported call target `BallFlow :: Normal`".to_string(),
+                2
+            ),
+            (
+                "unsupported runtime helper `ball_message_type_name`".to_string(),
+                2
+            ),
         ],
         "the histogram must rank by count (leader first) and break ties on the key"
     );

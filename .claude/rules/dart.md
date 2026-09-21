@@ -353,7 +353,7 @@ avoid constructs that need receiver-type info:
   unit). No proof ⇒ the route stands exactly as before, which is what keeps it a
   refinement: the SYNTACTIC half matters because `generate_conformance.dart` and
   every self-host regeneration parse with `parseString`, where `staticType` is
-  null. Guards: `tests/conformance/475_user_member_named_like_builtin_accessor`
+  null. Guards: `tests/conformance/476_user_member_named_like_builtin_accessor`
   (cross-target, and it pins the `String`/`List`/`int`/`double` receivers whose
   route must survive) and `dart/encoder/test/builtin_accessor_user_member_test.dart`,
   which derives one case per name from `builtinAccessorGetters` — add a route

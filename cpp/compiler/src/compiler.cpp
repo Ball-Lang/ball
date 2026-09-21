@@ -2224,13 +2224,17 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // instance, not the field, with no error anywhere. Scoped to a PROVABLE
     // receiver class, like every other receiver-scoped decision here (#515): an
     // unprovable receiver keeps the virtual property, which is the behaviour
-    // that predates this.
+    // that predates this. #681 is the same collision reached from the other
+    // side — a plain mutable data member `int length;`, no getter and no
+    // shadowing field in sight — and `class_has_own_field` is what answers it;
+    // `tests/conformance/475_instance_field_named_length` is its gate.
     //
-    // #697 extends the SAME guard to the numeric predicates below: a class
+    // #697 extends that SAME predicate to the numeric predicates below, which
+    // is why it is a named lambda rather than an inline `bool`: a class
     // declaring `bool isNaN` compiled `b.isNaN` to `ball_isNaN(b)`, i.e. "is
     // this OBJECT a NaN double" — always false — instead of reading the field,
     // with nothing reporting it. Conformance
-    // 475_user_member_named_like_builtin_accessor is the cross-target guard.
+    // 476_user_member_named_like_builtin_accessor is the cross-target guard.
     const auto declared_by_receiver = [&](const std::string& name) {
         const std::string vprop_cls = receiver_class_of(*access.object);
         if (vprop_cls.empty()) return false;

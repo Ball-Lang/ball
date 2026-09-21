@@ -466,7 +466,7 @@ compile items so the sibling projects never double-compile each other's files.
   `105_static_methods` — then **86 -> 95** with the object-model arms below, and **95 -> 103**
   (measured on its own base) with `RuntimeHelpers.CollectionsTable`, the 48-helper
   `std_collections` family; #740's engine fix moved the same row **95 -> 115**
-  independently, so the live floor is the count the row prints for the two together. The
+  independently, and the two together measure **125**, which is the live floor. The
   measured first blockers now head with `BallRuntime.Iterate` (the `foreach` lowering),
   `CallMethod` and `MapCreate`, plus the un-inverted `new BallFunction` a Ball lambda
   compiles to — read the live number and the live first blocker off that row, never off

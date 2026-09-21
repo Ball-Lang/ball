@@ -512,6 +512,128 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// The row must be able to name its own failure LEADERS (issue #790)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Real failure lines from this row's own CI log — run 35593505327, job
+/// 106313208884 (`Results: 138 passed, 225 failed, 363 total`) — as
+/// `(status, detail, the bucket the cause belongs in)`.
+///
+/// Copied verbatim, ellipsis and all: [`Outcome::of`] stores [`first_line`]'s
+/// 200-character truncation, so this is exactly the text the bucketer sees at
+/// run time. Fabricated strings would only prove the bucketer agrees with
+/// whatever the test author imagined the harness prints.
+const MEASURED_FAILURES: &[(&str, &str, &str)] = &[
+    (
+        "encode-error",
+        "ball-lang-encoder: unsupported runtime helper `ball_arg_get(...)` —                  rust/encoder/src/runtime_helpers.rs lists the helpers that have a universal                  std inverse. Encoding …",
+        "unsupported runtime helper `ball_arg_get`",
+    ),
+    (
+        "encode-error",
+        "ball-lang-encoder: unsupported runtime helper `ball_message_type_name(...)` —                  rust/encoder/src/runtime_helpers.rs lists the helpers that have a universal                  std inverse.…",
+        "unsupported runtime helper `ball_message_type_name`",
+    ),
+    (
+        "encode-error",
+        "ball-lang-encoder: unsupported call target `BallFlow :: Normal (ball_throw ({ let mut __ball_map = BallMap :: new () ; BallValue :: Message (BallMessage :: new (\"main:NotFound\" , __ball_map)) }))` — a…",
+        "unsupported call target `BallFlow :: Normal`",
+    ),
+    (
+        "encode-error",
+        "ball-lang-encoder: unsupported call target `BallValue :: Function (BallFunction :: new (\"label\" , move | __ball_arg : BallValue | -> BallValue { label (ball_arg0_with_self (__ball_arg , __self_recv . …",
+        "unsupported call target `BallValue :: Function`",
+    ),
+    (
+        "fail",
+        "expected(8): int?:7 | actual(8): other",
+        "golden mismatch",
+    ),
+    (
+        "error",
+        "dart run exited 255: <asynchronous suspension>",
+        "error: dart run exited 255: <asynchronous suspension>",
+    ),
+];
+
+/// **A measurement row that cannot name its own leaders is not a measurement.**
+///
+/// This leg's only per-failure output is `roundtrip_floor.sh`'s "first
+/// still-failing fixture" line, which is the ALPHABETICALLY first failure —
+/// and reading that line as "the leader" is how `rust/AGENTS.md` came to name
+/// `ball_message_type_name` (23 fixtures) as the leader at 138 while the real
+/// leader was `ball_arg_get` (63), a bucket 2.7x larger. Issue #790 had to be
+/// filed to re-derive by hand what the run already knew, so the bucketing is a
+/// function of the harness and is pinned on the row's OWN measured strings.
+///
+/// A bucket is the CAUSE, never the fixture: the two shapes the compiler emits
+/// most (`ball_*` runtime helpers, and paths like `BallFlow::Normal` that the
+/// `syn` encoder refuses as call targets) each collapse to one key naming the
+/// helper or the path head, so 63 fixtures blocked on one gap read as one line
+/// instead of 63.
+#[test]
+fn a_failure_is_bucketed_by_its_cause_not_by_its_fixture() {
+    for (status, detail, expected) in MEASURED_FAILURES {
+        assert_eq!(
+            failure_bucket(status, detail),
+            *expected,
+            "a `{status}` failure must bucket by its cause; detail was: {detail}"
+        );
+    }
+}
+
+/// The histogram is ordered by frequency (the leader first — the whole point)
+/// and TOTALS to the failure count, so a bucket can never silently swallow or
+/// duplicate a fixture. Ties break on the key so the printed block is stable
+/// run to run and a diff of two runs means something.
+#[test]
+fn the_histogram_orders_by_frequency_and_accounts_for_every_failure() {
+    let pick = |bucket: &str| {
+        let (status, detail, _) = MEASURED_FAILURES
+            .iter()
+            .find(|(_, _, expected)| *expected == bucket)
+            .unwrap_or_else(|| panic!("no measured failure buckets as `{bucket}`"));
+        (status.to_string(), detail.to_string())
+    };
+
+    let arg_get = pick("unsupported runtime helper `ball_arg_get`");
+    let type_name = pick("unsupported runtime helper `ball_message_type_name`");
+    let flow = pick("unsupported call target `BallFlow :: Normal`");
+    let failures = vec![
+        type_name.clone(),
+        arg_get.clone(),
+        flow.clone(),
+        arg_get.clone(),
+        type_name,
+        flow,
+        arg_get,
+    ];
+
+    let histogram = failure_histogram(&failures);
+    assert_eq!(
+        histogram,
+        vec![
+            ("unsupported runtime helper `ball_arg_get`".to_string(), 3),
+            (
+                "unsupported call target `BallFlow :: Normal`".to_string(),
+                2
+            ),
+            (
+                "unsupported runtime helper `ball_message_type_name`".to_string(),
+                2
+            ),
+        ],
+        "the histogram must rank by count (leader first) and break ties on the key"
+    );
+    assert_eq!(
+        histogram.iter().map(|(_, count)| count).sum::<usize>(),
+        failures.len(),
+        "every failure must land in exactly one bucket — a histogram that does not add up to \
+         the failure count is reporting a number no run produced"
+    );
+}
+
 #[test]
 #[ignore = "whole-corpus round-trip sweep — run explicitly with --ignored (needs the Dart CLI)"]
 fn roundtrip_conformance() {

@@ -551,6 +551,19 @@ The rule this repo now follows on any measurement leg:
    or multiline operand exits 2 — which, inside an `if`, SKIPS the branch and
    falls through to a green exit. `tools/test/test_roundtrip_floor.sh` runs on
    every PR and pins all of it, the wiring included.
+5. **On the compiler legs, the raise in rule 3 is ENFORCED, not requested
+   (#792).** Rule 3 was prose, and prose stops nothing: each `*-compiler` row's
+   only response to a measured gain was `echo "::notice::… IMPROVED …"` followed
+   by `exit 0`, so `GO_COMPILER_FLOOR` sat at 291 while the row measured 297
+   (PR #738's matrix run 35552669922) — six fixtures of earned gain unclaimed,
+   and a regression back to 292 still green. `tools/ci/compiler_floor.sh` makes
+   `passed > floor` **red**, naming the exact constant and value to write, so an
+   improvement and the floor that locks it in land in the same PR by
+   construction. The floor is passed to it BY NAME and read back with indirect
+   expansion, so the constant a human is told to edit is the one the comparison
+   used. `tools/test/test_compiler_floor.sh` pins it and the wiring. The
+   `*-roundtrip` rows keep the advisory notice: their floors climb several times
+   a week under #689/#690/#791 and are already raised alongside each gain.
 
 Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
 its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
@@ -889,10 +902,12 @@ Two compounding reasons, and #619 only fixed the first:
    only. A post-merge red on a non-blocking workflow stops and reopens nothing,
    and a lane that never dispatched saw **no row at all**, which reads as green.
    `conformance-matrix.yml` is a PR gate now, so that half is closed.
-2. **They are ratchets, not parity gates** — `*_COMPILER_FLOOR` fails only on a
-   *drop* in a passing count. 146's failure sat inside each floor from day one. A
-   count cannot name the fixture that is failing, so the row stayed green over a
-   real, permanent defect and would have stayed green even as a PR gate.
+2. **They are ratchets, not parity gates** — `*_COMPILER_FLOOR` fails on a
+   *drop* in a passing count (and, since #792, on an unclaimed *rise* too: see
+   §2c rule 5 — a gain that does not raise the floor in the same PR is red). 146's
+   failure sat inside each floor from day one. A count cannot name the fixture
+   that is failing, so the row stayed green over a real, permanent defect and
+   would have stayed green even as a PR gate.
 
 So "a gate exists" and "a gate would have gone red on this" remain different
 claims even now. When a compiler documents a lowering gap in a doc comment — which

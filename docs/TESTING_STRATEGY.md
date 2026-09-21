@@ -618,6 +618,24 @@ place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
 
+**A coverage test can PIN the silent degradation it was written to reach
+(#742).** `engine_control_flow.dart`'s `_evalAssign`/`_evalNullAwareAssign`
+ended in a bare `return val;` for every `std.assign` target shape they could
+not write through, so a dropped write was indistinguishable from a successful
+one on all seven engines (this is engine source: the self-hosted engines are
+this same code compiled). It survived because the corpus cannot see it — no
+encoder emits such a target, so §2's completeness gate is structurally blind
+here and only a unit test can reach the arm. One existed, and it made the bug
+load-bearing: `engine_wave5_control_flow_coverage_test.dart` asserted that
+`'abc'[0] ??= 'x'` evaluates to `'x'`, i.e. it asserted the no-op, and the line
+was covered. The rule: a test written to REACH an unhandled-shape arm must
+assert the arm FAILS LOUD, never assert whatever the arm happens to return
+today — otherwise the coverage number and the test suite both certify the
+degradation. Where the unhandled set comes from a proto oneof, derive it: the
+#742 guard enumerates `Expression_Expr.values` and requires every non-accepted
+case to have a rejected-target fixture, so a new Expression case fails the
+suite until someone classifies it.
+
 ### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
 Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
 
@@ -815,8 +833,23 @@ needs; `tests/conformance/464_typed_catch_clause_dispatch` is the cross-target
 guard for that, and each compiler carries its own **per-shape** unit test
 (`go/compiler/catch_clause_dispatch_test.go`,
 `csharp/compiler/test/CatchClauseDispatchTests.cs`,
-`rust/compiler/tests/catch_clause_dispatch.rs`) — see the gate lesson below for
-why the corpus leg alone is not enough. That the throw is genuinely TYPED —
+`rust/compiler/tests/catch_clause_dispatch.rs`,
+`python/compiler/tests/test_catch_clause_dispatch.py`) — see the gate lesson
+below for why the corpus leg alone is not enough.
+
+`python/compiler` carried the identical defect for another wave (#724): it was
+not in #615's scope, and the reason nothing since then noticed is worth naming
+as its own gap class. **A target whose only corpus row is its SELF-HOSTED engine
+has no coverage of its compiler's user-program lowerings.** The `python-engine`
+row compiles the Dart engine and runs the corpus *through* it, so every fixture's
+`try` is interpreted by `_evalLazyTry` — Ball code — and the compiler's own `try`
+lowering is exercised only by whatever shapes the engine SOURCE happens to
+contain. The engine has no typed `on T catch` anywhere, so a lowering that
+ignored `type` entirely ran the whole corpus green. The closing move is the same
+one `go/compiler/user_thrown_builtin_error_test.go` makes: a leg that COMPILES a
+conformance fixture through the compiler under test and diffs its golden —
+`python/compiler/tests/test_conformance.py`'s `PROVEN` list, which #724 extended
+with `464_typed_catch_clause_dispatch` and `473_caught_user_thrown_builtin_error`. That the throw is genuinely TYPED —
 reachable by `on StateError`, not only by an untyped catch-all, which is what
 Rust's bare `panic!` gave before #597 — is pinned per runtime too, next to each
 target's implementation.
@@ -1666,6 +1699,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
 | **Implemented-but-undeclared base functions in the C++ compiler (#607)** — the C++ half of the #505/#702 declaration closure. `cpp/compiler/src/compiler.cpp` dispatches base functions by hardcoded `fn == "..."`, and nothing compared those names against the canonical builders, so `compile_concurrency_call` grew three (`thread_detach`, `unique_lock`, `atomic_fetch_add`) that no builder declares, no encoder can emit and no engine implements | `cpp/test/check_declared_base_functions.py` — every name a module-scoped `compile_*_call` implements must be declared for that module by `tests/conformance/std_coverage.json` (the ALL-module inventory) or be a still-live entry in the frozen, ratchet-only `cpp/test/declared_base_functions_known_gaps.txt`; a positive floor on the extracted name count is checked FIRST, and `--self-test` proves all six cases bite | every PR (the always-on `proto` job — BOTH inputs can move it, so a cpp-path-filtered job would let a declaration-only PR skip it; no toolchain) |
+| **Dispatched-but-undeclared base functions in the Python compiler (#743)** — the Python half of the #505/#702/#607 declaration closure. `python/compiler/ball_compiler/compiler.py` dispatches base functions by hardcoded name (`fn == "x"`, `fn in TABLE`, `TABLE[fn]`), and nothing compared those names against the canonical builders, so the `str_1` string table grew a `string_from_char_codes` (plural) arm that no builder declares, no encoder emits and the Dart reference engine does not dispatch — unreachable in BOTH directions, so neither this suite nor the corpus nor `check_encoder_completeness.dart` could ever see it. #702's reverse closed set structurally cannot either: its three populations are the Dart engine's dispatch map, the capability table and the fixture corpus, and a name only the Python compiler mentions is in none of them | `python/compiler/tests/test_declared_base_functions.py` — AST-parses the compiler (a regex would miss the dict/set tables), DERIVES the dispatcher set from the source, and asserts four things: every dispatch site is mapped to a module or named as an exclusion (so a new dispatcher cannot appear unnoticed); every dispatched name is declared for a module that dispatcher serves by `tests/conformance/std_coverage.json` (the ALL-module inventory, pinned against `dart/shared/std.json` by a sibling test so a stale artifact cannot shrink it) or is a still-live entry in the frozen, ratchet-only `python/compiler/tests/declared_base_functions_known_gaps.txt`; that ratchet holds no stale entries; and a positive floor (150) plus a per-dispatcher non-empty check is evaluated FIRST. The fall-through dispatcher `base_expr` serves every universal module it does not delegate away, so its module set is derived from its own `mod == "..."` delegations. Ten negative controls prove each rule bites | every PR (the `python` job, `cd python/compiler && python -m pytest`) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — ONE `full_e2e.sh` call over the PR's changed fixtures **plus** a derived four-fixture slice. One call, not two steps: the harness's positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is per-invocation, so a PR whose every changed fixture is a tracked `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the wrong cause (#651/#695) | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED. Each row's floor moves only in the PR that earns it — the job prints the exact new value; e.g. `rust-roundtrip` went 0 → 68 (#642) → 99 (#693) → 109 (#692). A floor is on the PASSED count alone, never a ratio: the corpus grows under every row, so `109 of 358` and `109 of 360` are the same measurement two fixtures apart |

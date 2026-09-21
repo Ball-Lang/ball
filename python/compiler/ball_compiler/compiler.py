@@ -1211,6 +1211,13 @@ class Compiler:
         return e is None
 
     def run_try(self, call, dest):
+        """``try(body, catches, finally?)`` — a Python ``try`` whose ``except``
+        handler dispatches the clause list.
+
+        The catch handler pushes the thrown payload onto ``ballrt.flow._caught``
+        (so a ``rethrow`` inside a clause re-raises the value being handled) and
+        pops it in a ``finally``, which covers the re-raise path too. The
+        clause selection itself is :meth:`run_catch_clauses`."""
         f = self.fields(call)
         self.line("try:")
         with self.block():
@@ -1221,30 +1228,15 @@ class Compiler:
                 self.line("pass")
         catches = self.message_list(f, "catches")
         if catches:
-            cf = self.mc_fields(catches[0])
-            var = self.str_field(cf, "variable")
             self.line("except ballrt.BallThrow as _ex:")
             with self.block():
-                self.push_scope()
                 self.line("ballrt.flow._caught.append(_ex.value)")
                 self.line("try:")
                 with self.block():
-                    if var:
-                        py = self.bind(var)
-                        self.line(f"{py} = _ex.value")
-                    st = self.str_field(cf, "stack_trace")
-                    if st:
-                        pst = self.bind(st)
-                        self.line(f"{pst} = ballrt.stack_trace_of(_ex)")
-                    before = len(self.lines)
-                    if "body" in cf:
-                        self.run(cf["body"], DISCARD if dest[0] == "discard" else dest)
-                    if len(self.lines) == before:
-                        self.line("pass")
+                    self.run_catch_clauses(catches, dest)
                 self.line("finally:")
                 with self.block():
                     self.line("ballrt.flow._caught.pop()")
-                self.pop_scope()
         if "finally" in f:
             self.line("finally:")
             with self.block():
@@ -1252,6 +1244,67 @@ class Compiler:
                 self.run(f["finally"], DISCARD)
                 if len(self.lines) == before:
                     self.line("pass")
+
+    def run_catch_clauses(self, catches, dest):
+        """Emit the ``catch`` clause DISPATCH CHAIN (issue #724).
+
+        The list is walked in SOURCE ORDER: an ``on <Type> catch`` clause runs
+        only when ``ballrt.catch_matches`` accepts the thrown value's type tag
+        (bare and module-qualified spellings both match, like ``_evalLazyTry``
+        in the reference engine), and the first untyped ``catch (e)`` is the
+        unconditional fallback — Dart rejects a clause after it, so it is always
+        the last one. When every clause is typed and none matches, the trailing
+        ``else`` re-raises the ORIGINAL exception so an enclosing ``try`` sees
+        it (the reference engine's ``if (!caught) rethrow``).
+
+        Before this, ``run_try`` compiled ``catches[0]`` alone, as an
+        unconditional catch-all with its ``type`` ignored, and dropped every
+        later clause — the Python instance of the defect #615 fixed for Rust,
+        Go and C#."""
+        first = True
+        has_untyped = False
+        for mc in catches:
+            cf = self.mc_fields(mc)
+            clause_type = self.str_field(cf, "type")
+            if clause_type:
+                keyword = "if" if first else "elif"
+                self.line(f"{keyword} ballrt.catch_matches(_ex.value, {pystr(clause_type)}):")
+                with self.block():
+                    self.run_catch_body(cf, dest)
+                first = False
+                continue
+            has_untyped = True
+            if first:
+                # The whole handler IS the fallback: no condition to emit.
+                self.run_catch_body(cf, dest)
+            else:
+                self.line("else:")
+                with self.block():
+                    self.run_catch_body(cf, dest)
+            break
+        if not has_untyped:
+            self.line("else:")
+            with self.block():
+                # `raise _ex` re-raises the ORIGINAL BallThrow (payload and
+                # traceback), so an enclosing `try` matches its clauses against
+                # the value that was thrown, not a fresh one.
+                self.line("raise _ex")
+
+    def run_catch_body(self, cf, dest):
+        """One catch clause's bindings + body, in its own lexical scope."""
+        self.push_scope()
+        before = len(self.lines)
+        var = self.str_field(cf, "variable")
+        if var:
+            self.line(f"{self.bind(var)} = _ex.value")
+        st = self.str_field(cf, "stack_trace")
+        if st:
+            self.line(f"{self.bind(st)} = ballrt.stack_trace_of(_ex)")
+        if "body" in cf:
+            self.run(cf["body"], DISCARD if dest[0] == "discard" else dest)
+        if len(self.lines) == before:
+            self.line("pass")
+        self.pop_scope()
 
     def run_incdec(self, call, fn, dest):
         if dest[0] == "discard":
@@ -1817,14 +1870,19 @@ class Compiler:
             "string_trim_end": "string_trim_end", "string_is_empty": "string_is_empty",
             "string_is_not_empty": "string_is_not_empty",
             "string_to_int": "string_to_int", "string_to_double": "string_to_double",
-            # `String.fromCharCode(n)` / `fromCharCodes(list)`. The runtime
-            # helpers have always existed (the self-hosted engine reaches them
-            # through the Dart-SDK static table above); the BASE-function
-            # spellings the Dart encoder emits had no arm here, so a program
-            # using `StringBuffer.writeCharCode` — which #630 desugars into
-            # `string_from_char_code` — was refused outright.
+            # `String.fromCharCode(n)` — the DECLARED base function
+            # (`dart/shared/std.json`, `UnaryInput`). Both `String.fromCharCode`
+            # and, since #630, `StringBuffer.writeCharCode` encode to it, and
+            # without an arm here a program using either was refused outright.
+            #
+            # There is deliberately NO plural `string_from_char_codes` arm
+            # (#743): no builder declares it, no encoder in the repo emits it and
+            # the Dart reference engine does not dispatch it, so it was a phantom
+            # this table could never be reached with. The Dart-SDK STATIC
+            # `String.fromCharCodes(list)` is a different surface entirely and is
+            # served by `_BUILTIN_STATIC` above, which maps it to
+            # `ballrt.string_from_char_codes`.
             "string_from_char_code": "string_from_char_code",
-            "string_from_char_codes": "string_from_char_codes",
         }
         if fn in str_1:
             return f"ballrt.{str_1[fn]}({V()})"

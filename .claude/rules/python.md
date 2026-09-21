@@ -27,7 +27,7 @@ not stale prose.
   isolated-package convention), so run `pytest` **from each package's own dir**:
 
 ```bash
-cd python/compiler && python -m pytest -q     # 52 tests
+cd python/compiler && python -m pytest -q     # 95 tests
 cd python/encoder  && python -m pytest -q     # 42 tests
 cd python/cli      && python -m pytest -q     # all four verbs, in-process
 # Syntax gate (the Python analog of `go build`/`go vet`):
@@ -179,12 +179,31 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   (`python/compiler/ball_compiler/compiler.py`) maps all four to the real
   classes, and `ArgumentError.toString` now spells Dart's
   `Invalid argument(s)`. The class is ALSO the prerequisite for telling one
-  built-in error from another — but not the whole story: this target's `run_try`
-  still compiles `catches[0]` alone and ignores its `type`, so a typed clause
-  runs for any payload and every later clause is dropped. Measured while fixing
-  #658 and filed as **#724**; it is the defect #615 closed for Rust/C#/Go, and
-  no CI leg compiles a conformance fixture through `python/compiler`, which is
-  why it survived.
+  built-in error from another, which #724 (below) then acts on.
+
+- **A typed `on T catch` clause is a TYPE TEST, and the clause list is a
+  dispatch chain (#724).** `run_try` used to compile `catches[0]` alone, as an
+  unconditional catch-all with its `type` ignored, dropping every later clause —
+  the Python instance of the defect #615 closed for Rust/C#/Go.
+  `run_catch_clauses` (`python/compiler/ball_compiler/compiler.py`) now walks
+  the list in SOURCE ORDER and emits `if`/`elif ballrt.catch_matches(_ex.value,
+  "<Type>")`, with the first untyped `catch (e)` as the unconditional `else`
+  fallback and, when every clause is typed and none matches, a trailing `else:
+  raise _ex` so an enclosing `try` sees the ORIGINAL value (the reference
+  engine's `if (!caught) rethrow`). The `ballrt.flow._caught` push/pop still
+  wraps the whole chain, so `rethrow` works and unwinds on the re-raise path
+  too. The matching RULE is `ballrt.catch_matches` /
+  `ballrt.exception_type_name` (`python/runtime/ballrt/flow.py`), the sibling of
+  Go's `ballrt.CatchMatches` and Rust's `ball_catch_matches`: a `__type__`-tagged
+  map reports its tag, an exception object reports its class name, anything
+  untagged reports `std.throw`'s own default `Exception`, and a module-qualified
+  tag (`main:StateError`) also matches a clause naming the bare type. The
+  `python-engine` row cannot see any of this — it runs the SELF-HOSTED engine,
+  whose catch dispatch is Ball code (`_evalLazyTry`) — so the guards are
+  `python/compiler/tests/test_catch_clause_dispatch.py` plus the
+  `464_typed_catch_clause_dispatch` / `473_caught_user_thrown_builtin_error`
+  entries in `test_conformance.py`'s `PROVEN` list, which COMPILE the fixtures
+  through this compiler and diff their goldens.
 
 - **A `final` field declared next to a same-named SETTER gets a synthesized property (#706).**
   That pair is legal Dart exactly because a plain `final` field contributes a getter and NOTHING
@@ -203,6 +222,29 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   Dart rejects, and anything else with a setter and no getter keeps failing loud. Guards:
   `python/compiler/tests/test_final_field_setter.py` (including the negative control) and fixture
   `472_initializer_list_field_with_setter` in `test_conformance.py`'s `PROVEN` list.
+
+- **Every hardcoded base-function dispatch name must be DECLARED, and a gate says so (#743).**
+  Base functions are implemented here by name (`fn == "sink_write"`, `fn in table_2`,
+  `str_1[fn]`), and nothing used to compare those names against the canonical builders. The `str_1`
+  table grew a `string_from_char_codes` (PLURAL) arm that no `dart/shared/lib/std*.dart` builder
+  declares, no encoder in the repo emits and the Dart reference engine does not dispatch —
+  unreachable in both directions, so neither `python/compiler`'s suite nor the conformance corpus
+  nor `check_encoder_completeness.dart` could ever see it, and #702's reverse closed set could not
+  either (its three populations are the Dart engine's dispatch map, the capability table and the
+  fixture corpus — a name only the Python compiler mentions is in none of them). It was DELETED,
+  not declared: the only real thing with that spelling is Dart's SDK static
+  `String.fromCharCodes`, which the compiler's `_BUILTIN_STATIC` table already serves. Never
+  conflate the two surfaces — `_BUILTIN_STATIC` maps Dart-SDK statics (`int.tryParse`,
+  `List.filled`, `String.fromCharCodes`) reached through `builtin_static`, while the `base_expr`
+  tables implement DECLARED `std` base functions. `python/compiler/tests/test_declared_base_functions.py`
+  is the guard (the Python sibling of #505's `std_routed_declarations_test.dart` and #607's
+  `cpp/test/check_declared_base_functions.py`): it AST-parses `compiler.py`, derives the dispatcher
+  set from the source, and fails on any name neither declared in
+  `tests/conformance/std_coverage.json` for a module that dispatcher serves nor a still-live entry
+  in the frozen, ratchet-only `declared_base_functions_known_gaps.txt`. That file is NOT a place to
+  put a new name — it freezes the six measured, cross-target spellings (`for_each`,
+  `parenthesized`, `null_aware_index`, `set_create`, the `*_than_or_equal` pair) and can only
+  shrink.
 
 ### Encoder
 
@@ -385,7 +427,14 @@ python -m conformance.runner                             # prints the CI-parseab
   constructor form, and `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop.
   `encoder.encode_try`/`encode_while` recognise them; `ballrt_calls.py` holds only the class names
   they match on (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
-  `CAUGHT_STACK`, `STACK_TRACE_OF`), closed against `python/runtime` by its own test.
+  `CAUGHT_STACK`, `STACK_TRACE_OF`, `CATCH_MATCHES`), closed against `python/runtime` by its own
+  test. Since #724 the `std.try` shape's handler may hold a typed DISPATCH CHAIN
+  (`if`/`elif ballrt.catch_matches(_ex.value, "<Type>")`, the untyped clause as `else`, a trailing
+  `raise _ex` when every clause is typed): `_encode_catch` reads it back as the whole multi-clause
+  `catches` list, and the `raise` arm encodes to NO clause — it is `std.try`'s own propagate, and an
+  extra untyped clause there would turn a program that propagates into one that swallows. A compiler
+  change that alters this shape without its inverse does not fail loudly on the `python` job; it
+  shows up as a DROP on the ratcheted `python-roundtrip` row, so land the pair together.
   **Never inline a loop trap on sight.** The compiler's C-style `for` is `while True:` + exit guard
   + trap + UPDATE, and `except ballrt.BallContinue` falls *through* to UPDATE, so the whole
   `while True:` shape reads back as `std.for {condition, update, body}` (no UPDATE → `std.while`;

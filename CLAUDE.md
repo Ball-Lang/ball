@@ -240,7 +240,7 @@ cd ../engine && go test -v -run TestConformance -timeout 3600s ./conformance/
 # sys.path, so run pytest from each package dir. pip-install protobuf (the engine
 # loader materialises proto3 defaults through python/shared/gen) + pytest.
 python -m pip install "protobuf>=5.29" "pytest>=8.3,<10"
-cd python/compiler && python -m pytest -q              # 52 tests
+cd python/compiler && python -m pytest -q              # 95 tests
 cd python/encoder  && python -m pytest -q              # 42 tests
 cd python/cli      && python -m pytest -q              # all four verbs, in-process
 python -m compileall python/runtime/ballrt python/compiler/ball_compiler \

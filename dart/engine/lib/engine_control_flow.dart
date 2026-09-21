@@ -825,11 +825,60 @@ extension BallEngineControlFlow on BallEngine {
     }
   }
 
+  /// A human-readable name for an expression's oneof case, for the loud
+  /// assignment errors below. Written as an exhaustive `switch` over
+  /// [Expression_Expr] on purpose: Dart's enum exhaustiveness check makes a new
+  /// oneof case in `ball.proto` a COMPILE error here, so the closed set is
+  /// derived from the schema rather than restated. A `call` also names the
+  /// callee, since `std.index` is the only assignable call.
+  String _assignTargetShapeName(Expression target) {
+    if (target.whichExpr() == Expression_Expr.call) {
+      final mod = target.call.module.isEmpty ? '' : '${target.call.module}.';
+      return 'call $mod${target.call.function}';
+    }
+    return switch (target.whichExpr()) {
+      // Per-arm verified unreachable (#742): the only callers are the
+      // unsupported-target tails of [_evalAssign]/[_evalNullAwareAssign]. A
+      // `reference` target always completes through `scope.set` above, a
+      // `fieldAccess` target either writes or throws its own message, and a
+      // `call` target is named by the early return just above — so none of
+      // these three arms can be selected here.
+      // coverage:ignore-start
+      Expression_Expr.reference => 'reference',
+      Expression_Expr.fieldAccess => 'fieldAccess',
+      Expression_Expr.call => 'call',
+      // coverage:ignore-end
+      Expression_Expr.literal => 'literal',
+      Expression_Expr.messageCreation => 'messageCreation',
+      Expression_Expr.block => 'block',
+      Expression_Expr.lambda => 'lambda',
+      Expression_Expr.notSet => 'notSet',
+    };
+  }
+
+  /// Message for the loud failure of an assignment the engine cannot perform.
+  ///
+  /// Every `std.assign` path that cannot complete a write MUST throw with this
+  /// message. Returning the RHS instead (the pre-#742 behaviour) makes a
+  /// dropped write indistinguishable from a successful one — the
+  /// silent-degradation class CLAUDE.md bans, and the shape that hid issue #55.
+  String _assignErrorMessage(String? op, String detail) {
+    final opLabel = (op == null || op.isEmpty || op == '=') ? '' : ' ($op)';
+    return 'std.assign$opLabel: $detail';
+  }
+
   Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
     final value = fields['value'];
-    if (target == null || value == null) return null;
+    if (target == null || value == null) {
+      throw BallRuntimeError(
+        _assignErrorMessage(
+          _stringFieldVal(fields, 'op'),
+          "call is missing its 'target'/'value' fields",
+        ),
+      );
+    }
 
     final op = _stringFieldVal(fields, 'op');
 
@@ -902,26 +951,33 @@ extension BallEngineControlFlow on BallEngine {
     if (target.whichExpr() == Expression_Expr.fieldAccess) {
       final obj = await _evalExpression(target.fieldAccess.object, scope);
       final map = _cfAsMap(obj);
-      if (map != null) {
-        final fieldName = target.fieldAccess.field_2;
-
-        // Compound assignment on field access (e.g. obj.field ??= val)
-        if (op != null && op.isNotEmpty && op != '=') {
-          final current = map[fieldName];
-          final computed = _applyCompoundOp(op, current, val);
-          map[fieldName] = computed;
-          _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
-          return computed;
-        }
-
-        // Check for a setter function before falling back to map write.
-        final setterResult = await _trySetterDispatch(map, fieldName, val);
-        if (setterResult != _sentinel) return setterResult;
-
-        map[fieldName] = val;
-        _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
-        return val;
+      final fieldName = target.fieldAccess.field_2;
+      if (map == null) {
+        throw BallRuntimeError(
+          _assignErrorMessage(
+            op,
+            "cannot write field '$fieldName' on a non-object value of type "
+            '${_typeNameOf(obj)}',
+          ),
+        );
       }
+
+      // Compound assignment on field access (e.g. obj.field ??= val)
+      if (op != null && op.isNotEmpty && op != '=') {
+        final current = map[fieldName];
+        final computed = _applyCompoundOp(op, current, val);
+        map[fieldName] = computed;
+        _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
+        return computed;
+      }
+
+      // Check for a setter function before falling back to map write.
+      final setterResult = await _trySetterDispatch(map, fieldName, val);
+      if (setterResult != _sentinel) return setterResult;
+
+      map[fieldName] = val;
+      _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
+      return val;
     }
 
     // Index assignment (list[i] = val)
@@ -931,69 +987,95 @@ extension BallEngineControlFlow on BallEngine {
       final indexFields = _lazyFields(target.call);
       final indexTarget = indexFields['target'];
       final indexExpr = indexFields['index'];
-      if (indexTarget != null && indexExpr != null) {
-        var list = await _evalExpression(indexTarget, scope);
-        final idx = await _evalExpression(indexExpr, scope);
+      if (indexTarget == null || indexExpr == null) {
+        throw BallRuntimeError(
+          _assignErrorMessage(
+            op,
+            "std.index target is missing its 'target'/'index' fields",
+          ),
+        );
+      }
+      var list = await _evalExpression(indexTarget, scope);
+      final idx = await _evalExpression(indexExpr, scope);
 
-        // An ordered set used with index assignment (`m[k] = v`) is really an
-        // ambiguous empty `{}` map literal: the syntactic encoder cannot tell
-        // an empty set from an empty map, so `Map<…> m = {}` arrives as an empty
-        // ordered set. Coerce it to a real (Object-keyed) map so int/string keys
-        // work, and write the fresh map back to the target. Issue #68.
-        if (_isBallSet(list)) {
-          list = _ballUserMap();
-          _cfWritebackIndexed(indexTarget, list, scope);
-        }
+      // An ordered set used with index assignment (`m[k] = v`) is really an
+      // ambiguous empty `{}` map literal: the syntactic encoder cannot tell
+      // an empty set from an empty map, so `Map<…> m = {}` arrives as an empty
+      // ordered set. Coerce it to a real (Object-keyed) map so int/string keys
+      // work, and write the fresh map back to the target. Issue #68.
+      if (_isBallSet(list)) {
+        list = _ballUserMap();
+        _cfWritebackIndexed(indexTarget, list, scope);
+      }
 
-        // Compound assignment on index (e.g. list[i] ??= val, map[k] += val)
-        if (op != null && op.isNotEmpty && op != '=') {
-          Object? computed;
-          var didSet = false;
-          if (list is BallList && idx is int) {
-            computed = _applyCompoundOp(op, list.items[idx], val);
-            list.items[idx] = computed;
-            didSet = true;
-          } else if (list is List && idx is int) {
-            computed = _applyCompoundOp(op, list[idx], val);
-            list[idx] = computed;
-            didSet = true;
-          } else if (list is BallMap && idx is String) {
-            computed = _applyCompoundOp(op, list.entries[idx], val);
-            list.entries[idx] = computed;
-            didSet = true;
-          } else if (list is Map) {
-            computed = _applyCompoundOp(op, list[idx], val);
-            list[idx] = computed;
-            didSet = true;
-          }
-          if (didSet) {
-            _cfWritebackIndexed(indexTarget, list, scope);
-            return computed;
-          }
-        }
-
+      // Compound assignment on index (e.g. list[i] ??= val, map[k] += val)
+      if (op != null && op.isNotEmpty && op != '=') {
+        Object? computed;
         var didSet = false;
         if (list is BallList && idx is int) {
-          list.items[idx] = val;
+          computed = _applyCompoundOp(op, list.items[idx], val);
+          list.items[idx] = computed;
           didSet = true;
         } else if (list is List && idx is int) {
-          list[idx] = val;
+          computed = _applyCompoundOp(op, list[idx], val);
+          list[idx] = computed;
           didSet = true;
         } else if (list is BallMap && idx is String) {
-          list.entries[idx] = val;
+          computed = _applyCompoundOp(op, list.entries[idx], val);
+          list.entries[idx] = computed;
           didSet = true;
         } else if (list is Map) {
-          list[idx] = val;
+          computed = _applyCompoundOp(op, list[idx], val);
+          list[idx] = computed;
           didSet = true;
         }
         if (didSet) {
           _cfWritebackIndexed(indexTarget, list, scope);
-          return val;
+          return computed;
         }
       }
+
+      var didSet = false;
+      if (list is BallList && idx is int) {
+        list.items[idx] = val;
+        didSet = true;
+      } else if (list is List && idx is int) {
+        list[idx] = val;
+        didSet = true;
+      } else if (list is BallMap && idx is String) {
+        list.entries[idx] = val;
+        didSet = true;
+      } else if (list is Map) {
+        list[idx] = val;
+        didSet = true;
+      }
+      if (didSet) {
+        _cfWritebackIndexed(indexTarget, list, scope);
+        return val;
+      }
+      // Neither the compound arms above nor the plain arms here matched: the
+      // container/index pair is not indexable. Fail loud rather than dropping
+      // the write (#742).
+      throw BallRuntimeError(
+        _assignErrorMessage(
+          op,
+          'cannot index-assign into a value of type ${_typeNameOf(list)} '
+          'with an index of type ${_typeNameOf(idx)}',
+        ),
+      );
     }
 
-    return val;
+    // Every target shape the engine can actually write through has returned by
+    // now. Anything left is unsupported, and returning `val` here would make a
+    // dropped write look like a successful one (#742).
+    throw BallRuntimeError(
+      _assignErrorMessage(
+        op,
+        'unsupported assignment target shape '
+        '${_assignTargetShapeName(target)}: expected a reference, a field '
+        'access, or a std.index call',
+      ),
+    );
   }
 
   /// Handle `??=` with short-circuit semantics: evaluate the RHS only when
@@ -1017,14 +1099,21 @@ extension BallEngineControlFlow on BallEngine {
     if (target.whichExpr() == Expression_Expr.fieldAccess) {
       final obj = await _evalExpression(target.fieldAccess.object, scope);
       final map = _cfAsMap(obj);
-      if (map != null) {
-        final fieldName = target.fieldAccess.field_2;
-        final current = map[fieldName];
-        if (current != null) return current;
-        final val = await _evalExpression(value, scope);
-        map[fieldName] = val;
-        return val;
+      final fieldName = target.fieldAccess.field_2;
+      if (map == null) {
+        throw BallRuntimeError(
+          _assignErrorMessage(
+            '??=',
+            "cannot write field '$fieldName' on a non-object value of type "
+                '${_typeNameOf(obj)}',
+          ),
+        );
       }
+      final current = map[fieldName];
+      if (current != null) return current;
+      final val = await _evalExpression(value, scope);
+      map[fieldName] = val;
+      return val;
     }
 
     // Index: list[i] ??= val  /  map[k] ??= val
@@ -1034,42 +1123,65 @@ extension BallEngineControlFlow on BallEngine {
       final indexFields = _lazyFields(target.call);
       final indexTarget = indexFields['target'];
       final indexExpr = indexFields['index'];
-      if (indexTarget != null && indexExpr != null) {
-        final list = await _evalExpression(indexTarget, scope);
-        final idx = await _evalExpression(indexExpr, scope);
-        if (list is BallList && idx is int) {
-          final current = list.items[idx];
-          if (current != null) return current;
-          final val = await _evalExpression(value, scope);
-          list.items[idx] = val;
-          return val;
-        }
-        if (list is List && idx is int) {
-          final current = list[idx];
-          if (current != null) return current;
-          final val = await _evalExpression(value, scope);
-          list[idx] = val;
-          return val;
-        }
-        if (list is BallMap && idx is String) {
-          final current = list.entries[idx];
-          if (current != null) return current;
-          final val = await _evalExpression(value, scope);
-          list.entries[idx] = val;
-          return val;
-        }
-        if (list is Map) {
-          final current = list[idx];
-          if (current != null) return current;
-          final val = await _evalExpression(value, scope);
-          list[idx] = val;
-          return val;
-        }
+      if (indexTarget == null || indexExpr == null) {
+        throw BallRuntimeError(
+          _assignErrorMessage(
+            '??=',
+            "std.index target is missing its 'target'/'index' fields",
+          ),
+        );
       }
+      final list = await _evalExpression(indexTarget, scope);
+      final idx = await _evalExpression(indexExpr, scope);
+      if (list is BallList && idx is int) {
+        final current = list.items[idx];
+        if (current != null) return current;
+        final val = await _evalExpression(value, scope);
+        list.items[idx] = val;
+        return val;
+      }
+      if (list is List && idx is int) {
+        final current = list[idx];
+        if (current != null) return current;
+        final val = await _evalExpression(value, scope);
+        list[idx] = val;
+        return val;
+      }
+      if (list is BallMap && idx is String) {
+        final current = list.entries[idx];
+        if (current != null) return current;
+        final val = await _evalExpression(value, scope);
+        list.entries[idx] = val;
+        return val;
+      }
+      if (list is Map) {
+        final current = list[idx];
+        if (current != null) return current;
+        final val = await _evalExpression(value, scope);
+        list[idx] = val;
+        return val;
+      }
+      // Not indexable — fail loud rather than dropping the write (#742).
+      throw BallRuntimeError(
+        _assignErrorMessage(
+          '??=',
+          'cannot index-assign into a value of type ${_typeNameOf(list)} '
+              'with an index of type ${_typeNameOf(idx)}',
+        ),
+      );
     }
 
-    // Fallback: evaluate and return
-    return _evalExpression(value, scope);
+    // Every target shape `??=` can write through has returned by now.
+    // Evaluating the RHS and handing it back (the pre-#742 fallback) made a
+    // dropped write look like a successful one (#742).
+    throw BallRuntimeError(
+      _assignErrorMessage(
+        '??=',
+        'unsupported assignment target shape '
+            '${_assignTargetShapeName(target)}: expected a reference, a field '
+            'access, or a std.index call',
+      ),
+    );
   }
 
   /// Handle ++/-- as lazy scope-mutating operations.

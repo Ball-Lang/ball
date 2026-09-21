@@ -2038,19 +2038,28 @@ void main() {
       expect(await runAndCapture(program), ['7']);
     });
 
-    test(
-      'null-aware index assign on a non-indexable target (fallback)',
-      () async {
-        // Indexing a String with ??= matches no container arm → the final
-        // fallback simply evaluates and returns the RHS.
-        expect(
-          await evalPrintStr(
-            assign(idx(literal('abc'), literal(0)), literal('x'), op: '??='),
+    test('null-aware index assign on a non-indexable target throws', () {
+      // Indexing a String with ??= matches no container arm. Until #742 the
+      // final fallback simply evaluated the RHS and returned it, so this test
+      // asserted `'x'` — i.e. it PINNED the silent no-op: the write never
+      // happened and nothing said so. The write is impossible, so the only
+      // honest answer is a loud error naming the shapes involved.
+      expect(
+        evalPrintStr(
+          assign(idx(literal('abc'), literal(0)), literal('x'), op: '??='),
+        ),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('std.assign (??=)'),
+              contains('cannot index-assign into a value of type String'),
+            ),
           ),
-          'x',
-        );
-      },
-    );
+        ),
+      );
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

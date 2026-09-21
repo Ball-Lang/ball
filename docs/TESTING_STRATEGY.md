@@ -610,6 +610,31 @@ drift guard derived from the two sources of truth (`dart/shared/std.json` ×
 floor locks in a gain, but only a derived closed set stops the gap reopening one
 helper at a time.
 
+**A closed set over NAMES cannot see a mismatched FIELD name (#771).** The
+`std` inventory ladder — #505 (`routed ⊆ declared`), #686 (`declared ⊆ keyed`),
+#702 (`dispatched ∪ keyed ∪ executed ⊆ declared`) — and the C#/Rust mirrors that
+re-derive from `dart/shared/std.json` all compare a function NAME, and at most an
+`outputType`. Not one of them opens a `TypeDefinition`'s `field[]`. A declaration
+that spells a field `len` where the handler reads `length` therefore passes the
+entire suite while computing the wrong answer on every target, because engines
+and compilers extract fields by hardcoded string key and never consult the
+descriptor at all: no crash, no diagnostic, no gate — the #55 silent-degradation
+shape, one level down. `dart/shared/test/std_field_signature_test.dart` is the
+next rung, and it checks BOTH directions (every declared field is read; every key
+read is declared, documented as an alias, or part of the universal call
+convention). Two properties make it a gate rather than a second copy of the
+inventory: the read set is PARSED out of `dart/engine/lib/engine_*.dart` and
+`dart/compiler/lib/compiler.dart` — a hand-maintained per-function expectation
+table would only prove that two copies of one list agree — and every parse in it
+carries a positive floor plus a negative control, so an extraction that silently
+stops matching fails instead of passing vacuously. Its first run found three
+declared fields no target reads anywhere (`ListReduceInput.initial`, and
+`FormatTimestampInput`/`ParseTimestampInput`'s `format`, whose descriptions
+promised a custom format string that no engine, compiler or runtime in the
+repository has ever implemented) and nineteen alias spellings the Dart engine
+accepts that `std.json` never mentioned, so no other target could implement them
+and no encoder knew they were safe to emit.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier
@@ -1751,6 +1776,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **Completeness (§2)** — Dart encoder only | `check_encoder_completeness.dart` | every PR |
 | **Routed-but-undeclared std functions (#505)** — the REVERSE of completeness: every `std`/`std_collections` function `encoder.dart`'s `collectionRoutes` table routes to must be declared by `buildStdModule()`/`buildStdCollectionsModule()` | `dart/shared/test/std_routed_declarations_test.dart` (carries a positive floor so a regex that stops matching cannot pass vacuously) | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Dispatched/keyed/executed-but-undeclared std functions (#702)** — the other half of the #505 PAIR, and the one that catches a consumer the `collectionRoutes` table cannot see. Three populations, each derived from its own source of truth with a positive floor: every base function the Dart engine's `StdModuleHandler` DISPATCHES (`_buildStdDispatch()` in `engine_std.dart`), every key of `buildCapabilityTable()`, and every `isBase` function an executed `tests/conformance/*.ball.json` fixture declares must be declared by a `buildStd*Module()` builder. Read the two rows together: #505 is `routed ⊆ declared`, #702 is `dispatched ∪ keyed ∪ executed ⊆ declared`, and #686's `capability_table_closed_set_test.dart` is `declared ⊆ keyed` — together they close the inventory in both directions. It found 30 undeclared functions (`std.map_create` in 29 fixtures, `std.typed_list` in 13, `std.switch_expr` in 8, …) plus 3 capability keys naming nothing at all | `dart/shared/test/std_reverse_closed_set_test.dart` | every PR (`Dart`, `cd dart/shared && dart test`) |
+| **Declared-vs-read std FIELD names (#771)** — the next rung after #505 -> #686 -> #702, and the first that looks INSIDE a `TypeDefinition`. Those three (and the C#/Rust mirrors) compare function NAMES and at most an `outputType`; none reads `field[]`. So `_type('ListGenerateInput', [_exprField('len', 1), …])` passes every one of them while `engine_std.dart`'s `_stdListGenerate` reads `m['length'] ?? m['count'] ?? m['arg0']` and never sees a field spelled `len` — no crash, no diagnostic, a silently wrong value for every caller on every target. Two directions, each derived from PARSED engine/compiler source (never a hand-maintained expectation table, which would only prove two copies of one list agree): **A** — every field a std input type declares is read by name on the Dart handling path (engine `_buildStdDispatch()` entries + lazy `case 'fn':` arms + the compiler's `'fn' => …` base-call arms, expanded two members deep, unioned per input type because `BinaryInput`/`NumFormatInput` serve a family); **B** — every key an eager std handler reads is declared by a type of that module, named in BACKTICKS in that function's own description as an accepted alternative spelling (the convention `std.dart` already states), or part of the universal call convention (`self`, `arg0`…, `__…__` runtime markers). Comments are stripped first, so a dispatch entry whose COMMENT names `_evalCall` cannot drag that method's reads into the region. It found 3 dead declared fields no target reads (`ListReduceInput.initial`, `FormatTimestampInput.format`, `ParseTimestampInput.format` — the last two while the descriptions PROMISED a custom format string) and 19 undocumented alias reads | `dart/shared/test/std_field_signature_test.dart` (positive floors on every parse — member index, dispatch extraction, declaration derivation and read extraction — plus three NEGATIVE CONTROLS, one of them the #771 `len` example verbatim, so a check that stops firing fails instead of passing vacuously) | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
 | **Compiler-side dispatch completeness (§2, #488/#654)** — every base function the `dart/shared/lib/std*.dart` builders DECLARE must have a case in `dart/compiler/lib/compiler.dart`, and every per-module default arm must fail loud, so nothing can compile to a `/* unsupported: … */` comment | `dart/compiler/test/base_call_dispatch_completeness_test.dart` (population built in process from the builders, probed by compiling; positive floor >= 300) | every PR (`Dart`, `cd dart/compiler && dart test`) |
 | **Interpreted ≡ compiled for the encoder-unreachable base functions (#654)** — a name no Dart source encodes to can have no `tests/conformance/src/*.dart` fixture, so the equivalent proof is one hand-authored Ball program run BOTH ways (reference engine, and `dart run` over the compiled Dart) against one expected transcript | `dart/compiler/test/declared_base_call_equivalence_test.dart` | every PR (`Dart`, `cd dart/compiler && dart test`) |

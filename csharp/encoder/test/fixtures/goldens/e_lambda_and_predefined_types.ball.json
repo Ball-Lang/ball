@@ -1296,13 +1296,6 @@
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_MESSAGE",
                 "typeName": ".ball.v1.Expression"
-              },
-              {
-                "name": "initial",
-                "number": 3,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
               }
             ]
           }
@@ -1467,6 +1460,27 @@
               },
               {
                 "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SetCreateInput",
+          "descriptor": {
+            "name": "SetCreateInput",
+            "field": [
+              {
+                "name": "type_args",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "elements",
                 "number": 2,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_MESSAGE",

@@ -32,6 +32,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
+import 'package:ball_base/gen/google/protobuf/descriptor.pb.dart' as google;
 import 'package:ball_compiler/compiler.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:test/test.dart';
@@ -150,6 +151,58 @@ Program _concreteProgram() {
       Module()
         ..name = 'main'
         ..functions.addAll([alwaysReturns, mainFn]),
+    ]);
+}
+
+/// A control for the DECISION RULE: a user class literally named `T` is not a
+/// type variable, so a `Future<T>` result whose `T` is that class must keep the
+/// concrete non-nullable shape. This is what keying on the in-scope
+/// type-parameter SET buys over a "single uppercase-ish identifier" heuristic.
+Program _userClassNamedTProgram() {
+  final returnsUserT = FunctionDefinition()
+    ..name = 'returnsUserT'
+    ..outputType = 'T'
+    ..body = (Expression()
+      ..block = (Block()
+        ..statements.add(
+          Statement()
+            ..expression = _stdCall('print', [
+              _field('message', _strLit(_enterMarker)),
+            ]),
+        )));
+  returnsUserT.mergeFromProto3Json({
+    'metadata': {'is_async': true},
+  });
+
+  final mainFn = FunctionDefinition()
+    ..name = 'main'
+    ..body = _stdCall('print', [_field('message', _strLit('m'))]);
+
+  final std = Module()
+    ..name = 'std'
+    ..functions.add(
+      FunctionDefinition()
+        ..name = 'print'
+        ..isBase = true,
+    );
+
+  final userT = TypeDefinition()..name = 'T';
+  userT.descriptor = google.DescriptorProto()..name = 'T';
+  userT.mergeFromProto3Json({
+    'metadata': {'kind': 'class'},
+  });
+
+  return Program()
+    ..name = 'generic_async_safety_return_user_class_t'
+    ..version = '1.0.0'
+    ..entryModule = 'main'
+    ..entryFunction = 'main'
+    ..modules.addAll([
+      std,
+      Module()
+        ..name = 'main'
+        ..typeDefs.add(userT)
+        ..functions.addAll([returnsUserT, mainFn]),
     ]);
 }
 
@@ -343,6 +396,30 @@ void main() {
           reason:
               '`dynamic` is not implicitly assignable to `int` under '
               'strict-casts. Compiled source was:\n$source',
+        );
+      });
+
+      test('a user class literally named `T` keeps the loud throw', () {
+        final source = DartCompiler(_userClassNamedTProgram()).compile();
+        expect(
+          source,
+          contains(
+            "throw StateError('unreachable: Ball async body already "
+            "returned')",
+          ),
+          reason:
+              '`T` here is a CLASS this program declares, not a type variable, '
+              'so its nullability is known and the concrete shape is right. '
+              'Compiled source was: $source',
+        );
+        expect(
+          source,
+          isNot(contains('null is T')),
+          reason:
+              'the decision must key on the in-scope type-parameter SET, not '
+              'on the spelling of the name — a heuristic over "single '
+              'uppercase-ish identifier" would move this one too. Compiled '
+              'source was: $source',
         );
       });
 

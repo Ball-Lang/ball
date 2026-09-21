@@ -63,11 +63,20 @@
 # clean bill of health; lower it deliberately, in the commit that removes a
 # builder.
 #
-# KNOWN LIMIT (documented, not silent): invariant 2 is a literal + segmented-
-# join scan over tracked source files, after comment- and docstring-stripping.
-# It catches `"dart/shared/lib/std_io.dart"` and `join("dart", "shared", …)`;
-# it cannot catch a path assembled from variables at run time. That is the same
-# grade of check `docs/TESTING_STRATEGY.md` records for it.
+# KNOWN LIMIT (documented, not silent): invariant 2 is a token scan over
+# tracked source files, after comment- and docstring-stripping. A path-shaped
+# token (no whitespace) counts when it carries a FULL-PATH needle
+# (`"dart/shared/lib/std_io.dart"`) or when it names the inventory's DIRECTORY
+# and leaves the filename to be supplied elsewhere — `join("dart/shared/lib",
+# name)`, `join(root, "dart/shared", f)`, `` `${root}/dart/shared/lib/${name}` ``,
+# `dart/shared/lib/$f`, `//go:embed dart/shared/lib/*.dart`, or a (half-)
+# segmented join `join("dart", "shared", …)`. Two carve-outs, each with a
+# self-test case: a token with WHITESPACE is a sentence, and a token naming one
+# concrete NON-inventory sibling (`"dart/shared/lib/ball_file.dart"`) is not a
+# read of the inventory. What stays out of reach is a path assembled from
+# SEPARATE fragments at run time (`"dart" + "/shared/lib/std.dart"`), where no
+# single token carries either shape. That is the same grade of check
+# `docs/TESTING_STRATEGY.md` records for it.
 #
 # Usage:
 #   bash tools/ci/check_std_inventory_signal.sh              # gate the repo
@@ -411,8 +420,43 @@ def strip_hash(text):
 # Needles: the inventory's own path prefix (so a `std*.dart` glob counts too)
 # and the committed artifacts.
 NEEDLES = ["dart/shared/lib/std", "dart/shared/std.json", "dart/shared/std.bin"]
-# The segmented form a path join produces: os.path.join(root, "dart", "shared", …).
-SEGMENTED = re.compile(r"""["']dart["']\s*,\s*["']shared["']""")
+# A reader that names the inventory's DIRECTORY and supplies the filename
+# separately is reading the inventory just as surely as one that spells the
+# whole path — and NONE of the NEEDLES above appear in any of those literals:
+#   join("dart/shared/lib", name)      -> the literal is "dart/shared/lib"
+#   join(root, "dart/shared", f)       -> the literal is "dart/shared"
+#   "dart/shared" + "/std.json"        -> the literal is "dart/shared"
+#   `${root}/dart/shared/lib/${name}`  -> an interpolated tail
+#   glob("dart/shared/lib/*.dart")     -> a globbed tail
+# What separates those from a literal that names ONE concrete non-inventory
+# sibling (`"dart/shared/lib/cli_core.dart"`, `"dart/shared/ball_protobuf.json"`
+# — both of which ts/ and cpp/ carry today and neither of which is the
+# inventory) is the TAIL after the directory: empty, `/lib`, or carrying a
+# run-time/glob marker means the filename is decided elsewhere.
+DIR_HEAD = "dart/shared"
+DIR_TAILS = {"", "/", "/lib", "/lib/"}
+# `$`/`{`/`}` interpolation, `%` (shell/CMake), `*`/`?` globs.
+DYNAMIC_TAIL = set("${}%*?")
+
+
+def dir_literal(body):
+    """True when a path-shaped token names the inventory's directory, not one
+    concrete sibling file. Whitespace means prose, never a path (same carve-out
+    the NEEDLES sweep makes)."""
+    if re.search(r"\s", body):
+        return False
+    s = body.replace("\\", "/")
+    i = s.find(DIR_HEAD)
+    if i < 0 or (i > 0 and s[i - 1] != "/"):
+        return False  # absent, or a segment tail like `mydart/shared`
+    tail = s[i + len(DIR_HEAD):]
+    return tail in DIR_TAILS or any(c in DYNAMIC_TAIL for c in tail)
+
+
+# The segmented form a path join produces: os.path.join(root, "dart", "shared", …)
+# — and the half-segmented `os.path.join(root, "dart", "shared/lib/std.dart")`,
+# whose tail literal carries no needle either.
+SEGMENTED = re.compile(r"""["']\.{0,2}/?dart["']\s*,\s*["']shared(?:["']|/)""")
 # `//go:embed` survives comment-stripping (see strip_slash) and is an off-disk
 # read spelled as a comment, so it gets its own sweep.
 EMBED = re.compile(r"//go:embed[^\n]*")
@@ -424,11 +468,12 @@ STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|`(?:[^`\\]|\\.)
 BARE = {".sh", ".bash", ".cmake", ".yml", ".yaml", ".txt", ".toml", ".cfg"}
 
 # A REFERENCE is a path-shaped string literal — `"dart/shared/std.json"`,
-# `join("dart/shared/lib", name)`, `` `${root}/dart/shared/std.json` `` — or a
-# segmented join. A needle inside a literal that also contains WHITESPACE is a
-# sentence, i.e. the same prose a comment would carry (the repo has five such
-# diagnostic messages in ts/ and cpp/ today); flagging those would make this
-# gate noise instead of a signal. Documented in docs/TESTING_STRATEGY.md.
+# `` `${root}/dart/shared/std.json` `` — a literal that IS the inventory's
+# directory (`join("dart/shared/lib", name)`), or a segmented join. A needle
+# inside a literal that also contains WHITESPACE is a sentence, i.e. the same
+# prose a comment would carry (the repo has five such diagnostic messages in
+# ts/ and cpp/ today); flagging those would make this gate noise instead of a
+# signal. Documented in docs/TESTING_STRATEGY.md.
 hits, scanned = [], 0
 for rel in listed:
     ext = os.path.splitext(rel)[1]
@@ -466,17 +511,32 @@ for rel in listed:
         needle = next((n for n in NEEDLES if n in body), None)
         if needle is not None and not re.search(r"\s", body):
             hits.append((rel, lineno_at(m.start()), f"path literal containing {needle}", excerpt(m.start())))
+        elif dir_literal(body):
+            hits.append((rel, lineno_at(m.start()), f"a literal naming the inventory's directory ({body})", excerpt(m.start())))
     if ext in BARE:
+        # Whole path-shaped TOKENS, classified exactly like a string literal —
+        # so `dart/shared/lib/$f` is a directory read and
+        # `dart/shared/lib/cli_core.dart` stays the non-inventory sibling it is.
         rest = "".join(masked)
-        for needle in NEEDLES:
-            for m in re.finditer(re.escape(needle), rest):
+        for m in re.finditer(r"""[^\s"'`]+""", rest):
+            token = m.group(0)
+            needle = next((n for n in NEEDLES if n in token), None)
+            if needle is not None:
                 hits.append((rel, lineno_at(m.start()), f"unquoted {needle}", excerpt(m.start())))
+            elif dir_literal(token):
+                hits.append((rel, lineno_at(m.start()), f"an unquoted reference to the inventory's directory ({token})", excerpt(m.start())))
     for m in SEGMENTED.finditer(code):
         hits.append((rel, lineno_at(m.start()), "a segmented dart/shared path join", excerpt(m.start())))
     for m in EMBED.finditer(code):
-        needle = next((n for n in NEEDLES if n in m.group(0)), None)
-        if needle is not None:
-            hits.append((rel, lineno_at(m.start()), f"a //go:embed of {needle}", excerpt(m.start())))
+        for token in m.group(0)[len("//go:embed"):].split():
+            token = token.strip("\"'`")
+            needle = next((n for n in NEEDLES if n in token), None)
+            if needle is not None:
+                hits.append((rel, lineno_at(m.start()), f"a //go:embed of {needle}", excerpt(m.start())))
+                break
+            if dir_literal(token):
+                hits.append((rel, lineno_at(m.start()), f"a //go:embed of the inventory's directory ({token})", excerpt(m.start())))
+                break
 
 if scanned < 1:
     print(
@@ -856,6 +916,92 @@ self_test() {
     >"$t_join/other/tool/read.py"
   git -C "$t_join" add -A 2>/dev/null
   expect "segmented-path-join-is-caught" 1 "$t_join" "$d_ok" "segmented dart/shared path join"
+
+  # 7b. The HALF-segmented join: only `dart` is its own literal, the rest is one
+  #     tail literal that carries no needle at all.
+  local t_join2="$SCRATCH/join2"
+  make_tree "$t_join2"
+  mkdir -p "$t_join2/other/tool"
+  printf 'import os\np = os.path.join(ROOT, "dart", "shared/lib/std.dart")\n' \
+    >"$t_join2/other/tool/read2.py"
+  git -C "$t_join2" add -A 2>/dev/null
+  expect "half-segmented-path-join-is-caught" 1 "$t_join2" "$d_ok" \
+    "segmented dart/shared path join"
+
+  # 7c. THE SHAPE THE DOCS PROMISE. A reader that names the inventory's
+  #     DIRECTORY and supplies the filename separately reads the inventory, and
+  #     no needle appears in any of those literals — `join("dart/shared/lib",
+  #     name)` is the example both this file and docs/TESTING_STRATEGY.md cite.
+  #     One tree per spelling, because the scan stops at the first red file.
+  local t_dir name body
+  local dir_cases=(
+    'joined-directory-literal|const p = path.join("dart/shared/lib", name);'
+    'joined-parent-directory-literal|const p = path.join(root, "dart/shared", "std.json");'
+    'concatenated-directory-literal|const p = fs.readFileSync("dart/shared" + "/std.json");'
+    'relative-directory-literal|const p = path.join("../../dart/shared/lib", name);'
+  )
+  local case_spec
+  for case_spec in "${dir_cases[@]}"; do
+    name="${case_spec%%|*}"
+    body="${case_spec#*|}"
+    t_dir="$SCRATCH/dir_$name"
+    make_tree "$t_dir"
+    printf '%s\n' "$body" >"$t_dir/other/src/reader.ts"
+    git -C "$t_dir" add -A 2>/dev/null
+    expect "$name-is-caught" 1 "$t_dir" "$d_ok" \
+      "inventory's directory" "other/src/reader.ts"
+  done
+
+  # 7d. A template literal whose TAIL is substituted at run time: the filename
+  #     is decided elsewhere, so the directory is the reference.
+  local t_interp="$SCRATCH/interp"
+  make_tree "$t_interp"
+  printf 'const p = `${root}/dart/shared/lib/${name}`;\n' >"$t_interp/other/src/tpl.ts"
+  git -C "$t_interp" add -A 2>/dev/null
+  expect "interpolated-tail-is-caught" 1 "$t_interp" "$d_ok" \
+    "inventory's directory" "other/src/tpl.ts"
+
+  # 7e. THE NEGATIVE CONTROL on that widening, without which the directory rule
+  #     would just be `^dart/shared/` under another name: a literal naming ONE
+  #     concrete NON-inventory sibling is not a read of the inventory. ts/ and
+  #     cpp/ carry `dart/shared/lib/ball_file.dart` and
+  #     `dart/shared/ball_protobuf.json` in code today.
+  local t_sibling="$SCRATCH/sibling"
+  make_tree "$t_sibling"
+  printf 'const a = "dart/shared/lib/ball_proto.dart";\nconst b = "dart/shared/ball_protobuf.json";\n' \
+    >"$t_sibling/other/src/sibling.ts"
+  git -C "$t_sibling" add -A 2>/dev/null
+  expect "concrete-non-inventory-sibling-is-allowed" 0 "$t_sibling" "$d_ok" \
+    "cross-stack scan"
+
+  # 7f. The same two rules on an UNQUOTED shell path, where a variable tail is
+  #     the normal spelling — and its own negative control.
+  local t_shell="$SCRATCH/shell"
+  make_tree "$t_shell"
+  mkdir -p "$t_shell/other/tool"
+  printf '#!/usr/bin/env bash\ncat dart/shared/lib/$f\n' >"$t_shell/other/tool/read.sh"
+  git -C "$t_shell" add -A 2>/dev/null
+  expect "unquoted-directory-read-is-caught" 1 "$t_shell" "$d_ok" \
+    "inventory's directory" "other/tool/read.sh"
+
+  local t_shell_ok="$SCRATCH/shell_ok"
+  make_tree "$t_shell_ok"
+  mkdir -p "$t_shell_ok/other/tool"
+  printf '#!/usr/bin/env bash\ncat dart/shared/lib/ball_proto.dart\n' \
+    >"$t_shell_ok/other/tool/read.sh"
+  git -C "$t_shell_ok" add -A 2>/dev/null
+  expect "unquoted-non-inventory-sibling-is-allowed" 0 "$t_shell_ok" "$d_ok" \
+    "cross-stack scan"
+
+  # 7g. A `//go:embed` of the directory as a GLOB — no needle in the pattern.
+  local t_embed_glob="$SCRATCH/embed_glob"
+  make_tree "$t_embed_glob"
+  mkdir -p "$t_embed_glob/other/embed"
+  printf '//go:embed dart/shared/lib/*.dart\nvar stdSrc string\n' \
+    >"$t_embed_glob/other/embed/g.go"
+  git -C "$t_embed_glob" add -A 2>/dev/null
+  expect "go-embed-of-the-directory-is-caught" 1 "$t_embed_glob" "$d_ok" \
+    "other/embed/g.go"
 
   # 8. Floors. A derivation that finds fewer builders than the floor, and a
   #    classifier nobody wired the signal into, are both hard errors.

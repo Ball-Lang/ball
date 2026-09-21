@@ -1451,15 +1451,34 @@ deriving, never describing:
 
 **Known limit, stated rather than implied.** The cross-stack scan is a literal
 scan over tracked source files after comment- and docstring-stripping. It counts
-a reference when the needle sits in a **path-shaped string literal** (one with no
-whitespace — `"dart/shared/std.json"`, `join("dart/shared/lib", name)`,
-`` `${root}/dart/shared/std.json` ``), in a **segmented path join**
-(`os.path.join(root, "dart", "shared", …)`), in a **`//go:embed`** directive, or
-unquoted in a shell/CMake/YAML file. A needle inside a literal that also contains
+a reference in two shapes, both restricted to **path-shaped** tokens (no
+whitespace):
+
+- a token containing a **full-path needle** — `dart/shared/lib/std…`,
+  `dart/shared/std.json`, `dart/shared/std.bin` — in a string literal
+  (`` `${root}/dart/shared/std.json` ``), in a `//go:embed` directive, or
+  unquoted in a shell/CMake/YAML/TOML file;
+- a token naming the inventory's **directory** rather than one concrete file,
+  because the filename is then decided elsewhere: `join("dart/shared/lib",
+  name)`, `join(root, "dart/shared", "std.json")`, `"dart/shared" +
+  "/std.json"`, `` `${root}/dart/shared/lib/${name}` ``, `dart/shared/lib/$f`,
+  `//go:embed dart/shared/lib/*.dart`, and the **segmented** join
+  `os.path.join(root, "dart", "shared", …)` (including the half-segmented
+  `("dart", "shared/lib/std.dart")`). Concretely: `dart/shared` at a segment
+  boundary whose tail is empty, `/lib`, or carries a `$ { } % * ?` marker.
+
+Two carve-outs keep that from becoming `^dart/shared/` under another name, and
+each has a self-test case. A needle inside a literal that also contains
 whitespace is a *sentence* — `ts/compiler` and `cpp/compiler` carry five such
 diagnostic messages today, and flagging them would make the gate noise instead of
-a signal. A path assembled from variables at run time is therefore out of reach;
-that is the grade of check this is, and the reason invariant 3 exists beside it.
+a signal. And a token naming ONE concrete **non-inventory** sibling is not a read
+of the inventory: `ts/` and `cpp/` reference `dart/shared/lib/ball_file.dart` and
+`dart/shared/ball_protobuf.json` in code today, and must keep being able to.
+
+What remains out of reach is a path assembled from *separate* fragments at run
+time — `"dart" + "/shared/lib/std.dart"`, where no single token carries either
+shape. That is the grade of check this is, and the reason invariant 3 exists
+beside it.
 
 **The matrix gates changes to itself** (#642). `conformance-matrix.yml` and
 `tools/ci/roundtrip_floor.sh` are in the filter, so a PR that only moves a row's

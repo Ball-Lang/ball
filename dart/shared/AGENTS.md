@@ -19,6 +19,14 @@ Cross-language foundation: protobuf-generated Ball types, the universal std modu
 
 ## For AI Agents
 - Entry: edit `std.dart` (or a `std_*.dart`) then run `dart run bin/gen_std.dart` from this dir.
+- **A `TypeDefinition`'s field NAMES are gated (#771).** `std_field_signature_test.dart`
+  cross-checks every declared input field against the field names
+  `dart/engine/lib/engine_std.dart` and `dart/compiler/lib/compiler.dart`
+  actually read, in both directions: a declared field nothing reads fails, and a
+  key a handler reads that is neither declared nor named in BACKTICKS in that
+  function's description fails. The name-only closed sets
+  (`std_routed_declarations_test.dart` #505, `capability_table_closed_set_test.dart`
+  #686, `std_reverse_closed_set_test.dart` #702) cannot see either.
 - **NEVER edit generated files:** `lib/gen/**` (protobuf), `std.json`, `std.bin`, `ball_proto.{json,bin}`, `ball_protobuf.{json,bin}` — these are build outputs (regen commands in `../../CLAUDE.md`).
 - Lang-specific std modules are banned: all functions route through universal `std` (no `dart_std`).
 - **The audit's known surface is what `buildCapabilityTable()` MODELS, not a

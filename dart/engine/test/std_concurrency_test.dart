@@ -1,7 +1,7 @@
 /// The FAIL-LOUD half of `std_concurrency`'s single-threaded model (issue #608).
 ///
 /// The happy path is pinned across every engine and every compiled target by
-/// conformance fixture `475_std_concurrency_handles`. What a fixture cannot
+/// conformance fixture `476_std_concurrency_handles`. What a fixture cannot
 /// pin is MISUSE: joining a thread twice, unlocking a mutex nobody locked,
 /// naming a handle that was never minted. Those raise a host
 /// [BallRuntimeError], and what a caught host error READS AS is a separate
@@ -188,8 +188,8 @@ void main() {
         }),
       ]);
       // The reference engine mints 1, 2, 3…; a portable program may only rely
-      // on distinctness (fixture 475 asserts that), but the FIRST handle must
-      // never be the `0` the old placeholder returned.
+      // on distinctness (476_std_concurrency_handles asserts that), but the
+      // FIRST handle must never be the `0` the old placeholder returned.
       expect(out, ['1']);
     });
 

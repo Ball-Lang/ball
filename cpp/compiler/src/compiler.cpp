@@ -2224,7 +2224,10 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // instance, not the field, with no error anywhere. Scoped to a PROVABLE
     // receiver class, like every other receiver-scoped decision here (#515): an
     // unprovable receiver keeps the virtual property, which is the behaviour
-    // that predates this.
+    // that predates this. #681 is the same collision reached from the other
+    // side — a plain mutable data member `int length;`, no getter and no
+    // shadowing field in sight — and `class_has_own_field` is what answers it;
+    // `tests/conformance/475_instance_field_named_length` is its gate.
     if (field == "length" || field == "isEmpty" || field == "isNotEmpty") {
         const std::string vprop_cls = receiver_class_of(*access.object);
         const std::string vprop_field = sanitize_name(field);
@@ -9127,8 +9130,9 @@ inline void ball_object_set_field(BallDyn obj, const std::string& field,
 // A handle is an OPAQUE 1-based index into one of these tables; a portable
 // program may compare handles, never depend on their numbering. The semantics
 // mirror dart/engine/lib/engine_std.dart exactly, so an interpreted and a
-// compiled program answer identically (conformance 475). Before #607 this
-// module compiled to DECLARATION STATEMENTS (`std::thread _thread(...)`,
+// compiled program answer identically (conformance
+// 476_std_concurrency_handles). Before #607 this module compiled to
+// DECLARATION STATEMENTS (`std::thread _thread(...)`,
 // `std::mutex _mtx`) spliced where a value was expected, so the declared
 // `-> int` of thread_spawn/mutex_create could not be honoured at all.
 inline std::vector<bool>& _ball_threads() { static std::vector<bool> v; return v; }
@@ -13192,7 +13196,8 @@ std::string CppCompiler::compile_concurrency_call(const std::string& fn,
     // Every arm lowers to a helper over the single-threaded handle tables the
     // emitted preamble installs (`_ball_threads` / `_ball_mutexes` /
     // `_ball_atomics`), mirroring dart/engine/lib/engine_std.dart exactly, so a
-    // program means the same thing interpreted and compiled (conformance 475).
+    // program means the same thing interpreted and compiled (conformance
+    // 476_std_concurrency_handles).
     //
     // Issue #607 replaced the previous emission wholesale. It produced
     // DECLARATION STATEMENTS where a value was expected (`std::thread

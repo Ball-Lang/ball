@@ -114,7 +114,26 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   is the reachable case and `470_setter_beside_final_field` is its guard, with
   `cpp/test/test_compiler.cpp`'s
   `length_on_a_class_that_declares_it_is_the_field_not_ball_length` as the fast
-  gate.
+  gate. `475_instance_field_named_length` (#681) is the second gate, and the
+  plainest shape of the same collision — a mutable `int length;` with no getter
+  and no shadowing field, so `class_has_own_field` alone carries it — read
+  externally, read unqualified from inside the class, and read again after a
+  write, with a list, a string and a map as the controls proving `.length` still
+  answers for real collections. The guard covers those THREE names only. The
+  sibling shortcuts just below it in `compile_field_access` — `.entries`,
+  `.keys`, `.values`, `.first`, `.last`, `.runtimeType` — are still
+  unconditional, so a class declaring one of those names as a plain field reads
+  back the map/iterable emulation instead of the field: the same defect #681
+  fixes for `length`, still live for its siblings, and **this target only** (they
+  encode as plain `fieldAccess` nodes, which every engine resolves own-key-first).
+  Corroborating measurement: the first draft of `475_instance_field_named_length`
+  carried `int keys; int values; int entries;` and failed the `C++ Compiled` row
+  (`Results: 351 passed, 1 failed, 352 total`, run 34768683903) while the
+  `Dart Engine` and Rust / C# / Go / Python rows passed it — though that run
+  cannot attribute the failure to those three fields alone, since the same draft
+  carried `length` too and this guard had not landed. Extending
+  `declared_by_receiver` to them is #697's C-half and needs its own fixture
+  first; do not widen the guard without one.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and
@@ -278,7 +297,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_ball_atomics` tables spliced into the preamble, with the SAME
   single-threaded semantics as `dart/engine/lib/engine_std.dart` — opaque
   1-based handles, a real cell store, a CAS that compares and exchanges, and
-  fail-loud misuse. `tests/conformance/475_std_concurrency_handles` is the
+  fail-loud misuse. `tests/conformance/476_std_concurrency_handles` is the
   cross-target guard (wired into `cpp/test/e2e_fixture_list.h`).
   It also implemented three functions **no module builder declares**
   (`thread_detach`, `unique_lock`, `atomic_fetch_add`), reachable by no encoder

@@ -510,7 +510,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   twice, locking a locked mutex, unlocking an unlocked one, naming an unminted
   handle) raises a `BallRuntimeError`. They are LISTS, not int-keyed maps, on
   purpose: this file is compiled into six other engines and a list index has one
-  representation on every target. `tests/conformance/475_std_concurrency_handles`
+  representation on every target. `tests/conformance/476_std_concurrency_handles`
   is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
   the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
   **`sandbox: true` gates none of it.** `_checkSandbox` is called from exactly
@@ -531,7 +531,8 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   targets.** `_concurrencyPreamble` (Dart) and `BALL_CONCURRENCY_RUNTIME` (TS)
   both throw when the body answers a `Future`/thenable, while `engine_std.dart`
   awaits it — deliberate and fail-loud on every side, but a real
-  interpreted-versus-compiled split that fixture 475 does not reach. Issue #770.
+  interpreted-versus-compiled split that `476_std_concurrency_handles` does not
+  reach. Issue #770.
 - **A field write asks whether the field's own DECLARATION contributes a setter,
   not whether the instance carries that key (#501 + #664).**
   `_trySetterDispatch`'s guard used to be a bare

@@ -234,9 +234,15 @@ const json = toJson(ProgramSchema, program);
   a literal `'length'` key had it too). It now defers whenever the receiver is a
   class instance (`hasOwnProperty('__type__')` — `BallObject` keeps its
   bookkeeping as non-enumerable OWN properties) or carries an own key of that
-  name. Any new fast path added ahead of `origEvalFieldAccess` owes the same
-  deferral; `test/engine_setup.test.ts`'s
-  "a declared field beats the virtual map getters" group is the guard.
+  name. #681 is the same collision at its plainest — `class Holder { int
+  length; }` read back `1` where every other engine read `3`, while that very
+  object's `toString` printed `{length: 3}` — and
+  `475_instance_field_named_length` is its cross-target gate beside
+  `470_setter_beside_final_field`. Any new fast path added ahead of
+  `origEvalFieldAccess` owes the same deferral;
+  `test/engine_setup.test.ts`'s "a declared field beats the virtual map getters"
+  group is the guard, and `ts/engine/AGENTS.md`'s "Property-read precedence"
+  section states the rule in full.
 - Post-processing `body.replace(/…/, …)` passes in `ts/compiler/src/compiler.ts`
   are anchored on the compiled engine's literal TEXT. When the reference engine
   moves, a pattern stops matching and the pass becomes a silent no-op. After

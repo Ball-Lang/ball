@@ -13,10 +13,10 @@ Every base function across the 8 universal std modules, generated directly from 
 
 | Metric | Count |
 |---|---|
-| Total base functions | 305 |
+| Total base functions | 306 |
 | Encoder-emittable | 145 |
-| Covered by a conformance fixture | 158 |
-| Dart engine-implemented | 267 |
+| Covered by a conformance fixture | 168 |
+| Dart engine-implemented | 268 |
 | Documented carve-outs | 0 |
 
 ## `std` (161 functions)
@@ -108,7 +108,7 @@ Universal standard library base module. Every function here represents a languag
 | `multiply` | ✅ | ✅ 68 fixture(s): `100_complex_control_flow`, `101_simple_class`, `103_abstract_class` +65 more | ✅ |
 | `negate` | ✅ | ✅ 45 fixture(s): `105_static_methods`, `135_linear_search_sentinel`, `170_pattern_switch_expr` +42 more | ✅ |
 | `not` | ✅ | ✅ 5 fixture(s): `125_group_by`, `129_unique_elements`, `256_editions_resolver` +2 more | ✅ |
-| `not_equals` | ✅ | ✅ 15 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +12 more | ✅ |
+| `not_equals` | ✅ | ✅ 16 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +13 more | ✅ |
 | `null_aware_access` | ❌ | ❌ | ✅ |
 | `null_aware_call` | ❌ | ❌ | ✅ |
 | `null_aware_cascade` | ❌ | ❌ | ✅ |
@@ -121,7 +121,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 362 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +359 more | ✅ |
+| `print` | ✅ | ✅ 363 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +360 more | ✅ |
 | `record` | ✅ | ✅ 2 fixture(s): `207_record_pattern_destructure`, `305_record_patterns` | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
@@ -173,7 +173,7 @@ Universal standard library base module. Every function here represents a languag
 | `throw` | ✅ | ✅ 25 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +22 more | ✅ |
 | `to_double` | ✅ | ✅ 4 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +1 more | ✅ |
 | `to_int` | ✅ | ✅ 5 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +2 more | ✅ |
-| `to_string` | ✅ | ✅ 194 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +191 more | ✅ |
+| `to_string` | ✅ | ✅ 195 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +192 more | ✅ |
 | `to_string_as_exponential` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
 | `to_string_as_fixed` | ✅ | ✅ 1 fixture(s): `316_to_string_as_fixed` | ✅ |
 | `to_string_as_precision` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
@@ -364,29 +364,31 @@ Standard time module. Current time, formatting, parsing, durations.
 | `second` | ❌ | ❌ | ✅ |
 | `year` | ❌ | ❌ | ✅ |
 
-## `std_concurrency` (9 functions)
+## `std_concurrency` (10 functions)
 
 Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-threaded or use real threads.
 
 | Function | Encoder-emittable | Covered by fixture | Dart engine |
 |---|---|---|---|
-| `atomic_compare_exchange` | ❌ | ❌ | ✅ |
-| `atomic_load` | ❌ | ❌ | ✅ |
-| `atomic_store` | ❌ | ❌ | ✅ |
-| `mutex_create` | ❌ | ❌ | ✅ |
-| `mutex_lock` | ❌ | ❌ | ✅ |
-| `mutex_unlock` | ❌ | ❌ | ✅ |
-| `scoped_lock` | ❌ | ❌ | ✅ |
-| `thread_join` | ❌ | ❌ | ✅ |
-| `thread_spawn` | ❌ | ❌ | ✅ |
+| `atomic_compare_exchange` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `atomic_create` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `atomic_load` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `atomic_store` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `mutex_create` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `mutex_lock` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `mutex_unlock` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `scoped_lock` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `thread_join` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
+| `thread_spawn` | ❌ | ✅ 1 fixture(s): `477_std_concurrency_handles` | ✅ |
 
 ## Gaps
 
-### Not encoder-emittable (160) — no Dart-source construct routes to this function
+### Not encoder-emittable (161) — no Dart-source construct routes to this function
 
 - `std_memory.address_of`
 - `std_io.args_get`
 - `std_concurrency.atomic_compare_exchange`
+- `std_concurrency.atomic_create`
 - `std_concurrency.atomic_load`
 - `std_concurrency.atomic_store`
 - `std.cascade`

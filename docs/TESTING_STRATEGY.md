@@ -1009,6 +1009,61 @@ The same rule generalises: whenever a component decides something by NAME —
 a route table, a method-arity window, a rendering table (#641) — the test that
 bounds it must read the table, not a copy of it.
 
+### 5c. A whole MODULE with no fixture is a hole the parity number cannot see
+
+`std_concurrency` shipped nine declared base functions, a dispatch arm in the
+Dart reference engine, and a `compile_concurrency_call` in the C++ compiler —
+and **zero** executed fixtures. Every one of the nine read
+`"coveredByFixtures": [], "carvedOut": false` in
+`tests/conformance/std_coverage.json`, and `grep -rE 'Isolate|Thread|mutex|
+Atomic' tests/conformance/src/` returned nothing. The whole-corpus
+`Results: N passed, 0 failed` line said nothing whatsoever about threads,
+mutexes or atomics, on any of the seven engines.
+
+What was living in that hole (issues #606/#607/#608), all three found by reading
+rather than by any gate:
+
+* **The Dart compiler never routed the module at all.** `_isBaseModule`
+  enumerated eight module names by hand and this one was missing, so every call
+  compiled to a bare `thread_spawn(...)` — a user-function call naming an
+  identifier the generated Dart never defines — with no diagnostic.
+* **The C++ compiler implemented three functions no builder declares**
+  (`thread_detach`, `unique_lock`, `atomic_fetch_add`), producible by no
+  encoder, implemented by no engine, and exercised only by unit tests asserting
+  on emitted source TEXT. Its `thread_spawn`/`mutex_create` also emitted
+  DECLARATION STATEMENTS where a value was expected, so their declared `-> int`
+  could not be honoured.
+* **The engine fabricated answers.** `atomic_store` discarded the write,
+  `atomic_load` echoed its own input, `atomic_compare_exchange` returned an
+  unconditional `true`, and `thread_spawn` returned the literal `0`. Because the
+  other six engines are self-hosted from that source, all seven agreed on the
+  wrong answer.
+
+Three rules generalise out of it:
+
+1. **A module's fixture coverage is a first-class reading of
+   `std_coverage.json`.** A row of `coveredByFixtures: []` that is also
+   `carvedOut: false` is an untested function, not a quiet one — and a whole
+   MODULE of them is a hole no parity number can see.
+2. **Pin the failing case, not just the working one.** `477_std_concurrency_handles`
+   prints a CAS that must FAIL and the cell value after it; that is the line no
+   placeholder can pass. A fixture that only exercised a matching CAS would have
+   been green against the unconditional `true`.
+3. **Pin the contract, not the representation.** A handle is opaque, so the
+   fixture asserts handles are DISTINCT and never prints one. Misuse (joining
+   twice, unlocking an unlocked mutex, naming an unminted handle) is fail-loud
+   and asserted in `dart/engine/test/std_concurrency_test.dart` instead — what a
+   caught host error reads as is §5b's contract, and folding it in here would
+   make this fixture about error rendering.
+
+The drift that let #607 happen has its own gate now:
+`cpp/test/check_declared_base_functions.py` (ci.yml's always-on `proto` job)
+compares every name a module-scoped `compile_*_call` implements against
+`tests/conformance/std_coverage.json`, the all-module canonical inventory. It is
+the C++ sibling of `dart/shared/test/std_routed_declarations_test.dart` (#505),
+and it carries a MEASURED frozen known-gaps list plus a positive floor, so a
+regex that stops matching fails instead of passing vacuously.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -1527,6 +1582,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
+| **Implemented-but-undeclared base functions in the C++ compiler (#607)** — the C++ half of the #505/#702 declaration closure. `cpp/compiler/src/compiler.cpp` dispatches base functions by hardcoded `fn == "..."`, and nothing compared those names against the canonical builders, so `compile_concurrency_call` grew three (`thread_detach`, `unique_lock`, `atomic_fetch_add`) that no builder declares, no encoder can emit and no engine implements | `cpp/test/check_declared_base_functions.py` — every name a module-scoped `compile_*_call` implements must be declared for that module by `tests/conformance/std_coverage.json` (the ALL-module inventory) or be a still-live entry in the frozen, ratchet-only `cpp/test/declared_base_functions_known_gaps.txt`; a positive floor on the extracted name count is checked FIRST, and `--self-test` proves all six cases bite | every PR (the always-on `proto` job — BOTH inputs can move it, so a cpp-path-filtered job would let a declaration-only PR skip it; no toolchain) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — ONE `full_e2e.sh` call over the PR's changed fixtures **plus** a derived four-fixture slice. One call, not two steps: the harness's positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is per-invocation, so a PR whose every changed fixture is a tracked `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the wrong cause (#651/#695) | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED. Each row's floor moves only in the PR that earns it — the job prints the exact new value; e.g. `rust-roundtrip` went 0 → 68 (#642) → 99 (#693) → 109 (#692). A floor is on the PASSED count alone, never a ratio: the corpus grows under every row, so `109 of 358` and `109 of 360` are the same measurement two fixtures apart |

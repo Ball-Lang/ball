@@ -621,14 +621,14 @@ impl BallFunction {
 
     /// Wrap a **stateful** (`FnMut`) native closure as a callable Ball function
     /// value — the shape a compiled `lambda` takes when its body *mutates a
-    /// captured variable* (e.g. the engine's `mutex_create: (_) =>
-    /// _nextMutexId++`, a captured-counter increment). Such a closure is
-    /// `FnMut`, not `Fn`, so it cannot go through [`BallFunction::new`]; this
-    /// serializes calls through an interior `Mutex` (function calls are not a
-    /// hot concurrent path in the by-value model — the lock is uncontended in
-    /// the single-threaded engine and keeps the stored closure `Fn + Sync`).
-    /// `Fn` closures use the lighter [`BallFunction::new`]; the compiler picks
-    /// this form only when it detects a captured-variable mutation.
+    /// captured variable* (e.g. `(_) => counter++`, a captured-counter
+    /// increment). Such a closure is `FnMut`, not `Fn`, so it cannot go through
+    /// [`BallFunction::new`]; this serializes calls through an interior `Mutex`
+    /// (function calls are not a hot concurrent path in the by-value model —
+    /// the lock is uncontended in the single-threaded engine and keeps the
+    /// stored closure `Fn + Sync`). `Fn` closures use the lighter
+    /// [`BallFunction::new`]; the compiler picks this form only when it detects
+    /// a captured-variable mutation.
     pub fn new_mut(
         name: impl Into<String>,
         callable: impl FnMut(BallValue) -> BallValue + Send + 'static,

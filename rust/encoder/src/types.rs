@@ -455,10 +455,13 @@ impl Encoder {
             } else {
                 method_non_self_params(&trait_fn.sig)
             };
-            let body = trait_fn
-                .default
-                .as_ref()
-                .map(|block| Box::new(self.encode_block(block)));
+            // Same binding frame an `impl` method opens (issue #630).
+            let body = trait_fn.default.as_ref().map(|block| {
+                self.push_locals_frame(&params);
+                let encoded = Box::new(self.encode_block(block));
+                self.pop_locals_frame();
+                encoded
+            });
 
             let mut meta = MetaBuilder::new();
             meta.set_string("kind", "method");
@@ -619,7 +622,16 @@ impl Encoder {
             } else {
                 method_non_self_params(&impl_fn.sig)
             };
+            // An `impl`-block method pushes no fn scope (its parameters are
+            // reached through `metadata.params`, not the `input` aliasing
+            // rule), but it still opens a BINDING frame — without one, every
+            // `&mut fmt::Formatter` parameter in an `impl Display` would look
+            // like a free name to issue #630's `write!` destination rule, and
+            // every `let` inside the method would leak into whatever frame
+            // happened to be open.
+            self.push_locals_frame(&params);
             let body = self.encode_block(&impl_fn.block);
+            self.pop_locals_frame();
 
             let mut meta = MetaBuilder::new();
             meta.set_string("kind", "method");

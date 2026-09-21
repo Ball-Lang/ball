@@ -981,6 +981,7 @@ void main() {
       late Directory pkg;
       late Directory scratch;
       late PackageEncoder encoder;
+      late Program program;
       late String compiled;
 
       setUpAll(() async {
@@ -991,7 +992,7 @@ void main() {
         encoder = PackageEncoder(pkg);
         await encoder.prepareStaticTypes();
         expect(encoder.hasStaticTypes, isTrue);
-        final program = encoder.encode(entryFile: 'lib/subject.dart');
+        program = encoder.encode(entryFile: 'lib/subject.dart');
         // The regression this pins: this call used to THROW a
         // `FormatterException` ('Illegal assignment to non-assignable
         // expression'), so ONE mis-shaped expression produced no module output
@@ -1055,6 +1056,25 @@ void main() {
           reason:
               'every extension here is local and unprefixed, so none of them '
               'is refused. Warnings were: ${encoder.warnings}',
+        );
+      });
+
+      test('the Ball program writes to the SAME places on the ENGINE', () async {
+        // The half a source-level assertion cannot see. Every test above
+        // reads the COMPILED DART, so all of them stayed green while the
+        // reference engine could not perform the write at all: `_evalAssign`
+        // knew `reference`, `fieldAccess` and `std.index` targets only, and an
+        // override write is a CALL target, so it reached the #742 loud
+        // refusal. A compiler that re-emits `Slot(xs).only = 9` proves nothing
+        // about the engines, and #670's DoD is explicitly both.
+        final lines = <String>[];
+        await BallEngine(program, stdout: lines.add).run();
+        expect(
+          lines.join('\n'),
+          equals(_runDart(_writeTargetSource, scratch, 'engine_reference')),
+          reason:
+              'the engine wrote somewhere else than `dart run` of the source '
+              'did.',
         );
       });
 

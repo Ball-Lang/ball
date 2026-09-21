@@ -32,7 +32,7 @@ Programs are **structured data**, not text. A Ball program is a protobuf message
 | Capability | Details |
 |---|---|
 | **Programs are data** | Protobuf schema enforces structural validity. If it deserializes, it is syntactically valid. No parser, no syntax errors. |
-| **Static security auditing with no silent gaps** | `ball audit` statically reports every side effect. No `eval`, no FFI, no hidden capabilities — every I/O operation flows through a named base function, and the audit resolves one by the identity the engine dispatches, not by the call site's (spoofable) module string. A program can still declare its *own* base module for a host to implement (the extension seam); the audit cannot know what such a function does, so it reports every call into one as an explicit `custom` capability at `unknown` risk (deniable with `--deny custom`) — never as purity. |
+| **Static security auditing with no silent gaps** | `ball audit` statically reports every side effect. No `eval`, no FFI, no hidden capabilities — every I/O operation flows through a named base function, and the audit resolves one by the identity the engine dispatches, not by the call site's (spoofable) module string. A program can still declare its *own* base module for a host to implement (the extension seam); the audit cannot know what such a function does, so it reports every call into one — qualified, unqualified or under a benign-looking module name alike — as an explicit `custom` capability at `unknown` risk naming the *declaring* module (deniable with `--deny custom`), never as purity. |
 | **Multi-language compilation** | Compile Ball to Dart, C++, and more. Encode Dart source back to Ball. Round-trip real-world code. |
 | **Self-hosted toolchain** | The Dart reference interpreter is itself encoded as Ball, then compiled back to Dart with byte-identical conformance output. A TS-native compiler ([@ball-lang/compiler](https://www.npmjs.com/package/@ball-lang/compiler)) uses ts-morph in-process — Dart fixtures round-trip to TS and execute byte-identical on Node, and the full engine.dart parses cleanly. The C++ compiler runs the conformance corpus end-to-end. Exact pass counts are CI-gated, never hand-maintained — see [the conformance matrix](.github/workflows/conformance-matrix.yml). |
 | **Three runtime engines** | Dart (true async), C++ (native), TypeScript (runs in the browser). |
@@ -202,7 +202,7 @@ The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.pr
 | **Python** | Yes | -- | -- | -- |
 | **Java** | Yes | -- | -- | -- |
 
-Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `359 passed, 0 failed, 359 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
+Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `360 passed, 0 failed, 360 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
 
 ```mermaid
 flowchart LR
@@ -227,7 +227,7 @@ encoder and compiler (issue #493).
 | **TypeScript** — Tier A | 48 | 4 (8%) | 29 | 28 | 21 | 16 | 6 |
 | **C#** — Tier A | 472 | 0 (0%) | 141 | 140 | 58 | 0 | 0 |
 | **Python** — Tier A | 73 | 0 (0%) | 5 | 5 | 0 | 0 | 0 |
-| **Rust** — Tier A | 77 | 0 (0%) | 1 | 1 | 1 | 0 | 34 |
+| **Rust** — Tier A | 77 | 0 (0%) | 7 | 7 | 1 | 0 | 34 |
 | **Go** — Tier A | 21 | 0 (0%) | 0 | 0 | 0 | 0 | 13 |
 | **Dart** — Tier B (per-file) | 106 | 103 (97%) | — | — | — | — | — |
 | **Dart** — Tier B (whole-package) | 5 | 3 (60%) | — | — | — | — | — |

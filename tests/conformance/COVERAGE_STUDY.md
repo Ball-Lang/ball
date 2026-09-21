@@ -439,7 +439,15 @@ Read these as a map of where each pipeline stops on real code, not as a grade:
   exactly one file: `encode_crate` made the harness crate-aware (each package's
   `mod` graph walked once, every file encoded against the crate's symbols), and
   `1 encoded` went 0 -> 1 of 110 while `clean` stayed 0. Ten files cleared their
-  first blocker; nine landed on a second one.
+  first blocker; nine landed on a second one. **Rust no longer stops at stage 1
+  for every file**: #630 routed `write!`/`writeln!` onto the declared text sink
+  and took `1 encoded` 1 -> 7 of 77, of which six now reach stage 3 and stop on
+  a runtime helper its own encoder has no universal-`std` inverse for
+  (`ball_arg_get`, #692 — the same compiler↔encoder round-trip class as #632,
+  whose own `panic!` wall #685 closed on main while #630 was open) and one
+  reaches stage 4. `clean` is still 0 — the point above stands:
+  a closed category moves the histogram, rarely the aggregate, and never by
+  itself makes a file clean.
 * **C# gets furthest.** 74 of 472 files encode and 58 survive a re-encode, and
   the wall is stage 4 — `declaration-drift`, i.e. the round trip keeps the file
   parseable but loses declarations.

@@ -366,6 +366,19 @@ internal sealed partial class Encoder
 
         if (!ClassNames.TryGetValue(shortName, out var qualified))
         {
+            // The compiler's own object model (issue #689). Reached only when the file declares
+            // no class of that name, so a user's `class BallMap` still wins — the shadowing order
+            // C# itself uses, and the one the `*Exception` fallback below already follows.
+            switch (shortName)
+            {
+                case RuntimeHelpers.MessageClass:
+                    return EncodeBallMessageConstruction(objCreate);
+                case RuntimeHelpers.MapClass:
+                    return Builders.ArgsMessage(BallMapFields(objCreate).ToArray());
+                case RuntimeHelpers.ListClass:
+                    return EncodeBallListConstruction(objCreate);
+            }
+
             if (shortName.EndsWith("Exception", System.StringComparison.Ordinal))
             {
                 return EncodeExceptionConstruction(objCreate);
@@ -374,8 +387,9 @@ internal sealed partial class Encoder
             throw new EncoderException(
                 $"ball-encoder: `new {typeText}(...)` targets an unknown type `{shortName}` " +
                 "(only a same-file class/struct/record declaration, `List<T>`/`Dictionary<K,V>` " +
-                "collection construction, or a `*Exception(message)` BCL-style exception " +
-                "construction, is supported)");
+                "collection construction, a `BallMessage`/`BallMap`/`BallList` runtime-value " +
+                "construction, or a `*Exception(message)` BCL-style exception construction, is " +
+                "supported)");
         }
 
         var fields = new List<(string Name, Expression Value)>();
@@ -423,6 +437,117 @@ internal sealed partial class Encoder
         }
 
         return Builders.NamedMessage(qualified, fields.ToArray());
+    }
+
+    /// <summary>
+    /// <c>new BallMessage("&lt;type&gt;", new BallMap { ["f"] = … })</c> → the TYPED
+    /// <c>message_creation</c> node it is the emission of
+    /// (<c>CSharpCompiler.CompileMessageCreation</c>, issue #689).
+    ///
+    /// <para>Both operands are spelled at the call site or this is an error, never a guess: a Ball
+    /// <c>message_creation</c> NAMES its type and NAMES each field, so a computed type name has no
+    /// counterpart, and a runtime map (the enum-namespace emission's <c>__ns</c> accumulator in
+    /// <c>compiler/src/TypeEmit.cs</c>) carries no field names for the node to declare.</para>
+    /// </summary>
+    private Expression EncodeBallMessageConstruction(ObjectCreationExpressionSyntax objCreate)
+    {
+        var args = objCreate.ArgumentList?.Arguments ?? default;
+        if (args.Count != 2 || objCreate.Initializer is not null)
+        {
+            throw new EncoderException(
+                $"ball-encoder: `new {RuntimeHelpers.MessageClass}(...)` expects exactly 2 " +
+                $"arguments and no object initializer, got {args.Count} argument(s) " +
+                $"(the compiler emits `new {RuntimeHelpers.MessageClass}(\"type\", " +
+                $"new {RuntimeHelpers.MapClass} {{ ... }})`)");
+        }
+
+        var typeName = RuntimeHelpers.StringLiteralText(args[0].Expression)
+            ?? throw new EncoderException(
+                $"ball-encoder: `new {RuntimeHelpers.MessageClass}(...)` needs a string-literal " +
+                $"type name, got `{args[0].Expression}` (a Ball message_creation names its type, " +
+                "it does not compute one)");
+
+        if (args[1].Expression is not ObjectCreationExpressionSyntax fieldsCreation ||
+            SimpleTypeName(fieldsCreation.Type.ToString()) != RuntimeHelpers.MapClass)
+        {
+            throw new EncoderException(
+                $"ball-encoder: `new {RuntimeHelpers.MessageClass}(...)`'s fields operand must be " +
+                $"a `new {RuntimeHelpers.MapClass} {{ ... }}` whose keys are spelled at the call " +
+                $"site, got `{args[1].Expression}` (a Ball message_creation declares each field by " +
+                "NAME, so a runtime map has nothing for it to declare)");
+        }
+
+        return Builders.NamedMessage(typeName, BallMapFields(fieldsCreation));
+    }
+
+    /// <summary>
+    /// The <c>["k"] = v</c> entries of a <c>new BallMap { ... }</c>, as <c>message_creation</c>
+    /// fields. <c>new BallMap()</c> (the compiler's empty-input emission) yields none.
+    ///
+    /// <para>Only the indexer-initializer form is accepted — it is the only one
+    /// <c>CSharpCompiler</c> emits — and every key must be a string literal, because a
+    /// <c>message_creation</c> field is a NAME.</para>
+    /// </summary>
+    private List<(string Name, Expression Value)> BallMapFields(ObjectCreationExpressionSyntax objCreate)
+    {
+        if ((objCreate.ArgumentList?.Arguments.Count ?? 0) > 0)
+        {
+            throw new EncoderException(
+                $"ball-encoder: `new {RuntimeHelpers.MapClass}(...)` with constructor arguments is " +
+                $"not supported (the compiler emits `new {RuntimeHelpers.MapClass}()` or " +
+                $"`new {RuntimeHelpers.MapClass} {{ [\"k\"] = v, ... }}`)");
+        }
+
+        var fields = new List<(string Name, Expression Value)>();
+        if (objCreate.Initializer is null)
+        {
+            return fields;
+        }
+
+        foreach (var entry in objCreate.Initializer.Expressions)
+        {
+            if (entry is not AssignmentExpressionSyntax assign ||
+                assign.Left is not ImplicitElementAccessSyntax indexInit ||
+                indexInit.ArgumentList.Arguments.Count != 1 ||
+                RuntimeHelpers.StringLiteralText(indexInit.ArgumentList.Arguments[0].Expression) is not { } key)
+            {
+                throw new EncoderException(
+                    $"ball-encoder: `new {RuntimeHelpers.MapClass} {{ ... }}` needs " +
+                    $"string-literal keys, got `{entry}` (a Ball message_creation names each " +
+                    "field, it does not compute one)");
+            }
+
+            fields.Add((key, EncodeExpr(assign.Right)));
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// <c>new BallList(new BallValue[] { … })</c> / <c>new BallList()</c> → the Ball list literal
+    /// it is the emission of (<c>CSharpCompiler.CompileListLiteral</c>, issue #689). The elements
+    /// must be spelled as an array creation at the call site — that is the only shape the compiler
+    /// emits, and an arbitrary sequence operand has no literal counterpart.
+    /// </summary>
+    private Expression EncodeBallListConstruction(ObjectCreationExpressionSyntax objCreate)
+    {
+        var args = objCreate.ArgumentList?.Arguments ?? default;
+        if (objCreate.Initializer is null && args.Count == 0)
+        {
+            return Builders.ListLiteralExpr(Enumerable.Empty<Expression>());
+        }
+
+        if (objCreate.Initializer is null && args.Count == 1 &&
+            args[0].Expression is ArrayCreationExpressionSyntax or ImplicitArrayCreationExpressionSyntax)
+        {
+            return EncodeExpr(args[0].Expression);
+        }
+
+        throw new EncoderException(
+            $"ball-encoder: `new {RuntimeHelpers.ListClass}(...)` is only supported as " +
+            $"`new {RuntimeHelpers.ListClass}()` or " +
+            $"`new {RuntimeHelpers.ListClass}(new BallValue[] {{ ... }})` — the shapes the " +
+            $"compiler emits — got `{objCreate}`");
     }
 
     /// <summary>A `*Exception`-named type with no same-file class declaration — assumed to be

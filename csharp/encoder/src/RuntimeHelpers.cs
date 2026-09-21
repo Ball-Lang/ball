@@ -37,13 +37,21 @@ namespace Ball.Encoder;
 ///   expression).</item>
 /// </list>
 ///
-/// <para>Two helpers sit OUTSIDE that table on purpose, as named node-shaped
-/// arms (<see cref="FieldGet"/>, <see cref="ArgGet"/> — issue #689): their
-/// inverses are not "one <c>std</c> base call whose positional arguments fill
-/// named input fields" at all, so expressing them as rows would have meant
-/// widening every row to carry a shape it does not have. Each arm keeps the
-/// same fail-loud boundary — a non-literal key, or the wrong arity, is an
-/// error.</para>
+/// <para>Four helpers sit OUTSIDE that table on purpose, as named node-shaped
+/// arms (<see cref="FieldGet"/>, <see cref="ArgGet"/>, <see cref="FieldSet"/>,
+/// <see cref="MessageTypeName"/> — issue #689): their inverses are not "one
+/// <c>std</c> base call whose positional arguments fill named input fields" at
+/// all, so expressing them as rows would have meant widening every row to carry
+/// a shape it does not have. Each arm keeps the same fail-loud boundary — a
+/// non-literal key, or the wrong arity, is an error.</para>
+///
+/// <para>The compiler's OBJECT MODEL is three more shapes that are not helper
+/// calls at all but <c>new</c> expressions over <c>Ball.Shared</c>'s own value
+/// types — <see cref="MessageClass"/>, <see cref="MapClass"/>,
+/// <see cref="ListClass"/>. They are inverted in <c>encoder/src/Types.cs</c>'s
+/// <c>EncodeObjectCreation</c>, AFTER a same-file class declaration of the same
+/// name has had its chance to win (the shadowing order C# itself uses, and the
+/// one the <c>*Exception</c> fallback beside them already follows).</para>
 ///
 /// <para>Statement-shaped lowerings (<c>if</c>/<c>for</c>/<c>while</c>/
 /// <c>try</c>) are not here at all: the compiler emits them as native C#
@@ -56,6 +64,29 @@ internal static class RuntimeHelpers
 
     /// <summary>The value type whose static factories the compiler emits for literals.</summary>
     internal const string ValueClass = "BallValue";
+
+    /// <summary>
+    /// <c>new BallMessage("&lt;type&gt;", new BallMap { … })</c> — the compiler's emission of a
+    /// TYPED <c>message_creation</c> node (<c>CSharpCompiler.CompileMessageCreation</c>'s
+    /// <c>mc.TypeName.Length != 0</c> arm, and the same shape
+    /// <c>compiler/src/Constructors.cs</c> and <c>compiler/src/TypeEmit.cs</c> build).
+    /// </summary>
+    internal const string MessageClass = "BallMessage";
+
+    /// <summary>
+    /// <c>new BallMap { ["k"] = v }</c> — the emission of an UNTYPED <c>message_creation</c>
+    /// (the same method's <c>mc.TypeName.Length == 0</c> arm): a base call's named arguments, and
+    /// every instance-method call site's <c>{self, …}</c> input. A genuine Ball map LITERAL is a
+    /// different emission (<c>BallRuntime.MapCreate(…)</c>, <c>compiler/src/BaseCall.cs</c>), so
+    /// there is no ambiguity between the two.
+    /// </summary>
+    internal const string MapClass = "BallMap";
+
+    /// <summary>
+    /// <c>new BallList(new BallValue[] { … })</c> / <c>new BallList()</c> — the emission of a Ball
+    /// list literal (<c>CSharpCompiler.CompileListLiteral</c>).
+    /// </summary>
+    internal const string ListClass = "BallList";
 
     /// <summary><c>BallRuntime.Truthy(x)</c> coerces to a C# bool at a condition site. Ball
     /// performs that coercion implicitly wherever a condition is evaluated (<c>std.and</c>,
@@ -87,6 +118,40 @@ internal static class RuntimeHelpers
     /// <c>Methods.EncodeArgGetHelper</c> for the full statement of why.
     /// </summary>
     internal const string ArgGet = "ArgGet";
+
+    /// <summary>
+    /// <c>BallRuntime.FieldSet(obj, "name", value)</c> — the compiler's emission of
+    /// <c>obj.name = value</c>. Node-shaped like <see cref="FieldGet"/> and for the same reason:
+    /// its inverse is <c>std.assign</c> over a <c>field_access</c> TARGET, and a Ball
+    /// <c>field_access</c>'s <c>field</c> is a NAME, not an encodable expression, so it cannot be
+    /// a <see cref="Table"/> row whose every positional argument is one. That target shape is
+    /// exactly what <c>dart/engine/lib/engine_control_flow.dart</c>'s <c>_evalAssign</c> routes
+    /// through <c>_trySetterDispatch</c> before writing, and like <c>FieldSet</c> itself the
+    /// assignment evaluates to the written value.
+    /// </summary>
+    internal const string FieldSet = "FieldSet";
+
+    /// <summary>
+    /// <c>BallRuntime.MessageTypeName(obj)</c> — the receiver-type probe every dispatcher the
+    /// compiler emits opens with (<c>compiler/src/TypeEmit.cs</c>'s <c>CompileDispatcher</c>,
+    /// <c>compiler/src/Accessors.cs</c>'s getter/setter accessors), which then compares it against
+    /// BOTH the full <c>module:Type</c> name and the short one. Its portable Ball counterpart is
+    /// <c>std.type_of</c>: by <c>dart/shared/std.json</c>'s own declaration, "the canonical base
+    /// type name … with any module prefix stripped" — i.e. the SHORT name, one of the two spellings
+    /// the dispatcher already tests, so the same arm is selected.
+    ///
+    /// <para><b>This is the one arm here that is an APPROXIMATION, and the difference is stated
+    /// rather than hidden.</b> <c>MessageTypeName</c> answers <c>""</c> for a non-message
+    /// (<c>csharp/shared/src/BallRuntime.cs</c>); <c>std.type_of</c> answers that value's base type
+    /// name (<c>int</c>, <c>String</c>, <c>Map</c>, …). Both are unequal to any user type name a
+    /// dispatcher tests, so both fall through to the same arm — UNLESS a user class is literally
+    /// named <c>int</c>/<c>String</c>/<c>List</c>/<c>Map</c>/<c>Set</c>/<c>Function</c>/
+    /// <c>Null</c>/<c>bool</c>/<c>double</c>, the single case where the two disagree. The
+    /// alternative — reading the engine-internal <c>__type__</c> tag — is exact on the Dart
+    /// reference engine and meaningless on the five targets that do not represent a message as a
+    /// tagged map, so <c>std.type_of</c> is the portable choice.</para>
+    /// </summary>
+    internal const string MessageTypeName = "MessageTypeName";
 
     private static readonly string[] Unary = { "value" };
     private static readonly string[] Binary = { "left", "right" };

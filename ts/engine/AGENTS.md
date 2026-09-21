@@ -55,3 +55,42 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.
+
+### Property-read precedence: a declared member beats a virtual one (#664, #681)
+
+`engine_setup.ts`'s `patchCompiledEngine` wraps the compiled engine's `_evalFieldAccess` and
+answers two families of read BEFORE delegating: the numeric ones (`isNaN`/`isFinite`/…, via
+`_numFieldAccess`) and the virtual map/iterable ones (`length`/`isEmpty`/`isNotEmpty`, via
+`_collectionFieldAccess`). Anything answered there never reaches the compiled engine at all, so
+anything that engine would have resolved FIRST must be deferred here explicitly.
+
+The Dart reference engine's order — `engine_eval.dart`'s map field-access block — is:
+
+> the object's own key → the `__super__` chain → `__methods__` → a user getter → **and only
+> then** the virtual map properties.
+
+The rule this target must therefore follow is **a DECLARED member always beats a virtual one**.
+Two deferrals in `_collectionFieldAccess` make that concrete, and both are behavioural:
+
+- **a `__type__`-tagged object defers wholesale.** A Ball instance and a Ball map are both plain
+  JS objects here, and only `__type__` tells them apart. An instance's field may be INHERITED
+  (it lives on `__super__`, not as an own key) or supplied by a user getter, so an own-key test
+  alone is not enough — an instance is not a Map and must not be answered by Map emulation at
+  all. An instance that genuinely declares none of these still gets the same number back from
+  the compiled engine's own virtual-property arm, so deferring is never a behaviour loss.
+- **an own key of that name defers.** A plain map carrying a literal `'length'` key is the map
+  analogue of the same collision.
+
+Both were live wrong answers — silent, and on this target only. #664 found a class declaring
+`final int length` reading its instance's ENTRY COUNT; #681 found the plain
+`class Holder { int length; }` reading back `1` instead of `3` while the same object's
+`toString` printed `{length: 3}`. `tests/conformance/470_setter_beside_final_field` and
+`475_instance_field_named_length` are the cross-target gates, and
+`test/engine_setup.test.ts`'s `_evalFieldAccess: a declared field beats the virtual map
+getters` group is the unit guard.
+
+Two neighbouring shapes are NOT covered by this rule and are tracked as **#697**: an instance
+field named `isEmpty` (the Dart encoder rewrites any `.isEmpty` to `std.string_is_empty`
+without consulting the receiver's type) and `.length` on a map carrying a `'length'` key, which
+every engine answers with the key's value rather than the entry count. Both are wrong on every
+target, so they are encoder / reference-engine bugs rather than TS ones.

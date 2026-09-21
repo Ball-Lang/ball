@@ -252,10 +252,22 @@ void main() {
         contains('_ballMemory.lengthInBytes - _ballStackPtr'),
       );
     });
-    test('unsupported std_memory function emits marker', () {
+    // Issue #654: an UNDECLARED base function stops the compile. It used
+    // to answer a COMMENT spliced where an expression belongs, so the
+    // generated Dart failed later with `BODY_MIGHT_COMPLETE_NORMALLY`
+    // instead of the compiler saying what it cannot do.
+    test('an undeclared std_memory function fails loud', () {
       expect(
-        _compile(_call('std_memory', 'mystery', [])),
-        contains('/* unsupported: std_memory.mystery */'),
+        () => _compile(_call('std_memory', 'mystery', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains(
+              'std_memory.mystery is not implemented by the Dart compiler',
+            ),
+          ),
+        ),
       );
     });
   });
@@ -523,10 +535,22 @@ void main() {
         expect(_compile(_call('std_collections', fn, [set])), contains(frag));
       });
     });
-    test('unsupported std_collections function emits marker', () {
+    // Issue #654: an UNDECLARED base function stops the compile. It used
+    // to answer a COMMENT spliced where an expression belongs, so the
+    // generated Dart failed later with `BODY_MIGHT_COMPLETE_NORMALLY`
+    // instead of the compiler saying what it cannot do.
+    test('an undeclared std_collections function fails loud', () {
       expect(
-        _compile(_call('std_collections', 'mystery', [])),
-        contains('/* unsupported: std_collections.mystery */'),
+        () => _compile(_call('std_collections', 'mystery', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains(
+              'std_collections.mystery is not implemented by the Dart compiler',
+            ),
+          ),
+        ),
       );
     });
   });
@@ -582,9 +606,16 @@ void main() {
         _compile(_call('std_io', 'args_get', [])),
         contains('void main() { []'),
       );
+      // Issue #654: an undeclared name fails loud, never a comment.
       expect(
-        _compile(_call('std_io', 'mystery', [])),
-        contains('/* unsupported: std_io.mystery */'),
+        () => _compile(_call('std_io', 'mystery', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('std_io.mystery is not implemented by the Dart compiler'),
+          ),
+        ),
       );
     });
   });
@@ -633,9 +664,18 @@ void main() {
         ),
         contains("base64.decode('aGk=')"),
       );
+      // Issue #654: an undeclared name fails loud, never a comment.
       expect(
-        _compile(_call('std_convert', 'mystery', [])),
-        contains('/* unsupported: std_convert.mystery */'),
+        () => _compile(_call('std_convert', 'mystery', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains(
+              'std_convert.mystery is not implemented by the Dart compiler',
+            ),
+          ),
+        ),
       );
     });
   });
@@ -698,9 +738,16 @@ void main() {
         _compile(_call('std_fs', 'dir_exists', [path])),
         contains("Directory('/tmp/f').existsSync()"),
       );
+      // Issue #654: an undeclared name fails loud, never a comment.
       expect(
-        _compile(_call('std_fs', 'mystery', [])),
-        contains('/* unsupported: std_fs.mystery */'),
+        () => _compile(_call('std_fs', 'mystery', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('std_fs.mystery is not implemented by the Dart compiler'),
+          ),
+        ),
       );
     });
   });
@@ -757,9 +804,18 @@ void main() {
           contains('DateTime.now().$comp'),
         );
       }
+      // Issue #654: an undeclared name fails loud, never a comment.
       expect(
-        _compile(_call('std_time', 'mystery', [])),
-        contains('/* unsupported: std_time.mystery */'),
+        () => _compile(_call('std_time', 'mystery', [])),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains(
+              'std_time.mystery is not implemented by the Dart compiler',
+            ),
+          ),
+        ),
       );
     });
   });

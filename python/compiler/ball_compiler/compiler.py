@@ -1817,14 +1817,19 @@ class Compiler:
             "string_trim_end": "string_trim_end", "string_is_empty": "string_is_empty",
             "string_is_not_empty": "string_is_not_empty",
             "string_to_int": "string_to_int", "string_to_double": "string_to_double",
-            # `String.fromCharCode(n)` / `fromCharCodes(list)`. The runtime
-            # helpers have always existed (the self-hosted engine reaches them
-            # through the Dart-SDK static table above); the BASE-function
-            # spellings the Dart encoder emits had no arm here, so a program
-            # using `StringBuffer.writeCharCode` — which #630 desugars into
-            # `string_from_char_code` — was refused outright.
+            # `String.fromCharCode(n)` — the DECLARED base function
+            # (`dart/shared/std.json`, `UnaryInput`). Both `String.fromCharCode`
+            # and, since #630, `StringBuffer.writeCharCode` encode to it, and
+            # without an arm here a program using either was refused outright.
+            #
+            # There is deliberately NO plural `string_from_char_codes` arm
+            # (#743): no builder declares it, no encoder in the repo emits it and
+            # the Dart reference engine does not dispatch it, so it was a phantom
+            # this table could never be reached with. The Dart-SDK STATIC
+            # `String.fromCharCodes(list)` is a different surface entirely and is
+            # served by `_BUILTIN_STATIC` above, which maps it to
+            # `ballrt.string_from_char_codes`.
             "string_from_char_code": "string_from_char_code",
-            "string_from_char_codes": "string_from_char_codes",
         }
         if fn in str_1:
             return f"ballrt.{str_1[fn]}({V()})"

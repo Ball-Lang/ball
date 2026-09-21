@@ -76,6 +76,28 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
   `CompileError` — never silently-wrong code. A silently-wrong output is a bug,
   not a gap.
 
+- **Every hardcoded dispatch name must be DECLARED (issue #743).** Base
+  functions are implemented here by name (`fn == "sink_write"`, `fn in table_2`),
+  and until #743 nothing compared those names against the canonical builders. So
+  the `str_1` table grew a `string_from_char_codes` (plural) arm that no
+  `dart/shared/lib/std*.dart` builder declares, no encoder in the repo emits and
+  the Dart reference engine does not dispatch — unreachable in both directions,
+  and therefore invisible to this suite, to the conformance corpus and to
+  `check_encoder_completeness.dart` alike. It is the #505 class, and it was
+  DELETED rather than declared: the only real thing with that spelling is Dart's
+  SDK static `String.fromCharCodes`, which `_BUILTIN_STATIC` already serves (a
+  Dart-SDK surface, not a `std` base-function surface — the two must not be
+  conflated). `tests/test_declared_base_functions.py` is the guard, the Python
+  sibling of `dart/shared/test/std_routed_declarations_test.dart` (#505) and
+  `cpp/test/check_declared_base_functions.py` (#607): it AST-parses this file,
+  derives the dispatcher set from the source, and fails on any name neither
+  declared in `tests/conformance/std_coverage.json` for a module that dispatcher
+  serves nor a still-live entry in the frozen, ratchet-only
+  `tests/declared_base_functions_known_gaps.txt`. A new undeclared name can never
+  be added to that file — it exists only to freeze the seven pre-existing,
+  cross-target spellings (`for_each`, `parenthesized`, `null_aware_index`, …),
+  and it can only shrink.
+
 ## Status (Phases 2 + 4)
 
 The compiler passes **52 tests** and — via **`compile_library` mode** (the

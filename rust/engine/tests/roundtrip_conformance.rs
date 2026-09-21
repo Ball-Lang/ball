@@ -53,6 +53,21 @@
 //! Dart launcher; `BALL_TIMEOUT_MS=<ms>` overrides the per-fixture budget
 //! (default 60 000 — the same spelling Go's leg uses).
 //!
+//! ## The row names its own leaders (issue #790)
+//!
+//! The sweep prints a `Failure buckets (cause -> fixtures), most frequent
+//! first:` block before its `Results:` line, one line per CAUSE
+//! ([`failure_bucket`]), ranked by how many fixtures it dams.
+//!
+//! Without it the only per-failure output is `roundtrip_floor.sh`'s "first
+//! still-failing fixture", which is the **alphabetically** first one — and
+//! reading that as "the leader" is how `rust/AGENTS.md` came to publish
+//! `ball_message_type_name` (23 fixtures) as the leader at 138 when the real
+//! leader was `ball_arg_get` (63), a bucket 2.7x larger. A row whose leaders
+//! have to be re-derived by hand from `--nocapture` output is a row whose
+//! published leaders rot; the histogram is re-derived every run, and the sweep
+//! asserts it totals to `failed` so it can never be a number no run produced.
+//!
 //! ## The harness must not be able to hang
 //!
 //! A re-encoded program that never terminates is the #55 class: it type-checks,
@@ -84,16 +99,20 @@ use prost_reflect::{DynamicMessage, SerializeOptions};
 /// fixtures are what that budget is for.
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 
-/// The per-fixture budget, overridable through `BALL_TIMEOUT_MS` — the same
-/// spelling `go/engine/conformance/roundtrip.go` uses.
+/// One `BALL_TIMEOUT_MS` spelling -> a budget; `None` (unset) is
+/// [`DEFAULT_TIMEOUT_MS`].
 ///
-/// An operator needs it to shorten a sweep on a slow machine, and
-/// `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` needs
-/// it to prove the kill in milliseconds instead of burning the production 60 s.
-/// A budget that cannot be reached from a test is a budget nobody has measured.
-fn fixture_timeout() -> Duration {
-    match std::env::var("BALL_TIMEOUT_MS") {
-        Ok(raw) => {
+/// Deliberately PURE, so the budget's rules are provable without writing the
+/// environment. `std::env::set_var` is `unsafe` precisely because another
+/// thread may be inside `getenv`, and libtest runs a target's tests
+/// concurrently — so a self-test that SET the variable could only be justified
+/// by "nothing else runs in this process", a claim that was already false here
+/// (`the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` is a second
+/// non-`#[ignore]`d test) and that every test added to this file falsifies
+/// again. Parsing through a seam costs nothing and keeps the proof honest.
+fn parse_timeout(raw: Option<&str>) -> Duration {
+    match raw {
+        Some(raw) => {
             // Fail loud: a typo'd budget must never fall back to the default and
             // report a number nobody asked for.
             let ms: u64 = raw.trim().parse().unwrap_or_else(|_| {
@@ -105,8 +124,21 @@ fn fixture_timeout() -> Duration {
             assert!(ms >= 1, "BALL_TIMEOUT_MS must be at least 1ms, got {ms}");
             Duration::from_millis(ms)
         }
-        Err(_) => Duration::from_millis(DEFAULT_TIMEOUT_MS),
+        None => Duration::from_millis(DEFAULT_TIMEOUT_MS),
     }
+}
+
+/// The per-fixture budget, overridable through `BALL_TIMEOUT_MS` — the same
+/// spelling `go/engine/conformance/roundtrip.go` uses.
+///
+/// An operator needs it to shorten a sweep on a slow machine. A budget that
+/// cannot be reached from a test is a budget nobody has measured, so it is
+/// reached in two halves that are each pinned below: [`parse_timeout`] owns the
+/// spelling, and [`run_dart`] takes the budget as an ARGUMENT so the runaway
+/// self-test can prove the kill in milliseconds without touching the
+/// environment.
+fn fixture_timeout() -> Duration {
+    parse_timeout(std::env::var("BALL_TIMEOUT_MS").ok().as_deref())
 }
 
 fn repo_root() -> PathBuf {
@@ -256,10 +288,19 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
-fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, String), String> {
+fn run_dart(
+    dart: &str,
+    ball_json: &Path,
+    root: &Path,
+    budget: Duration,
+) -> Result<(i32, String, String), String> {
     // `Command` has no built-in timeout; the Dart CLI's own engine is not
     // driven here with a budget, so a runaway fixture would hang. Spawn and
-    // poll so a hung child is killed rather than wedging the sweep.
+    // poll so a hung child is killed rather than wedging the sweep. The budget
+    // is a PARAMETER rather than a read of `fixture_timeout()` so the runaway
+    // self-test can shorten it to milliseconds without writing the environment
+    // out from under the other tests sharing this process (see
+    // [`parse_timeout`]).
     let mut child = Command::new(dart)
         .arg("run")
         .arg(root.join("dart/cli/bin/ball.dart"))
@@ -272,7 +313,7 @@ fn run_dart(dart: &str, ball_json: &Path, root: &Path) -> Result<(i32, String, S
         .spawn()
         .map_err(|e| format!("could not spawn `{dart}`: {e}"))?;
 
-    let deadline = std::time::Instant::now() + fixture_timeout();
+    let deadline = std::time::Instant::now() + budget;
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(_) => break,
@@ -332,10 +373,11 @@ fn round_trip_one(
     }
 
     // 3. Run the RE-ENCODED program on the Dart reference engine (ground truth).
-    let (code, stdout, stderr) = match run_dart(dart, &ball_json, root) {
+    let budget = fixture_timeout();
+    let (code, stdout, stderr) = match run_dart(dart, &ball_json, root, budget) {
         Ok(result) => result,
         Err(e) if e == "__timeout__" => {
-            return Outcome::of("timeout", format!("killed after {:?}", fixture_timeout()));
+            return Outcome::of("timeout", format!("killed after {budget:?}"));
         }
         Err(e) => return Outcome::of("error", format!("dart exec: {e}")),
     };
@@ -372,6 +414,81 @@ fn first_line(text: &str) -> String {
     } else {
         line.chars().take(200).collect::<String>() + "…"
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Bucketing a failure by its CAUSE — the row naming its own leaders (#790)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Longest bucket key printed before it is elided. Long enough to separate two
+/// neighbouring causes, short enough that the histogram stays a column.
+const MAX_BUCKET_KEY: usize = 60;
+
+/// `text`, cut to [`MAX_BUCKET_KEY`] CHARACTERS (never bytes — a detail line
+/// carries `—` and `…`, and slicing one mid-codepoint would panic).
+fn truncate_key(text: &str) -> String {
+    if text.chars().count() <= MAX_BUCKET_KEY {
+        text.to_string()
+    } else {
+        text.chars().take(MAX_BUCKET_KEY).collect::<String>() + "…"
+    }
+}
+
+/// One failure's CAUSE, as a key stable enough to count.
+///
+/// The two shapes that dominate this leg both name the thing the encoder
+/// refused in their first clause, so the key is that name and nothing else:
+///
+/// * ``unsupported runtime helper `ball_arg_get(...)` — …`` -> ``unsupported
+///   runtime helper `ball_arg_get` `` (every fixture blocked on one compiler
+///   helper is ONE line, not 63);
+/// * ``unsupported call target `BallFlow :: Normal (ball_throw ({ … ``  ->
+///   ``unsupported call target `BallFlow :: Normal` `` — the path HEAD, since
+///   the operand is a whole compiled sub-expression that differs per fixture.
+///
+/// Everything else keeps its status plus a truncated detail, which fragments
+/// the tail — deliberately: the tail is where a NEW cause first shows up, and
+/// collapsing it into one "other" bucket would hide exactly that.
+fn failure_bucket(status: &str, detail: &str) -> String {
+    // The refusals are multi-line `panic!` messages that `first_line` has
+    // already flattened and truncated; collapse the continuation indentation so
+    // the key does not carry the panic's own wrapping.
+    let collapsed = detail.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if let Some((_, rest)) = collapsed.split_once("unsupported runtime helper `") {
+        let name = rest.split('(').next().unwrap_or(rest).trim();
+        return format!("unsupported runtime helper `{}`", truncate_key(name));
+    }
+    if let Some((_, rest)) = collapsed.split_once("unsupported call target `") {
+        let head = rest.split(['(', '{', '`']).next().unwrap_or(rest).trim();
+        return format!("unsupported call target `{}`", truncate_key(head));
+    }
+
+    match status {
+        // A golden diff's detail is the fixture's own first line of output, so
+        // it is unique per fixture and would make one bucket each.
+        "fail" => "golden mismatch".to_string(),
+        "timeout" => "timeout".to_string(),
+        other => format!("{other}: {}", truncate_key(&collapsed)),
+    }
+}
+
+/// `(status, detail)` pairs -> `(bucket, fixtures)`, most frequent FIRST.
+///
+/// Frequency order is the whole point: this row exists to say where the corpus
+/// is dammed, and `roundtrip_floor.sh`'s "first still-failing fixture" line is
+/// the alphabetically-first failure, which is a different question (see
+/// `a_failure_is_bucketed_by_its_cause_not_by_its_fixture`). Ties break on the
+/// key so two runs of the same tree print byte-identical blocks and a diff
+/// between runs means something.
+fn failure_histogram(failures: &[(String, String)]) -> Vec<(String, usize)> {
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (status, detail) in failures {
+        *counts.entry(failure_bucket(status, detail)).or_default() += 1;
+    }
+    let mut ranked: Vec<(String, usize)> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -454,6 +571,35 @@ fn build_runaway_launcher(dir: &Path) -> PathBuf {
     exe
 }
 
+/// **The `BALL_TIMEOUT_MS` spelling is part of the contract**, not an
+/// implementation detail: `go/engine/conformance/roundtrip.go` reads the same
+/// one, and an operator shortening a sweep on a slow machine has nothing else
+/// to reach for. Since [`run_dart`] now takes the budget as an argument — so
+/// the runaway self-test below never writes the environment out from under a
+/// concurrently-running test — this pure parse is the half that proves the
+/// spelling still reaches the sweep, and that a TYPO is loud rather than a
+/// silent fall back to the production 60 s.
+#[test]
+fn the_per_fixture_budget_is_read_from_ball_timeout_ms() {
+    assert_eq!(parse_timeout(Some("300")), Duration::from_millis(300));
+    assert_eq!(parse_timeout(Some("  1500  ")), Duration::from_millis(1500));
+    assert_eq!(
+        parse_timeout(None),
+        Duration::from_millis(DEFAULT_TIMEOUT_MS),
+        "an unset BALL_TIMEOUT_MS must be the production budget"
+    );
+
+    // A budget nobody asked for is worse than no budget: `60s`/`1.5`/`-1` are
+    // the spellings an operator actually types, and each one silently meaning
+    // 60 000 ms would make a sweep's timings a fiction.
+    for typo in ["", "60s", "1.5", "-1", "0"] {
+        assert!(
+            catch_panic_message(|| parse_timeout(Some(typo))).is_err(),
+            "`BALL_TIMEOUT_MS={typo}` must fail loud, never fall back to {DEFAULT_TIMEOUT_MS}ms"
+        );
+    }
+}
+
 /// **The harness must not be able to hang.**
 ///
 /// A sweep that shells out per fixture and waits without a budget is itself a
@@ -462,15 +608,13 @@ fn build_runaway_launcher(dir: &Path) -> PathBuf {
 /// 90-minute job instead of reporting them. The kill therefore has to be proven
 /// on a REAL runaway child, not assumed from reading the poll loop.
 ///
-/// The budget is read from `BALL_TIMEOUT_MS` — the same spelling Go's
-/// round-trip leg uses (`go/engine/conformance/roundtrip.go`) — precisely so
-/// this self-test can prove the kill in milliseconds instead of burning the
-/// production 60 s. A hard-coded budget is an untestable budget.
-///
-/// Safety of `set_var`: this is the only NON-`#[ignore]`d test in this target,
-/// and the sweep below is `#[ignore]`d, so `cargo test` runs this one alone and
-/// `cargo test -- --ignored` runs the sweep alone. The two never share a
-/// process, so nothing else can read the environment while it is being written.
+/// The budget reaches [`run_dart`] as an ARGUMENT, so this self-test proves
+/// the kill in milliseconds instead of burning the production 60 s without
+/// writing `BALL_TIMEOUT_MS` out from under the other tests sharing this
+/// process. A hard-coded budget is an untestable budget; an environment write
+/// in a concurrently-running test target is an `unsafe` nobody can justify
+/// once a second test exists. The env SPELLING is pinned separately, by
+/// `the_per_fixture_budget_is_read_from_ball_timeout_ms`.
 #[test]
 fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     let root = repo_root();
@@ -485,14 +629,11 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     let scratch = std::env::temp_dir().join(format!("ball_runaway_{}", std::process::id()));
     let runaway = build_runaway_launcher(&scratch);
 
-    // SAFETY: see the doc comment — this target runs exactly one test per
-    // process, so there is no concurrent reader of the environment.
-    unsafe {
-        std::env::set_var("BALL_TIMEOUT_MS", "300");
-    }
-
+    // Milliseconds, handed straight to `run_dart`: no environment write, and
+    // nothing hard-coded inside the poll loop.
+    let budget = Duration::from_millis(300);
     let started = std::time::Instant::now();
-    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root);
+    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root, budget);
     let elapsed = started.elapsed();
 
     let _ = std::fs::remove_dir_all(&scratch);
@@ -506,9 +647,9 @@ fn a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout() {
     );
     assert!(
         elapsed < Duration::from_secs(10),
-        "the per-fixture budget must be configurable through BALL_TIMEOUT_MS so the kill is \
-         provable in milliseconds; the runaway was only killed after {elapsed:?}, which means \
-         the budget is a hard-coded constant this self-test cannot reach"
+        "the per-fixture budget must reach `run_dart` as an argument so the kill is provable \
+         in milliseconds; the runaway was only killed after {elapsed:?}, which means the budget \
+         is a hard-coded constant this self-test cannot reach"
     );
 }
 
@@ -545,11 +686,7 @@ const MEASURED_FAILURES: &[(&str, &str, &str)] = &[
         "ball-lang-encoder: unsupported call target `BallValue :: Function (BallFunction :: new (\"label\" , move | __ball_arg : BallValue | -> BallValue { label (ball_arg0_with_self (__ball_arg , __self_recv . …",
         "unsupported call target `BallValue :: Function`",
     ),
-    (
-        "fail",
-        "expected(8): int?:7 | actual(8): other",
-        "golden mismatch",
-    ),
+    ("fail", "expected(8): int?:7 | actual(8): other", "golden mismatch"),
     (
         "error",
         "dart run exited 255: <asynchronous suspension>",
@@ -615,14 +752,8 @@ fn the_histogram_orders_by_frequency_and_accounts_for_every_failure() {
         histogram,
         vec![
             ("unsupported runtime helper `ball_arg_get`".to_string(), 3),
-            (
-                "unsupported call target `BallFlow :: Normal`".to_string(),
-                2
-            ),
-            (
-                "unsupported runtime helper `ball_message_type_name`".to_string(),
-                2
-            ),
+            ("unsupported call target `BallFlow :: Normal`".to_string(), 2),
+            ("unsupported runtime helper `ball_message_type_name`".to_string(), 2),
         ],
         "the histogram must rank by count (leader first) and break ties on the key"
     );
@@ -653,6 +784,7 @@ fn roundtrip_conformance() {
     paths.sort();
 
     let (mut passed, mut failed, mut skipped) = (0usize, 0usize, 0usize);
+    let mut failures: Vec<(String, String)> = Vec::new();
     for path in &paths {
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
         let name = file_name.trim_end_matches(".ball.json").to_string();
@@ -670,12 +802,26 @@ fn roundtrip_conformance() {
             passed += 1;
         } else {
             failed += 1;
+            failures.push((outcome.status.to_string(), outcome.detail.clone()));
             println!("FAILING [{name}] {} {}", outcome.status, outcome.detail);
         }
     }
 
     let _ = std::fs::remove_dir_all(&workdir);
     let total = passed + failed;
+
+    // The row naming its own leaders (#790). Without this block the only
+    // per-failure output is `roundtrip_floor.sh`'s ALPHABETICALLY first
+    // failure, and reading that as "the leader" is how `rust/AGENTS.md` came to
+    // publish `ball_message_type_name` (23) as the leader at 138 when it was
+    // `ball_arg_get` (63).
+    let histogram = failure_histogram(&failures);
+    println!();
+    println!("Failure buckets (cause -> fixtures), most frequent first:");
+    for (bucket, count) in &histogram {
+        println!("  {count:>4}  {bucket}");
+    }
+    println!();
     println!(
         "Results: {passed} passed, {failed} failed, {total} total ({skipped} skipped carve-outs)"
     );
@@ -686,5 +832,14 @@ fn roundtrip_conformance() {
     assert!(
         total >= 1,
         "the round-trip leg measured nothing (total={total})"
+    );
+    // ...and the histogram must account for every one of them: a block that
+    // does not add up to `failed` is publishing a number no run produced, which
+    // is the failure mode this whole block exists to end.
+    let bucketed: usize = histogram.iter().map(|(_, count)| count).sum();
+    assert!(
+        bucketed == failed,
+        "the failure histogram totals {bucketed} fixtures but {failed} failed — a block that \
+         does not add up is publishing a number no run produced"
     );
 }

@@ -30,7 +30,7 @@ Honest baseline, **0/77 clean and 9/77 encoded** (the 5 crates pinned in
 arrived with the crate-aware slice below — every #491 slice before it left the aggregate at
 `0 clean, 0 encoded` — then #630's `write!` slice took it 1 → 7 and #767's tuple +
 reference-`impl`-self-type slice 7 → 9. `clean` has never moved: stage 3 is where every arriving
-file now stops, on `ball_arg_get` (**#790**).
+file now stops, on `ball_arg_get` (**#858**).
 
 **The denominator was 110 until 2026-09-14, and the #491 prose below is all written against
 that number — read those histograms as history, not as today's totals.** Per the owner's
@@ -153,13 +153,19 @@ spliced literal re-encodes now.
 #692's 124 and #712's 121 are two INDEPENDENT measurements of the same row, each taken on its own
 branch against the same 109 baseline; neither is the merged total and they must never be added.
 The merged tree MEASURES **138 of 362** (run 35561847017, job 106216902719), and
-`RUST_ROUNDTRIP_FLOOR` is 138 — the number a run printed, not one derived from two. The leader at
-138 is still `ball_message_type_name` (#718), which is what the row's own "first still-failing
-fixture" line names (`101_simple_class`).
-The leader is `ball_message_type_name` (#718's dispatcher scrutinee), which is what the row's
-own "first still-failing fixture" line named at 121 (`101_simple_class`); re-measure
-`ball_arg_get` and `BallFlow::Normal` from a run's artifact before quoting their counts — the
-pre-#712 figures (59 and 25) were taken at 109 and the population moved under them.
+`RUST_ROUNDTRIP_FLOOR` is 138 — the number a run printed, not one derived from two.
+
+**The leaders now come from the sweep itself**, which prints a
+`Failure buckets (cause -> fixtures), most frequent first:` block before its `Results:` line
+(#790). Read them there, never from prose: the row's only other per-failure output is
+`roundtrip_floor.sh`'s "first still-failing fixture", which is the ALPHABETICALLY first one
+(`101_simple_class`), and reading THAT as the leader is how this file published
+`ball_message_type_name` (23) as the leader at 138 when the real leader was `ball_arg_get` (63),
+a bucket 2.7x larger. At 138 of 363 (run 35593505327, job 106313208884) the buckets rank
+`ball_arg_get` 63 (**#858** — the compiled multi-parameter prologue), `BallFlow::Normal` 25
+(**#859** — the compiled try/catch idiom), `ball_message_type_name` 23 (#718),
+`ball_unsupported_base_call` 19, `BallValue::Function` 16, `ball_index_set` 14 and
+`ball_list_push` 13.
 It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
 
 ```bash
@@ -677,9 +683,11 @@ positional argument per input field". They have their own arms in
 - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
   `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
   PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`
-  21, `ball_is_type` 18, `ball_set_create` 7 and `ball_is` 3 are each now zero. The leaders are
-  `ball_arg_get` 61, `ball_message_type_name` 23 (#718), `ball_unsupported_base_call` 18 and
-  `ball_iterate` 16. Quote the PASSED count, never the ratio: the denominator moves with the
+  21, `ball_is_type` 18, `ball_set_create` 7 and `ball_is` 3 are each now zero. That leader list
+  is history — it was hand-copied and had drifted by the time it was read (`ball_arg_get` 61 vs a
+  measured 63, `ball_unsupported_base_call` 18 vs 19, and a `ball_iterate` bucket of 16 that no
+  longer exists). Read today's leaders off the sweep's own histogram (#790, see the row's
+  description above). Quote the PASSED count, never the ratio: the denominator moves with the
   corpus and the floor is on the numerator alone.
 
 ### Immediately-invoked closures — inline only when the body cannot exit early (issue #687)
@@ -1121,7 +1129,7 @@ is that same baseline row, recorded by the last main run:
 promised.** The wall for those 7 is stage 3, and **it is not #632 any more** — #632 was closed on
 `main` by #685, and the last dispatch on this branch measured the six as
 ``reencode-error: unsupported runtime helper `ball_arg_get(...)` `` instead: the same
-compiler↔encoder round-trip class, one construct further along, and squarely issue **#692**'s.
+compiler↔encoder round-trip class, one construct further along, carved out of #692 as **#858**.
 The seventh stops at stage 4, on declaration drift. A second pre-existing reason sits behind that
 one: every `MessageCreation` — which the `Ok(..)` outcome is, and which a plain `Ok(x)` in
 hand-written source always has been — compiles to `{ let mut __ball_map = BallMap::new(); … }`, and
@@ -1218,8 +1226,8 @@ and the first-blocker histogram is exactly conserved at 77:
 **8 → 4**, with all ten of those files landing on a further gap. `reencoded` stays at **1** and
 `baseline.json` is NOT raised on it: both files that newly reached stage 3 stop on
 ``unsupported runtime helper `ball_arg_get(...)` ``, the compiled parameter prologue tracked as
-**#790**. Stage 3 is dammed by that helper now, not by stage 1 — closing further stage-1 gaps
-cannot move it until #790 does.
+**#858**. Stage 3 is dammed by that helper now, not by stage 1 — closing further stage-1 gaps
+cannot move it until #858 does.
 
 **`excluded.json` is deliberately untouched.** It records the *test-only* files each harness takes
 out of the denominator, and a path it lists that a run SCORED is a breach (#676). An encoder

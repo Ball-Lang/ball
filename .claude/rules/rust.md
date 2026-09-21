@@ -350,7 +350,7 @@ cargo fmt --check && cargo clippy --workspace
   `rust/encoder/tests/impl_for_reference_self_type.rs` (both encode → compile → `cargo build` →
   run). **Measured yield:** stage-1 `encoded` **7/77 -> 9/77**, `compiled back` 7 -> 9, histogram
   exactly conserved (`tuple` 6 -> 0, `impl` self type 8 -> 4); `reencoded` stays **1**, because
-  both newly-arriving files stop at stage 3 on `ball_arg_get` (#790).
+  both newly-arriving files stop at stage 3 on `ball_arg_get` (#858).
   `tools/coverage-study/baseline.json` is raised on the first two and left alone on the third.
 - **Non-`Fn` items inside an `impl` block are SKIPPED, not thrown on (#491 slice 5).** An
   associated `const`/`type` (or an item-position macro) beside real methods no longer aborts the
@@ -685,10 +685,14 @@ cargo fmt --check && cargo clippy --workspace
   - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950,
     job `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the
     same PR. All FOUR of #692's blockers left the first-blocker histogram entirely
-    (`ball_map_create` 21, `ball_is_type` 18, `ball_set_create` 7, `ball_is` 3 -> zero each); the
-    leaders are now `ball_arg_get` 61, `ball_message_type_name` 23 (#718),
-    `ball_unsupported_base_call` 18 and `ball_iterate` 16. Quote the PASSED count, never the
-    ratio — the denominator moves with the corpus and the floor is on the numerator alone.
+    (`ball_map_create` 21, `ball_is_type` 18, `ball_set_create` 7, `ball_is` 3 -> zero each). The
+    leaders MOVE, so read them off the sweep's own `Failure buckets (cause -> fixtures)` block
+    (#790) instead of any prose — this list was hand-copied and had already drifted by the time
+    it was read (`ball_arg_get` 61 vs a measured 63, `ball_unsupported_base_call` 18 vs 19, and a
+    `ball_iterate` bucket of 16 that no longer exists). At 138 of 363 (run 35593505327) they are
+    `ball_arg_get` 63 (#858), `BallFlow::Normal` 25 (#859) and `ball_message_type_name` 23
+    (#718). Quote the PASSED count, never the ratio — the denominator moves with the corpus and
+    the floor is on the numerator alone.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -763,7 +767,7 @@ and its own encoder refuses caps that column no matter how good either half is o
   (`gh run download <run-id> -n coverage-study-tier-a-rust` — **never from prose**, which is how
   the six-gap list #767 collected went stale: `write!` had already closed by the time it was
   filed). Since #630 and #767 closed three of them, stage 1 is `9/77` and the dam has MOVED to
-  stage 3, where every arriving file now stops on `ball_arg_get` (#790). The round-trip gate is
+  stage 3, where every arriving file now stops on `ball_arg_get` (#858). The round-trip gate is
   what proves the compiler↔encoder invariant; the third-party funnel is a separate, slower
   instrument.
 - The script-mode entry-point IIFE is **CLOSED**, and #687 with it. #646's
@@ -900,7 +904,7 @@ and its own encoder refuses caps that column no matter how good either half is o
   histogram, not the aggregate; the crate-aware slice was the first one to move
   the aggregate at all, and it moved it by one file, then #630's `write!` slice
   took it 1 -> 7 and #767's 7 -> 9. `clean` has never moved and none of those
-  moved it — its remaining walls are **#790**
+  moved it — its remaining walls are **#858**
   (``unsupported runtime helper `ball_arg_get(...)` `` stops EVERY file that
   reaches stage 3, which is why #767 raised `encoded`/`compiledBack` and left
   `reencoded` at 1; this used to read #632, whose own

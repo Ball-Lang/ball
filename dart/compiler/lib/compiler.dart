@@ -492,15 +492,23 @@ class DartCompiler {
   cb.Library _buildLibrary(Module mainModule, FunctionDefinition? entryFunc) {
     // Build dart module → import alias mapping for this module.
     _dartModuleAliases = _buildDartModuleAliases(mainModule);
+    // Every module's extensions, not just this one's: an override may name an
+    // extension declared in ANOTHER file of the package (issue #670), and the
+    // call carries that module in its own `module` field. Both sets are keyed
+    // by MODULE-QUALIFIED names (`lib.remote:Remote`,
+    // `lib.remote:Remote.head`), so widening the scan cannot make two modules'
+    // members collide.
     _extensionTypeNames = {
-      for (final td in mainModule.typeDefs)
-        if (_kindOf(td) == 'extension') td.name,
+      for (final mod in program.modules)
+        for (final td in mod.typeDefs)
+          if (_kindOf(td) == 'extension') td.name,
     };
     _extensionAccessorFunctions = {
-      for (final func in mainModule.functions)
-        if (_readMeta(func)['is_getter'] == true ||
-            _readMeta(func)['is_setter'] == true)
-          func.name,
+      for (final mod in program.modules)
+        for (final func in mod.functions)
+          if (_readMeta(func)['is_getter'] == true ||
+              _readMeta(func)['is_setter'] == true)
+            func.name,
     };
 
     final typeDefsByName = <String, TypeDefinition>{
@@ -3310,7 +3318,15 @@ class DartCompiler {
         .where((f) => f.name != 'self' && f.name != '__type_args__')
         .toList();
     final typeArgs = _memberTypeArgsStr(call, fields);
-    final receiver = '${_dartType(qualifier)}(${_e(selfField.value)})';
+    // An extension declared in another module is reached through whatever
+    // import alias THIS module gave that library — the same restoration every
+    // other cross-module call does (issue #670). No alias means the library is
+    // imported unprefixed (or is this module), so the bare name is in scope.
+    final alias = _dartModuleAliases[call.module];
+    final extRef = alias == null
+        ? _dartType(qualifier)
+        : '$alias.${_dartType(qualifier)}';
+    final receiver = '$extRef(${_e(selfField.value)})';
     if (remaining.isEmpty) {
       // An accessor takes no `()` — and no type arguments either, so an
       // explicit `<…>` proves the member is a generic METHOD however it was

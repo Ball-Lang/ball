@@ -319,6 +319,13 @@ Ext(receiver).member(a, b)
                   input:    MessageCreation{ self: receiver, arg0: a, arg1: b } }
 ```
 
+`<module>` is the module that DECLARES the extension, which need not be the one
+making the call: `Ext` may live in another module of the same program, and the
+call's `module` field names that one. A source-level import prefix
+(`p.Ext(x).m()`) is a spelling of the same library and produces the same name —
+which is the point, since two same-named extensions in two modules already
+differ by their qualifier.
+
 The name is semantic content, so the selection survives metadata stripping. No
 schema change, and no new dispatch key: a `self`-carrying call whose qualifier is
 not an extension typeDef still compiles to `self.member(args)` exactly as before.
@@ -327,7 +334,10 @@ Explicit type arguments written on the MEMBER (`Ext(x).m<int>()`) ride
 `FunctionCall.type_args` — a real schema field, not metadata — exactly as they
 do for every other instance call, because an instantiation changes what the
 program computes too. (Type arguments on the EXTENSION, `Ext<int>(x)`, have no
-sound home in this shape and are refused by the encoder.)
+sound home in this shape and are refused by the encoder. So is a NULL-AWARE
+override, `Ext(x)?.m()`: the `?` decides whether the member runs at all, and
+this shape has nowhere to put that guard without let-binding the receiver, so
+the encoder refuses rather than emitting an unguarded call.)
 
 Two metadata keys are read while RENDERING that call back to Dart, and both are
 already in the closed family above. `TypeDefinition.metadata['kind'] ==

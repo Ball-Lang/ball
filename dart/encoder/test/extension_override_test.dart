@@ -192,6 +192,11 @@ String fromOutside(List<int> xs) => Outside(xs).tag();
 
 String outsideGetter(List<int> xs) => Outside(xs).head;
 
+String viaCascade(List<int> xs) {
+  Outside(xs)..tag();
+  return '';
+}
+
 String explicitExtensionTypeArgs(List<int> xs) => Boxed<int>(xs).tag();
 ''';
 
@@ -353,6 +358,12 @@ Set<String> _calledFunctions(Expression e) {
         if (x.fieldAccess.hasObject()) walk(x.fieldAccess.object);
       case Expression_Expr.lambda:
         if (x.lambda.hasBody()) walk(x.lambda.body);
+      case Expression_Expr.literal:
+        // A collection literal's ELEMENTS are ordinary expressions, so a call
+        // written inside `<String>[ … ]` lives here and nowhere else.
+        for (final el in x.literal.listValue.elements) {
+          walk(el);
+        }
       case _:
         break;
     }
@@ -839,6 +850,13 @@ void main() {
           reported.where((w) => w.contains('Outside(xs).head')),
           isNotEmpty,
           reason: 'all warnings were: ${encoder.warnings}',
+        );
+        expect(
+          reported.where((w) => w.endsWith('Outside(xs)')),
+          isNotEmpty,
+          reason:
+              'a bare override (here a cascade target) reaches `_encodeExpr` '
+              'itself. All warnings were: ${encoder.warnings}',
         );
       });
 

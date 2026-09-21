@@ -9,8 +9,9 @@
 //!
 //! **Core invariant (never violate): there is no `rust_std` base module.**
 //! Every Rust construct — operators, control flow, iterator-chain sugar,
-//! `?`, `if let` — expands into a tree of calls against the universal `std`
-//! (and, for list operations, `std_collections`) base functions, exactly as
+//! `?`, `if let`, `while let` — expands into a tree of calls against the
+//! universal `std` (and, for list operations, `std_collections`) base
+//! functions, exactly as
 //! the Dart encoder expands cascade/null-aware-access/spread. A conformant
 //! Ball engine that has never heard of Rust can still run the result.
 //!
@@ -977,7 +978,7 @@ pub(crate) enum LocalKind {
     /// A fn/closure/method parameter. Never a local, so always a sink.
     Parameter,
     /// A name introduced by a PATTERN rather than a `let` — a for-loop
-    /// variable, a `match`-arm binding, an `if let` binding (see
+    /// variable, a `match`-arm binding, an `if let`/`while let` binding (see
     /// [`Encoder::with_pattern_binding`]). Never a `let`-bound local either,
     /// so also always a sink; a member of its own so the two can never be
     /// confused, and so a future rule for it has somewhere to live.
@@ -1096,7 +1097,8 @@ impl Encoder {
     }
 
     /// Encode `f` with `name` in scope as a PATTERN binding — a for-loop
-    /// variable, a `match`-arm binding, or an `if let` binding (issue #630).
+    /// variable, a `match`-arm binding, or an `if let`/`while let` binding
+    /// (issues #630, #778).
     ///
     /// Such a name is introduced without a `let`, so [`Self::record_local`] —
     /// whose only call site is `block.rs`'s `let` handling — never sees it.
@@ -3061,7 +3063,16 @@ fn expr_kind_name(expr: &syn::Expr) -> &'static str {
     match expr {
         syn::Expr::Repeat(_) => "array-repeat literal",
         syn::Expr::Range(_) => "standalone range",
-        syn::Expr::Let(_) => "let-guard outside if/while",
+        // NOT "let-guard outside if/while": a plain `if let` / `while let`
+        // condition is handled (`control_flow.rs`'s `encode_if_let` /
+        // `encode_while_let`, issue #778), so what can still arrive here is a
+        // Rust 2024 LET CHAIN — `a && let Some(x) = y` — whose `Expr::Let`
+        // sits in an operand position neither of those intercepts. The old
+        // wording fired *inside* a `while` and sent readers looking for a
+        // malformed program that did not exist.
+        syn::Expr::Let(_) => {
+            "let-chain pattern binding (only a plain `if let` / `while let` condition is supported)"
+        }
         syn::Expr::Await(_) => "await",
         syn::Expr::Async(_) => "async block",
         syn::Expr::Yield(_) => "yield",

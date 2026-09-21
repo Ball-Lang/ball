@@ -296,7 +296,8 @@ def test_string_is_not_empty_is_its_own_base_function() -> None:
 def test_the_non_table_shapes_are_not_also_in_helpers() -> None:
     """One shape, one home: a helper handled explicitly must not also sit in
     HELPERS, where the generic arm would encode it as a plain std call."""
-    explicit = set(rt.PASSTHROUGH) | {rt.FIELD_GET, rt.FIELD_SET, rt.INDEX_SET} | set(rt.TYPE_OPS)
+    explicit = (set(rt.PASSTHROUGH) | {rt.FIELD_GET, rt.FIELD_SET, rt.INDEX_SET}
+                | set(rt.TYPE_OPS) | set(rt.LABEL_OPS) | {rt.RETHROW})
     overlap = sorted(explicit & set(rt.HELPERS))
     assert not overlap, overlap
 
@@ -310,6 +311,319 @@ def test_unparse_of_the_compiler_output_is_what_we_claim() -> None:
                and isinstance(node.func.value, ast.Name) and node.func.value.id == "ballrt"}
     assert {"math_floor", "math_ceil", "math_round", "math_trunc", "math_abs"} <= helpers
 
+
+# ── The compiler's four `try:` lowerings (issue #690) ────────────────────────
+# `python/compiler` emits a Python `try:` for FOUR distinct reasons, and only
+# one of them is a Ball `std.try`:
+#
+#   1. the loop-body break/continue trap (`_loop_body`, `run_forin`),
+#   2. the `except ballrt.BallReturn` function-body wrapper (`emit_body`),
+#   3. the same wrapper in its value-less constructor form,
+#   4. a real `std.try` (`run_try`).
+#
+# `unsupported statement Try` was the single largest blocker on the
+# `python-roundtrip` row — 142 occurrences, the SOLE blocker of 79 fixtures.
+# Each test below pins one shape; every fixture here was an `encode-error`
+# before this inverse landed.
+
+
+def _run_bounded(source: str, timeout_s: float = 60.0) -> str:
+    """:func:`_run_source` with a hard wall-clock bound.
+
+    Mis-inverting the loop trap does not raise — it produces a program that
+    NEVER TERMINATES. Inlining the trap's body into a `std.while` drops the
+    C-style `for` update out of `continue`'s path, so `100_complex_control_flow`
+    spins forever. A regression must fail this suite, not hang a 90-minute CI
+    job, so the run happens on a daemon thread the test stops waiting for.
+    """
+    import threading
+
+    out: list[str] = []
+    err: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            out.append(_run_source(source))
+        except BaseException as ex:  # noqa: BLE001 - re-raised on the main thread
+            err.append(ex)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout_s)
+    assert not thread.is_alive(), (
+        f"the round-tripped program did not terminate within {timeout_s:g}s — "
+        "the classic symptom of a loop trap inlined into a `std.while`, which "
+        "drops the C-style `for` update out of `continue`'s path"
+    )
+    if err:
+        raise err[0]
+    return out[0]
+
+
+def _round_trip_bounded(name: str) -> str:
+    return _run_bounded(compile_program(encode(_compile_fixture(name))))
+
+
+# One fixture per `try:` shape, each named with the shape it is here to pin.
+TRY_SHAPE_FIXTURES = [
+    ("48_break_continue", "the loop-body trap + ballrt.brk()/ballrt.cont()"),
+    ("291_enc_continue", "a bare continue inside a for-in loop's trap"),
+    ("100_complex_control_flow", "a C-style for's update, which `continue` must still run"),
+    ("47_do_while", "the do-while lowering: trap first, the exit guard last"),
+    ("69_early_return", "the `except ballrt.BallReturn` wrapper + ballrt.ret()"),
+    ("53_try_catch_finally", "a real std.try with one catch and a finally"),
+    ("300_enc_catch_stack", "catch (e, st) — the stack_trace variable"),
+    ("22_rethrow_preserves", "ballrt.rethrow() inside a catch"),
+    ("245_exception_finally_order", "finally ordering across nested try"),
+]
+
+
+@pytest.mark.parametrize(
+    "name,shape", TRY_SHAPE_FIXTURES, ids=[n for n, _ in TRY_SHAPE_FIXTURES]
+)
+def test_try_shape_fixture_round_trips(name: str, shape: str) -> None:
+    assert _round_trip_bounded(name) == _golden(name), shape
+
+
+_FOR_WITH_CONTINUE = '''import ballrt
+
+def main(_input=None):
+    i = 0
+    total = 0
+    while True:
+        if not ballrt.truthy(ballrt.less_than(i, 5)):
+            break
+        try:
+            if ballrt.truthy(ballrt.equals(i, 2)):
+                ballrt.cont("")
+            total = ballrt.add(total, i)
+        except ballrt.BallBreak as _brk:
+            if _brk.label: raise
+            break
+        except ballrt.BallContinue as _cnt:
+            if _cnt.label: raise
+        i = ballrt.add(i, 1)
+    ballrt.print_(ballrt.to_str(total))
+
+
+if __name__ == "__main__":
+    ballrt.run_entry(main)
+'''
+
+
+def _main_body(program: dict) -> dict:
+    main = next(f for m in program["modules"] for f in m.get("functions", [])
+                if f.get("name") == "main")
+    return main["body"]
+
+
+def _call_fields(call: dict) -> dict:
+    return {f["name"]: f["value"]
+            for f in call.get("input", {}).get("messageCreation", {}).get("fields", [])}
+
+
+def _only_loop(body: dict) -> dict:
+    return next(st["expression"]["call"] for st in _statements(body)
+                if "expression" in st and "call" in st["expression"]
+                and st["expression"]["call"].get("function") in ("for", "while", "do_while"))
+
+
+def test_a_c_style_for_keeps_its_update_in_std_for_not_in_the_body() -> None:
+    """The compiler's `while True:` + trap + trailing update is a C-style
+    `std.for`, NOT a `std.while` whose body ends with the update.
+
+    The two differ exactly on `continue`: `std.for` runs the update on every
+    iteration including a continued one (which is what the compiled `except
+    ballrt.BallContinue: pass` does — it falls through to the update), while a
+    `std.while` skips it and the loop never advances. This is the structural
+    guard that keeps that regression from HANGING the suite instead of failing
+    it; `test_a_continued_c_style_for_still_advances` is the behavioural half.
+    """
+    loop = _only_loop(_main_body(encode(_FOR_WITH_CONTINUE)))
+    assert (loop["module"], loop["function"]) == ("std", "for"), loop
+    fields = _call_fields(loop)
+    assert "update" in fields, f"std.for lost its update: {sorted(fields)}"
+    update = fields["update"]["call"]
+    assert (update["module"], update["function"]) == ("std", "assign"), update
+
+
+def test_a_continued_c_style_for_still_advances() -> None:
+    """0+1+3+4 = 8. An inlined trap makes this loop spin forever."""
+    assert _run_bounded(compile_program(encode(_FOR_WITH_CONTINUE))) == "8\n"
+
+
+def test_catch_binds_its_variable_and_stack_trace_as_catch_fields() -> None:
+    """`e = _ex.value` / `st = ballrt.stack_trace_of(_ex)` are the compiler's
+    spelling of the catch clause's OWN bindings — they must come back as the
+    `variable`/`stack_trace` fields, never as assignments from a `_ex` that has
+    no Ball existence at all."""
+    body = _main_body(encode(_compile_fixture("300_enc_catch_stack")))
+    try_call = next(st["expression"]["call"] for st in _statements(body)
+                    if "expression" in st and "call" in st["expression"]
+                    and st["expression"]["call"].get("function") == "try")
+    catches = _call_fields(try_call)["catches"]["literal"]["listValue"]["elements"]
+    assert len(catches) == 1, catches
+    clause = {f["name"]: f["value"] for f in catches[0]["messageCreation"]["fields"]}
+    assert clause["variable"]["literal"]["stringValue"] == "e", clause
+    assert clause["stack_trace"]["literal"]["stringValue"] == "stack", clause
+    assert "_ex" not in json.dumps(clause), "the compiler's `_ex` leaked into Ball"
+
+
+def test_break_and_continue_carry_their_label() -> None:
+    """`ballrt.brk(label)` / `ballrt.cont(label)` are `std.break` / `std.continue`;
+    the compiler always passes a label string, EMPTY for an unlabelled jump —
+    which must encode to no input at all, the shape `dart/encoder` produces."""
+    for helper, fn in (("brk", "break"), ("cont", "continue")):
+        unlabelled = _encode_body(f'    ballrt.{helper}("")\n')
+        call = _statements(unlabelled)[-1]["expression"]["call"]
+        assert (call["module"], call["function"]) == ("std", fn), call
+        assert "input" not in call, f"an unlabelled {fn} must carry no label: {call}"
+
+        labelled = _encode_body(f'    ballrt.{helper}("outer")\n')
+        call = _statements(labelled)[-1]["expression"]["call"]
+        assert (call["module"], call["function"]) == ("std", fn), call
+        label = _call_fields(call)["label"]
+        assert label["literal"]["stringValue"] == "outer", label
+
+
+def test_ret_and_rethrow_encode_to_their_own_base_functions() -> None:
+    ret = _statements(_encode_body("    ballrt.ret(1)\n"))[-1]["expression"]["call"]
+    assert (ret["module"], ret["function"]) == ("std", "return"), ret
+    assert _call_fields(ret)["value"]["literal"]["intValue"] == "1"
+
+    rethrow = _statements(_encode_body("    ballrt.rethrow()\n"))[-1]["expression"]["call"]
+    assert (rethrow["module"], rethrow["function"]) == ("std", "rethrow"), rethrow
+    assert "input" not in rethrow, "std.rethrow takes no input"
+
+
+def test_locals_assigned_inside_a_try_are_hoisted() -> None:
+    """A name first assigned inside a `try:` is still a function local.
+
+    The hoist scan drives every `std.assign`; a name it misses is assigned
+    without ever being declared, which the engine rejects at run time rather
+    than at encode time. Every loop body the compiler emits lives inside a trap,
+    so missing this would mis-encode nearly the whole corpus."""
+    body = _encode_body(
+        "    try:\n"
+        "        seen = 1\n"
+        "    except ballrt.BallReturn as _r:\n"
+        "        return _r.value\n"
+    )
+    hoisted = [st["let"]["name"] for st in _statements(body) if "let" in st]
+    assert "seen" in hoisted, hoisted
+
+
+def test_an_unrecognised_try_fails_loud() -> None:
+    """A `try:` that is none of the compiler's four lowerings has no Ball
+    spelling this encoder can produce — it must fail loud, never be dropped or
+    silently treated as a bare block (issue #55 doctrine)."""
+    from ball_encoder.encoder import EncodeError
+
+    with pytest.raises(EncodeError) as excinfo:
+        encode("import ballrt\n\ndef main(_input=None):\n"
+               "    try:\n"
+               "        ballrt.print_('x')\n"
+               "    except ValueError:\n"
+               "        ballrt.print_('y')\n")
+    assert "try" in str(excinfo.value).lower(), excinfo.value
+
+
+def test_a_loop_trap_that_is_not_the_last_statement_fails_loud() -> None:
+    """Outside the recognised `while True:` lowering, a trap followed by more
+    statements cannot be inlined: those statements are a C-style `for`'s update,
+    and only `std.for` runs an update on `continue`. Guessing would produce a
+    program that silently never terminates, so it fails loud instead."""
+    from ball_encoder.encoder import EncodeError
+
+    with pytest.raises(EncodeError) as excinfo:
+        encode("import ballrt\n\ndef main(_input=None):\n"
+               "    for _t0 in ballrt.iterate(_input):\n"
+               "        try:\n"
+               "            ballrt.print_(_t0)\n"
+               "        except ballrt.BallBreak as _brk:\n"
+               "            if _brk.label: raise\n"
+               "            break\n"
+               "        except ballrt.BallContinue as _cnt:\n"
+               "            if _cnt.label: raise\n"
+               "        ballrt.print_('after')\n")
+    assert "trap" in str(excinfo.value), excinfo.value
+
+
+def test_the_flow_class_names_are_real_runtime_classes() -> None:
+    """A closed-set drift guard over the OTHER source of truth: every exception
+    class the recogniser matches on must actually exist in `python/runtime`. A
+    rename there turns every recogniser into a silent no-match — every `try:`
+    back to `unsupported statement Try` — which only a whole-corpus measurement
+    row would otherwise notice."""
+    for attr in (rt.FLOW_BREAK, rt.FLOW_CONTINUE, rt.FLOW_RETURN, rt.FLOW_THROW):
+        assert isinstance(getattr(ballrt, attr, None), type), (
+            f"ballrt.{attr} is not a class — ball_encoder/ballrt_calls.py names "
+            "a flow exception python/runtime no longer exports"
+        )
+    assert callable(getattr(ballrt, rt.STACK_TRACE_OF, None)), rt.STACK_TRACE_OF
+    caught = getattr(getattr(ballrt, rt.FLOW_MODULE, None), rt.CAUGHT_STACK, None)
+    assert isinstance(caught, list), (
+        f"ballrt.{rt.FLOW_MODULE}.{rt.CAUGHT_STACK} is not the rethrow stack the "
+        "compiled catch pushes onto"
+    )
+
+# ── The field NAMES, closed against std.json's type declarations (#690) ──────
+
+
+def _declared_input_fields() -> dict[str, list[str]]:
+    """``std`` base function -> the field names its ``inputType`` declares.
+
+    Both halves come from ``dart/shared/std.json``: the function list gives each
+    function's ``inputType``, and ``typeDefs`` gives that type's descriptor
+    fields. Nothing here is kept by hand.
+    """
+    std = json.loads(STD_JSON.read_text(encoding="utf-8"))
+    types = {t["name"]: [f["name"] for f in t["descriptor"].get("field", [])]
+             for t in std["typeDefs"]}
+    out: dict[str, list[str]] = {}
+    for fn in std["functions"]:
+        declared = types.get(fn.get("inputType", ""))
+        if declared is not None:
+            out[fn["name"]] = declared
+    return out
+
+
+def test_every_helper_field_name_is_declared_by_its_base_function() -> None:
+    """A closed set over std.json's TYPE declarations, not just its function list.
+
+    `HELPERS` maps each positional argument to an input FIELD NAME, and every
+    engine reads that message BY NAME. A name the base function's `inputType`
+    does not declare is not cosmetic: `dart/engine`'s `_extractBinaryArgs` reads
+    `left`/`right` strictly and throws otherwise, so `string_contains` mapped to
+    `("value", "search")` re-encoded into a program the REFERENCE engine could
+    not run at all, and `math_clamp` mapped to `("value", "lower", "upper")`
+    silently returned the lower bound (`15.clamp(0, 10)` -> 0, not 10).
+
+    Seven entries were wrong this way and every Python-side round-trip test
+    passed anyway, because `python/compiler` accepts several spellings per field
+    (`a('lower', 'lowerLimit', 'min', 'low')`) — so a table checked only by
+    re-running the result on Python is checked against the one reader that
+    cannot tell the difference. This test reads the declaration instead.
+    """
+    declared = _declared_input_fields()
+    assert len(declared) >= 40, (
+        f"only {len(declared)} std functions resolved to a declared input type — "
+        "the derivation broke, it is not that std.json shrank"
+    )
+    checked = 0
+    wrong: dict[str, str] = {}
+    for helper, (fn, fields) in sorted(rt.HELPERS.items()):
+        fields_of = declared.get(fn)
+        if fields_of is None:
+            wrong[helper] = f"std.{fn} declares no input type, but HELPERS passes {list(fields)}"
+            continue
+        checked += 1
+        undeclared = [f for f in fields if f not in fields_of]
+        if undeclared:
+            wrong[helper] = (f"std.{fn} declares {fields_of}, but HELPERS passes "
+                             f"{list(fields)} — undeclared: {undeclared}")
+    assert checked >= 20, f"only {checked} helpers were actually checked"
+    assert not wrong, "\n".join(f"{k}: {v}" for k, v in sorted(wrong.items()))
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     sys.exit(pytest.main([__file__]))

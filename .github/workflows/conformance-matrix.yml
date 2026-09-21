@@ -1243,7 +1243,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
       # engine. NEVER lower this to turn a red build green; raise it in the SAME
       # PR as the fix that earned it (the job prints the exact new value).
-      PYTHON_ROUNDTRIP_FLOOR: "63"
+      PYTHON_ROUNDTRIP_FLOOR: "132"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1283,10 +1283,13 @@ jobs:
             echo "the syntactic \`ast\` encoder reads idiomatic hand-written Python. The"
             echo "helper family with an exact universal-\`std\` inverse is mapped now"
             echo "(\`ball_encoder/ballrt_calls.py\`, closed against drift by"
-            echo "\`python/encoder/tests/test_ballrt_inverse.py\`); #690 carries what is"
-            echo "left, in descending order of the fixtures each heads: the compiler's"
-            echo "\`try:\`/\`except\` for a body that genuinely returns, top-level classes,"
-            echo "and the \`ret\`/\`arg\` return and parameter plumbing."
+            echo "\`python/encoder/tests/test_ballrt_inverse.py\`), and so are all four"
+            echo "of the compiler's \`try:\` lowerings — the loop break/continue trap, the"
+            echo "\`BallReturn\` body wrapper and its constructor form, and a real"
+            echo "\`std.try\` (\`encoder.encode_try\`/\`encode_while\`). #690 carries what is"
+            echo "left, in descending order of the fixtures each heads: method calls on a"
+            echo "receiver (the same problem as top-level classes), dict literals, and the"
+            echo "\`arg\` parameter prologue."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"

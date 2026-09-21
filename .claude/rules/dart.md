@@ -97,6 +97,37 @@ for the authoritative member set).
   re-derives the dispatcher's list from its own source and asserts every builder
   module is in it (with a positive floor, so an extraction that stops matching
   fails instead of passing vacuously).
+- **The base-call dispatch is a CLOSED SET over the std BUILDERS, and every
+  default arm FAILS LOUD (#654).** `_compileBaseCall`'s seven per-module
+  switches used to end in `_ => '/* unsupported: <module>.<fn> */'` — a COMMENT
+  spliced where an EXPRESSION belongs, so the compiled Dart broke later with
+  `BODY_MIGHT_COMPLETE_NORMALLY` instead of the compiler saying what it cannot
+  do (that is how #488's `map_contains_value` row hid). They all share
+  `_unimplementedBaseCall(module, function)` now, the arm #663 already gave
+  `std_concurrency`. Fourteen DECLARED names had no case:
+  `std.int_to_double`/`double_to_int`/`string_interpolation` and eleven
+  `std_collections` names. Six of the `std_collections` lowerings cannot be
+  inline expressions and still mean what `engine_std.dart` means, so they go
+  through `_collectionsHelperSources` — a per-DECLARATION preamble, like
+  `_usesTypeOf`/`_usesSink`, never per-module (an unused private top-level
+  function is an analyzer warning in the compiled output). An async callback is
+  REFUSED there, the same call `_concurrencyPreamble` makes for an async body.
+  `dart/compiler/test/base_call_dispatch_completeness_test.dart` builds its
+  population IN PROCESS from the eight `buildStd*Module()` builders and probes
+  each name by COMPILING a call to it — not by scanning switch-arm patterns,
+  which is what let `std_collections.set_create` pass before: the name is in the
+  file, in the `std` switch, because `DartEncoder._moduleForFunction` answers
+  `'std'` for every std call, while the declared spelling reached the default
+  arm. `ball_proto` is the one base module out of the population — it has no
+  switch (`_compileBallProtoCall` lowers every name to `<receiver>.<name>()`).
+  Shape is not meaning, and these names are unreachable from the ENCODER, so
+  they can have no `tests/conformance/src/*.dart` fixture — nothing encodes to
+  `std_collections.list_zip`, which is why they stayed unimplemented.
+  `dart/compiler/test/declared_base_call_equivalence_test.dart` is the
+  behavioural half: ONE hand-authored Ball program, run on the reference engine
+  AND through `dart run` over its compiled Dart, both pinned to the same
+  expected transcript — so "the two agree" cannot mean "they agree on the wrong
+  answer". Add a lowering here and add its case there.
 - **A module that needs STATE gets a conditional runtime preamble**, the way
   `std_memory`'s linear-memory block always has. `std_concurrency` emits one too
   (`_ballThreads`/`_ballMutexes`/`_ballAtomics` plus the `_ball*` helpers), only
@@ -282,11 +313,10 @@ avoid constructs that need receiver-type info:
     compiler, it alone fell to `_ => '/* unsupported: … */'`, i.e. a COMMENT
     where an expression belongs (`collection/lib/src/wrappers.dart` compiled to
     `return /* unsupported: std_collections.map_contains_value */;`).
-    `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the new
-    compiler-side mirror of `check_encoder_completeness.dart`: every
-    ENCODER-EMITTABLE base function must have a compiler case. Declared but
-    unroutable names (11 more in `std_collections`, all of `std_concurrency`)
-    are out of that population and tracked by #654.
+    `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the
+    compiler-side mirror of `check_encoder_completeness.dart`, and since **#654**
+    its population is the DECLARED set with no exclusion — see the
+    "closed set over the builders" bullet above.
 
   Still open, each with its own issue and its own measured repro:
   - `collection/lib/src/list_extensions.dart` — the compiler marks a

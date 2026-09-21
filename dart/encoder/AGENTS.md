@@ -31,7 +31,8 @@ Dart → Ball encoder. Parses Dart source with the `analyzer` package and emits 
 - **Null-aware CHAIN scope is NOT gated on resolution** (#488, `_encodeNullAwareChain`). `?.` is syntax, so the fix applies to `encode(String)` as well — and it is the one #488 slice that CAN move `dart/self_host/engine.ball.json` and the committed TS/Go artifacts (it did not: the engine's own source has no multi-link `?.` chain today — regenerate rather than assume). A `?.` short-circuits every link to its RIGHT, so the encoder hoists the deepest short-circuiting link's guard over the whole remainder of the chain and re-encodes it once with `_hoistedNullAware` (that link is plain now) + `_chainSubstitutions` (its receiver is already bound). One guard per pass, deepest first; the per-link `_buildNullAwareAccess`/`_buildNullAwareCall` still handle a one-link chain unchanged. See `.claude/rules/dart.md` and `test/null_aware_chain_scope_test.dart`.
 - **`bin/check_encoder_completeness.dart` also reads the dispatch TABLES** (`_routeTables`). A base function named only in a `collectionRoutes`/`unaryRoutes`/… map VALUE reaches `..function =` through a variable, so the two emit-site regexes could not see it and the whole routed class was silently exempt from the gate (#488). Adding a route table means adding it there too; the scan exits non-zero if a declared table name no longer exists.
 - Encoder changes hit user programs AND the self-hosted engine — verify every engine row of
-  `conformance-matrix.yml`'s `summary` parity table, not Dart-only.
+  `conformance-matrix.yml`'s `summary` parity table, not Dart-only. Naming a FROZEN subset here
+  (a fixed engine count) is CI-gated since #765: `tools/ci/check_engine_row_docs.sh` reds on it.
 - Every new emittable construct needs a `tests/conformance/src/*.dart` fixture (gated). See `docs/TESTING_STRATEGY.md`.
 - Tests in `test/`.
 

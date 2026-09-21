@@ -74,6 +74,24 @@
 //! - `.value()`, `.multiunzip()` — resolvable only once the receiver's
 //!   concrete type is known (which `.value()` it is depends entirely on the
 //!   trait in scope).
+//! - `.finish()` (with `.debug_struct()`/`.debug_tuple()`/`.field()` behind it)
+//!   — `core::fmt`'s DEBUG-BUILDER chain, and the single largest stage-1
+//!   first-blocker on the live Tier A funnel: **9 of the 77 scored files**
+//!   (issue #767), every one of them the same construct. `itertools`'
+//!   `debug_fmt_fields!` (`src/impl_macros.rs`) expands — since #629's
+//!   `macro_rules!` expansion — into exactly
+//!   `f.debug_struct("X").field("a", &self.a).finish()`, and `diff.rs` /
+//!   `exactly_one_err.rs` write the chain by hand. The builder's OUTPUT is each
+//!   field rendered through that field's own `Debug` impl: type-directed
+//!   formatting with no universal `std` counterpart, and `std.to_string` is a
+//!   *different* string. An arm here would therefore emit a program that runs
+//!   and prints the wrong text — silently wrong output, not a loud failure. The
+//!   receiver is also a caller-supplied `&mut Formatter` trait object with no
+//!   Ball value behind it, exactly the `.serialize_seq()` class above.
+//!   `write!(f, "…")` on that SAME `Formatter` is supported (issue #630) and is
+//!   not in tension with this: it carries its own literal format string, so the
+//!   text it produces is in the source. Pinned by
+//!   `documented_gaps.rs::the_fmt_debug_builder_chain_is_a_permanent_carve_out`.
 //!
 //! `.fuse()` and `.is_empty()` used to sit in that same bucket and were
 //! closed by slice 6 precisely because neither needs type information: see

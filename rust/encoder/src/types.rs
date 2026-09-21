@@ -128,12 +128,15 @@
 //! `rust/encoder/tests/mixed_impl_items.rs`, which encodes, compiles and runs
 //! a mixed block.
 //!
-//! Still a documented gap, deliberately: an `impl` whose **self type** is not
-//! a plain named type (`impl<I> Trait for (I::Item,)`) — see
-//! `type_short_name`'s "unsupported `impl` self type" panic. Ball's class
-//! model keys members on an owner's short *name*, so a tuple/GAT self type
-//! has no owner to register them under; that needs a representation decision,
-//! not a tolerance tweak.
+//! Still a documented gap, deliberately, but NARROWER since issue #767: an
+//! `impl` whose **self type** is a TUPLE or an ARRAY (`impl<I> Trait for
+//! (I::Item,)`, `impl Trait for [T; M]`) — see `type_short_name`'s
+//! "unsupported `impl` self type" panic. Ball's class model keys members on an
+//! owner's short *name*, and a tuple or array type has none, so that needs a
+//! representation decision rather than a tolerance tweak. A **reference** self
+//! type (`&'a ChunkBy<…>`, `&mut I`) is no longer in that bucket: Ball has no
+//! reference-vs-value distinction, so `type_short_name` looks through it to the
+//! referent — see its own doc comment.
 //!
 //! ## Why a method mutating its own field is out of scope
 //!
@@ -705,6 +708,27 @@ fn method_non_self_params(sig: &syn::Signature) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The short NAME an `impl` block's members register under.
+///
+/// A REFERENCE is looked straight through (issue #767): Ball has no
+/// reference-vs-value distinction at all — `lib.rs::encode_expr` has always
+/// encoded `&x` as `x` — so `impl Trait for &'a ChunkBy<…>` names the *same*
+/// Ball class as `impl Trait for ChunkBy<…>`. That is not an approximation of a
+/// distinction the IR preserves; the IR has no such distinction to preserve, so
+/// nothing here is guessed from a name. Four of the eight Tier A files in this
+/// bucket are exactly that shape.
+///
+/// What follows, and is stated rather than left to be discovered: an inherent
+/// `impl Counter { fn f }` and an `impl Trait for &Counter { fn f }` in one file
+/// now register the same member name on the same owner, which Rust keeps
+/// distinct and Ball cannot. That is the standing property of a class model
+/// keyed on a short name — `impl Counter` and `impl Trait for Counter` already
+/// collide identically — not something the reference arm introduces.
+///
+/// A TUPLE or ARRAY self type (`(I::Item,)`, `[T; M]` — the other four files)
+/// still fails loud: it has no short name for Ball's class model to key members
+/// under at all, which needs a representation decision rather than a tolerance
+/// tweak. Both shapes are pinned in `rust/encoder/tests/documented_gaps.rs`.
 fn type_short_name(ty: &syn::Type) -> String {
     match ty {
         syn::Type::Path(type_path) => type_path
@@ -714,9 +738,15 @@ fn type_short_name(ty: &syn::Type) -> String {
             .expect("a type path always has at least one segment")
             .ident
             .to_string(),
+        syn::Type::Reference(reference) => type_short_name(&reference.elem),
+        // `(T)` is a parenthesized type, NOT a one-tuple (`(T,)` is); `Group` is
+        // the invisible grouping a macro expansion can leave behind, which the
+        // `macro_rules!` pre-pass (#629) makes reachable here.
+        syn::Type::Paren(paren) => type_short_name(&paren.elem),
+        syn::Type::Group(group) => type_short_name(&group.elem),
         other => panic!(
-            "ball-lang-encoder: unsupported `impl` self type (only a plain named type is \
-             supported): {}",
+            "ball-lang-encoder: unsupported `impl` self type (only a named type, optionally \
+             behind a reference, is supported): {}",
             quote::quote!(#other)
         ),
     }

@@ -24,11 +24,13 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest baseline, **0/77 clean and 1/77 encoded** (the 5 crates pinned in
+Honest baseline, **0/77 clean and 9/77 encoded** (the 5 crates pinned in
 `tools/coverage-study/packages/rust.json` — **`itertools`, `smallvec`, `bitflags`, `heck`,
-`strsim`**, not the original 10-crate set the #491 prose below narrates). That single encoded file
-arrived with the crate-aware slice below; every #491 slice before it left the aggregate at
-`0 clean, 0 encoded`.
+`strsim`**, not the original 10-crate set the #491 prose below narrates). The first encoded file
+arrived with the crate-aware slice below — every #491 slice before it left the aggregate at
+`0 clean, 0 encoded` — then #630's `write!` slice took it 1 → 7 and #767's tuple +
+reference-`impl`-self-type slice 7 → 9. `clean` has never moved: stage 3 is where every arriving
+file now stops, on `ball_arg_get` (**#790**).
 
 **The denominator was 110 until 2026-09-14, and the #491 prose below is all written against
 that number — read those histograms as history, not as today's totals.** Per the owner's
@@ -575,14 +577,14 @@ instructions.
   pins is `1/77`, and it was `1/77` before the fix too
   ([34766105061](https://github.com/Ball-Lang/ball/actions/runs/34766105061) pre-fix,
   [34769384905](https://github.com/Ball-Lang/ball/actions/runs/34769384905) post-fix), because
-  **stage 1 is the dam**: 76 of the 77 scored files fail `encode-error` on third-party Rust the
-  encoder does not yet read (`.finish()`, `write!`, tuple expressions, data-carrying enum
-  variants, destructuring bindings, non-plain `impl` self types), so only one file ever reaches
-  stage 3 — and no file in that run carries a `reencode-error` at all. The `panic!` gap is real
-  and the round-trip gate proves it on the repository's own output; it is simply not what those
-  pins are stopped on. A lane raising Rust's Tier A numbers works on stage 1, on the reasons that
-  artifact names — read them with `gh run download <run-id> -n coverage-study-tier-a-rust`, never
-  from prose.
+  **stage 1 was the dam**: 76 of the 77 scored files failed `encode-error` on third-party Rust the
+  encoder did not yet read, so only one file ever reached stage 3 — and no file in that run
+  carried a `reencode-error` at all. The `panic!` gap is real and the round-trip gate proves it on
+  the repository's own output; it is simply not what those pins are stopped on. A lane raising
+  Rust's Tier A numbers works on stage 1, on the reasons that artifact names — read them with
+  `gh run download <run-id> -n coverage-study-tier-a-rust`, **never from prose**, which is exactly
+  what the six-gap list this bullet used to carry went stale by: see
+  "#767's stage-1 gaps" below for the re-measured disposition of each.
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a
@@ -950,12 +952,13 @@ Proof: `rust/encoder/tests/mixed_impl_items.rs` encodes a mixed `impl`, compiles
 `documented_gaps.rs` pin is flipped to a positive assertion in the same PR.
 
 **Worth 14 of the 110 scored Tier A files** (e.g. `itertools/array_impl.rs`) — not the 22 an
-earlier count claimed. That number conflated this bucket with a **separate, still-open** 8-file
-one: an `impl` whose SELF TYPE is not a plain named type (`impl<I> Trait for (I::Item,)`, e.g.
-`itertools/adaptors/mod.rs`), which fails at `types.rs::type_short_name`'s "unsupported `impl`
-self type" panic. Ball's class model keys members on an owner's short *name*, so a tuple/GAT self
-type has no owner to register them under — that needs a representation decision, not a tolerance
-tweak, and now has its own `documented_gaps.rs` pin.
+earlier count claimed. That number conflated this bucket with a **separate** 8-file one: an `impl`
+whose SELF TYPE is not a plain named type, which fails at `types.rs::type_short_name`'s
+"unsupported `impl` self type" panic. Half of that one closed in #767 (a REFERENCE self type,
+`&'a ChunkBy<…>`/`&mut I`, is looked through); the four genuinely non-nominal ones —
+`(I::Item,)`, `[T; M]` and friends — stay refused, because Ball's class model keys members on an
+owner's short *name* and a tuple or array type has none. See "#767's stage-1 gaps" below; both
+shapes have their own `documented_gaps.rs` pin.
 
 #### Tuple + unit structs (#491)
 
@@ -1122,6 +1125,87 @@ exactly two arms today (`is_option_result_pattern`, `encode_literal_switch_match
 user enum's variant name panics even in the *fieldless* case. Five first-blocked Tier A files, and
 per the table above the aggregate would not move either. `data_carrying_enum_variant_is_a_documented_gap`
 stays `#[should_panic]`, with this reasoning recorded in its doc comment.
+
+#### #767's stage-1 gaps — tuple expressions, reference `impl` self types, and two carve-outs
+
+Issue #767 collected the six stage-1 first-blockers from run
+[34769384905](https://github.com/Ball-Lang/ball/actions/runs/34769384905) into a tracked list.
+Every count below was **re-measured** over the same five pins with one binary and one set of
+checkouts, before and after — the `before` reproduced `baseline.json`'s Rust row exactly
+(`scored 77 / encoded 7 / compiledBack 7 / reencoded 1 / declarationsKept 0 / excluded 34`), which
+is what makes the `after` a comparison rather than a fresh reading. One of the issue's six was
+already stale by the time it was filed.
+
+| gap | issue said | re-measured | disposition |
+|---|---:|---:|---|
+| `.finish()` | 9 | 9 | **permanent carve-out**, now pinned |
+| non-plain `impl` self type | 8 | 8 | **half CLOSED** — 4 reference self types; 4 non-nominal ones pinned |
+| `write!` | 7 | **0** | **already CLOSED** by #630/#698 — left the histogram entirely |
+| tuple expressions | 6 | 6 | **CLOSED** |
+| data-carrying enum variants | 5 | 5 | still open (see the section above) |
+| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open |
+
+**Tuple expressions.** `lib.rs::encode_expr` had no `syn::Expr::Tuple` arm at all.
+`encode_tuple` lowers `(a, b)` to `std.record` — the universal base function
+`dart/shared/std.json` declares for a positional record — with components named `"0"`/`"1"`, and
+`()` to the Ball null literal. The component names are **Rust's own member spelling, not Dart's
+`$1`/`$2`**, and that is a decision rather than an oversight: the READ side already produces the
+decimal index (`lib.rs::encode_field` for a `t.0`, and `types.rs::encode_item_struct` for a tuple
+STRUCT's fields — the `"0"`/`"1"` spelling the section above calls load-bearing), and `p.0` on a
+tuple struct is syntactically indistinguishable from `t.0` on a tuple, so choosing `$1` would have
+forced re-spelling the tuple-struct fields too. It stays portable: every target treats a component
+name that is neither `$N` nor `argN` as an opaque key on BOTH the `record` build side and the
+`field_access` read side (`cpp/compiler/src/compiler.cpp`'s `"record"` arm classifies it as a
+*named* component, and its `.$N` rewrite does not fire; `dart/engine/lib/engine_std.dart`'s
+`_stdRecord` hands the field map straight back). Proof:
+`rust/encoder/tests/tuple_expressions.rs` — encode → compile → `cargo build` → run, printing a
+hand-computed `14` and `true`, because a shape assertion would pass even if the compiled program
+could not read a component back.
+
+**Reference `impl` self types.** `types.rs::type_short_name` accepted only `syn::Type::Path`; it
+now looks through `&T` / `&mut T` / `&'a T` (and `Paren`/`Group`) to the referent. Sound, not a
+tolerance: Ball has no reference-vs-value distinction at all — `encode_expr` has always encoded
+`&x` as `x` — so `impl Trait for &Counter` names the *same* Ball class as
+`impl Trait for Counter`, and nothing is guessed from a name. That closes 4 of the 8:
+`itertools/groupbylazy.rs` (`&'a ChunkBy<K, I, F>`), `itertools/peeking_take_while.rs`
+(`&mut I`), `itertools/rciter_impl.rs` (`&RcIter<I>`), `strsim/lib.rs` (`&StringWrapper<'b>`).
+The other 4 are genuinely non-nominal — `(I::Item,)`, `(ignore_ident!(l, A),)`, `[usize; K]`,
+`[T; M]` — and stay refused; a tuple or array type has no short name to key members under.
+**Consequence, stated rather than discovered:** an inherent `impl Counter { fn f }` and an
+`impl Trait for &Counter { fn f }` in one file now register the same member name on the same
+owner. Rust keeps them distinct and Ball cannot — but `impl Counter` and `impl Trait for Counter`
+already collide identically, so this is the standing property of a short-name-keyed class model,
+not something the reference arm introduces. Proof:
+`rust/encoder/tests/impl_for_reference_self_type.rs`.
+
+**`.finish()` is a PERMANENT carve-out, not a backlog item.** All 9 files are one construct:
+`itertools`' `debug_fmt_fields!` (`src/impl_macros.rs`), which #629's `macro_rules!` expansion now
+expands into `f.debug_struct("X").field("a", &self.a).finish()`, plus the hand-written
+`debug_tuple(..).field(..).finish()` in `diff.rs` and `dbg.field(..).finish()` in
+`exactly_one_err.rs`. The builder's OUTPUT is each field rendered through that field's own `Debug`
+impl — type-directed formatting with no universal `std` counterpart, and `std.to_string` is a
+*different* string — so an arm here would emit a program that runs and prints the wrong text:
+silently wrong output, the failure mode this crate's fail-loud posture exists to prevent. The
+receiver is also a caller-supplied `&mut Formatter` trait object with no Ball value behind it,
+which is exactly the `.serialize_seq()`/`.is_human_readable()` class `methods.rs`' module doc
+comment already names. `write!(f, "…")` on that same `Formatter` stays supported (#630) and is
+not in tension: it carries its own literal format string, so the text it produces is in the
+source. Pinned by `documented_gaps.rs::the_fmt_debug_builder_chain_is_a_permanent_carve_out`.
+
+**Measured yield, stated plainly.** Stage 1 `encoded` **7/77 → 9/77**, `compiled back` **7 → 9**,
+and the first-blocker histogram is exactly conserved at 77:
+`unsupported Rust expression kind \`tuple\`` **6 → 0** and `unsupported \`impl\` self type`
+**8 → 4**, with all ten of those files landing on a further gap. `reencoded` stays at **1** and
+`baseline.json` is NOT raised on it: both files that newly reached stage 3 stop on
+``unsupported runtime helper `ball_arg_get(...)` ``, the compiled parameter prologue tracked as
+**#790**. Stage 3 is dammed by that helper now, not by stage 1 — closing further stage-1 gaps
+cannot move it until #790 does.
+
+**`excluded.json` is deliberately untouched.** It records the *test-only* files each harness takes
+out of the denominator, and a path it lists that a run SCORED is a breach (#676). An encoder
+carve-out is not a test-only file: those 9 + 4 files stay scored and stay failing, which is the
+honest reading. Carve-outs live in the `methods.rs`/`types.rs` doc comments, the
+`documented_gaps.rs` pins and this section.
 
 #### A note on "slice N" labels
 

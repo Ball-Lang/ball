@@ -46232,6 +46232,24 @@ func BallModuleHandler__ball_init(input ballrt.Value) (__ret ballrt.Value) {
 	return
 }
 
+func StdModuleHandler__new(input ballrt.Value) ballrt.Value {
+	_ = input
+	__fields := ballrt.NewMap()
+	__fields.Set("_dispatch", ballrt.NewMap())
+	__fields.Set("_composedDispatch", ballrt.NewMap())
+	__fields.Set("_allowlist", ballrt.Value(nil))
+	__fields.Set("_tombstones", ballrt.NewMap())
+	__self := ballrt.NewMessage("main:StdModuleHandler", __fields)
+	_ = __self
+	_dispatch := ballrt.FieldGet(__self, "_dispatch")
+	_ = _dispatch
+	_composedDispatch := ballrt.FieldGet(__self, "_composedDispatch")
+	_ = _composedDispatch
+	_allowlist := ballrt.FieldGet(__self, "_allowlist")
+	_ = _allowlist
+	return __self
+}
+
 func StdModuleHandler__subset(input ballrt.Value) ballrt.Value {
 	_ = input
 	functions := ballrt.ArgGet(input, "functions", "arg0")

@@ -210,6 +210,21 @@ compile items so the sibling projects never double-compile each other's files.
   `csharp-compiler` matrix row is a PR gate since #619, but it is a RATCHET on a
   passing count, and 146's failure sat inside its floor from day one.
 
+- **A constructor's INITIALIZER LIST is applied even when the constructor is BODYLESS (#706).**
+  `UnnamedConstructorImpl` (was `BodyConstructorImpl`) records a class's unnamed constructor when
+  it carries a body **or** a `metadata.initializers` field entry, and `CompileMessageCreation`
+  invokes the impl for either; `CompileTypeMembers` emits the impl under the identical condition
+  (a recorded impl that is never emitted is CS0103). Only the impl reads the initializer list; the
+  inline `new BallMap { … }` beside it knows `metadata.params` and nothing else. So
+  `FixedSlice(this.source, int end) : windowSize = end;` used to build an instance carrying the
+  plain parameter `end` as a bogus field and no `windowSize` at all, and `slice.windowSize`
+  answered `null` — a SILENT wrong answer, never a compile error. Note it is NOT an accessor
+  collision, which is what #706 hypothesised: `BallAccessors` emits a `Get__…` only for a name
+  some class declares as a GETTER, and a plain `final` field declares none, so the read was an
+  ordinary `BallRuntime.FieldGet` all along. Guard:
+  `csharp/compiler/test/FinalFieldSetterTests.cs`, over fixture
+  `472_initializer_list_field_with_setter`.
+
 ### Encoder
 
 - `CSharpEncoder.Encode(source) -> Program` parses with Roslyn syntax trees and walks

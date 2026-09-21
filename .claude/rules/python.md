@@ -435,6 +435,25 @@ python -m conformance.runner                             # prints the CI-parseab
   matching l-value), `TYPE_OPS` (`is_type`/`as_type` → `std.is`/`std.as` with the type NAME as a
   string field), `LABEL_OPS` (`brk`/`cont` → `std.break`/`std.continue`; an EMPTY label means no
   `label` field at all) and `RETHROW` (input-less `std.rethrow`).
+  **Three modules are NAMESPACED, not flat** (`ballrt.col.*` → `std_collections`,
+  `ballrt.cvt.*` → `std_convert`, `ballrt.proto.*` → `ball_proto`). `encode_call` reads the
+  two-level receiver and routes to `encode_ballrt_namespaced_call`; the helper is always spelled
+  like the base function, so `COLLECTION_HELPERS`/`CONVERT_HELPERS`/`PROTO_HELPERS` record only the
+  input FIELD per positional argument, closed by `tests/test_ballrt_namespaced.py` against each
+  module's own Ball declaration (`dart/shared/lib/std_collections.dart`/`std_convert.dart`,
+  `dart/shared/ball_proto.json`) — membership AND field names, because the compiler accepts several
+  spellings per field and `list_find` declares `callback`, not `value`. `set_create` is the one
+  namespaced shape that leaves its module (it is `std.set_create {elements}`, what `dart/encoder`
+  emits and the reference engine runs; a literal `None` argument is the compiler's own "no
+  elements" token, so it reads back INPUT-LESS).
+  **`.add` on a SET routes through `std_collections.list_push`** (the syntactic Dart encoder cannot
+  see the receiver type, #68), so `ballrt.col.list_push` needs a `BallSet` arm like
+  `list_concat` already had; without it a compiled program died with Python's native
+  `AttributeError`, which no compiled `try` can catch. Nothing else could see it — the
+  `python-engine` row runs the self-hosted engine (its set handling is compiled Ball) and the
+  `python-roundtrip` row runs on the DART engine — so the set fixtures are in
+  `python/compiler/tests/test_conformance.py`'s `PROVEN` list, the only leg that compiles a
+  conformance fixture to Python and runs it.
   **The STATEMENT lowerings are shaped, not named.** A compiled Python `try:` is one of FOUR
   things and only one is a Ball `std.try`: the loop-body `except ballrt.BallBreak`/`BallContinue`
   trap, the `except ballrt.BallReturn` function-body wrapper, that wrapper's value-less

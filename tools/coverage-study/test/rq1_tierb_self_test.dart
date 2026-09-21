@@ -417,9 +417,14 @@ Future<void> main() async {
     final unstable = await studyPackagePerFile('synthetic', tempDir);
     failing.deleteSync();
     check(
+      // Named on the SUITE's own tally, not on the tag alone: a failed
+      // `dart pub get` and a timeout carry the same `baseline-unstable` tag, so
+      // the tag by itself would pass for a reason that has nothing to do with
+      // the red suite this case just wrote.
       'a package whose UNMODIFIED suite does not pass 100% is reported '
-          'baseline-unstable',
-      unstable.status.startsWith('baseline-unstable'),
+          'baseline-unstable, naming its own passing/failing tally',
+      unstable.status.startsWith('baseline-unstable') &&
+          unstable.status.contains('the unmodified suite is'),
       'status was "${unstable.status}"',
     );
     check(
@@ -658,11 +663,18 @@ void main() {
     final run = await studyPackagePerFile('pathsensitive', dir);
 
     check(
+      // `baseline-unstable` ALONE would pass for the wrong reason — a failed
+      // `dart pub get` and a timeout carry the same tag — so this names the
+      // SUITE's own tally, which only `establishBaseline`'s "the unmodified
+      // suite is N passing / M failing" arm produces. A check that can pass
+      // without the mechanism under test having run is the shape this whole
+      // issue is about.
       'ISSUE #705: a package whose suite depends on WHERE it runs is excluded '
-          'as baseline-unstable — the baseline is measured in the same kind of '
-          'copy as every candidate, so the harness cannot manufacture drift out '
-          'of its own temp directory',
-      run.status.startsWith('baseline-unstable'),
+          'as baseline-unstable BY ITS OWN SUITE FAILING — the baseline is '
+          'measured in the same kind of copy as every candidate, so the '
+          'harness cannot manufacture drift out of its own temp directory',
+      run.status.startsWith('baseline-unstable') &&
+          run.status.contains('the unmodified suite is'),
       'status was "${run.status}", files=${[for (final f in run.files) '${f.file}: ${f.reason}']}',
     );
     check(

@@ -120,6 +120,20 @@ them. `ball_encoder/ballrt_calls.py` is that inverse surface and has two halves:
   `tests/test_ballrt_inverse.py::test_same_spelled_unary_helpers_all_have_an_inverse`
   derives that closed set from std.json + `python/runtime` rather than from a
   list kept beside the table — a new one fails on the day it lands.
+
+  **The FIELD NAMES are closed against std.json's `typeDefs` too**
+  (`test_every_helper_field_name_is_declared_by_its_base_function`). Every
+  engine reads a base call's input message BY NAME, and a name the function's
+  `inputType` does not declare is not cosmetic: `dart/engine`'s
+  `_extractBinaryArgs` reads `left`/`right` STRICTLY and throws otherwise, so
+  `string_contains` mapped to `("value", "search")` re-encoded into a program
+  the REFERENCE engine could not run at all, and `math_clamp` mapped to
+  `("value", "lower", "upper")` silently answered the lower bound
+  (`15.clamp(0, 10)` -> 0). Seven entries were wrong this way while every
+  Python-side round-trip test passed, because `python/compiler` accepts several
+  spellings per field (`a('lower', 'lowerLimit', 'min', 'low')`) — a table
+  checked only by re-running its output on Python is checked against the one
+  reader that cannot tell the difference.
 * **Named constants for the shapes that are NOT that** (handled in
   `encoder.encode_ballrt_call`): `PASSTHROUGH` (`truthy`, `iterate` — adapters
   whose Ball semantics are implicit in the consuming node), `FIELD_GET`

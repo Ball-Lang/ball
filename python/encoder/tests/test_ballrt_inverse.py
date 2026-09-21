@@ -296,7 +296,8 @@ def test_string_is_not_empty_is_its_own_base_function() -> None:
 def test_the_non_table_shapes_are_not_also_in_helpers() -> None:
     """One shape, one home: a helper handled explicitly must not also sit in
     HELPERS, where the generic arm would encode it as a plain std call."""
-    explicit = set(rt.PASSTHROUGH) | {rt.FIELD_GET, rt.FIELD_SET, rt.INDEX_SET} | set(rt.TYPE_OPS)
+    explicit = (set(rt.PASSTHROUGH) | {rt.FIELD_GET, rt.FIELD_SET, rt.INDEX_SET}
+                | set(rt.TYPE_OPS) | set(rt.LABEL_OPS) | {rt.RETHROW})
     overlap = sorted(explicit & set(rt.HELPERS))
     assert not overlap, overlap
 
@@ -565,6 +566,64 @@ def test_the_flow_class_names_are_real_runtime_classes() -> None:
         f"ballrt.{rt.FLOW_MODULE}.{rt.CAUGHT_STACK} is not the rethrow stack the "
         "compiled catch pushes onto"
     )
+
+# ── The field NAMES, closed against std.json's type declarations (#690) ──────
+
+
+def _declared_input_fields() -> dict[str, list[str]]:
+    """``std`` base function -> the field names its ``inputType`` declares.
+
+    Both halves come from ``dart/shared/std.json``: the function list gives each
+    function's ``inputType``, and ``typeDefs`` gives that type's descriptor
+    fields. Nothing here is kept by hand.
+    """
+    std = json.loads(STD_JSON.read_text(encoding="utf-8"))
+    types = {t["name"]: [f["name"] for f in t["descriptor"].get("field", [])]
+             for t in std["typeDefs"]}
+    out: dict[str, list[str]] = {}
+    for fn in std["functions"]:
+        declared = types.get(fn.get("inputType", ""))
+        if declared is not None:
+            out[fn["name"]] = declared
+    return out
+
+
+def test_every_helper_field_name_is_declared_by_its_base_function() -> None:
+    """A closed set over std.json's TYPE declarations, not just its function list.
+
+    `HELPERS` maps each positional argument to an input FIELD NAME, and every
+    engine reads that message BY NAME. A name the base function's `inputType`
+    does not declare is not cosmetic: `dart/engine`'s `_extractBinaryArgs` reads
+    `left`/`right` strictly and throws otherwise, so `string_contains` mapped to
+    `("value", "search")` re-encoded into a program the REFERENCE engine could
+    not run at all, and `math_clamp` mapped to `("value", "lower", "upper")`
+    silently returned the lower bound (`15.clamp(0, 10)` -> 0, not 10).
+
+    Seven entries were wrong this way and every Python-side round-trip test
+    passed anyway, because `python/compiler` accepts several spellings per field
+    (`a('lower', 'lowerLimit', 'min', 'low')`) — so a table checked only by
+    re-running the result on Python is checked against the one reader that
+    cannot tell the difference. This test reads the declaration instead.
+    """
+    declared = _declared_input_fields()
+    assert len(declared) >= 40, (
+        f"only {len(declared)} std functions resolved to a declared input type — "
+        "the derivation broke, it is not that std.json shrank"
+    )
+    checked = 0
+    wrong: dict[str, str] = {}
+    for helper, (fn, fields) in sorted(rt.HELPERS.items()):
+        fields_of = declared.get(fn)
+        if fields_of is None:
+            wrong[helper] = f"std.{fn} declares no input type, but HELPERS passes {list(fields)}"
+            continue
+        checked += 1
+        undeclared = [f for f in fields if f not in fields_of]
+        if undeclared:
+            wrong[helper] = (f"std.{fn} declares {fields_of}, but HELPERS passes "
+                             f"{list(fields)} — undeclared: {undeclared}")
+    assert checked >= 20, f"only {checked} helpers were actually checked"
+    assert not wrong, "\n".join(f"{k}: {v}" for k, v in sorted(wrong.items()))
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     sys.exit(pytest.main([__file__]))

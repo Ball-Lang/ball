@@ -356,7 +356,16 @@ python -m conformance.runner                             # prints the CI-parseab
   block's last statement fails loud. `tests/test_ballrt_inverse.py` derives the required set from `dart/shared/std.json`
   (every `UnaryInput` base function) crossed with `python/runtime`'s public helpers, so a new
   same-spelled unary base function fails on the day it lands instead of becoming another
-  `unsupported runtime helper` on a measurement row nobody reads. A helper lives in exactly one
+  `unsupported runtime helper` on a measurement row nobody reads.
+  **The FIELD NAMES are closed against std.json's `typeDefs` too.** Every engine reads a base
+  call's input message BY NAME, so a name the function's `inputType` does not declare yields a
+  program the REFERENCE engine mis-runs: `dart/engine`'s `_extractBinaryArgs` reads `left`/`right`
+  STRICTLY and throws otherwise, and `math_clamp` mapped to `("value", "lower", "upper")` silently
+  answered the lower bound (`15.clamp(0, 10)` → 0). Seven entries were wrong this way while every
+  Python-side round-trip test passed, because `python/compiler` accepts several spellings per field
+  (`a('lower', 'lowerLimit', 'min', 'low')`) — re-running the table's output on Python checks it
+  against the one reader that cannot tell the difference, which is why the guard reads the
+  DECLARATION instead. A helper lives in exactly one
   half, and one with no exact inverse still fails loud — never guessed at. Its CI
   home is the `python-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619**
   and **floored + ratcheted since #642**: harness health PLUS `passed >= 1` PLUS

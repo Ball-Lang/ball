@@ -166,7 +166,8 @@ a bucket 2.7x larger. At 138 of 363 (run 35593505327, job 106313208884) the buck
 (**#859** — the compiled try/catch idiom), `ball_message_type_name` 23 (#718),
 `ball_unsupported_base_call` 19, `BallValue::Function` 16, `ball_index_set` 14 and
 `ball_list_push` 13.
-It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
+The sweep itself is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never
+runs it (it runs the five self-tests beside it):
 
 ```bash
 cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture

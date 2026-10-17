@@ -125,7 +125,13 @@ if [ "$RELEASE" != "true" ]; then
   exit 0
 fi
 
-LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
+# Nearest `vX.Y.Z` tag, or "" for a repo with none yet (the very first
+# release). Not `|| true` (docs/TESTING_STRATEGY.md §3a, issue #694 — PR #881
+# review round 3, finding 4): a non-matching `git describe` is the one
+# expected failure here, named as such, the same shape finish_release.sh uses.
+if ! LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null)"; then
+  LAST_TAG=""
+fi
 RANGE="HEAD"
 [ -n "$LAST_TAG" ] && RANGE="$LAST_TAG..HEAD"
 OLDEST_ISO="$(git log "$RANGE" --format=%cI | tail -1)"
@@ -141,7 +147,15 @@ VERDICT="$(classify true "$OLDEST_EPOCH" "$NOW_EPOCH")"
 
 if [ "${VERDICT%% *}" = "STALE" ]; then
   AGE_MINUTES="${VERDICT##* }"
-  OPEN_PR="$(gh pr list --head release/next --state open --json number,url --jq '.[0].url // ""' 2>/dev/null || true)"
+  # The open release PR is the alert's most actionable pointer, so a lookup
+  # that FAILED must say so: "NONE" is a claim about the repo ("no release PR
+  # is open — Phase 1 never ran"), and a swallowed `gh` error used to make it
+  # (PR #881 review round 3, finding 4 — the `|| true` + `2>/dev/null` here
+  # read every gh failure as "no open release PR"). gh's own stderr is left on
+  # the log. The verdict itself is already STALE, so this run fails either way.
+  if ! OPEN_PR="$(gh pr list --head release/next --state open --json number,url --jq '.[0].url // ""')"; then
+    OPEN_PR="UNKNOWN (gh pr list failed — see the error above; check the open PRs from release/next by hand)"
+  fi
   # PR #881 review finding 4 turned up a second, independent bug while
   # writing the first-ever live-path test for this branch: bash's parser
   # treats an unescaped `'` inside a `${var:-word}` default as opening a

@@ -101,10 +101,14 @@ nothing dispatches it but the release lane itself. See `docs/RELEASE.md`'s
 `semantic-release` line of its own (`.github/release/go.releaserc.json`,
 tagFormat `go-modules/vX.Y.Z`), computed from the conventional commits that
 touched `go/` and driven by `.github/workflows/go-release.yml`, which
-`release.yml` dispatches on every release (`--ref main`). Its `prepareCmd` runs
-the same `bump_go_modules.sh` below, `@semantic-release/git` commits
-`chore(release): go vX.Y.Z [skip ci]`, and its `publishCmd` dispatches
-`tag-go-modules.yml` at the channel tag **and waits for that run to finish**
+`release.yml` dispatches on every release (`--ref main`). semantic-release only
+COMPUTES the version (a dry run); since #879 the lane lands it through an
+auto-merged PR, never a push to `main`. Phase 1
+(`tools/release/open_go_release_pr.sh`) runs the same `bump_go_modules.sh` below
+on a `release/go-next` branch and opens `chore(release): go vX.Y.Z`; once it has
+merged (the merge queue appends ` (#N)` to that subject), Phase 2
+(`tools/release/finish_go_release.sh`, polled every 15 minutes) tags the channel
+tag and dispatches `tag-go-modules.yml` at it **and waits for that run to finish**
 (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any
 non-`success` conclusion — #627; and since #656 only a run *newer* than the
 newest one on that ref before the dispatch counts as that run) — so a `feat(go):`/`fix(go):` merge is all it

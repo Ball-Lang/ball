@@ -4,10 +4,10 @@
 # `finish-release` job in `.github/workflows/go-release.yml` on every `push`
 # to `main`, on a recurring `schedule`, and on a real (non-dry-run)
 # `workflow_dispatch`. Finds the OLDEST commit since the last
-# `go-modules/vX.Y.Z` tag whose subject is a Go release-PR merge
-# (`chore(release): go vX.Y.Z`, written and pinned by
-# tools/release/open_go_release_pr.sh's `--merge-subject`), and if one
-# exists — ONLY then — tags it `go-modules/vX.Y.Z`, creates the GitHub
+# `go-modules/vX.Y.Z` tag whose subject is a Go release-PR merge —
+# `chore(release): go vX.Y.Z`, the subject tools/release/open_go_release_pr.sh
+# commits, optionally followed by the ` (#N)` `main`'s merge queue appends —
+# and if one exists — ONLY then — tags it `go-modules/vX.Y.Z`, creates the GitHub
 # Release (mirroring @semantic-release/github's old publish step, which this
 # replaces — pure visibility/changelog, nothing downstream reads it), and
 # dispatches-and-awaits `tag-go-modules.yml` at that tag (which cuts the six
@@ -45,7 +45,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${BALL_REPO_ROOT:-$(cd "$HERE/../.." && pwd)}"
 cd "$ROOT"
 
-RELEASE_SUBJECT_RE='^chore\(release\):[[:space:]]+go[[:space:]]+v([0-9]+\.[0-9]+\.[0-9]+)$'
+# Both shapes the Go release-PR merge can land on `main` in — the bare
+# subject open_go_release_pr.sh pins, and the " (#<PR number>)"-suffixed one
+# `main`'s merge queue actually writes, since a queue ignores the pinned
+# subject. See finish_release.sh's RELEASE_SUBJECT_RE comment (PR #881 review
+# round 3, finding 1).
+RELEASE_SUBJECT_RE='^chore\(release\):[[:space:]]+go[[:space:]]+v([0-9]+\.[0-9]+\.[0-9]+)([[:space:]]+\(#[0-9]+\))?$'
 
 # Nearest `go-modules/vX.Y.Z` tag reachable from HEAD, or "" for a repo with
 # none yet (the very first release of this channel — see

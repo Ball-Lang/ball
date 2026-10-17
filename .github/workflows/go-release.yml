@@ -24,11 +24,13 @@ name: Release Go modules
 #     tag), and if there is one, opens-or-refreshes an auto-merging PR carrying
 #     the REAL `bump_go_modules.sh` edit + a go/CHANGELOG.md prepend on a
 #     `release/go-next` branch.
-#   Phase 2 (`finish-release`, tools/release/finish_go_release.sh) detects
-#     whether `main`'s current HEAD is a Go release PR that just merged, and
-#     ONLY then tags it `go-modules/vX.Y.Z` and dispatches-and-awaits
-#     `tag-go-modules.yml` at that tag (unchanged from before — see that
-#     script's header for the #627 "awaited, not fire-and-forget" rationale).
+#   Phase 2 (`finish-release`, tools/release/finish_go_release.sh) scans every
+#     commit since the last `go-modules/vX.Y.Z` tag for the oldest Go
+#     release-PR merge (`chore(release): go vX.Y.Z`, with or without the
+#     ` (#N)` the merge queue appends), and ONLY when it finds one tags THAT
+#     commit `go-modules/vX.Y.Z` and dispatches-and-awaits `tag-go-modules.yml`
+#     at that tag (unchanged from before — see that script's header for the
+#     #627 "awaited, not fire-and-forget" rationale).
 #
 # WHO DISPATCHES Phase 1, AND WHEN: unchanged. `release.yml`'s `finish-release`
 # job still runs `gh workflow run go-release.yml --ref main` once it has
@@ -38,11 +40,12 @@ name: Release Go modules
 # run), exactly as it did when this file ran semantic-release directly.
 #
 # `schedule` EXISTS on Phase 2 for the identical reason release.yml's
-# `finish-release` job has one: `gh pr merge --auto` armed with `GITHUB_TOKEN`
-# suppresses the resulting merge's OWN `push` trigger (see release.yml's
-# header for the citations), so the one push this job exists to react to is,
-# by construction, the one push whose trigger never fires. `push` stays wired
-# as a cheap fallback for a human- or Dependabot-merged `main`.
+# `finish-release` job has one: an auto-merge armed with `GITHUB_TOKEN` is
+# enqueued and merged on that token's behalf, so the resulting push cannot be
+# relied on to trigger anything (see release.yml's header for the citations).
+# `push` stays wired as a cheap fallback for a human-merged `main`. The same
+# token is why the Go release PR's merge group gets no `merge_group` run;
+# bot-merge-queue.yml dispatches its required checks (PR #881 review round 3).
 #
 # `workflow_dispatch`'s `dry_run` input rehearses Phase 1's computation on ANY
 # branch with zero side effects — unchanged behavior from before this fix,
@@ -137,9 +140,10 @@ jobs:
   # Phase 2 — via PR (issue #879, see this file's header). Independent of
   # `open-release-pr` by design: it must run even when the `schedule`
   # recovery poll is the only thing that triggered this workflow, and it
-  # must be cheap enough to poll every 15 minutes forever. Detects whether
-  # `main`'s current HEAD is a Go release PR that just merged, and ONLY then
-  # tags it and dispatches-and-awaits tag-go-modules.yml.
+  # must be cheap enough to poll every 15 minutes forever. Finds the oldest
+  # untagged Go release-PR merge since the last `go-modules/vX.Y.Z` tag
+  # (anywhere in that range, not just at HEAD), and ONLY then tags it and
+  # dispatches-and-awaits tag-go-modules.yml.
   # ──────────────────────────────────────────────────
   finish-release:
     name: Finish a merged Go release PR

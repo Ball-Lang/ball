@@ -93,33 +93,90 @@ against this repo's live ruleset rather than assumed:
    branch — using `GITHUB_TOKEN`, which is allowed for `workflow_dispatch` —
    and `gh pr merge --auto` only after that.
 
-**The merge-queue caveat this leaves open, by design.** A **separate**
-GitHub mechanic — a merge QUEUE (as opposed to plain auto-merge on required
-status checks, which is all this repo's ruleset has today) attributes its
-`merge_group` "checks_requested" event to whoever enqueued the PR, and several
-real-world reports describe a `GITHUB_TOKEN`-attributed enqueue getting no
-`merge_group`-triggered CI run at all, stalling at `AWAITING_CHECKS` (searched
-2026-10-17; e.g. GitHub community discussion
-[#51120](https://github.com/orgs/community/discussions/51120) and issue
-[chtypes#291](https://github.com/Wave-RF/chtypes/issues/291)). As of this
-writing the `Protect main` ruleset has no `merge_queue` rule — only
-`required_status_checks` — so `gh pr merge --auto` merges a release PR
-directly once its checks (dispatched as above) pass, and this caveat does not
-apply yet. If/when a `merge_queue` rule is added to this ruleset, re-verify
-this specific scenario (an auto-merge **armed** by `GITHUB_TOKEN`, later
-enqueued automatically by GitHub itself once checks pass — distinct from the
-reported case of a workflow calling the enqueue API directly, which the
-sources above do confirm fails) before relying on it; the fix, if it does
-stall, is the same GitHub App token the checks-dispatch workaround above
-avoided needing.
+**The merge queue (PR #881 review, round 3, finding 1).** The `Protect main`
+ruleset gained a `merge_queue` rule on 2026-10-17 (#756 — `merge_method:
+SQUASH`, `check_response_timeout_minutes: 90`, `grouping_strategy: ALLGREEN`;
+read back from the live ruleset, `gh api repos/Ball-Lang/ball/rulesets/17056238`).
+An earlier draft of this section said there was no such rule and asked for
+exactly this re-verification once there was. Re-verified, the queue changes
+two things for every bot PR `open_bot_pr.sh` opens:
 
-**The caveat that DOES apply today, found by PR #881's review (finding 2):
-plain auto-merge itself.** The analysis above checked the wrong mechanic for
-whether the PUSH that lands the release merge can be trusted to trigger
-anything. `gh pr merge --auto` (no merge queue involved) ENABLES GitHub's
-native auto-merge on the PR; the actual merge is performed later, by GitHub
-itself, once the required checks go green — not synchronously inside any
-workflow run. Multiple independent real-world reports confirm that when
+1. **The merge commit's subject is the queue's, not the one we pin.** GitHub's
+   own GraphQL schema says so for every field `gh pr merge --auto` sends
+   (`EnablePullRequestAutoMergeInput.commitHeadline`: "NOTE: when merging with
+   a merge queue any input value for commit headline is ignored"; the same
+   note is on `commitBody` and `mergeMethod`). The queue squashes with the
+   repository default (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`), which
+   for a single-commit PR is "the title of the commit message for the single
+   commit, followed by the pull request number" with that commit's body
+   ([About pull request merges](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges)).
+   Every queue-merged commit on `main` has that shape (e.g. `009fad1c`, "…
+   dependabot.yml (#905)", which kept its single commit's body). So the root
+   release commit lands as `chore(release): 1.73.0 (#912)` and the Go one as
+   `chore(release): go v0.3.0 (#913)`, and `finish_release.sh` /
+   `finish_go_release.sh` originally matched only the bare subject, anchored
+   with `$`, so they would never have tagged a real release. Both now accept
+   the optional ` (#N)`, and both still require a version starting with a
+   digit, so neither lane can read the other's release commit as its own.
+   `finish_release_test.sh` and `finish_go_release_test.sh` (tests 6-8) pin
+   the queue shape, a re-poll of it, and the cross-lane exclusion. The release
+   commits themselves already carry the exact subject and the full notes as
+   their body, which is why a queue that ignores our pinned subject and body
+   loses nothing but the missing suffix.
+2. **A merge group enqueued for `GITHUB_TOKEN` starts no CI at all.** Once a
+   bot PR's own checks pass, GitHub enqueues it on behalf of whoever armed its
+   auto-merge, here the `github-actions` bot, and the merge group's
+   `merge_group` "checks_requested" event is then a `GITHUB_TOKEN`-triggered
+   event that the recursion guard creates no workflow run for. This is
+   measured, not inferred: dork-labs/dorkos recorded a `GITHUB_TOKEN`-enqueued
+   queue branch with **0** workflow runs beside a human-enqueued one with 4
+   ([merge-tail.yml](https://github.com/dork-labs/dorkos/blob/6f06d98e5448db910a1c2740f1fc51449b0717bc/.github/workflows/merge-tail.yml)),
+   and [verbara/Verbara.Sdk#24](https://github.com/verbara/Verbara.Sdk/pull/24)
+   and [duckduckgo/content-scope-scripts#2750](https://github.com/duckduckgo/content-scope-scripts/pull/2750)
+   each diagnosed entries stuck at `AWAITING_CHECKS` for exactly this reason
+   (all three fixed it with a PAT or App token). Such an entry never reports
+   its 19 required contexts, waits out the 90-minute timeout, is evicted, and
+   **blocks every entry behind it for those 90 minutes**, because the queue
+   merges strictly in order. It was not tested live here, because doing that
+   would mean jamming the queue every lane shares.
+
+   The fix needs no new credential and uses the same exemption mechanic 2
+   above already relies on. `.github/workflows/bot-merge-queue.yml` runs
+   `tools/release/service_bot_merge_queue.sh` every 5 minutes. For each queue
+   entry **enqueued by** the GitHub Actions bot that is `AWAITING_CHECKS`, it
+   finds the `gh-readonly-queue/main/pr-<N>-<base-sha>` branch pointing at the
+   entry's head commit and `workflow_dispatch`es `ci.yml` and
+   `regression-gates.yml` onto it, unless a non-cancelled run of that workflow
+   already exists on that head SHA. It runs the full fail-open suite, because
+   the detector has no diff base for `workflow_dispatch`. GitHub documents the
+   same SHA-based reporting for third-party CI on merge groups (["Triggering
+   merge group checks with third-party CI providers"](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue#triggering-merge-group-checks-with-third-party-ci-providers)).
+   The servicer is correct under both hypotheses: if GitHub ever does start
+   `merge_group` runs for such an entry, the head-SHA lookup finds them and
+   nothing is dispatched twice. Human-enqueued entries are never touched. The
+   5-minute cadence is what the timeout leaves room for: a fail-open run on
+   this repo takes roughly 15-55 minutes, and it has to start and finish
+   inside 90. `service_bot_merge_queue_test.sh` pins the servicer's decisions
+   against a stub `gh`. The workflow's own `pull_request` rehearsal runs the
+   real script in `--dry-run` against the live queue under its own
+   `GITHUB_TOKEN`, which proves the token can read the queue.
+   `check_release_pr_wiring.sh` keeps the servicer scheduled, permitted to
+   dispatch, and dispatching exactly the workflows every bot-PR caller
+   dispatches for its own branch. **What only the first real bot PR through
+   the queue can prove** is that the queue accepts the dispatched runs' check
+   results for the merge group. If it ever does not, the entry is evicted
+   after 90 minutes (the servicer's run log shows the dispatch), and
+   `release-freshness.yml` turns red once the release is overdue. The fallback
+   then is the App-token arming the reports above use, which is an owner
+   action.
+
+**The caveat that applies with or without the queue, found by PR #881's
+review (finding 2): auto-merge itself.** The first analysis checked the wrong
+mechanic for whether the PUSH that lands the release merge can be trusted to
+trigger anything. `gh pr merge --auto` ENABLES GitHub's native auto-merge (or,
+under the queue, "add to the merge queue when ready"); the actual merge is
+performed later, by GitHub itself, once the required checks go green, not
+synchronously inside any workflow run. Multiple independent real-world reports confirm that when
 auto-merge was *armed* with `GITHUB_TOKEN`, as it is here, that later merge's
 push is STILL credited to `GITHUB_TOKEN` and the recursion guard still
 suppresses any `on: push` run for it — not a hypothetical edge case, the
@@ -160,15 +217,22 @@ push to main / recurring schedule (every 15 min) / workflow_dispatch
        │    │         its PR, dispatch ci.yml + regression-gates.yml (produces
        │    │         the 19 required contexts against this branch's head SHA
        │    │         — see mechanic 2 above), arm `gh pr merge --auto --squash`
-       │    │         with the commit subject/body PINNED to the exact release
-       │    │         message
+       │    │         (under the merge queue: "enqueue when ready"; the queue
+       │    │         ignores the subject/body/method it also sends)
        │    └ No tag, GitHub Release or publish dispatch happens here.
+       │
+       │  … the PR's checks pass → GitHub enqueues it for `github-actions` →
+       │  its merge group starts no `merge_group` run →
+       │  bot-merge-queue.yml (every 5 min) dispatches ci.yml +
+       │  regression-gates.yml onto `gh-readonly-queue/main/pr-<N>-<sha>` →
+       │  the queue squash-merges `chore(release): X.Y.Z (#N)` onto main
        │
        └─ `finish-release` job (no `test` dependency; seconds) — Phase 2, runs
           on push, schedule AND a real workflow_dispatch:
             ├─ finish_release.sh: scans every commit since the last `vX.Y.Z`
             │    tag (oldest first) for one whose subject matches
-            │    `chore(release): X.Y.Z` — NOT merely whether HEAD itself
+            │    `chore(release): X.Y.Z`, with or without the queue's ` (#N)`
+            │    — NOT merely whether HEAD itself
             │    matches (PR #881 review, round 2, finding 1: a commit
             │    landing in the gap between the release-PR merge and the
             │    next 15-minute poll tick moves HEAD off the release commit;
@@ -212,8 +276,10 @@ No tag, GitHub Release or publish dispatch happens until the PR in Phase 1
 has actually merged through the normal required-checks path. `workflow_dispatch`'s
 `dry_run` input (default `true`) rehearses Phase 1's computation with zero
 side effects on any branch, the same shape go-release.yml/pubdev-release.yml
-already use; it does not rehearse `finish-release` (nothing to rehearse —
-that job either sees a release-commit HEAD or it doesn't).
+already use; it does not rehearse `finish-release`, which only reads `main`'s
+own history. That job's decisions (which commit is a release, both subject
+shapes, the gap-commit race, idempotent re-polls) are pinned instead by
+`finish_release_test.sh` against throwaway repos.
 
 **The freshness alarms** — two independent, differently-scheduled ones, not
 to be confused with each other:
@@ -308,6 +374,16 @@ the apostrophe bug above.
    in `tools/release/check_release_pr_wiring.sh`, the same style as the
    `coverage-study.yml` scope-pinning finding 3 added below.
 
+**PR #881's round-3 review**: finding 1 (the merge queue) is "The merge queue"
+above. Finding 4 is that `check_release_freshness.sh` had two production
+`|| true`s, against the §3a ban (docs/TESTING_STRATEGY.md, #694). The second
+one swallowed a failing `gh pr list` together with its stderr, so a STALE
+alert answered "Open release PR: NONE" when it did not actually know. The
+alert now says `UNKNOWN (gh pr list failed …)` and keeps gh's error on the
+log (`check_release_freshness_live_test.sh` test 2c). The first, `git
+describe`, now names its one expected failure ("no `v*` tag yet") the way
+`finish_release.sh` does (test 4).
+
 **Issue #879, same defect one level down — Go fixed here, pub.dev still
 open.** `pubdev-release.yml` (nine Dart packages) and `go-release.yml` (the Go
 module line) each used to run a REAL (non-dry-run) `semantic-release` of their
@@ -338,18 +414,25 @@ scopes `open_bot_pr.sh` needs (`contents`/`pull-requests`/`actions: write` —
 `contents: write` alone 403s on the first `gh pr` call), AND (round 2,
 finding 2) that `release-freshness.yml`'s `freshness` job's `permissions:`
 block grants `contents: write` + `pull-requests: read` (`contents: read`
-alone 403s `semantic-release`'s `verifyAuth()` dry-run push);
+alone 403s `semantic-release`'s `verifyAuth()` dry-run push), AND (round 3,
+finding 1) that `bot-merge-queue.yml` is scheduled, runs
+`service_bot_merge_queue.sh` with `actions: write`, and that the servicer's
+`REQUIRED_CHECK_WORKFLOWS` equals every bot-PR caller's `--dispatch` set (a
+third required-check workflow added to the callers only would let a bot PR's
+own checks pass while its merge group never reports that context);
 `tools/release/check_release_dispatch_wiring.sh` (and its Go/pub.dev
 siblings) assert the four downstream dispatches are gated on
 `steps.finish.outputs.newly_tagged`, not `is_release` (a poll ticking on an
 already-tagged HEAD must not re-fire them); `tools/release/check_release_freshness.sh
 --self-test` proves the alarm's classifier in isolation; and
 `tools/release/test/{release_pr_lib_test.mjs,apply_version_bump_test.mjs,
-open_bot_pr_test.sh,finish_release_test.sh,check_release_freshness_live_test.sh}`
-exercise the file-mutation logic, the shared PR-opening/release-finishing
-scripts, and the freshness alarm's live path end-to-end against throwaway
-local git repos and a stubbed `gh` (zero network, zero real credentials) —
-all five run in `ci.yml`'s `Proto Checks` job on every PR.
+apply_changelog_bump_test.mjs,open_bot_pr_test.sh,finish_release_test.sh,
+finish_go_release_test.sh,check_release_freshness_live_test.sh,
+service_bot_merge_queue_test.sh}` exercise the file-mutation logic, the shared
+PR-opening/release-finishing scripts (both lanes, both subject shapes), the
+freshness alarm's live path, and the merge-queue servicer end-to-end against
+throwaway local git repos and a stubbed `gh` (zero network, zero real
+credentials). All of them run in `ci.yml`'s `Proto Checks` job on every PR.
 
 ## npm lane (@ball-lang/engine, cli, compiler, encoder)
 
@@ -728,14 +811,18 @@ push to main
                     ci.yml + regression-gates.yml so the PR's required checks
                     actually run (workflow_dispatch — the one event
                     GITHUB_TOKEN's recursion guard still fires for), arms
-                    `gh pr merge --auto`
+                    `gh pr merge --auto`; once those pass, GitHub enqueues it
+                    for `github-actions` and bot-merge-queue.yml dispatches
+                    its merge group's required checks (see "The merge queue"
+                    in "Release via PR" above)
 
 main (push, every 15 min schedule, or real workflow_dispatch)
   └► go-release.yml: finish-release job (Phase 2, independent job — no `test`
        dependency, runs in seconds)
        └─ finish_go_release.sh: scans every commit since the last
           go-modules/vX.Y.Z tag (oldest first) for a "chore(release): go
-          vA.B.C" release-PR-merge commit — never HEAD alone, so a commit
+          vA.B.C" release-PR-merge commit, bare or with the merge queue's
+          " (#N)" suffix — never HEAD alone, so a commit
           landing in the gap between the merge and the next poll tick is
           still found (the release.yml Phase 2 rationale, verbatim)
             ├─ tags THAT commit go-modules/vA.B.C, pushes the tag
@@ -1001,6 +1088,20 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
 
 ## Failure recovery
 
+- **A bot PR (`release/next`, `release/go-next`, the coverage-study table)
+  sits at `AWAITING_CHECKS` in the merge queue, or its timeline says it was
+  removed for timing out:** open the `Bot merge-queue checks` runs for that
+  window. If no tick dispatched `ci.yml`/`regression-gates.yml` onto the
+  entry's `gh-readonly-queue/main/pr-<N>-…` branch, the servicer's own log
+  says why (an `::error::` run is red). If it dispatched them and they passed
+  but the queue still timed out, the queue did not accept workflow-dispatched
+  results for the merge group. That premise is the one only a live run could
+  prove (see "The merge queue" under "Release via PR"), and the fix then is
+  App-token arming, which is an owner action. To land the PR in the meantime,
+  re-arm it yourself (`gh pr merge <N> --auto`): a human-enqueued entry gets
+  ordinary `merge_group` runs. Nothing re-arms an evicted bot PR on its own,
+  by design. An automatic retry of a deterministic failure would jam the
+  queue for 90 minutes after every push to `main`.
 - **publish-npm failed mid-run:** nothing published (all publishes run after
   every build/test step). Fix, merge (the fix itself cuts the next release),
   or re-dispatch manually: `gh workflow run publish-npm.yml --ref vX.Y.Z`.
@@ -1152,6 +1253,9 @@ another.
 | `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |
 | `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version. Plus, via `check_published_siblings.py`, an upload that resolves *cleanly* and is still wrong: a Ball sibling resolved older than the release tag's tree declares | anything about packages this run did not publish |
 | `tools/release/resolve_published.py` | every PR (`--self-test`, `Proto Checks`) + both read-back steps of every publish | the read-back **misreading its own failure**: giving up while pub.dev is still indexing the upload — the package's own (#568) or a lockstep sibling's (#574), both a red verify job on a correct release — or sitting out a 15-minute budget on a permanent sibling-pin conflict instead of reporting it at once | whether the package is semantically right — that is `check_published_siblings.py`'s job |
+| `tools/release/check_release_pr_wiring.sh` | every PR (`Proto Checks`) + its own `--self-test` | the release-via-PR **shape** (#755): any workflow pushing a commit straight to `main` again, the root/coverage-study call sites losing the shared helpers or the permissions they need, `release-freshness.yml` losing the scopes `verifyAuth()` needs, and the merge-queue servicer going unscheduled or dispatching a different workflow set than the bot-PR callers (round 3) | whether a release actually landed — entirely static |
+| `.github/workflows/bot-merge-queue.yml` (`service_bot_merge_queue.sh`) | every 5 minutes + a `pull_request` rehearsal (`--dry-run` against the live queue) | a bot PR's **merge group that can never report**: enqueued for `github-actions`, so no `merge_group` run starts and the entry would block the whole queue for the 90-minute timeout. Its exit is red when the queue cannot be read or an entry awaiting checks has no queue branch at its head | whether the queue accepts the dispatched runs' results. Only the first real bot PR through the queue proves that (see "The merge queue" in "Release via PR") |
+| `.github/workflows/release-freshness.yml` (`check_release_freshness.sh`) | weekly + dispatch | the **root release line stalling** for any reason: a releasable commit on `main` older than the grace window (24 h) with no `vX.Y.Z` tag to show for it, naming the open `release/next` PR (or saying the lookup failed) | why it stalled; it alarms, it does not act |
 
 The 30-day staleness bound is a judgement call, not a release cadence: it says
 "if this package's code has been moving for over a month and pub.dev has not,

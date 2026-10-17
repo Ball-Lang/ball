@@ -195,7 +195,9 @@ bash tools/go-module-proxy/smoke.sh
 # Move the Go module line (the version the go/<module>/vX.Y.Z tags carry). You
 # normally do NOT run this: the Go module version is its own semantic-release
 # line (.github/release/go.releaserc.json + .github/workflows/go-release.yml,
-# dispatched by release.yml), and its prepareCmd runs exactly this script — so a
+# dispatched by release.yml), computed by a DRY RUN, and
+# tools/release/open_go_release_pr.sh runs exactly this script on the
+# auto-merging `chore(release): go vX.Y.Z` PR it opens (#879) — so a
 # feat(go):/fix(go): merge moves the published line with no human step (#361).
 # The number lives in NINE places — six go/*/go.mod require blocks, go/go.work's
 # five replace pins, tools/coverage-study/go, and go/cli/version.go's
@@ -516,12 +518,18 @@ carries no compiled engine at all; Go tags are immutable once fetched through pr
 (a moved tag is a checksum mismatch for consumers), so they are not re-cut — **`v0.2.0` is the
 first line carrying the committed engine and CLI core**. The line MOVES ON ITS OWN: it is a
 semantic-release version line (`.github/release/go.releaserc.json` + `.github/workflows/go-release.yml`,
-dispatched by `release.yml`, tags `go-modules/vX.Y.Z`), computed from `go/`-path commits, whose
-prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh` and whose publishCmd dispatches
-`tag-go-modules.yml` — the SINGLE tagging path — at that tag **and waits for that run to finish**
+dispatched by `release.yml`, tags `go-modules/vX.Y.Z`), computed from `go/`-path commits by a DRY
+RUN and, since #879, landed through an auto-merged PR rather than a push to `main` (which the
+`Protect main` ruleset rejects): Phase 1 (`tools/release/open_go_release_pr.sh`) runs
+`tools/go-module-proxy/bump_go_modules.sh` on a `release/go-next` branch and arms auto-merge;
+Phase 2 (`tools/release/finish_go_release.sh`, once that PR has merged through the merge queue)
+tags `go-modules/vX.Y.Z` and dispatches `tag-go-modules.yml` — the SINGLE tagging path — at that
+tag **and waits for that run to finish**
 (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any non-`success`
 conclusion — #627; the run it waits for must be strictly newer than the newest one on that ref
 before the dispatch, so a manual repair re-dispatch cannot answer for the next release — #656).
+The bot PR's merge group gets its required checks from `bot-merge-queue.yml`, because a
+`GITHUB_TOKEN`-enqueued merge group starts no `merge_group` run (docs/RELEASE.md, "Release via PR").
 Until #361's second half the tagging
 was automatic but the version was a human's `chore(go):` PR, so every release re-tagged v0.1.0 and
 passed; `tools/release/check_go_release_wiring.sh` is the guard on that shape, and

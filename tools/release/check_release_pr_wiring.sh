@@ -170,7 +170,8 @@ check_scripts_exist() {
   local script
   for script in \
     open_bot_pr.sh open_release_pr.sh finish_release.sh \
-    compute_next_release.mjs apply_version_bump.mjs check_release_freshness.sh; do
+    compute_next_release.mjs apply_version_bump.mjs check_release_freshness.sh \
+    service_bot_merge_queue.sh; do
     if [ -f "$ROOT/tools/release/$script" ]; then
       ok "tools/release/$script exists"
     else
@@ -222,6 +223,64 @@ check_freshness_alarm_permissions() {
   fi
 }
 
+# PR #881 review round 3, finding 1: `main` requires a merge queue, and a bot
+# PR whose auto-merge `GITHUB_TOKEN` armed is enqueued on behalf of
+# `github-actions` — a merge group that starts no `merge_group` workflow run.
+# tools/release/service_bot_merge_queue.sh (run on a schedule by
+# bot-merge-queue.yml) dispatches the required-check workflows onto it instead.
+# This pins (a) that the servicer is actually scheduled, runs that script, and
+# may dispatch; and (b) that the workflows it dispatches for a merge group are
+# EXACTLY the ones each bot-PR caller dispatches for its own branch — if a
+# third workflow ever starts owning a required context and is added to the
+# callers only, the bot PR's own checks would pass and its merge group would
+# still never report that context.
+check_merge_queue_servicer() {
+  local wf="$1" servicer="$2"
+  shift 2
+  [ -f "$wf" ] || {
+    no "bot-merge-queue.yml exists at $wf"
+    return
+  }
+  [ -f "$servicer" ] || {
+    no "service_bot_merge_queue.sh exists at $servicer"
+    return
+  }
+
+  if grep -Eq '^[[:space:]]*-[[:space:]]*cron:' "$wf"; then
+    ok "bot-merge-queue.yml runs on a schedule"
+  else
+    no "bot-merge-queue.yml runs on a schedule (a bot merge group nobody services blocks the queue for 90 minutes)"
+  fi
+  if grep -q 'tools/release/service_bot_merge_queue.sh' "$wf"; then
+    ok "bot-merge-queue.yml runs tools/release/service_bot_merge_queue.sh"
+  else
+    no "bot-merge-queue.yml runs tools/release/service_bot_merge_queue.sh"
+  fi
+  if grep -qF 'actions: write' "$wf"; then
+    ok "bot-merge-queue.yml grants actions: write (gh workflow run)"
+  else
+    no "bot-merge-queue.yml grants actions: write (its gh workflow run dispatches 403 without it)"
+  fi
+
+  local want
+  want="$(sed -n 's/^REQUIRED_CHECK_WORKFLOWS=(\(.*\))$/\1/p' "$servicer" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+  if [ -z "$want" ]; then
+    no "service_bot_merge_queue.sh declares REQUIRED_CHECK_WORKFLOWS=(…) on one line (nothing to compare)"
+    return
+  fi
+  local caller got
+  for caller in "$@"; do
+    got="$(grep -oE -- '--dispatch [^[:space:]\\]+' "$caller" | awk '{print $2}' | sort | tr '\n' ' ')"
+    if [ -z "$got" ]; then
+      no "$(basename "$caller") passes --dispatch to open_bot_pr.sh (found none)"
+    elif [ "$got" = "$want" ]; then
+      ok "$(basename "$caller")'s --dispatch set ($got) matches the merge-queue servicer's"
+    else
+      no "$(basename "$caller")'s --dispatch set ($got) matches the merge-queue servicer's REQUIRED_CHECK_WORKFLOWS ($want)"
+    fi
+  done
+}
+
 run_checks() {
   local workflows_dir="$1"
   check_no_direct_push_to_main "$workflows_dir"
@@ -229,6 +288,11 @@ run_checks() {
   check_release_yml_wiring "$workflows_dir/release.yml"
   check_coverage_study_wiring "$workflows_dir/coverage-study.yml"
   check_freshness_alarm_permissions "$workflows_dir/release-freshness.yml"
+  check_merge_queue_servicer "$workflows_dir/bot-merge-queue.yml" \
+    "$ROOT/tools/release/service_bot_merge_queue.sh" \
+    "$ROOT/tools/release/open_release_pr.sh" \
+    "$ROOT/tools/release/open_go_release_pr.sh" \
+    "$workflows_dir/coverage-study.yml"
 }
 
 self_test() {
@@ -398,9 +462,78 @@ EOF
     echo "FAIL  self-test: negative control — a freshness job granting both scopes passes (got pass=$goodfresh_pass fail=$goodfresh_fail)"
   fi
 
+  # Negative controls for check_merge_queue_servicer: a servicer whose list
+  # drifted from the callers', and a workflow that is no longer scheduled,
+  # are each caught; the matching pair passes.
+  cat > "$tmp/servicer.sh" <<'EOF'
+REQUIRED_CHECK_WORKFLOWS=(ci.yml regression-gates.yml)
+EOF
+  cat > "$tmp/servicer-drifted.sh" <<'EOF'
+REQUIRED_CHECK_WORKFLOWS=(ci.yml)
+EOF
+  cat > "$tmp/caller.sh" <<'EOF'
+"$HERE/open_bot_pr.sh" \
+  --branch release/next \
+  --dispatch ci.yml \
+  --dispatch regression-gates.yml \
+  --merge-method squash
+EOF
+  cat > "$tmp/good-servicer.yml" <<'EOF'
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+jobs:
+  service:
+    permissions:
+      actions: write
+    steps:
+      - run: bash tools/release/service_bot_merge_queue.sh
+EOF
+  cat > "$tmp/unscheduled-servicer.yml" <<'EOF'
+on:
+  workflow_dispatch:
+jobs:
+  service:
+    permissions:
+      actions: write
+    steps:
+      - run: bash tools/release/service_bot_merge_queue.sh
+EOF
+
+  pass=0
+  fail=0
+  check_merge_queue_servicer "$tmp/good-servicer.yml" "$tmp/servicer.sh" "$tmp/caller.sh"
+  local goodsvc_pass=$pass goodsvc_fail=$fail
+  if [ "$goodsvc_fail" -eq 0 ] && [ "$goodsvc_pass" -eq 4 ]; then
+    echo "PASS  self-test: negative control — a scheduled servicer whose list matches the caller passes"
+  else
+    echo "FAIL  self-test: negative control — a scheduled servicer whose list matches the caller passes (got pass=$goodsvc_pass fail=$goodsvc_fail, want pass=4 fail=0)"
+  fi
+
+  pass=0
+  fail=0
+  check_merge_queue_servicer "$tmp/good-servicer.yml" "$tmp/servicer-drifted.sh" "$tmp/caller.sh"
+  local driftsvc_fail=$fail
+  if [ "$driftsvc_fail" -eq 1 ]; then
+    echo "PASS  self-test: negative control — a servicer dispatching fewer workflows than the caller is caught"
+  else
+    echo "FAIL  self-test: negative control — a servicer dispatching fewer workflows than the caller is caught (got fail=$driftsvc_fail, want 1)"
+  fi
+
+  pass=0
+  fail=0
+  check_merge_queue_servicer "$tmp/unscheduled-servicer.yml" "$tmp/servicer.sh" "$tmp/caller.sh"
+  local unschedsvc_fail=$fail
+  if [ "$unschedsvc_fail" -eq 1 ]; then
+    echo "PASS  self-test: negative control — an unscheduled servicer workflow is caught"
+  else
+    echo "FAIL  self-test: negative control — an unscheduled servicer workflow is caught (got fail=$unschedsvc_fail, want 1)"
+  fi
+
   [ "$real_fail" -eq 0 ] && [ "$neg_fail" -eq 2 ] && [ "$neg_pass" -eq 0 ] && [ "$cleanonly_fail" -eq 0 ] &&
     [ "$dryrun_fail" -eq 2 ] && [ "$dryrun_pass" -eq 0 ] && [ "$dryrunclean_fail" -eq 0 ] && [ "$dryrunclean_pass" -eq 1 ] &&
-    [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ] && [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ]
+    [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ] && [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ] &&
+    [ "$goodsvc_fail" -eq 0 ] && [ "$goodsvc_pass" -eq 4 ] && [ "$driftsvc_fail" -eq 1 ] && [ "$unschedsvc_fail" -eq 1 ]
 }
 
 if [ "${1:-}" = "--self-test" ]; then

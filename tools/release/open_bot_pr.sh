@@ -25,6 +25,25 @@
 # of which event produced the check run — the same mechanism that lets a
 # human unblock a PR by re-running a required workflow manually.
 #
+# UNDER `main`'S MERGE QUEUE (ruleset 17056238's `merge_queue` rule, #756),
+# two more things follow from that same token (PR #881 review round 3):
+#   * `--merge-method`, `--merge-subject` and `--merge-body-file` are IGNORED.
+#     GitHub's own schema says so for every field `gh pr merge --auto` sends
+#     (EnablePullRequestAutoMergeInput: "when merging with a merge queue any
+#     input value for commit headline is ignored", likewise body and method);
+#     the queue's SQUASH and the repository default message apply, so a
+#     single-commit PR lands as "<its commit subject> (#<PR number>)" with
+#     that commit's body. That is why the callers' release commits carry the
+#     exact release subject and notes themselves, and why finish_release.sh /
+#     finish_go_release.sh accept the " (#N)" suffix. The flags still apply
+#     if the queue is ever removed.
+#   * once the PR's checks pass, GitHub enqueues it on behalf of
+#     `github-actions`, and that merge group's `merge_group` event starts no
+#     workflow run. tools/release/service_bot_merge_queue.sh (run every five
+#     minutes by bot-merge-queue.yml) dispatches the same `--dispatch`
+#     workflows onto the merge group's branch; check_release_pr_wiring.sh
+#     keeps its list identical to every caller's.
+#
 # Usage:
 #   open_bot_pr.sh --branch <name> --title <title> --body-file <path> \
 #     [--dispatch <workflow.yml>]... \
@@ -107,6 +126,8 @@ for wf in ${DISPATCH[@]+"${DISPATCH[@]}"}; do
   echo "::endgroup::"
 done
 
+# Under a merge queue, gh turns this into "add to the queue when ready" and the
+# method/subject/body below are ignored (see this file's header).
 echo "::group::arm auto-merge on PR #$PR_NUM"
 MERGE_ARGS=(pr merge "$PR_NUM" --repo "$REPO" --auto "$MERGE_FLAG")
 [ -n "$MERGE_SUBJECT" ] && MERGE_ARGS+=(--subject "$MERGE_SUBJECT")

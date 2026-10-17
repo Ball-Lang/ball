@@ -3,32 +3,29 @@
 # PR"): runs from its own `finish-release` job in
 # `.github/workflows/release.yml` on every `push`, on a recurring `schedule`,
 # and on a real (non-dry-run) `workflow_dispatch`. Finds the OLDEST commit
-# since the last `vX.Y.Z` tag whose subject is a release-PR merge
-# (`chore(release): X.Y.Z`, written and pinned by
-# tools/release/open_release_pr.sh's `--merge-subject`), and if one exists —
-# ONLY then — tags it, creates the GitHub Release, and (via this script's
-# caller) dispatches the four downstream publish workflows (npm/C++/Go/
-# pub.dev). No such commit anywhere in that range is a true no-op
-# (`is_release=false`).
+# since the last `vX.Y.Z` tag whose subject is a release-PR merge —
+# `chore(release): X.Y.Z`, the subject tools/release/open_release_pr.sh
+# commits, optionally followed by the ` (#N)` that `main`'s merge queue
+# appends (see RELEASE_SUBJECT_RE below) — and if one exists — ONLY then —
+# tags it, creates the GitHub Release, and (via this script's caller)
+# dispatches the four downstream publish workflows (npm/C++/Go/pub.dev). No
+# such commit anywhere in that range is a true no-op (`is_release=false`).
 #
 # WHY `schedule` EXISTS AND `push` CANNOT BE TRUSTED ALONE (PR #881 review
 # finding 2): `tools/release/open_bot_pr.sh` arms the release PR's auto-merge
 # with `gh pr merge --auto`, authenticated with this workflow's own
 # `GITHUB_TOKEN`. GitHub's recursion guard ("events triggered by the
 # GITHUB_TOKEN... will not create a new workflow run") is not limited to
-# actions a workflow performs synchronously — it also covers the merge
-# GitHub itself performs later, once the required checks go green, when that
-# merge was *armed* with `GITHUB_TOKEN`. Confirmed against multiple
-# independent real-world reports of exactly this shape (native `gh pr merge
-# --auto`, not a merge queue) — see docs/RELEASE.md's "Release via PR"
-# section for the citations. So the push that lands the release-PR merge on
-# `main` is credited to `GITHUB_TOKEN` and triggers NO `on: push` workflow
-# run at all — not "sometimes missed", but essentially the one push this
-# script exists to react to is, by construction, the one push whose trigger
-# never fires. `push` stays wired (a human- or Dependabot-merged `main`, or a
-# ruleset change that stops suppressing the auto-merge push, both still work
-# through it) but the `schedule` poll is the mechanism this line actually
-# depends on.
+# actions a workflow performs synchronously — it also covers what GitHub
+# itself does later on behalf of an auto-merge *armed* with `GITHUB_TOKEN`:
+# the merge-queue entry it creates (whose `merge_group` event starts no
+# workflow run, which is why tools/release/service_bot_merge_queue.sh exists)
+# and the merge that lands it. See docs/RELEASE.md's "Release via PR" section
+# for the citations. So the push that lands the release-PR merge on `main`
+# cannot be relied on to trigger an `on: push` run — essentially the one push
+# this script exists to react to is the one push whose trigger is suppressed.
+# `push` stays wired (a human-merged `main` still works through it) but the
+# `schedule` poll is the mechanism this line actually depends on.
 #
 # WHY HEAD ALONE IS NOT ENOUGH (PR #881 review, round 2, finding 1): the
 # `schedule` poll above only runs every 15 minutes, and GitHub documents that
@@ -86,7 +83,27 @@ set -euo pipefail
 ROOT="${BALL_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 
-RELEASE_SUBJECT_RE='^chore\(release\):[[:space:]]+([^[:space:]]+)$'
+# The release-PR merge's subject, in BOTH shapes it can land on `main` in:
+#   chore(release): 1.73.0          — a plain squash honouring the subject
+#                                     open_release_pr.sh pins (no merge queue);
+#   chore(release): 1.73.0 (#912)   — what `main`'s merge queue actually
+#                                     writes (ruleset 17056238's `merge_queue`
+#                                     rule, merge_method SQUASH). GitHub's own
+#                                     schema says a queue IGNORES the
+#                                     commitHeadline/commitBody/mergeMethod
+#                                     `gh pr merge --auto` sends
+#                                     (EnablePullRequestAutoMergeInput), so the
+#                                     repository default applies — for a
+#                                     single-commit PR, that commit's subject
+#                                     followed by " (#<PR number>)" (every
+#                                     queue-merged commit on main has it, e.g.
+#                                     009fad1c "… (#905)").
+# PR #881 review round 3, finding 1: the `$`-anchored bare-version pattern
+# rejected the second shape, so the live lane never tagged anything. The
+# version must start with a digit, so the Go lane's own
+# `chore(release): go vX.Y.Z (#N)` commits (finish_go_release.sh) can never
+# read as a root release.
+RELEASE_SUBJECT_RE='^chore\(release\):[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+[^[:space:]]*)([[:space:]]+\(#[0-9]+\))?$'
 
 # Nearest `vX.Y.Z` tag reachable from HEAD, or "" for a repo with none yet
 # (the very first release). Deliberately NOT `|| true`: a non-matching

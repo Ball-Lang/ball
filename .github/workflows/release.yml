@@ -15,10 +15,14 @@ name: Release
 #     auto-merging PR carrying the version-bump commit on a `release/next`
 #     branch. Gated behind the `test` job (several minutes).
 #   Phase 2 (the `finish-release` job, tools/release/finish_release.sh)
-#     detects whether the current `main` HEAD is a release PR that just
-#     merged, and ONLY then tags it, creates the GitHub Release, and
-#     dispatches the four downstream publish workflows. No `test` dependency
-#     — it is cheap (git + gh only) and runs in seconds.
+#     scans every commit since the last `vX.Y.Z` tag for the oldest
+#     release-PR merge (`chore(release): X.Y.Z`, with or without the
+#     ` (#N)` the merge queue appends), and ONLY when it finds one tags THAT
+#     commit, creates the GitHub Release, and dispatches the four downstream
+#     publish workflows. A scan, not a HEAD check, because another merge can
+#     land between the release merge and the next poll tick (PR #881 review
+#     round 2). No `test` dependency — it is cheap (git + gh only) and runs in
+#     seconds.
 #
 # WHY A JOB SPLIT, NOT JUST A STEP REORDER: the original shape ran Phase 1
 # BEFORE Phase 2 as two steps of one job. On the one push whose HEAD actually
@@ -38,25 +42,27 @@ name: Release
 #
 # WHY `schedule` EXISTS (PR #881 review finding 2): `finish-release` also
 # needs to run for the ONE push `push: branches:[main]` structurally cannot
-# see. `tools/release/open_bot_pr.sh` arms the release PR's merge with
-# `gh pr merge --auto`, authenticated with this workflow's own `GITHUB_TOKEN`.
-# GitHub's documented recursion guard ("events triggered by the GITHUB_TOKEN
-# ... will not create a new workflow run") is not limited to actions a
-# workflow performs synchronously — multiple independent real-world reports
-# confirm it also covers the merge GitHub performs later, once checks go
-# green, when that merge was armed with GITHUB_TOKEN (see docs/RELEASE.md's
-# "Release via PR" section for citations; this is a DIFFERENT, more common
-# mechanic than the merge-queue caveat that section already discussed). So
-# the push that actually lands the release merge is credited to GITHUB_TOKEN
-# and triggers no `on: push` run at all. The `schedule` trigger below is the
-# real mechanism `finish-release` depends on; `push` stays wired as a cheap
-# fallback for a human- or Dependabot-merged `main`.
+# be trusted to see. `tools/release/open_bot_pr.sh` arms the release PR's merge
+# with `gh pr merge --auto`, authenticated with this workflow's own
+# `GITHUB_TOKEN`. GitHub's documented recursion guard ("events triggered by
+# the GITHUB_TOKEN ... will not create a new workflow run") is not limited to
+# actions a workflow performs synchronously — it also covers what GitHub does
+# later on behalf of an auto-merge ARMED with GITHUB_TOKEN (see
+# docs/RELEASE.md's "Release via PR" section for citations): the merge-queue
+# entry it creates (whose `merge_group` event starts no run, so
+# bot-merge-queue.yml dispatches that entry's required checks instead — PR
+# #881 review round 3) and the merge that lands it. So the push that actually
+# lands the release merge cannot be relied on to trigger an `on: push` run.
+# The `schedule` trigger below is the real mechanism `finish-release` depends
+# on; `push` stays wired as a cheap fallback for a human-merged `main`.
 #
 # `workflow_dispatch`'s `dry_run` input rehearses Phase 1's computation on ANY
 # branch with zero side effects (no branch push, no PR, no tag, no release,
 # no dispatch) — the same shape go-release.yml/pubdev-release.yml already
-# use. It does NOT rehearse `finish-release` (nothing to rehearse — that job
-# either sees a release-commit HEAD or it doesn't).
+# use. It does NOT rehearse `finish-release`: that job only reads `main`'s own
+# history, and its decision logic is pinned by
+# tools/release/test/finish_release_test.sh (ci.yml's Proto Checks job)
+# against throwaway repos carrying both subject shapes.
 on:
   push:
     branches: [main]
@@ -215,9 +221,10 @@ jobs:
   # Independent of `test`/`release` above by design: it must run even when
   # the `schedule` recovery poll is the only thing that triggered this
   # workflow (PR #881 review finding 2), and it must be cheap enough to poll
-  # every 15 minutes forever. Detects whether `main`'s current HEAD is a
-  # release PR that just merged, and ONLY then tags it, creates the GitHub
-  # Release, and dispatches the four downstream publish workflows.
+  # every 15 minutes forever. Finds the oldest untagged release-PR merge since
+  # the last `vX.Y.Z` tag (anywhere in that range, not just at HEAD), and ONLY
+  # then tags it, creates the GitHub Release, and dispatches the four
+  # downstream publish workflows.
   # ──────────────────────────────────────────────────
   finish-release:
     name: Finish a merged release PR
@@ -257,12 +264,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      # Detect whether HEAD is a release PR that just merged, and if so tag
-      # it + create the GitHub Release. `newly_tagged` — NOT `is_release`,
-      # which stays true on every idempotent poll of the same already-tagged
-      # HEAD — drives the four downstream dispatches below, so a recovery
-      # poll ticking on an already-finished release does not re-dispatch
-      # every publish workflow again.
+      # Find the oldest untagged release-PR merge since the last `vX.Y.Z` tag,
+      # and if there is one, tag it + create the GitHub Release. `newly_tagged`
+      # — NOT `is_release`, which stays true on every idempotent poll after
+      # that release is finished — drives the four downstream dispatches
+      # below, so a recovery poll ticking on an already-finished release does
+      # not re-dispatch every publish workflow again.
       - name: Phase 2 — finish a release PR that just merged
         id: finish
         env:
@@ -304,16 +311,18 @@ jobs:
       # `bump_go_modules.sh` in a `chore(go):` PR, every release re-ran it and it
       # idempotently reported "all six tags already exist, nothing to do" — a
       # pass, indistinguishable from a healthy lane, while `go install …@latest`
-      # stayed on v0.1.0. go-release.yml now computes that version with
-      # semantic-release from `go/`-path commits and dispatches the tagger
-      # itself, from `.github/release/go.releaserc.json`'s publishCmd (#361).
+      # stayed on v0.1.0. go-release.yml now computes that version itself, with
+      # a semantic-release DRY RUN over `go/`-path commits (#361), and lands it
+      # the same way this file lands the root version (#879): this dispatch
+      # starts go-release.yml's Phase 1 (`open-release-pr`, dry_run defaults
+      # false), which opens an auto-merging `chore(release): go vX.Y.Z` PR;
+      # go-release.yml's own `finish-release` job — on its own schedule, not
+      # this one — tags `go-modules/vX.Y.Z` once that PR has merged and then
+      # dispatches-and-awaits tag-go-modules.yml for the six module tags.
       #
-      # `--ref main`, not the vX.Y.Z tag the three dispatches above use, and for
-      # the same reason as the pub.dev dispatch below: those build a released
-      # tree, this one RUNS semantic-release, whose @semantic-release/git step
-      # pushes commits and tags to a BRANCH. It runs after this job's own push
-      # has landed, and shares a concurrency group with pubdev-release.yml so
-      # the two never push to main at once.
+      # `--ref main`, not the vX.Y.Z tag the three dispatches above use: those
+      # build a released tree, while Phase 1 computes the next Go version from
+      # main's whole tag history and forks its release branch from main.
       - name: Dispatch the Go module release
         if: steps.finish.outputs.newly_tagged == 'true'
         env:
@@ -330,8 +339,9 @@ jobs:
       #
       # `--ref main`, not the vX.Y.Z tag the three dispatches above use: those
       # build a released tree, this one RUNS semantic-release, whose
-      # @semantic-release/git step pushes commits and tags to a BRANCH. It runs
-      # after this step so it never races this job's own push to main.
+      # @semantic-release/git step pushes commits and tags to a BRANCH (still
+      # straight to main — the pub.dev half of #879, not fixed here). This job
+      # itself pushes only the `vX.Y.Z` tag, never a commit to main.
       #
       # This replaced the Melos rolling-release-PR lane, whose one human step
       # (squash-merging that PR) stopped happening for two months while every

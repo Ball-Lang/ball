@@ -570,19 +570,19 @@ cargo fmt --check && cargo clippy --workspace
   parens/deref/field/index, `write_root_name`) resolves to an `Opaque` alias, naming the alias, the
   place and #692. A `&mut` of a variable that is itself `Opaque` inherits the opaqueness rather
   than becoming a modelled alias of the copy — pinned by
-  `opaque_alias_of_an_opaque_alias_is_still_refused` (#736): removing that inheritance arm
-  silently re-encodes the nested borrow as a lost write instead of refusing it. A SHARED `&p.x`
-  is never `Opaque`: Rust cannot write through a `&T`, so there is nothing to lose. **A `&mut` of
-  a MULTI-SEGMENT path** (`&mut m::S`, a `static mut`/`const` reached through a module
-  qualifier) is `Opaque` too (#736) — `block.rs::borrowed`'s `syn::Expr::Path` arm used to answer
-  bare `None` the moment `path.get_ident()` failed, which this crate's own `other if
+  `a_write_through_a_mut_borrow_of_an_already_opaque_alias_is_refused_too` (#736): removing that
+  inheritance arm silently re-encodes the nested borrow as a lost write instead of refusing it.
+  A SHARED `&p.x` is never `Opaque`: Rust cannot write through a `&T`, so there is nothing to
+  lose. **A `&mut` of a MULTI-SEGMENT path** (`&mut m::S`, a `static mut`/`const` reached through
+  a module qualifier) is `Opaque` too (#736) — `block.rs::borrowed`'s `syn::Expr::Path` arm used
+  to answer bare `None` the moment `path.get_ident()` failed, which this crate's own `other if
   reference.mutability.is_some()` catch-all can never reach (a matched `syn::Expr::Path` arm owns
   the whole match), so the alias went unrecorded and a write through it landed on a silent copy —
   no refusal at all, worse than the single-segment case. Guards:
   `rust/encoder/tests/mut_borrow_writes.rs` — four refused write shapes and four controls (a
   read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing),
-  plus #736's `opaque_alias_of_an_opaque_alias_is_still_refused` and
-  `a_mut_borrow_of_a_multi_segment_path_is_refused_not_silently_lost`.
+  plus #736's `a_write_through_a_mut_borrow_of_an_already_opaque_alias_is_refused_too` and
+  `a_write_through_a_mut_borrow_of_a_multi_segment_path_is_refused_too`.
   **And so does a MUTATING METHOD CALL through such a borrow (#775).** An assignment is not the
   only way to mutate: `let s = &mut v[0]; s.push(x);` encodes as
   `std_collections.list_push(list: <receiver>, value: x)`, `list_push` appends IN PLACE

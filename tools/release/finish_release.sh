@@ -96,20 +96,37 @@ if ! LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/nu
 fi
 
 # Prints "<sha> <subject>" for the OLDEST commit in revision range $1 whose
-# subject matches a release-PR merge, or nothing if none do. Always exits 0
-# — "no match" is reported by empty output, never by a failing exit status,
-# so callers never need `|| true` to tolerate it.
+# subject matches a release-PR merge, or nothing if none do; "no match" is
+# reported by empty output with a 0 exit. A FAILING `git log` (bad range,
+# repo corruption) is a distinct, non-zero-exit outcome — deliberately NOT
+# read via a process substitution feeding a `while` loop, which would
+# discard that exit status and make "git log itself could not run"
+# indistinguishable from "no release commit found" (docs/TESTING_STRATEGY.md
+# §3a / issue #694: the whole point of this scan is to decide
+# `is_release`/`newly_tagged`, so a silently-swallowed git failure would be
+# exactly the "verdict loop that cannot tell a clean answer from a checker
+# that never ran" shape that section bans). Capturing the command's own
+# output AND status (§3a shape 2) lets a `git log` failure propagate as this
+# function's own non-zero return, which the caller assigns via
+# `CANDIDATE="$(find_oldest_release_commit …)"` — under `set -e`, that plain
+# assignment aborts the script on a non-zero status, so a `git log` failure
+# here fails the whole run loud rather than silently acting as "nothing to
+# release".
 find_oldest_release_commit() {
-  local range="$1" line sha subject
+  local range="$1" output line sha subject
+  if ! output="$(git log --reverse --format='%H %s' "$range")"; then
+    echo "finish_release: \`git log\` over range '$range' failed — cannot determine whether a release is pending" >&2
+    return 1
+  fi
+  [ -z "$output" ] && return 0
   while IFS= read -r line; do
-    [ -z "$line" ] && continue
     sha="${line:0:40}"
     subject="${line:41}"
     if [[ "$subject" =~ $RELEASE_SUBJECT_RE ]]; then
       printf '%s %s\n' "$sha" "$subject"
       return 0
     fi
-  done < <(git log --reverse --format='%H %s' "$range")
+  done <<< "$output"
   return 0
 }
 

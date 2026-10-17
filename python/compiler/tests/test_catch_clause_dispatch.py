@@ -98,6 +98,20 @@ def test_catch_matches_is_the_reference_engines_rule():
     assert not ballrt.catch_matches(tagged, "other:StateError")
     assert not ballrt.catch_matches(tagged, "ArgumentError")
 
+    # `std.throw` (engine_std.dart) falls back to the single-underscore `__type`
+    # key when `__type__` is absent — issue #823. A map tagged that way must
+    # match a typed clause identically to the double-underscore shape.
+    single_underscore = {"__type": "main:FormatException", "message": "bad"}
+    assert ballrt.catch_matches(single_underscore, "FormatException")
+    assert ballrt.catch_matches(single_underscore, "main:FormatException")
+    assert not ballrt.catch_matches(single_underscore, "other:FormatException")
+    assert not ballrt.catch_matches(single_underscore, "StateError")
+    # `__type__` wins over `__type` when a map carries both (std.throw's own
+    # precedence: `valMap['__type__'] ?? valMap['__type']`).
+    both_keys = {"__type__": "StateError", "__type": "ArgumentError"}
+    assert ballrt.catch_matches(both_keys, "StateError")
+    assert not ballrt.catch_matches(both_keys, "ArgumentError")
+
     # An untagged payload (a thrown string / number / list / bare map) reports
     # std.throw's own default type, `Exception` — engine_std.dart's `throw`.
     for untagged in ("oops", 7, [1, 2], {"message": "x"}, None):

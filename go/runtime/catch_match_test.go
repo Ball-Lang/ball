@@ -24,6 +24,14 @@ func TestCatchMatches(t *testing.T) {
 		{"other module's tag", qualified, "other:StateError", false},
 		{"map __type__ tag", typedMap("FormatException"), "FormatException", true},
 		{"map __type__ tag, wrong clause", typedMap("FormatException"), "StateError", false},
+		// std.throw (engine_std.dart) falls back to the single-underscore
+		// `__type` key when `__type__` is absent (issue #823); a map tagged
+		// that way must match a typed clause identically.
+		{"map __type single-underscore fallback", typedMapSingleUnderscore("main:FormatException"), "FormatException", true},
+		{"map __type single-underscore fallback, full spelling", typedMapSingleUnderscore("main:FormatException"), "main:FormatException", true},
+		{"map __type single-underscore fallback, wrong clause", typedMapSingleUnderscore("main:FormatException"), "StateError", false},
+		// `__type__` wins over `__type` when a map carries both.
+		{"map carrying both tag keys prefers __type__", typedMapBothKeys(), "StateError", true},
 		// std.throw tags an untagged value `Exception` (engine_std.dart).
 		{"untagged string", "oops", "Exception", true},
 		{"untagged string, typed clause", "oops", "StateError", false},
@@ -61,5 +69,19 @@ func typedMap(typeName string) Value {
 	m := NewMap()
 	m.Set("__type__", typeName)
 	m.Set("message", "x")
+	return m
+}
+
+func typedMapSingleUnderscore(typeName string) Value {
+	m := NewMap()
+	m.Set("__type", typeName)
+	m.Set("message", "x")
+	return m
+}
+
+func typedMapBothKeys() Value {
+	m := NewMap()
+	m.Set("__type__", "StateError")
+	m.Set("__type", "ArgumentError")
 	return m
 }

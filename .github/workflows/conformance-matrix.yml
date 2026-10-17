@@ -1772,6 +1772,33 @@ jobs:
       # the regression it already tolerates. Measured before and after, locally
       # and on CI, never predicted.
       PYTHON_COMPILER_FLOOR: "265"
+      # The CLOSED SET of fixtures the compiler currently compiles to a
+      # program that exits 0 and prints the WRONG answer (status `fail`,
+      # never `compile-error`/`error`) — issue #823/#824's priority, the
+      # issue-#55 class the aggregate `PYTHON_COMPILER_FLOOR` ratchet above
+      # cannot see on its own: it folds `compile-error`/`error`/`fail`
+      # together into one `failed` count, so a fixture moving FROM
+      # `compile-error` INTO `fail` (a real regression — a scope gap becoming
+      # a silent wrong answer) leaves `passed`/`failed` both unchanged. #824
+      # closed 5 of the original 8 (`112_named_constructors`,
+      # `150_state_machine`, `167_generics_reified`, `180_generic_list_ops`,
+      # `181_generic_map_ops` — all moved into `tests/test_conformance.py`'s
+      # `PROVEN` list); these 3 remain: `203_closure_in_loop` /
+      # `229_closure_loop_var_semantics` (a C-style-`for` loop var is captured
+      # by Python's late-binding closure, so every closure sees the SAME
+      # cell — missing the per-iteration snapshot `for-in` already gets) and
+      # `432_shadowed_getter_setter_write` (a subclass's plain field must
+      # shadow BOTH an ancestor's explicit getter and setter, never just
+      # dispatch through the inherited `@property`; Python's attribute
+      # protocol always prefers a DATA DESCRIPTOR found anywhere in the
+      # instance's MRO over a same-named entry in the instance's own
+      # `__dict__`, so a bare `self.x = 5` in the subclass's `__init__`
+      # silently runs the ancestor's SCALING setter instead). This set can
+      # only SHRINK: remove a name here (and add it to `PROVEN`) in the PR
+      # that fixes it; a run naming any OTHER fixture is a fresh
+      # silently-wrong-output regression and must be fixed, never absorbed
+      # by widening this list. Tracking issue for these 3: #892.
+      PYTHON_SILENTLY_WRONG_KNOWN: "203_closure_in_loop,229_closure_loop_var_semantics,432_shadowed_getter_setter_write"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1830,6 +1857,26 @@ jobs:
           # (#439/#444). Guard the parse separately from the ratchet floor.
           if [ "$total" -lt 1 ]; then
             echo "::error::The Python compiler leg reported no Results line — it ran no fixtures"
+            exit 1
+          fi
+
+          # The CLOSED SET of silently-wrong (status=fail) fixtures (#823/#824)
+          # — see PYTHON_SILENTLY_WRONG_KNOWN's own comment above for why the
+          # aggregate passed/failed ratchet below cannot see this move on its
+          # own. EXACT set equality, in both directions: a name leaving means
+          # someone fixed it and must also remove it here (and add it to
+          # PROVEN); a name entering — known or not — is a fresh regression.
+          wrong_line=$(echo "$output" | grep -E '^SILENTLY-WRONG ' | tail -1 || true)
+          if [ -z "$wrong_line" ]; then
+            echo "::error::The Python compiler leg printed no SILENTLY-WRONG line (issue #823/#824) — refusing to trust the silent-wrong-output roster"
+            exit 1
+          fi
+          actual_wrong=$(echo "$wrong_line" | sed -E 's/^SILENTLY-WRONG \(status=fail, [0-9]+\): //' \
+            | tr ',' '\n' | sed -e 's/^ *//' -e 's/ *$//' | grep -v '^(none)$' | sort | paste -sd, -)
+          expected_wrong=$(echo "$PYTHON_SILENTLY_WRONG_KNOWN" | tr ',' '\n' \
+            | sed -e 's/^ *//' -e 's/ *$//' | sort | paste -sd, -)
+          if [ "$actual_wrong" != "$expected_wrong" ]; then
+            echo "::error::Python compiler leg's silently-wrong (status=fail) fixture set changed (issue #823/#824). Expected [$expected_wrong], got [$actual_wrong]. A fixture LEAVING this set must be removed from PYTHON_SILENTLY_WRONG_KNOWN (and added to PROVEN in tests/test_conformance.py) in the same PR that fixed it; a fixture ENTERING it is a fresh silently-wrong-output regression — fix it, never widen this list to absorb it."
             exit 1
           fi
 

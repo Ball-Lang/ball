@@ -139,15 +139,20 @@ func normalizeThrown(v Value) Value {
 
 // ExceptionTypeName is the type tag a typed `on <Type> catch` clause matches a
 // thrown value against, following the reference engine's rule (std.throw in
-// engine_std.dart): a message's type tag, a map's `__type__` tag, and the
-// literal `Exception` for an untagged value (a thrown string/number/list) —
-// std.throw's own default.
+// engine_std.dart): a message's type tag, a map's `__type__` tag — falling
+// back to the single-underscore `__type` key when `__type__` is absent
+// (std.throw's own two-key rule: `valMap['__type__'] ?? valMap['__type']`,
+// issue #823) — and the literal `Exception` for an untagged value (a thrown
+// string/number/list) — std.throw's own default.
 func ExceptionTypeName(thrown Value) string {
 	switch t := thrown.(type) {
 	case *Message:
 		return t.TypeName
 	case *Map:
 		if tag, ok := t.Get("__type__"); ok {
+			return ToStr(tag)
+		}
+		if tag, ok := t.Get("__type"); ok {
 			return ToStr(tag)
 		}
 	}

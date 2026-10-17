@@ -2283,17 +2283,22 @@ fn ball_normalize_thrown(value: BallValue) -> BallValue {
 
 /// The type tag a typed `on <Type> catch` clause matches a thrown value
 /// against, following the reference engine's rule (`std.throw` in
-/// `engine_std.dart`): a message's type tag, a map's `__type__` tag, and the
-/// literal `Exception` for an untagged value (a thrown string/number/list) —
-/// `std.throw`'s own default.
+/// `engine_std.dart`): a message's type tag, a map's `__type__` tag — falling
+/// back to the single-underscore `__type` key when `__type__` is absent
+/// (`std.throw`'s own two-key rule: `valMap['__type__'] ?? valMap['__type']`,
+/// issue #823) — and the literal `Exception` for an untagged value (a thrown
+/// string/number/list) — `std.throw`'s own default.
 pub fn ball_exception_type_name(thrown: &BallValue) -> String {
     match thrown {
         BallValue::Message(message) => message.type_name.clone(),
         BallValue::Map(map) => match map.get("__type__") {
             Some(BallValue::String(name)) => name,
-            // A non-string `__type__` is not a type tag any clause can name;
-            // fall back to std.throw's untagged default rather than inventing one.
-            _ => "Exception".to_string(),
+            // A non-string (or absent) `__type__` falls back to `__type`
+            // before std.throw's untagged default.
+            _ => match map.get("__type") {
+                Some(BallValue::String(name)) => name,
+                _ => "Exception".to_string(),
+            },
         },
         _ => "Exception".to_string(),
     }
@@ -4919,6 +4924,30 @@ mod tests {
         let untagged = BallValue::String("oops".to_string());
         assert!(ball_catch_matches(&untagged, "Exception"));
         assert!(!ball_catch_matches(&untagged, "StateError"));
+    }
+
+    /// `std.throw` (`engine_std.dart`) falls back to the single-underscore
+    /// `__type` key when `__type__` is absent (issue #823); a map tagged that
+    /// way must match a typed clause identically to the double-underscore
+    /// shape, and `__type__` must win when a map carries both.
+    #[test]
+    fn catch_matches_falls_back_to_the_single_underscore_type_key() {
+        let map = BallMap::new();
+        map.insert(
+            "__type",
+            BallValue::String("main:FormatException".to_string()),
+        );
+        let tagged = BallValue::Map(map);
+        assert!(ball_catch_matches(&tagged, "FormatException"));
+        assert!(ball_catch_matches(&tagged, "main:FormatException"));
+        assert!(!ball_catch_matches(&tagged, "StateError"));
+
+        let both = BallMap::new();
+        both.insert("__type__", BallValue::String("StateError".to_string()));
+        both.insert("__type", BallValue::String("ArgumentError".to_string()));
+        let both_keys = BallValue::Map(both);
+        assert!(ball_catch_matches(&both_keys, "StateError"));
+        assert!(!ball_catch_matches(&both_keys, "ArgumentError"));
     }
 
     /// `std.throw`'s `arg0` -> `message` rename: the encoder stores

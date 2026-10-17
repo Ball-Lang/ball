@@ -61,18 +61,125 @@ _BUILTIN = {
 }
 
 
-def is_type(value, typename: str) -> bool:
-    """Dart ``value is Type``. Builtin types map to Python checks; a user type
-    matches by class name walked over the MRO (so subclasses match their base,
-    e.g. a StdModuleHandler ``is BallModuleHandler``)."""
-    t = _base_type_name(typename)
-    checker = _BUILTIN.get(t)
-    if checker is not None:
-        return checker(value)
+_GENERIC_TYPE_RE = _re.compile(r"^(\w+)<(.+)>$")
+
+
+def _split_type_args(s: str) -> list:
+    """Top-level comma split of a generic argument list, respecting nested
+    ``<...>`` (``Map<String, List<int>>`` -> ``["String", "List<int>"]``)."""
+    parts = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(s):
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(s[start:i].strip())
+            start = i + 1
+    parts.append(s[start:].strip())
+    return parts
+
+
+def _reified_type_args(value):
+    """The ``__type_args__`` tag a constructed instance carries, parsed into a
+    list of type-argument strings — the Python analog of the Dart reference
+    engine's ``objMap['__type_args__']`` handling (`engine_std.dart`), which
+    accepts either a bracketed string (``"<int>"``) or a list
+    (``["int"]``). Returns ``None`` when the value carries no tag at all."""
+    if isinstance(value, dict):
+        raw = value.get("__type_args__")
+    else:
+        raw = getattr(value, "__type_args__", None)
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    s = str(raw).strip()
+    if s.startswith("<") and s.endswith(">"):
+        s = s[1:-1]
+    return [p.strip() for p in s.split(",")] if s else []
+
+
+def _class_name_matches(value, base_type: str) -> bool:
+    """Whether ``value``'s own declared type (its Python class name, walked
+    over the MRO so a subclass matches its base — or a ``__type__`` tag for a
+    dict-shaped self-hosted-engine object) equals ``base_type``."""
+    if isinstance(value, dict):
+        tag = value.get("__type__")
+        if isinstance(tag, str) and tag:
+            return tag.rsplit(":", 1)[-1] == base_type
+        return False
     for cls in type(value).__mro__:
-        if getattr(cls, "__name__", None) == t:
+        if getattr(cls, "__name__", None) == base_type:
             return True
     return False
+
+
+def is_type(value, typename: str) -> bool:
+    """Dart ``value is Type``.
+
+    A GENERIC type (``List<T>``/``Map<K, V>``/``Set<T>``) checks every
+    element/entry against the type argument(s), and a generic USER type
+    compares its own reified ``__type_args__`` tag — exactly like the
+    reference engine's ``_typeMatches`` (``engine_std.dart``), issue #824:
+    `std.is`/`std.is_not` used to strip the generic argument entirely
+    (`_base_type_name`) and match on the bare base type alone, so
+    `[1, 2, 3] is List<String>` and `Box<int>(...) is Box<String>` both
+    silently answered `true`. A non-generic type maps builtins to Python
+    checks and matches a user type by class name walked over the MRO (so
+    subclasses match their base, e.g. a StdModuleHandler
+    ``is BallModuleHandler``).
+    """
+    t = typename.strip()
+    m = _GENERIC_TYPE_RE.match(t)
+    if m:
+        base_type = m.group(1)
+        type_args = _split_type_args(m.group(2))
+        if base_type == "List" and isinstance(value, list):
+            if len(type_args) == 1:
+                return all(is_type(e, type_args[0]) for e in value)
+            return True
+        if base_type == "Map" and isinstance(value, dict):
+            if len(type_args) == 2:
+                return all(
+                    is_type(k, type_args[0]) and is_type(v, type_args[1])
+                    for k, v in value.items()
+                )
+            return True
+        if base_type == "Set" and isinstance(value, BallSet):
+            if len(type_args) == 1:
+                return all(is_type(e, type_args[0]) for e in value)
+            return True
+        # A user object (or a dict-tagged self-hosted-engine one) reports its
+        # own reified type arguments, set at construction time.
+        obj_type_args = _reified_type_args(value)
+        if obj_type_args is not None and _class_name_matches(value, base_type):
+            if len(obj_type_args) == len(type_args):
+                return obj_type_args == type_args
+        return False
+    bt = _base_type_name(t)
+    checker = _BUILTIN.get(bt)
+    if checker is not None:
+        return checker(value)
+    return _class_name_matches(value, bt)
+
+
+def with_type_args(value, type_args):
+    """Tag a freshly constructed instance with its reified generic type
+    argument(s) (``Box<int>(42)`` -> ``Box(42)`` carrying
+    ``__type_args__ == "<int>"``), so :func:`is_type` can later answer a
+    generic `is` check against it — issue #824. The encoder emits this as an
+    ordinary ``__type_args__`` field on the constructor's ``messageCreation``;
+    `_SYNTH_FIELDS` keeps it out of the constructor CALL itself (it is never a
+    real parameter), so it is applied here, after construction, instead.
+    Returns ``value`` so the call composes in expression position."""
+    try:
+        value.__type_args__ = type_args
+    except AttributeError:
+        pass
+    return value
 
 
 def type_of(value) -> str:

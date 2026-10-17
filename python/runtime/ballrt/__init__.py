@@ -182,6 +182,7 @@ from .selfhost import (
     ty_double,
     ty_int,
     ty_num,
+    with_type_args,
 )
 from .sink import (
     sink_create,

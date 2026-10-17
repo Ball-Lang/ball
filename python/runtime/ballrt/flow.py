@@ -144,12 +144,15 @@ def exception_type_name(thrown) -> str:
 
     Follows the reference engine's rule (``std.throw`` in
     ``dart/engine/lib/engine_std.dart``, read back by ``_evalLazyTry``): a
-    ``__type__``-tagged map reports its tag, an exception object reports its
-    class name, and anything untagged reports ``std.throw``'s own default,
-    ``Exception``.
+    ``__type__``-tagged map reports its tag, falling back to the
+    single-underscore ``__type`` key when ``__type__`` is absent (``std.throw``'s
+    own two-key rule — issue #823), an exception object reports its class name,
+    and anything untagged reports ``std.throw``'s own default, ``Exception``.
     """
     if isinstance(thrown, dict):
         tag = thrown.get("__type__")
+        if not (isinstance(tag, str) and tag):
+            tag = thrown.get("__type")
         if isinstance(tag, str) and tag:
             return tag
         return "Exception"

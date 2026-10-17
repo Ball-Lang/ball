@@ -19,7 +19,18 @@ Prints the CI-parseable::
 
     Results: N passed, M failed, T total (K skipped carve-outs)
 
-plus a ``FAILING [name] status detail`` line per non-passing fixture.
+plus a ``FAILING [name] status detail`` line per non-passing fixture, and —
+when at least one fixture compiled, ran and exited 0 with the WRONG stdout
+(status ``fail``, issue #823/#824's priority: the compiler emitted code it
+should have refused, exactly the silent-wrong-output class issue #55 names) —
+a dedicated ``SILENTLY-WRONG (status=fail, N): <names>`` line naming every
+one of them, sorted. A fixture moving from ``compile-error``/``error`` INTO
+``fail`` (or the reverse) is then visible in that one line without
+re-deriving the list from AGENTS.md prose, and the aggregate ``passed``/
+``failed`` ratchet (``PYTHON_COMPILER_FLOOR`` in ``conformance-matrix.yml``)
+cannot silently absorb that move: both ``compile-error`` and ``error`` count
+the same toward ``failed`` as ``fail`` does, so only this line's own set
+changing says which kind of failure moved.
 
 **A fixture the compiler cannot emit is a FAILURE, not a crash.** The leg's job
 is an honest count, so a ``CompileError`` is recorded as ``compile-error`` and
@@ -214,6 +225,14 @@ def main() -> int:
     for r in s.results:
         if r.status != "pass":
             print(f"FAILING [{r.name}] {r.status} {r.detail}")
+    # The dedicated silently-wrong-output roster (issue #823/#824): named
+    # separately from the per-fixture FAILING lines above so a name moving
+    # into or out of `fail` status is visible without grepping every status
+    # by eye, and so the aggregate `passed`/`failed` ratchet — which folds
+    # `compile-error`/`error`/`fail` together — cannot absorb that move.
+    fail_names = sorted(r.name for r in s.results if r.status == "fail")
+    print(f"SILENTLY-WRONG (status=fail, {len(fail_names)}): "
+          f"{', '.join(fail_names) if fail_names else '(none)'}")
     print(f"Results: {s.passed} passed, {s.failed} failed, {s.total} total "
           f"({s.skipped} skipped carve-outs)")
     return 0 if s.failed == 0 else 1

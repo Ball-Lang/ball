@@ -697,6 +697,18 @@ class Compiler:
                 return local
             if s in self.top_var_names or s in self.user_funcs or sanitize(s) in self.user_funcs:
                 return sanitize(s)
+        # An indexed initializer off a bound local (issue #824): a named
+        # constructor's initializer list reading one of its OWN parameters by
+        # index (`Point.fromList(List<double> coords) : x = coords[0], y =
+        # coords[1];`). Falling through to the "default to null" case below
+        # silently dropped both fields (exit 0, wrong answer: `(null, null)`
+        # instead of `(1.5, 2.5)`).
+        indexed = re.fullmatch(r"([A-Za-z_]\w*)\[(-?\d+)\]", s)
+        if indexed:
+            ident, idx = indexed.group(1), indexed.group(2)
+            local = self.lookup(ident)
+            if local:
+                return f"ballrt.index_get({local}, {idx})"
         # A zero-arg constructor initializer (`_Scope()` / `StringBuffer()`).
         ctor = re.fullmatch(r"([A-Za-z_]\w*)\(\)", s)
         if ctor:
@@ -1145,24 +1157,52 @@ class Compiler:
             kw = "elif" if emitted_any else "if"
             self.line(f"{kw} {combined}:")
             with self.block():
-                before = len(self.lines)
-                self.run(body, dest if expr_mode else DISCARD)
-                if not expr_mode and dest[0] != "discard":
-                    pass
-                if len(self.lines) == before:
-                    self.line("pass")
+                self._run_switch_case_body(body, dest, expr_mode)
             emitted_any = True
         if default_case is not None:
             body = self.mc_fields(default_case).get("body")
             self.line("else:" if emitted_any else "if True:")
             with self.block():
-                before = len(self.lines)
                 if body is not None:
-                    self.run(body, dest if expr_mode else DISCARD)
-                if len(self.lines) == before:
+                    self._run_switch_case_body(body, dest, expr_mode)
+                else:
                     self.line("pass")
         if not expr_mode and dest[0] != "discard":
             self.dispatch(dest, "None")
+
+    def _run_switch_case_body(self, body, dest, expr_mode: bool):
+        """Compile one switch case's (or the default's) body, honoring that
+        an UNLABELED ``std.break`` inside it ends the SWITCH, never any
+        enclosing loop (issue #824; mirrors the reference engine's
+        ``_evalLazySwitch``, "consume an unlabeled break (switch break, not
+        loop break)"). The `if`/`elif` lowering this compiler uses for a
+        statement ``switch`` has no native break-scope of its own — unlike
+        every target that emits a real ``switch``, where the HOST language's
+        own break-ends-the-switch rule does this for free — so a bare
+        ``ballrt.brk("")`` compiled in place would propagate straight into
+        the ENCLOSING loop's own break trap and terminate the whole loop on
+        the first case match (`150_state_machine` printed one character and
+        stopped: exit 0, wrong answer, never an error).
+
+        A switch EXPRESSION's arms are plain values with no statements and
+        therefore no `break` to swallow, so the wrapping applies to the
+        statement form only.
+        """
+        before = len(self.lines)
+        if expr_mode:
+            self.run(body, dest)
+        else:
+            self.line("try:")
+            with self.block():
+                inner_before = len(self.lines)
+                self.run(body, DISCARD)
+                if len(self.lines) == inner_before:
+                    self.line("pass")
+            self.line("except ballrt.BallBreak as _swbrk:")
+            with self.block():
+                self.line("if _swbrk.label: raise")
+        if len(self.lines) == before:
+            self.line("pass")
 
     def case_condition(self, subj, cf):
         if "pattern_expr" in cf:
@@ -1498,7 +1538,18 @@ class Compiler:
             # keyword argument, so a Dart named constructor argument
             # (`_FlowSignal('return', value: x)`) reaches the right parameter
             # rather than landing in the wrong positional slot.
-            return f"{sanitize(short)}({self._ctor_args(fields)})"
+            call = f"{sanitize(short)}({self._ctor_args(fields)})"
+            # A `__type_args__` field (`Box<int>(42)`) is cosmetic to the
+            # CONSTRUCTOR CALL — it is never a real parameter, and
+            # `_SYNTH_FIELDS` keeps it out of `_ctor_args` — but it is the
+            # instance's own reified generic type argument, which a later
+            # `is Box<String>` must be able to read back (issue #824). Tag the
+            # constructed instance with it rather than dropping it outright.
+            type_args_field = next(
+                (fv for fv in fields if fv.get("name") == "__type_args__"), None)
+            if type_args_field is not None:
+                return f"ballrt.with_type_args({call}, {self.value(type_args_field['value'])})"
+            return call
         if tn:
             rc = self.runtime_construct(short, fields)
             if rc is not None:

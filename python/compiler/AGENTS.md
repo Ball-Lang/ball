@@ -140,7 +140,11 @@ Fixtures `436_recursive_ctor_named` and `438_ctor_initializer_list_with_body` ar
 ### Measured against the whole corpus (compile leg)
 
 `python -m conformance.runner` sweeps every executable fixture through the
-compiler. Measured, not asserted (and re-measured with #724):
+compiler, and (since #823/#824) prints a dedicated
+`SILENTLY-WRONG (status=fail, N): <names>` line naming every `fail`-status
+fixture — grep that line for the live, honest roster rather than trusting this
+prose, which goes stale the moment a fixture moves. Measured, not asserted
+(and re-measured with #724):
 
 ```
 Results: 264 passed, 98 failed, 362 total (4 skipped carve-outs)
@@ -149,17 +153,46 @@ Results: 264 passed, 98 failed, 362 total (4 skipped carve-outs)
 The pytest cases are a curated *proof set*; this is the honest corpus number, and
 `PYTHON_COMPILER_FLOOR` in `conformance-matrix.yml` is where it is enforced.
 A fixture the compiler cannot emit counts as a **failure**, not a skip — only the
-4 golden-less resource-limit/sandbox carve-outs are skipped. The 98 break down as
-**59 `compile-error`** (loud, correct behaviour for a scope gap), **31 `error`**
+4 golden-less resource-limit/sandbox carve-outs are skipped. The failures break
+down as **`compile-error`** (loud, correct behaviour for a scope gap), **`error`**
 (emitted Python that crashes at runtime — a real bug: the compiler emitted code it
-should have refused), and **8 `fail`** — exit 0, wrong answer.
+should have refused), and **`fail`** — exit 0, wrong answer.
 
-**Those 8 violate issue #55** and are the priority: `203_closure_in_loop` /
+**A `fail`-status fixture violates issue #55** and is the priority.
+`PYTHON_SILENTLY_WRONG_KNOWN` in `conformance-matrix.yml`'s `python-compiler` job
+is the CLOSED SET of the ones still open — exact set equality, in both
+directions, so neither a fix landing without updating that list nor a NEW
+silently-wrong fixture appearing can hide inside the aggregate
+`PYTHON_COMPILER_FLOOR` ratchet (which folds `compile-error`/`error`/`fail`
+together, so a fixture moving FROM one of the first two INTO `fail` leaves
+`passed`/`failed` both unchanged — issue #824's own finding). #824 closed 5 of
+the original 8 — `112_named_constructors` (a named constructor's initializer
+list reading an INDEXED expression off its own parameter, `coords[0]`, matched
+none of `_lower_init`'s recognised shapes and silently defaulted to `None`),
+`150_state_machine` (a `switch` inside a loop: its `if`/`elif` lowering has no
+native break-scope of its own, so each case's unconditional `std.break` ->
+`ballrt.brk("")` escaped straight into the ENCLOSING LOOP's own break trap and
+ended the whole loop after the first character — every other target compiles
+`std.switch` to a host-native `switch`, where a bare `break` already means
+"end the switch" for free), `167_generics_reified`/`180_generic_list_ops`/
+`181_generic_map_ops` (`ballrt.is_type` stripped a generic type ARGUMENT
+entirely and matched on the bare base type alone, so `[1,2,3] is List<String>`
+and `Box<int>(...) is Box<String>` both answered `true`; `is_type` now checks
+every List/Map/Set element/entry recursively and a user object's own reified
+`__type_args__` tag, mirroring the reference engine's `_typeMatches`) — all
+five are now in `tests/test_conformance.py`'s `PROVEN` list. **Three remain,
+named in `PYTHON_SILENTLY_WRONG_KNOWN`:** `203_closure_in_loop` /
 `229_closure_loop_var_semantics` (a C-style-`for` loop var is captured by Python's
 late-binding closure, so every closure sees the final value: prints `12 12 12`,
 golden `10 11 12` — the per-iteration snapshot the compiler does for `for-in` is
-missing for C-`for`), plus `112`, `150`, `167`, `180`, `181` and `432`. Do not
-describe this compiler as "no silent-wrong output" until they are fixed.
+missing for C-`for`) and `432_shadowed_getter_setter_write` (a subclass's plain
+field must shadow BOTH an ancestor's explicit getter and setter; Python's
+attribute protocol always prefers a data descriptor found anywhere in the
+instance's MRO over the subclass's own `__dict__` entry, so `self.x = 5` in the
+subclass's `__init__` silently runs the ancestor's SCALING setter instead of
+storing a plain field). Do not describe this compiler as "no silent-wrong
+output" until `PYTHON_SILENTLY_WRONG_KNOWN` is empty. Tracking issue for
+these 3: [#892](https://github.com/Ball-Lang/ball/issues/892).
 `146_nested_try_catch_types` was on this list until #724: it printed the FIRST
 catch clause's body whatever was thrown.
 

@@ -50,6 +50,27 @@ public class CatchMatchTests
     }
 
     [Fact]
+    public void AMapsSingleUnderscoreTypeTagIsAFallback_AndDoubleUnderscoreWins()
+    {
+        // std.throw (engine_std.dart) reads `valMap['__type__'] ?? valMap['__type']`
+        // — issue #823. A map tagged only with the single-underscore key must
+        // match a typed clause identically to the double-underscore shape.
+        var single = new BallThrow(new BallMap { ["__type"] = BallValue.Str("main:FormatException") });
+        Assert.True(BallRuntime.CatchMatches(single, "FormatException"));
+        Assert.True(BallRuntime.CatchMatches(single, "main:FormatException"));
+        Assert.False(BallRuntime.CatchMatches(single, "StateError"));
+
+        // `__type__` wins when a map carries both.
+        var both = new BallThrow(new BallMap
+        {
+            ["__type__"] = BallValue.Str("StateError"),
+            ["__type"] = BallValue.Str("ArgumentError"),
+        });
+        Assert.True(BallRuntime.CatchMatches(both, "StateError"));
+        Assert.False(BallRuntime.CatchMatches(both, "ArgumentError"));
+    }
+
+    [Fact]
     public void ThrowAliasesArg0AsMessage()
     {
         // The encoder stores `StateError('boom')`'s argument positionally while

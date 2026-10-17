@@ -109,6 +109,44 @@ PROVEN = [
     "392_empty_set_literal",
     "459_set_add_remove_bool",
     "462_set_mutation_in_place",
+    # A named constructor's initializer list reading an INDEXED expression off
+    # one of its own parameters (`Point.fromList(List<double> coords) : x =
+    # coords[0], y = coords[1];`) — issue #824. `_lower_init` only recognised a
+    # bare-identifier initializer (`x = a`), a literal, or a zero-arg
+    # constructor call; `coords[0]` matched none of those and silently fell
+    # back to its "default to null" case, so `p3.toString()` printed
+    # `(null, null)` instead of `(1.5, 2.5)` — exit 0, wrong answer, never an
+    # error.
+    "112_named_constructors",
+    # `value is List<T>`/`Map<K,V>` must check every ELEMENT/ENTRY against the
+    # type argument, exactly like the Dart reference engine's `_typeMatches`
+    # (`engine_std.dart`) — issue #824. `ballrt.is_type` used to strip the
+    # generic argument entirely (`_base_type_name`) and match on the bare
+    # base type alone, so `[1, 2, 3] is List<String>` answered `true`: exit 0,
+    # wrong answer, never an error.
+    "180_generic_list_ops",
+    "181_generic_map_ops",
+    # The SAME generics-matching gap, on a user-declared generic CLASS
+    # (`Box<int>` vs `Box<String>`) — issue #824. The reference engine answers
+    # this from the constructed instance's own reified `__type_args__` tag
+    # (`main:Box.new`'s messageCreation carries it as a real field); the
+    # Python compiler dropped that field outright as purely cosmetic
+    # (`_SYNTH_FIELDS`), so every `Box<T>` instance answered `true` to
+    # `is Box<AnythingElse>`.
+    "167_generics_reified",
+    # A statement `switch` lowers to `if`/`elif`, and each case's explicit
+    # `break;` compiled unconditionally to `ballrt.brk("")` — issue #824. That
+    # is correct ONLY when the switch is not itself inside a loop: a switch
+    # INSIDE a `for`/`while` body let the case's own `break` escape straight
+    # into the ENCLOSING loop's break trap (the loop body is wrapped in
+    # `except ballrt.BallBreak`), ending the whole loop after the FIRST
+    # character instead of just the switch. Every other target compiles
+    # `std.switch` to a native `switch`, whose host language already treats a
+    # bare `break` as ending the switch and not an enclosing loop — Python has
+    # no such statement, so only this target needed to swallow it explicitly
+    # (mirroring the reference engine's own `_evalLazySwitch`, "consume an
+    # unlabeled break (switch break, not loop break)").
+    "150_state_machine",
 ]
 
 

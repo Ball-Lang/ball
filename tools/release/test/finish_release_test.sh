@@ -231,6 +231,100 @@ else
   no "poll after the gap-commit race -> script must exit 0 ($(cat "$WORKDIR/log5.txt"))"
 fi
 
+# ── Test 6: the release commit as the MERGE QUEUE actually writes it ───────
+# `main` requires a merge queue (ruleset 17056238's `merge_queue` rule,
+# merge_method SQUASH). A queue squash ignores the subject
+# `gh pr merge --auto --subject` asked for and uses the repository default
+# (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`): for a single-commit PR,
+# "<that commit's subject> (#<PR number>)", body = that commit's body
+# (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges#merge-message-for-a-squash-merge;
+# every queue-merged commit on main has this shape, e.g. 009fad1c "… (#905)").
+# PR #881 review round 3, finding 1: the `$`-anchored subject pattern rejected
+# the suffix, so a real release commit was never tagged and nothing published.
+printf 'chore(release): 2.1.0 (#912)\n\n## [2.1.0](url) (2026-10-17)\n\n* queued thing\n' \
+  | git -C "$WORK" commit -q --allow-empty -F -
+QUEUE_RELEASE_SHA="$(git -C "$WORK" rev-parse HEAD)"
+
+: > "$GH_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_release > "$WORKDIR/log6.txt" 2>&1; then
+  IS_RELEASE="$(output_value is_release)"
+  VERSION="$(output_value version)"
+  if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "2.1.0" ]; then
+    ok "merge-queue squash subject '(#912)' -> is_release=true, version=2.1.0 (the PR number is not part of the version)"
+  else
+    no "merge-queue squash subject '(#912)' -> is_release=true, version=2.1.0 (got is_release=$IS_RELEASE version=$VERSION, log: $(cat "$WORKDIR/log6.txt"))"
+  fi
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "true" ]; then
+    ok "merge-queue squash subject -> newly_tagged=true"
+  else
+    no "merge-queue squash subject -> newly_tagged=true (got: $NEWLY_TAGGED)"
+  fi
+  TAG_TARGET_SHA="$(git -C "$BARE" rev-parse --verify --quiet refs/tags/v2.1.0^{commit})" || TAG_TARGET_SHA=""
+  if [ "$TAG_TARGET_SHA" = "$QUEUE_RELEASE_SHA" ]; then
+    ok "merge-queue squash subject -> tag v2.1.0 pushed to origin, at the release commit"
+  else
+    no "merge-queue squash subject -> tag v2.1.0 pushed to origin at $QUEUE_RELEASE_SHA (got: '$TAG_TARGET_SHA')"
+  fi
+  if grep -q "^release create v2.1.0 --title 2.1.0 " "$GH_LOG"; then
+    ok "merge-queue squash subject -> gh release create v2.1.0 --title 2.1.0"
+  else
+    no "merge-queue squash subject -> gh release create v2.1.0 --title 2.1.0 (log: $(cat "$GH_LOG"))"
+  fi
+else
+  no "merge-queue squash subject -> script must exit 0 ($(cat "$WORKDIR/log6.txt"))"
+fi
+
+# ── Test 7: re-polling a queue-shaped release is still a safe no-op ───────
+# This walks the OTHER subject match: no candidate since v2.1.0, so the
+# script falls back to reporting v2.1.0's own commit, whose subject carries
+# the same "(#912)" suffix.
+: > "$GH_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_release > "$WORKDIR/log7.txt" 2>&1; then
+  IS_RELEASE="$(output_value is_release)"
+  VERSION="$(output_value version)"
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "2.1.0" ] && [ "$NEWLY_TAGGED" = "false" ]; then
+    ok "re-poll of a queue-shaped release -> is_release=true, version=2.1.0, newly_tagged=false"
+  else
+    no "re-poll of a queue-shaped release -> is_release=true, version=2.1.0, newly_tagged=false (got is_release=$IS_RELEASE version=$VERSION newly_tagged=$NEWLY_TAGGED)"
+  fi
+  if [ ! -s "$GH_LOG" ]; then
+    ok "re-poll of a queue-shaped release -> gh never invoked again"
+  else
+    no "re-poll of a queue-shaped release -> gh never invoked again (log: $(cat "$GH_LOG"))"
+  fi
+else
+  no "re-poll of a queue-shaped release -> script must exit 0 ($(cat "$WORKDIR/log7.txt"))"
+fi
+
+# ── Test 8: the Go lane's release commit is NOT a root release ────────────
+# Both lanes share the `chore(release):` prefix and the same `main`, so the
+# root pattern must never read "go v0.5.0" as a root version (it would cut a
+# bogus `vgo` tag and dispatch npm/C++/Go/pub.dev for it).
+git -C "$WORK" commit -q --allow-empty -m "chore(release): go v0.5.0 (#913)"
+
+: > "$GH_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_release > "$WORKDIR/log8.txt" 2>&1; then
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  VERSION="$(output_value version)"
+  if [ "$NEWLY_TAGGED" = "false" ] && [ "$VERSION" = "2.1.0" ]; then
+    ok "Go release commit on main -> root lane tags nothing (still reports v2.1.0, newly_tagged=false)"
+  else
+    no "Go release commit on main -> root lane tags nothing (got version=$VERSION newly_tagged=$NEWLY_TAGGED, log: $(cat "$WORKDIR/log8.txt"))"
+  fi
+  if [ ! -s "$GH_LOG" ]; then
+    ok "Go release commit on main -> root lane never invokes gh"
+  else
+    no "Go release commit on main -> root lane never invokes gh (log: $(cat "$GH_LOG"))"
+  fi
+else
+  no "Go release commit on main -> script must exit 0 ($(cat "$WORKDIR/log8.txt"))"
+fi
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

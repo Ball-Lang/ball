@@ -253,6 +253,92 @@ else
   no "poll after the gap-commit race -> script must exit 0 ($(cat "$WORKDIR/log5.txt"))"
 fi
 
+# ── Test 6: the Go release commit as the MERGE QUEUE actually writes it ────
+# See tools/release/test/finish_release_test.sh's Test 6: a queue squash of a
+# single-commit PR is "<that commit's subject> (#<PR number>)" whatever
+# subject `gh pr merge --auto --subject` asked for (PR #881 review round 3,
+# finding 1 — the `$`-anchored pattern never tagged it).
+printf 'chore(release): go v0.5.0 (#913)\n\n## go v0.5.0\n\n* queued thing\n' \
+  | git -C "$WORK" commit -q --allow-empty -F -
+QUEUE_RELEASE_SHA="$(git -C "$WORK" rev-parse HEAD)"
+
+: > "$GH_LOG"
+: > "$PY_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_go_release > "$WORKDIR/log6.txt" 2>&1; then
+  IS_RELEASE="$(output_value is_release)"
+  VERSION="$(output_value version)"
+  if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "0.5.0" ]; then
+    ok "merge-queue squash subject '(#913)' -> is_release=true, version=0.5.0"
+  else
+    no "merge-queue squash subject '(#913)' -> is_release=true, version=0.5.0 (got is_release=$IS_RELEASE version=$VERSION, log: $(cat "$WORKDIR/log6.txt"))"
+  fi
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "true" ]; then
+    ok "merge-queue squash subject -> newly_tagged=true"
+  else
+    no "merge-queue squash subject -> newly_tagged=true (got: $NEWLY_TAGGED)"
+  fi
+  TAG_TARGET_SHA="$(git -C "$BARE" rev-parse --verify --quiet refs/tags/go-modules/v0.5.0^{commit})" || TAG_TARGET_SHA=""
+  if [ "$TAG_TARGET_SHA" = "$QUEUE_RELEASE_SHA" ]; then
+    ok "merge-queue squash subject -> tag go-modules/v0.5.0 pushed to origin, at the release commit"
+  else
+    no "merge-queue squash subject -> tag go-modules/v0.5.0 pushed to origin at $QUEUE_RELEASE_SHA (got: '$TAG_TARGET_SHA')"
+  fi
+  if grep -qF -- '--dispatch --workflow tag-go-modules.yml --ref go-modules/v0.5.0' "$PY_LOG"; then
+    ok "merge-queue squash subject -> tag-go-modules.yml dispatched-and-awaited at go-modules/v0.5.0"
+  else
+    no "merge-queue squash subject -> tag-go-modules.yml dispatched-and-awaited at go-modules/v0.5.0 (log: $(cat "$PY_LOG"))"
+  fi
+else
+  no "merge-queue squash subject -> script must exit 0 ($(cat "$WORKDIR/log6.txt"))"
+fi
+
+# ── Test 7: re-polling a queue-shaped Go release is still a safe no-op ────
+: > "$GH_LOG"
+: > "$PY_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_go_release > "$WORKDIR/log7.txt" 2>&1; then
+  IS_RELEASE="$(output_value is_release)"
+  VERSION="$(output_value version)"
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "0.5.0" ] && [ "$NEWLY_TAGGED" = "false" ]; then
+    ok "re-poll of a queue-shaped Go release -> is_release=true, version=0.5.0, newly_tagged=false"
+  else
+    no "re-poll of a queue-shaped Go release -> is_release=true, version=0.5.0, newly_tagged=false (got is_release=$IS_RELEASE version=$VERSION newly_tagged=$NEWLY_TAGGED)"
+  fi
+  if [ ! -s "$PY_LOG" ] && [ ! -s "$GH_LOG" ]; then
+    ok "re-poll of a queue-shaped Go release -> neither gh nor python3 invoked again"
+  else
+    no "re-poll of a queue-shaped Go release -> neither gh nor python3 invoked again (gh: $(cat "$GH_LOG"); python3: $(cat "$PY_LOG"))"
+  fi
+else
+  no "re-poll of a queue-shaped Go release -> script must exit 0 ($(cat "$WORKDIR/log7.txt"))"
+fi
+
+# ── Test 8: the ROOT lane's release commit is NOT a Go release ────────────
+git -C "$WORK" commit -q --allow-empty -m "chore(release): 1.74.0 (#914)"
+
+: > "$GH_LOG"
+: > "$PY_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_go_release > "$WORKDIR/log8.txt" 2>&1; then
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  VERSION="$(output_value version)"
+  if [ "$NEWLY_TAGGED" = "false" ] && [ "$VERSION" = "0.5.0" ]; then
+    ok "root release commit on main -> Go lane tags nothing (still reports go v0.5.0, newly_tagged=false)"
+  else
+    no "root release commit on main -> Go lane tags nothing (got version=$VERSION newly_tagged=$NEWLY_TAGGED, log: $(cat "$WORKDIR/log8.txt"))"
+  fi
+  if [ ! -s "$PY_LOG" ] && [ ! -s "$GH_LOG" ]; then
+    ok "root release commit on main -> Go lane invokes neither gh nor python3"
+  else
+    no "root release commit on main -> Go lane invokes neither gh nor python3 (gh: $(cat "$GH_LOG"); python3: $(cat "$PY_LOG"))"
+  fi
+else
+  no "root release commit on main -> script must exit 0 ($(cat "$WORKDIR/log8.txt"))"
+fi
+
 echo
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

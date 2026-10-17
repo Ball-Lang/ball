@@ -69,6 +69,10 @@ cat > "$STUBDIR/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${GH_LOG:?}"
 if [ "$1$2" = "prlist" ]; then
+  if [ -n "${GH_PR_LIST_FAIL:-}" ]; then
+    echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2
+    exit 1
+  fi
   printf '%s' "${GH_PR_LIST_JSON:-}"
 fi
 exit 0
@@ -76,9 +80,10 @@ EOF
 chmod +x "$STUBDIR/gh"
 
 run_check() {
-  PATH="$STUBDIR:$PATH" BALL_REPO_ROOT="$WORK" BALL_FORCE_RELEASE_DUE=true \
+  PATH="$STUBDIR:$PATH" BALL_REPO_ROOT="${CHECK_ROOT:-$WORK}" BALL_FORCE_RELEASE_DUE=true \
     MAX_LAG_MINUTES="${MAX_LAG_MINUTES:-1440}" \
     GH_LOG="$WORKDIR/gh_invocations.log" GH_PR_LIST_JSON="${GH_PR_LIST_JSON:-}" \
+    GH_PR_LIST_FAIL="${GH_PR_LIST_FAIL:-}" \
     bash "$SCRIPT"
 }
 
@@ -135,6 +140,28 @@ else
 fi
 GH_PR_LIST_JSON=''
 
+# ── Test 2c: the same STALE case, but `gh pr list` itself FAILS — the alert
+#    must say the open-PR lookup failed, never claim there is no release PR
+#    (PR #881 review round 3, finding 4: a `|| true` turned "I could not ask"
+#    into "Open release PR: NONE") ──────────────────────────────────────────
+: > "$WORKDIR/gh_invocations.log"
+if GH_PR_LIST_FAIL=1 MAX_LAG_MINUTES=1 run_check >"$WORKDIR/log2c.txt" 2>&1; then
+  no "STALE with a failing gh pr list -> script must exit 1 (exited 0: $(cat "$WORKDIR/log2c.txt"))"
+else
+  if grep -qF "Open release PR: NONE" "$WORKDIR/log2c.txt"; then
+    no "STALE with a failing gh pr list -> must NOT report 'Open release PR: NONE' (got: $(cat "$WORKDIR/log2c.txt"))"
+  elif grep -qF "Open release PR: UNKNOWN (gh pr list failed" "$WORKDIR/log2c.txt"; then
+    ok "STALE with a failing gh pr list -> 'Open release PR: UNKNOWN (gh pr list failed …)', not NONE"
+  else
+    no "STALE with a failing gh pr list -> 'Open release PR: UNKNOWN (gh pr list failed …)' (got: $(cat "$WORKDIR/log2c.txt"))"
+  fi
+  if grep -qF "HTTP 502: Bad Gateway" "$WORKDIR/log2c.txt"; then
+    ok "STALE with a failing gh pr list -> gh's own error reaches the log (stderr not discarded)"
+  else
+    no "STALE with a failing gh pr list -> gh's own error reaches the log (got: $(cat "$WORKDIR/log2c.txt"))"
+  fi
+fi
+
 # ── Test 3: a release is "due" but there is no commit since the last tag
 #    (HEAD IS the tag) -> UNKNOWN, exit 1, never a silent pass ─────────────
 : > "$WORKDIR/gh_invocations.log"
@@ -146,6 +173,26 @@ else
     ok "no commit since the last tag -> UNKNOWN, exit 1 (never a silent pass)"
   else
     no "no commit since the last tag -> UNKNOWN, exit 1 (got: $(cat "$WORKDIR/log3.txt"))"
+  fi
+fi
+
+# ── Test 4: a repo with NO `v*` tag yet (the very first release) — the
+#    LAST_TAG lookup's "no tag" outcome is named, not swallowed, and the
+#    whole history is the unreleased range ─────────────────────────────────
+FIRST="$WORKDIR/first"
+git init -q "$FIRST"
+git -C "$FIRST" config user.name "test"
+git -C "$FIRST" config user.email "test@example.com"
+GIT_AUTHOR_DATE="$TEN_MIN_AGO" GIT_COMMITTER_DATE="$TEN_MIN_AGO" \
+  git -C "$FIRST" commit -q --allow-empty -m "feat: first releasable commit"
+: > "$WORKDIR/gh_invocations.log"
+if CHECK_ROOT="$FIRST" MAX_LAG_MINUTES=1 run_check >"$WORKDIR/log4.txt" 2>&1; then
+  no "no v* tag yet, 10-minute-old commit, 1-minute window -> script must exit 1 (exited 0: $(cat "$WORKDIR/log4.txt"))"
+else
+  if grep -qF "since the very first commit" "$WORKDIR/log4.txt"; then
+    ok "no v* tag yet -> STALE measured over the whole history ('since the very first commit')"
+  else
+    no "no v* tag yet -> STALE measured over the whole history (got: $(cat "$WORKDIR/log4.txt"))"
   fi
 fi
 

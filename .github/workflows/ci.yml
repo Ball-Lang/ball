@@ -352,6 +352,10 @@ jobs:
           # The Go module lane's own Phase 2 (issue #879) -- the
           # finish_release.sh sibling adapted to go-modules/vX.Y.Z.
           bash tools/release/test/finish_go_release_test.sh
+          # The merge-queue servicer (PR #881 review round 3, finding 1):
+          # a GITHUB_TOKEN-enqueued bot PR gets no merge_group runs, so
+          # bot-merge-queue.yml dispatches its required checks instead.
+          bash tools/release/test/service_bot_merge_queue_test.sh
 
       # The guard above pins that a release channel CAN fire. It cannot see the
       # failure #551 reported: the pub.dev lane's trigger chain was reachable

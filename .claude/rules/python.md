@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 365 passed,
-0 failed, 365 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 366 passed,
+0 failed, 366 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -259,6 +259,31 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   set, not merely a different one — fails loud too, and `MIN_TOTAL_NAMES` sits at 195, close to the
   measured 201 (was 150, ~50 names of slack).
 
+- **An EXTENSION-OVERRIDE call reaches the member UNBOUND on its class, never
+  ``ballrt.call_method`` (#670).** ``Ext(receiver).member`` is encoded as a call
+  NAMING the extension's own member (``<module>:<Ext>.<member>``) with the
+  receiver in ``self``, because the selection is the whole meaning of the node —
+  two extensions can declare the SAME member on the SAME type, and
+  ``call_method`` asks the RECEIVER, an ordinary ``list``/``str``/``dict`` that
+  knows neither of them. ``extension_members`` (built in ``__init__`` from the
+  ``kind: "extension"`` typeDefs) routes the call to ``Ext.member(recv, …)``,
+  and to ``Ext.member.fget(recv)`` for a getter — the member is emitted as a
+  ``@property``, so ``.fget`` is how it is reached on a foreign receiver.
+  Guards: ``tests/conformance/480_extension_override_selection``
+  (cross-target) and ``python/compiler/tests/test_extension_override.py``,
+  which compiles the fixture and RUNS it against the golden.
+  **A getter always wins the ``extension_members`` slot over a same-named
+  setter (PR #829 review).** The getter and setter share one qualified Ball
+  function name, differing only in ``metadata.is_getter``/``is_setter``;
+  the collection loop holds a setter's entry back in a side dict and
+  applies it only for a name no getter already claimed. Before this fix
+  the dict stored whichever accessor was visited LAST — always the setter,
+  since ``get`` syntactically precedes ``set`` — so a plain READ compiled
+  to ``Ext.member(recv)`` (a method call on the ``@property`` object
+  itself) and raised ``TypeError: 'property' object is not callable``.
+  ``test_extension_override_read_with_both_getter_and_setter_dispatches_the_getter``
+  is hand-built IR, not a fixture — 480 deliberately carries no setter arm.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →
@@ -299,7 +324,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 365 passed, 0 failed, 365 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 366 passed, 0 failed, 366 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -517,3 +542,20 @@ python -m conformance.runner                             # prints the CI-parseab
   `passed >= PYTHON_ROUNDTRIP_FLOOR`, enforced by `tools/ci/roundtrip_floor.sh`. Still NOT a parity
   gate — but a flat zero is red, and the floor only rises. **Raise it in the SAME PR as the fix
   that earned it**; the job prints the exact new value.
+  **The leg also names its own PASS SET (issue #896, generalizing #836's Rust fix to C#/Go/
+  Python).** A pass-COUNT floor (the ratchet just above) cannot tell "nothing changed" from "one
+  fixture newly passes and a different one newly regresses" — the printed `Results:` count is
+  identical either way — so `_format_passing_block` (`python/engine/conformance/roundtrip.py`)
+  renders a second block, `Passing fixtures (<N>, sorted):`, byte-identical to Rust's own
+  `format_passing_block` (same header shape, same two-space indent per name), and `main()` prints
+  it BEFORE the `Results:` line (`s.results` is already sorted by fixture name, so the list
+  comprehension that builds `passing` comes out sorted too). `tools/ci/roundtrip_passset.sh`,
+  invoked right after `roundtrip_floor.sh` in the `python-roundtrip` row, diffs it against the
+  committed baseline (`tools/ci/baselines/python_roundtrip_passing.txt`) as a SET, not a count —
+  a baseline-named fixture missing from the current block is a hard CI error even when `passed`
+  held steady or rose. Guard: `python/engine/tests/test_roundtrip_passing_block.py` — it loads
+  `python/engine/conformance/roundtrip.py` **by file path**, not by package import, because
+  `python/compiler/conformance/` is a real package that shadows the `python/engine/conformance/`
+  namespace package once `python/compiler` lands on `sys.path` ahead of it (both are isolated
+  packages per `python/AGENTS.md`, and pytest's `conftest.py` bootstrapping puts siblings on the
+  path in an order this collision depends on).

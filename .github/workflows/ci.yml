@@ -218,6 +218,21 @@ jobs:
       - name: Round-trip leg floor + ratchet test (#642)
         run: bash tools/test/test_roundtrip_floor.sh
 
+      # A pass-count floor (above) cannot tell "nothing changed" from "one
+      # fixture newly passes and a different one newly regresses" — the count
+      # is identical either way, so a real regression can land invisibly as
+      # long as some unrelated fixture happens to start passing in the same
+      # PR (#836). tools/ci/roundtrip_passset.sh is the set-difference gate
+      # that closes that; generalized from the Rust round-trip leg to all four
+      # of Rust/C#/Go/Python (#896), this proves the gate itself (the
+      # net-zero swap scenario must be RED, an identical or superset pass set
+      # must be GREEN, a missing/empty/unsorted/duplicated baseline must be a
+      # hard error) AND asserts the wiring into conformance-matrix.yml's
+      # rust-roundtrip/csharp-roundtrip/go-roundtrip/python-roundtrip rows —
+      # test_roundtrip_passset.sh loops every scenario over all four languages.
+      - name: Round-trip leg pass-set regression test (#836)
+        run: bash tools/test/test_roundtrip_passset.sh
+
       # The four `*-compiler` rows carried four byte-identical copies of an
       # inline gate whose only response to a measured GAIN was
       # `echo "::notice::… IMPROVED …"; exit 0`. `GO_COMPILER_FLOOR` therefore
@@ -3006,7 +3021,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)" — the
+      # "Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -3201,7 +3216,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)" — the 4
+      # "Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3373,7 +3388,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)" — the 4
+      # "Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

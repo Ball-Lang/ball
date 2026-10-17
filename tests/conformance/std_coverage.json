@@ -604,6 +604,7 @@
         "473_caught_user_thrown_builtin_error",
         "476_user_member_named_like_builtin_accessor",
         "479_user_member_named_like_collection_accessor",
+        "480_extension_override_selection",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -2631,7 +2632,8 @@
         "478_setter_backing_store_disambiguation",
         "479_user_member_named_like_collection_accessor",
         "47_do_while",
-        "480_list_take_drop",
+        "480_extension_override_selection",
+        "481_list_take_drop",
         "48_break_continue",
         "49_nested_loops",
         "50_if_else_chain",
@@ -3632,6 +3634,7 @@
         "477_std_concurrency_handles",
         "479_user_member_named_like_collection_accessor",
         "47_do_while",
+        "480_extension_override_selection",
         "48_break_continue",
         "49_nested_loops",
         "52_max_of_three",
@@ -3794,7 +3797,8 @@
         "442_switch_goto_fallthrough_guard_or_pattern",
         "474_is_not_empty_receivers",
         "476_user_member_named_like_builtin_accessor",
-        "479_user_member_named_like_collection_accessor"
+        "479_user_member_named_like_collection_accessor",
+        "480_extension_override_selection"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3939,7 +3943,7 @@
       "inputType": "ListInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "480_list_take_drop"
+        "481_list_take_drop"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4247,7 +4251,7 @@
       "inputType": "ListInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "480_list_take_drop"
+        "481_list_take_drop"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4272,7 +4276,7 @@
         "416_user_method_name_arity_collision",
         "476_user_member_named_like_builtin_accessor",
         "479_user_member_named_like_collection_accessor",
-        "480_list_take_drop"
+        "481_list_take_drop"
       ],
       "engineImplementedDart": true,
       "carvedOut": false

@@ -4737,7 +4737,9 @@ void main() {
     const acceptedTargetShapes = <Expression_Expr>{
       Expression_Expr.reference,
       Expression_Expr.fieldAccess,
-      // Only `std.index`; any other call is rejected (covered below).
+      // Only `std.index` and an accessor call that names a SETTER (the
+      // extension-override write of #670, covered by its own group below);
+      // any other call is rejected (covered below).
       Expression_Expr.call,
     };
 
@@ -4939,6 +4941,371 @@ void main() {
         reason:
             'Expression gained (or lost) a oneof case: classify it as an '
             'accepted assignment target or add a rejected-target fixture.',
+      );
+    });
+  });
+
+  // ── an extension override in a WRITE position (#670) ──────────────────────
+  //
+  // `Ext(receiver).member = v` encodes exactly like the READ does — a call
+  // NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  // receiver in `self` — wrapped by `std.assign`. #670's DoD is that every
+  // engine dispatches that qualified NAME, and a write is half of it: the
+  // engine cannot ask the RECEIVER which extension to use, because an
+  // extension receiver is an ordinary list/string/map and two extensions can
+  // declare the same member on the same type.
+  //
+  // Before this fix `_evalAssign` handled `reference`, `fieldAccess` and
+  // `std.index` targets only, so an override write reached the #742 loud
+  // refusal and no program containing one could run at all. Nothing caught it:
+  // the write-position suite in `dart/encoder` asserted on compiled Dart
+  // SOURCE and never ran the Ball program.
+  group('engine: an extension override writes through its setter (#670)', () {
+    /// A getter/setter pair for `<ext>.slot` over list index [index], named the
+    /// way the encoder names an extension member. Both share ONE function
+    /// name — `is_getter`/`is_setter` is what tells them apart — which is
+    /// exactly why the write path cannot resolve through `_functions`.
+    List<Map<String, dynamic>> slotAccessors(
+      String ext,
+      int index, {
+      bool withGetter = true,
+      bool withSetter = true,
+      // The other naming convention for a setter function, `<Type>.<member>=`
+      // (see `_trySetterDispatch`). A call target names the member WITHOUT it,
+      // so the lookup has to try both spellings.
+      String setterSuffix = '',
+    }) => [
+      if (withGetter)
+        {
+          'name': 'main:$ext.slot',
+          'body': indexExpr(ref('self'), literal(index)),
+          'metadata': {'kind': 'method', 'is_getter': true},
+        },
+      if (withSetter)
+        {
+          'name': 'main:$ext.slot$setterSuffix',
+          'body': stmt(
+            stdCall(
+              'assign',
+              msg([
+                field('target', indexExpr(ref('self'), literal(index))),
+                field('value', ref('v')),
+              ]),
+            ),
+          )['expression'],
+          'metadata': {
+            'kind': 'method',
+            'is_setter': true,
+            'params': [
+              {'name': 'v', 'type': 'int'},
+            ],
+          },
+        },
+    ];
+
+    /// `Ext(xs).slot` as the encoder emits it: the member's qualified name,
+    /// the receiver in `self`.
+    Map<String, dynamic> slotOf(String ext, String receiver) => call(
+      'main:$ext.slot',
+      module: 'main',
+      input: msg([field('self', ref(receiver))]),
+    );
+
+    Program slotProgram(
+      List<Map<String, dynamic>> statements, {
+      List<Map<String, dynamic>>? accessors,
+    }) => buildProgram(
+      stdFunctions: [
+        {'name': 'index', 'isBase': true},
+        {'name': 'post_increment', 'isBase': true},
+        {'name': 'pre_increment', 'isBase': true},
+      ],
+      functions: [
+        ...(accessors ??
+            [...slotAccessors('Alpha', 0), ...slotAccessors('Beta', 2)]),
+        mainFn(statements),
+      ],
+    );
+
+    /// `std.assign(target: Ext(xs).slot, value: <value>)`, with [op] when it is
+    /// a compound write.
+    Map<String, dynamic> writeSlot(
+      String ext,
+      Map<String, dynamic> value, {
+      String op = '=',
+      String receiver = 'xs',
+    }) => stdCall(
+      'assign',
+      msg([
+        field('target', slotOf(ext, receiver)),
+        field('value', value),
+        field('op', literal(op)),
+      ]),
+    );
+
+    Matcher throwsAssignError(String fragment) => throwsA(
+      isA<BallRuntimeError>().having(
+        (e) => e.message,
+        'message',
+        contains(fragment),
+      ),
+    );
+
+    test(
+      'a plain write reaches the named extension, not the receiver',
+      () async {
+        final program = slotProgram([
+          letStmt(
+            'xs',
+            listLit([literal(1), literal(2), literal(3)]),
+            keyword: 'var',
+          ),
+          stmt(writeSlot('Alpha', literal(7))),
+          stmt(writeSlot('Beta', literal(8))),
+          stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+          stmt(printToString(indexExpr(ref('xs'), literal(1)))),
+          stmt(printToString(indexExpr(ref('xs'), literal(2)))),
+        ]);
+        // Alpha writes slot 0 and Beta writes slot 2. A dropped write would
+        // leave `1`/`3`, and picking the wrong extension would swap them.
+        expect(await runAndCapture(program), ['7', '2', '8']);
+      },
+    );
+
+    test('the write is what the assignment EVALUATES to', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(printToString(writeSlot('Alpha', literal(7)))),
+      ]);
+      expect(await runAndCapture(program), ['7']);
+    });
+
+    test('a compound write reads through the SAME extension first', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(10), op: '+=')),
+        stmt(writeSlot('Beta', literal(10), op: '+=')),
+        stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+        stmt(printToString(indexExpr(ref('xs'), literal(2)))),
+      ]);
+      // 1 + 10 and 3 + 10 — reading through the OTHER extension's getter
+      // would produce 13 and 11.
+      expect(await runAndCapture(program), ['11', '13']);
+    });
+
+    test('post_increment returns the old value and writes the new', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(
+          printToString(
+            stdCall(
+              'post_increment',
+              msg([field('value', slotOf('Beta', 'xs'))]),
+            ),
+          ),
+        ),
+        stmt(printToString(indexExpr(ref('xs'), literal(2)))),
+      ]);
+      expect(await runAndCapture(program), ['3', '4']);
+    });
+
+    test('pre_increment returns the new value and writes it', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(
+          printToString(
+            stdCall(
+              'pre_increment',
+              msg([field('value', slotOf('Alpha', 'xs'))]),
+            ),
+          ),
+        ),
+        stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+      ]);
+      expect(await runAndCapture(program), ['2', '2']);
+    });
+
+    test('??= writes only when the getter answers null', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([litNull(), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(5), op: '??=')),
+        stmt(writeSlot('Beta', literal(9), op: '??=')),
+        stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+        stmt(printToString(indexExpr(ref('xs'), literal(2)))),
+      ]);
+      // Slot 0 was null so it takes 5; slot 2 already held 3 and keeps it.
+      expect(await runAndCapture(program), ['5', '3']);
+    });
+
+    test('a member with a setter but no getter refuses a compound write', () {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(1), op: '+=')),
+      ], accessors: slotAccessors('Alpha', 0, withGetter: false));
+      expect(
+        runAndCapture(program),
+        throwsAssignError('declares a setter but no getter'),
+      );
+    });
+
+    test('a member with a setter but no getter refuses ??=', () {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(1), op: '??=')),
+      ], accessors: slotAccessors('Alpha', 0, withGetter: false));
+      expect(
+        runAndCapture(program),
+        throwsAssignError('declares a setter but no getter'),
+      );
+    });
+
+    test('a member with a setter but no getter refuses ++', () {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(
+          stdCall(
+            'post_increment',
+            msg([field('value', slotOf('Alpha', 'xs'))]),
+          ),
+        ),
+      ], accessors: slotAccessors('Alpha', 0, withGetter: false));
+      expect(
+        runAndCapture(program),
+        throwsAssignError('declares a setter but no getter'),
+      );
+    });
+
+    test('an accessor target with no self receiver fails loud', () {
+      final program = slotProgram([
+        stmt(
+          stdCall(
+            'assign',
+            msg([
+              field(
+                'target',
+                call('main:Alpha.slot', module: 'main', input: msg([])),
+              ),
+              field('value', literal(7)),
+            ]),
+          ),
+        ),
+      ]);
+      expect(runAndCapture(program), throwsAssignError("missing its 'self'"));
+    });
+
+    test('post_decrement returns the old value and writes the new', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(
+          printToString(
+            stdCall(
+              'post_decrement',
+              msg([field('value', slotOf('Beta', 'xs'))]),
+            ),
+          ),
+        ),
+        stmt(printToString(indexExpr(ref('xs'), literal(2)))),
+      ]);
+      expect(await runAndCapture(program), ['3', '2']);
+    });
+
+    test('an accessor target with no self receiver fails loud under ??=', () {
+      final program = slotProgram([
+        stmt(
+          stdCall(
+            'assign',
+            msg([
+              field(
+                'target',
+                call('main:Alpha.slot', module: 'main', input: msg([])),
+              ),
+              field('value', literal(7)),
+              field('op', literal('??=')),
+            ]),
+          ),
+        ),
+      ]);
+      expect(runAndCapture(program), throwsAssignError("missing its 'self'"));
+    });
+
+    test('an accessor target with no self receiver fails loud under ++', () {
+      final program = slotProgram([
+        stmt(
+          stdCall(
+            'post_increment',
+            msg([
+              field(
+                'value',
+                call('main:Alpha.slot', module: 'main', input: msg([])),
+              ),
+            ]),
+          ),
+        ),
+      ]);
+      expect(runAndCapture(program), throwsAssignError("missing its 'self'"));
+    });
+
+    test('a setter named with the `=` convention is found too', () async {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(7))),
+        stmt(printToString(indexExpr(ref('xs'), literal(0)))),
+      ], accessors: slotAccessors('Alpha', 0, setterSuffix: '='));
+      expect(await runAndCapture(program), ['7']);
+    });
+
+    test('a GETTER-only member is still refused, never silently written', () {
+      final program = slotProgram([
+        letStmt(
+          'xs',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'var',
+        ),
+        stmt(writeSlot('Alpha', literal(7))),
+      ], accessors: slotAccessors('Alpha', 0, withSetter: false));
+      expect(
+        runAndCapture(program),
+        throwsAssignError('unsupported assignment target shape'),
       );
     });
   });

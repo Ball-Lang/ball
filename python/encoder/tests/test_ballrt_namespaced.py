@@ -361,7 +361,7 @@ ROUND_TRIP_FIXTURES = [
     "386_list_concat_addall",    # ballrt.col.list_concat
     "392_empty_set_literal",     # ballrt.col.set_create(None) — the input-less form
     "463_list_find_no_match",    # ballrt.col.list_find — callback, and it throws
-    "480_list_take_drop",        # ballrt.col.list_take / list_drop (issue #833)
+    "481_list_take_drop",        # ballrt.col.list_take / list_drop (issue #833)
     "190_utf8_encode_decode",    # ballrt.cvt.utf8_encode / utf8_decode
     "191_base64_encode_decode",  # ballrt.cvt.base64_encode / base64_decode
 ]

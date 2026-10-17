@@ -167,7 +167,8 @@ a bucket 2.7x larger. At 138 of 363 (run 35593505327, job 106313208884) the buck
 `ball_unsupported_base_call` 19, `BallValue::Function` 16, `ball_index_set` 14 and
 `ball_list_push` 13.
 The sweep itself is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never
-runs it (it runs the five self-tests beside it):
+runs it (it runs the ten self-tests beside it — count with `grep -c '^#\[test\]'` minus the one
+`#[ignore]`, never from this prose):
 
 ```bash
 cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture
@@ -177,7 +178,30 @@ Its CI home is the `rust-roundtrip` row in `.github/workflows/conformance-matrix
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:` trigger sharing
 its `push` filter, and `rust/**` is in that filter, so the row runs on any PR touching this
 directory with no `gh workflow run` dispatch. It gates harness health, the positive floor and the
-ratchet — plus, since #693, **no fixture may HANG**.
+ratchet — plus, since #693, **no fixture may HANG**, and, since #836, **no previously-passing
+fixture may REGRESS even when the total count holds or rises**.
+
+**A pass-count floor cannot see a net-zero fixture swap (#836).** `roundtrip_floor.sh`'s ratchet
+compares one number (`passed`) against another (the floor); if fixture A starts passing in the
+same PR that a different fixture B stops passing, `passed` is unchanged and the ratchet stays
+green while B silently regressed. The sweep now also prints the per-fixture PASS SET — a
+`Passing fixtures (<N>, sorted):` block (`format_passing_block`/`print_passing_fixtures`) listing
+every fixture that round-tripped, right before the `Results:` line — and
+`tools/ci/roundtrip_passset.sh`, invoked right after `roundtrip_floor.sh` in the `rust-roundtrip`
+row, diffs that block as a SET against the committed baseline
+`tools/ci/baselines/rust_roundtrip_passing.txt` (one fixture name per line, sorted, deduplicated,
+regenerated only via `roundtrip_passset.sh ... --write`, never by hand). Any baseline-named
+fixture missing from the current block is a hard CI error naming every regressed fixture, even
+when `passed` held steady or rose; a newly-passing fixture not yet in the baseline is a
+`::notice::` naming the gain, never a failure, with the exact `--write` invocation to lock it in.
+Self-tested by `tools/test/test_roundtrip_passset.sh` (ci.yml's always-on `proto` job), which pins
+the net-zero-swap scenario itself as its primary RED case, mirroring
+`tools/test/test_roundtrip_floor.sh`'s `flat_zero_is_red`. Landed on this leg first, per the
+issue, and then **generalized to the C#/Go/Python round-trip legs too (#896)** in the same PR:
+each of those three legs now prints its own byte-identical `Passing fixtures (<N>, sorted):`
+block, `roundtrip_passset.sh` is invoked in all four `<lang>-roundtrip` rows, and
+`test_roundtrip_passset.sh` loops its scenarios over all four languages' baselines rather than
+pinning Rust alone.
 
 ### The launcher path, and the per-fixture budget — both self-tested (#692/#693)
 

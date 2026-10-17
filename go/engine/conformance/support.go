@@ -32,6 +32,30 @@ type Summary struct {
 	Results []Result
 }
 
+// FormatPassingBlock renders the `Passing fixtures (<N>, sorted):` block a
+// round-trip leg prints so tools/ci/roundtrip_passset.sh can diff the per-
+// fixture PASS SET against a committed baseline (issue #896, generalizing
+// #836's Rust fix to the C#/Go/Python legs) — a pass-COUNT floor cannot tell
+// "nothing changed" from "one fixture newly passes while a different one
+// regresses", because the count is identical either way.
+//
+// Mirrors rust/engine/tests/roundtrip_conformance.rs's format_passing_block
+// byte for byte: the same header shape and the same two-space indent per
+// name. `passing` must already be sorted — this never re-sorts it, the same
+// contract the Rust printer documents.
+func FormatPassingBlock(passing []string) string {
+	var b strings.Builder
+	b.WriteString("Passing fixtures (")
+	b.WriteString(strconv.Itoa(len(passing)))
+	b.WriteString(", sorted):\n")
+	for _, name := range passing {
+		b.WriteString("  ")
+		b.WriteString(name)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func diffDetail(expected, actual string) string {
 	el := strings.Split(expected, "\n")
 	al := strings.Split(actual, "\n")

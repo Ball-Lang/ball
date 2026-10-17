@@ -66,6 +66,12 @@ tests/conformance/*.ball.json linguist-generated=true
 # platform; a CRLF checkout would fail the gates for no real reason.
 tests/cli_core_goldens/*.txt text eol=lf
 
+# Round-trip-leg pass-set baselines (issue #836) — line-compared (`sort -c`,
+# `comm`) by tools/ci/roundtrip_passset.sh. Pinned to LF for the same reason
+# as the goldens above: a CRLF checkout would make every line "not sorted"
+# relative to the LF the harness that generates them prints.
+tools/ci/baselines/*.txt text eol=lf
+
 # The two committed Go artifacts (issue #586): go/engine/compiled/compiled_engine.go
 # and go/cli/compiled/compiled_cli.go became TRACKED so a `go install`-acquired
 # `ball` can run programs and the cli-core verbs. Pinned to LF because

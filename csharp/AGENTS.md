@@ -1511,6 +1511,21 @@ each side, so a divergence anywhere later rendered as a self-contradictory diff 
 `engine/test/MismatchDescriptionTests.cs` pins the invariant (the harness is a console app, so it
 exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly this).
 
+**Every TIMEOUT prints, even past the 50-line cap on ordinary failures (#737).**
+`Summary.Print`'s failure listing used to cap the WHOLE non-pass list at 50 lines in fixture-name
+order, so on a leg with more than 50 non-pass results (the `roundtrip` leg runs 76 passed / 282
+failed at head, well past 50) a `FixtureStatus.Timeout` ranked 51st or later never reached the
+log at all — and `tools/ci/roundtrip_floor.sh`'s "no fixture may hang" gate (#693) greps exactly
+this text for a `TIMEOUT` line, so a hang ranked past the cap was invisible to the one gate that
+exists specifically to catch it. The cap now applies ONLY to ordinary `Fail`/`Error` entries;
+every `Timeout` prints unconditionally, in its original sorted-fixture-name position, and the
+`... and N more` count reflects only the suppressed ordinary entries. `Summary.Print` takes an
+optional `TextWriter? writer = null` (defaulting to `Console.Out`, unchanged for every production
+call site) so a test can assert on the exact text without `Console.SetOut` — which this same file
+warns is unsafe under xUnit's default parallelization ("Captured stdout is per-execution-context,
+never a global redirect", issue #611, earlier in this file). Guard:
+`engine/test/TimeoutReportingTests.cs`.
+
 **CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452, both directions since
 #792).** The `csharp-compiler` row in `conformance-matrix.yml` runs the `compiler` leg on every PR
 touching a filtered path (since #619), on every push to `main`, and on the weekly cron /

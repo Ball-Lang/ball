@@ -136,6 +136,11 @@ if run_finish_go_release > "$WORKDIR/log2.txt" 2>&1; then
   else
     no "release commit -> the dispatched script is this checkout's own await_workflow_run.py (log: $(cat "$PY_LOG"))"
   fi
+  if grep -q "^release create go-modules/v0.3.0 " "$GH_LOG"; then
+    ok "release commit -> gh release create go-modules/v0.3.0 invoked"
+  else
+    no "release commit -> gh release create go-modules/v0.3.0 invoked (log: $(cat "$GH_LOG"))"
+  fi
 else
   no "release commit -> script must exit 0 ($(cat "$WORKDIR/log2.txt"))"
 fi
@@ -161,6 +166,11 @@ if run_finish_go_release > "$WORKDIR/log3.txt" 2>&1; then
     ok "re-run on already-tagged HEAD -> python3 never invoked again"
   else
     no "re-run on already-tagged HEAD -> python3 never invoked again (log: $(cat "$PY_LOG"))"
+  fi
+  if [ ! -s "$GH_LOG" ]; then
+    ok "re-run on already-tagged HEAD -> gh never invoked again"
+  else
+    no "re-run on already-tagged HEAD -> gh never invoked again (log: $(cat "$GH_LOG"))"
   fi
 else
   no "re-run on already-tagged HEAD -> script must exit 0 ($(cat "$WORKDIR/log3.txt"))"
@@ -202,6 +212,11 @@ if run_finish_go_release > "$WORKDIR/log4.txt" 2>&1; then
   else
     no "release commit followed by another commit -> await_workflow_run.py dispatched at go-modules/v0.4.0 (log: $(cat "$PY_LOG"))"
   fi
+  if grep -q "^release create go-modules/v0.4.0 " "$GH_LOG"; then
+    ok "release commit followed by another commit -> gh release create go-modules/v0.4.0 invoked"
+  else
+    no "release commit followed by another commit -> gh release create go-modules/v0.4.0 invoked (log: $(cat "$GH_LOG"))"
+  fi
 else
   no "release commit followed by another commit -> script must exit 0 ($(cat "$WORKDIR/log4.txt"))"
 fi
@@ -228,6 +243,11 @@ if run_finish_go_release > "$WORKDIR/log5.txt" 2>&1; then
     ok "poll after the gap-commit race -> python3 never invoked again"
   else
     no "poll after the gap-commit race -> python3 never invoked again (log: $(cat "$PY_LOG"))"
+  fi
+  if [ ! -s "$GH_LOG" ]; then
+    ok "poll after the gap-commit race -> gh never invoked again"
+  else
+    no "poll after the gap-commit race -> gh never invoked again (log: $(cat "$GH_LOG"))"
   fi
 else
   no "poll after the gap-commit race -> script must exit 0 ($(cat "$WORKDIR/log5.txt"))"

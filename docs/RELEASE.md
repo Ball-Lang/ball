@@ -739,6 +739,8 @@ main (push, every 15 min schedule, or real workflow_dispatch)
           landing in the gap between the merge and the next poll tick is
           still found (the release.yml Phase 2 rationale, verbatim)
             ├─ tags THAT commit go-modules/vA.B.C, pushes the tag
+            ├─ gh release create go-modules/vA.B.C (visibility/changelog only
+            │  -- nothing downstream reads it, same as every other channel)
             └─ await_workflow_run.py --dispatch
                  --workflow tag-go-modules.yml
                  --ref go-modules/vA.B.C

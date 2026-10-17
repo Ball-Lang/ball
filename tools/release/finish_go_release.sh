@@ -7,7 +7,9 @@
 # `go-modules/vX.Y.Z` tag whose subject is a Go release-PR merge
 # (`chore(release): go vX.Y.Z`, written and pinned by
 # tools/release/open_go_release_pr.sh's `--merge-subject`), and if one
-# exists — ONLY then — tags it `go-modules/vX.Y.Z` and, via this script,
+# exists — ONLY then — tags it `go-modules/vX.Y.Z`, creates the GitHub
+# Release (mirroring @semantic-release/github's old publish step, which this
+# replaces — pure visibility/changelog, nothing downstream reads it), and
 # dispatches-and-awaits `tag-go-modules.yml` at that tag (which cuts the six
 # `go/<module>/vX.Y.Z` tags proxy.golang.org serves, reading the version back
 # out of the go.mod files the tag's own commit carries). No such commit
@@ -99,9 +101,18 @@ if [ -n "$CANDIDATE" ]; then
     exit 0
   fi
 
+  NOTES="$(git log -1 --format=%b "$COMMIT_SHA")"
+  WORKDIR="$(mktemp -d)"
+  trap 'rm -rf "$WORKDIR"' EXIT
+  printf '%s\n' "$NOTES" > "$WORKDIR/notes.md"
+
   echo "::group::tag $TAG at $COMMIT_SHA"
   git tag "$TAG" "$COMMIT_SHA"
   git push origin "refs/tags/$TAG"
+  echo "::endgroup::"
+
+  echo "::group::create GitHub Release $TAG"
+  gh release create "$TAG" --title "go v$VERSION" --notes-file "$WORKDIR/notes.md"
   echo "::endgroup::"
 
   # Dispatch-and-await the six go/<module>/vX.Y.Z tags, the same awaited

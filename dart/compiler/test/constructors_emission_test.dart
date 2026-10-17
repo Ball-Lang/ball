@@ -413,5 +413,116 @@ void main() {
       );
       expect(out, contains('S(this.name)'));
     });
+
+    test('a bodiless constructor param named "input" still becomes this.field '
+        'when the class has more than one field (fan-out, not a single-field '
+        'special case)', () {
+      final out = _flat(
+        _program(
+          typeDefs: [
+            _typeDef(
+              'P',
+              fields: [
+                (name: 'x', type: 'TYPE_INT64'),
+                (name: 'y', type: 'TYPE_INT64'),
+              ],
+              metadata: {
+                'fields': [
+                  {'name': 'x', 'type': 'int'},
+                  {'name': 'y', 'type': 'int'},
+                ],
+              },
+            ),
+          ],
+          members: [
+            _member(
+              'main:P.new',
+              metadata: {
+                'kind': 'constructor',
+                'params': [
+                  {'name': 'input', 'type': 'int'},
+                ],
+              },
+            ),
+          ],
+        ),
+      );
+      expect(out, contains('this.x'));
+      expect(out, contains('this.y'));
+    });
+
+    // #539's sibling, surfaced by conformance fixtures 453-455 (closes #880):
+    // a constructor whose sole parameter happens to be renamed to literally
+    // `input` — [_addParameters]'s UNRELATED single-positional-parameter
+    // aliasing convention, which fires for ANY lone plain parameter whether
+    // or not its name collides with a field — must never be mistaken for the
+    // bodiless single-input fan-out convention above. The tell is a REAL
+    // body: `Foo(int x) { print(x); }` compiles ONCE to
+    // `Foo(int input) { final x = input; print(x); }`, and when THAT Dart
+    // source is re-encoded (the `dart-roundtrip` conformance leg), the
+    // encoder reads the parameter's name straight off the source as `input`
+    // — indistinguishable from the fan-out shape by the params list alone.
+    // Before the fix this compiled to `Foo(this.x, this.y)`, discarding the
+    // real parameter and reading `input` out of a parameter list that no
+    // longer declared one.
+    test('a constructor param literally named "input" with a REAL body is '
+        'never rewritten to this.field, even when the class has fields '
+        '(#880, the dart-roundtrip-only regression in 453/454/455)', () {
+      final out = _flat(
+        _program(
+          typeDefs: [
+            _typeDef(
+              'Foo',
+              fields: [
+                (name: 'x', type: 'TYPE_INT64'),
+                (name: 'y', type: 'TYPE_INT64'),
+              ],
+              metadata: {
+                'fields': [
+                  {'name': 'x', 'type': 'int', 'initializer': '5'},
+                  {'name': 'y', 'type': 'int', 'initializer': '7'},
+                ],
+              },
+            ),
+          ],
+          members: [
+            _member(
+              'main:Foo.new',
+              metadata: {
+                'kind': 'constructor',
+                'params': [
+                  {'name': 'input', 'type': 'int'},
+                ],
+              },
+              // The re-encoded shape: `{ final x = input; print(x); }` —
+              // a real block body that does NOTHING with the class's
+              // fields, unlike the bodiless fan-out convention above.
+              body: Expression()
+                ..block = (Block()
+                  ..statements.add(
+                    Statement()
+                      ..let = (LetBinding()
+                        ..name = 'x'
+                        ..value = _ref('input')),
+                  )
+                  ..result = (Expression()
+                    ..call = (FunctionCall()
+                      ..module = 'std'
+                      ..function = 'print'
+                      ..input = (Expression()
+                        ..messageCreation = (MessageCreation()
+                          ..fields.add(
+                            FieldValuePair()
+                              ..name = 'message'
+                              ..value = _ref('x'),
+                          )))))),
+            ),
+          ],
+        ),
+      );
+      expect(out, contains('Foo(int input)'));
+      expect(out, isNot(contains('this.x')));
+      expect(out, isNot(contains('this.y')));
+    });
   });
 }

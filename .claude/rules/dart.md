@@ -27,6 +27,67 @@ for the authoritative member set).
 - Control flow (if, for, while) must use LAZY evaluation — extract expression trees, don't evaluate eagerly
 - Types are emitted from `typeDefs[]` only (a `TypeDefinition` = descriptor + metadata); the legacy `types[]`/`_meta_*` path was removed
 
+- **`_nonNullRefs` must be consulted at every site that compiles the proven
+  receiver, not only one (#880).** It is the set of references proven
+  non-null in the `else` arm of a lowered `X == null ? null : X.…` null-aware
+  guard (populated by `_generateIf`/`_compileInlineIf` via
+  `_nullEqualityGuardRef`), and the compiler MUST assert `!` wherever it
+  fires — Dart promotes a nullable *local* across that guard but never a
+  *field*, and the syntactic (unresolved) encoder path every conformance
+  fixture goes through can never tell the two apart
+  (`_nullAwareNeedsTemp` needs a resolved `element`, which `parseString`
+  never produces), so the compiler has no choice but to assert unconditionally.
+  `_compileFieldAccess` used to consult it NOWHERE, and `_compileCall`'s
+  self-carrying-call branch consulted it only for `call.function == 'call'`
+  (a field holding a nullable function, `X?.call()`) — so `node?.leaf.value`
+  and a chain's hoisted `__nac_N.twice()` compiled to `node.leaf.value` /
+  `__nac_N.twice()` with no `!`, which Dart's analyzer rejects outright for a
+  non-promotable receiver. Both sites now assert unconditionally; a redundant
+  `!` on an already-promoted local is a lint, never a compile error, so there
+  is no correct reason to narrow the condition back down. Conformance fixture
+  `471_null_aware_chain_scope` is the cross-target guard (it was failing on
+  BOTH the `dart-compiled` and `dart-roundtrip` subprocess legs, invisible to
+  every in-process gate — see "PR-time gate" below); `dart/compiler/test/
+  emission_tail3_test.dart`'s "round-trip: null-aware chain on a mutable
+  field" group pins the field-access and method-call shapes directly against
+  `DartCompiler`/`DartEncoder`.
+- **`_buildConstructor`'s single-input-convention override needs a REAL-BODY
+  gate, or it clobbers an ordinary constructor on round-trip (#880).** The
+  override ("a constructor whose sole param is named `input`, with class
+  fields, becomes `this.field` formals in field order") exists for a
+  BODILESS constructor some non-Dart encoder emits with no per-field
+  `this.`-formal info — Dart's own `MyClass(this.a, this.b);` sugar has no
+  other way to be expressed from a flat `params: [{name: 'input'}]`. But
+  `_addParameters` (called immediately before, in the same function) ALSO
+  renames an ordinary, non-colliding single positional parameter to
+  literally `input` — an unrelated convention, aliasing the Ball calling
+  convention's one parameter inside the body — whenever its original name
+  isn't already `input`. So `Foo(int x) { print(x); }` compiles correctly
+  ONCE to `Foo(int input) { final x = input; print(x); }`, and once THAT
+  Dart source is re-encoded (the `dart-roundtrip` conformance leg), the
+  encoder reads the parameter's name straight off the source as `input` —
+  indistinguishable from the legitimate fan-out shape by the params list
+  alone. The override now also requires the constructor to have no REAL
+  body (`!func.hasBody()`, or a body that is nothing but the bare `input`
+  reference itself — the shape the one pre-existing unit test for the
+  legitimate convention happens to use): a real body is never produced by
+  the bodiless fan-out convention, and is always produced by
+  `_addParameters`'s rename. Conformance fixtures
+  `453_ctor_param_shadows_field`/`454_inline_instance_argument_name_collision`/
+  `455_ctor_field_writes_that_survive` are the cross-target guards (all three
+  failed on the `dart-roundtrip` leg only, since the bug only shows up on the
+  SECOND compile pass); `dart/compiler/test/constructors_emission_test.dart`'s
+  "constructor parameters" group pins both the negative repro and a
+  multi-field positive control for the legitimate convention.
+- **PR-time gate for both of the above:** `slow-conformance.yml` is the ONLY
+  harness that exercises the real `dart run` subprocess legs
+  (`dart-compiled`/`dart-roundtrip`) rather than the in-process ones every
+  other CI job uses, and until #880 it ran ONLY on a weekly schedule (no
+  `pull_request` trigger) — so both regressions above merged silently and
+  stayed invisible for weeks (measured: at least 2026-09-07 through every
+  subsequent weekly run). It now also triggers on `pull_request` for any
+  change under `dart/compiler/**`, `dart/encoder/**`, or to itself.
+
 - **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
   `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
   `dart/shared/lib/std_collections.dart` says ("Find first:

@@ -33,13 +33,17 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+  # NO `paths-ignore:` here (#756 follow-up) — see ci.yml's identical block
+  # for the full rationale. This workflow owns 4 of the 19 required contexts
+  # of ruleset 17056238 (Detect changed stacks, TS Regression Gate, Dart
+  # Regression Gate, C++ Self-Host Tally); a path-filtered `pull_request:`
+  # trigger left all four "Pending" forever on any docs-only PR, which is
+  # exactly the shape GitHub's troubleshooting docs warn against ("Avoid
+  # requiring workflows that can be skipped"). `detect.sh`'s `infra` carve-out
+  # still skips this workflow's heavy jobs for a docs-only diff; `push:`
+  # above is unaffected (it owns no required context).
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "LICENSE"
-      - ".gitignore"
   # Merge-queue readiness (#756) — see ci.yml's identical block for the full
   # rationale. This workflow owns four required contexts (Detect changed
   # stacks, TS Regression Gate, Dart Regression Gate, C++ Self-Host Tally),

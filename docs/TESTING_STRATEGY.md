@@ -551,6 +551,19 @@ The rule this repo now follows on any measurement leg:
    or multiline operand exits 2 — which, inside an `if`, SKIPS the branch and
    falls through to a green exit. `tools/test/test_roundtrip_floor.sh` runs on
    every PR and pins all of it, the wiring included.
+5. **On the compiler legs, the raise in rule 3 is ENFORCED, not requested
+   (#792).** Rule 3 was prose, and prose stops nothing: each `*-compiler` row's
+   only response to a measured gain was `echo "::notice::… IMPROVED …"` followed
+   by `exit 0`, so `GO_COMPILER_FLOOR` sat at 291 while the row measured 297
+   (PR #738's matrix run 35552669922) — six fixtures of earned gain unclaimed,
+   and a regression back to 292 still green. `tools/ci/compiler_floor.sh` makes
+   `passed > floor` **red**, naming the exact constant and value to write, so an
+   improvement and the floor that locks it in land in the same PR by
+   construction. The floor is passed to it BY NAME and read back with indirect
+   expansion, so the constant a human is told to edit is the one the comparison
+   used. `tools/test/test_compiler_floor.sh` pins it and the wiring. The
+   `*-roundtrip` rows keep the advisory notice: their floors climb several times
+   a week under #689/#690/#791 and are already raised alongside each gain.
 
 Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
 its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
@@ -934,10 +947,12 @@ Two compounding reasons, and #619 only fixed the first:
    only. A post-merge red on a non-blocking workflow stops and reopens nothing,
    and a lane that never dispatched saw **no row at all**, which reads as green.
    `conformance-matrix.yml` is a PR gate now, so that half is closed.
-2. **They are ratchets, not parity gates** — `*_COMPILER_FLOOR` fails only on a
-   *drop* in a passing count. 146's failure sat inside each floor from day one. A
-   count cannot name the fixture that is failing, so the row stayed green over a
-   real, permanent defect and would have stayed green even as a PR gate.
+2. **They are ratchets, not parity gates** — `*_COMPILER_FLOOR` fails on a
+   *drop* in a passing count (and, since #792, on an unclaimed *rise* too: see
+   §2c rule 5 — a gain that does not raise the floor in the same PR is red). 146's
+   failure sat inside each floor from day one. A count cannot name the fixture
+   that is failing, so the row stayed green over a real, permanent defect and
+   would have stayed green even as a PR gate.
 
 So "a gate exists" and "a gate would have gone red on this" remain different
 claims even now. When a compiler documents a lowering gap in a doc comment — which
@@ -1466,13 +1481,31 @@ PR that is only broken in combination with another queued PR is caught and
 dequeued before either one reaches `main`, one merge sooner than the #749
 failure was caught.
 
-**This issue (and this PR) only prepares the workflows for that flag; the flag
-itself is a separate, later step on ruleset 17056238 — see
+**The first PR under #756 only prepared the workflows for the flag (every
+required-context workflow gained a `merge_group:` trigger); enabling the flag
+itself was a separate, later step on ruleset 17056238 — see
 [the recorded decision on #756](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998)
 for the reasoning (measured cost of `strict_required_status_checks_policy`
-vs. the merge queue) and why it isn't folded into the same PR. #756 stays
-open until that follow-up step enables the `merge_queue` rule and confirms it
-via `gh api repos/Ball-Lang/ball/rulesets/17056238`.**
+vs. the merge queue) and why it wasn't folded into the same PR. That follow-up
+step has now landed: the `merge_queue` rule is confirmed ENABLED on ruleset
+17056238 via `gh api repos/Ball-Lang/ball/rulesets/17056238 --jq
+'[.rules[].type]'` (the result includes `"merge_queue"`), with these
+parameters:**
+
+| Parameter | Value |
+| --- | --- |
+| `merge_method` | `SQUASH` |
+| `grouping_strategy` | `ALLGREEN` |
+| `max_entries_to_build` | 5 |
+| `max_entries_to_merge` | 5 |
+| `min_entries_to_merge` | 1 |
+| `min_entries_to_merge_wait_minutes` | 5 |
+| `check_response_timeout_minutes` | 90 |
+
+#756 itself tracks the broader "decide on strict_required_status_checks_policy"
+question and its own closure is a separate call; this doc states only the
+mechanical fact that the rule is live, verified against the API above, not
+the issue's lifecycle.
 
 A merge queue entry runs under GitHub's `merge_group` event, which is NOT a
 `pull_request` or a `push`: it carries no `pull_request` payload and no
@@ -1517,6 +1550,86 @@ usable base fails open identically to the existing `pull_request`/`push`
 fail-open rows, and a `merge_group` event with a real base is cross-checked
 against an equivalent `push` run sharing that exact base, proving it takes the
 real diff path rather than silently reusing the fail-open block.
+
+### Docs-only PRs and required-context workflows (#756 follow-up)
+
+Enabling the `merge_queue` rule (above) made a pre-existing problem fatal
+instead of merely slow: a merge queue entry can only be BUILT once the PR's
+own required checks are green, and `ci.yml` and `regression-gates.yml` — 19
+of the 19 required contexts between them — used to carry a `paths-ignore:`
+filter (`**.md`, `docs/**`, `LICENSE`, `.gitignore`) on their `pull_request:`
+trigger. GitHub's own troubleshooting documentation names this exact shape:
+
+> A workflow is skipped by path filtering, branch filtering, or a commit
+> message [...] Associated checks stay in a 'Pending' state and block
+> merging. [...] Avoid requiring workflows that can be skipped.
+
+(["Handling skipped but required checks"](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks))
+
+So any PR whose WHOLE diff matched that `paths-ignore:` list — a docs-only
+PR, e.g. a CONTRIBUTING.md typo fix or this very doc's own edits — never
+started either workflow at all. Every one of the 19 required contexts stayed
+"Pending" forever, and the PR could never merge through the normal, all-green
+path (queue or no queue). Ruleset 17056238 still names a bypass actor (the
+repo owner), so an `--admin` override was — and remains — technically
+possible; the point isn't that there was literally no way through, it's that
+the only way through was defeating the gate's entire purpose for a change
+that had nothing to check in the first place. CONTRIBUTING.md's landing
+steps already warn against exactly that: "`--admin` bypasses the queue
+entirely for an administrator; don't use it to dodge a legitimately red
+merge group."
+
+**The fix, following GitHub's own guidance literally:**
+
+1. `paths-ignore:` is gone from `ci.yml`'s and `regression-gates.yml`'s
+   `pull_request:` triggers (their `push:` triggers keep it unchanged — a
+   push to `main` owns no required context, so a skipped push run is not a
+   stuck PR). Every required context now always STARTS on every PR.
+2. Removing the trigger-level filter would, on its own, make a docs-only PR
+   expensive instead of blocked: `detect-changed-stacks/detect.sh`'s `infra`
+   fail-safe is true for any file outside the single-stack language dirs —
+   which includes every doc file OUTSIDE those dirs — so every heavy
+   per-stack job (the full ~25-minute C++ matrix included) would run on a
+   diff that could not possibly need it. `detect.sh` now carries the SAME
+   four `paths-ignore:` entries as an in-classifier carve-out: a file
+   matching `*.md` (anywhere, mirroring `**.md`'s own double-star semantics —
+   not just the repo root or `docs/`), `docs/**`, the root `LICENSE`, or the
+   root `.gitignore` no longer counts toward `infra` — **except** under
+   `tests/conformance/`, where several `*.md` files (`CARVEOUTS.md`,
+   `ENCODER_COMPLETENESS_CARVEOUTS.md`, `NODE_SHAPE_COVERAGE_CARVEOUTS.md`,
+   the generated `STD_COVERAGE.md`) are machine-read gate ledgers, not prose;
+   carving those out too would silently stop running the `ball-freshness`
+   Asserts that read them on a ledger-only PR, so `tests/conformance/**` is
+   excluded from the carve-out regardless of extension. A docs-only diff
+   (strictly outside every language dir and outside `tests/conformance/`)
+   now starts both workflows (so their required contexts report) but every
+   per-stack job's `if:` still evaluates false and the job SKIPS (a skipped
+   job reports `success` and satisfies a required check — a workflow that
+   never starts does not). The claim is narrower than "every doc change":
+   a doc file INSIDE a language dir — `rust/AGENTS.md`, say — still sets
+   that stack's own flag (the stack check is a directory PREFIX match, not
+   an extension exclusion), which is safe (it runs MORE than strictly
+   necessary, never less) but is not "skipped".
+   `.github/actions/detect-changed-stacks/test/truth_table.sh` pins all of
+   this: one row per carve-out shape, rows for the `tests/conformance/`
+   ledger exclusion
+   (alone and paired with an unrelated stack file), a negative control
+   proving a docs file alongside a genuinely cross-cutting file still trips
+   `infra`, and a control proving a docs file alongside a stack-dir file
+   flips only that stack's own flag.
+3. `tools/ci/check_pr_job_fanout.sh` — already the static guard for "a
+   required context must never live behind a workflow-level `paths:`
+   allow-list" (report-safety 2, above its "THE RULE") — now checks
+   `paths-ignore:` too, for exactly the same reason: a required-context
+   workflow whose `pull_request:` trigger carries either filter form can have
+   its entire diff miss the allow-list or match the whole deny-list, and
+   either way the workflow never starts. Its `--self-test` drives a
+   `paths-ignore:`-filtered required-context workflow as a dedicated negative
+   control, so a FUTURE regression — someone re-adding `paths-ignore:` to
+   either workflow's `pull_request:` trigger while it still owns a required
+   context — fails this guard (run from `ci.yml`'s always-on `Proto Checks`
+   job) immediately, rather than being discovered the next time someone opens
+   a docs-only PR.
 
 ### Per-PR job fan-out (issue #666)
 
@@ -1994,7 +2107,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/467_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | **A USER-thrown built-in Dart error reads the same on every target (§5b, #658)** — a caught `throw StateError('boom')` reads Dart's own `Bad state: boom` everywhere, INCLUDING the reference engine, while `.message` still reads the raw ctor argument; and every explicit rendering table covers every literal-throwable built-in (`ArgumentError` → `Invalid argument(s)`), raised or not | `tests/conformance/473_caught_user_thrown_builtin_error` (cross-target) + `tools/check_error_rendering_tables.py`'s `LITERAL_THROWABLE` check and its self-test + per-target tests: `dart/engine/test/user_thrown_builtin_error_test.dart`, `go/runtime/dart_error_rendering_test.go`, `go/compiler/user_thrown_builtin_error_test.go`, `csharp/compiler/test/UserThrownBuiltinErrorTests.cs`, `rust/shared/src/value.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
-| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
+| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds two entries (`459_set_add_remove_bool`, `462_set_mutation_in_place`, both `:dart-roundtrip`) the Dart encoder provably cannot express, and fails if either starts passing or names nothing real) | `slow-conformance.yml` — every PR touching `dart/compiler/**`, `dart/encoder/**`, or the workflow itself (closing the #880 gap), plus weekly + manual |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
@@ -2018,6 +2131,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |
+| **A workflow cannot pass `anthropics/claude-code-action` an input invalid for its own trigger events** (#870) — `claude-iterate.yml`'s weekly `schedule` run was red from the day it was added (2026-07-10, every scheduled run since 2026-07-14 failing identically) because its three steps passed `track_progress: true` on a `schedule`/`workflow_dispatch` trigger, an input the action's own `validateTrackProgressEvent` (`src/modes/detector.ts`, read at the pinned SHA) hardcodes valid only for `pull_request`/`issues`/`issue_comment`/`pull_request_review_comment`/`pull_request_review` — every run threw in `detectMode()` before Claude was ever invoked, on all three failover accounts, and the workflow's own failover step then misreported it as an auth/rate-limit failure. Nothing else models a third-party action's own input semantics: the YAML is syntactically valid, actionlint has no opinion on it, and the failure only ever surfaces on the event the workflow is scheduled for, which PR-time CI never fires | `tools/ci/check_claude_action_inputs.sh` — parses every `.github/workflows/*.yml`, finds every `anthropics/claude-code-action` step whose `track_progress` is not statically `false`/absent (a dynamic `${{ ... }}` expression is treated conservatively as "possibly enabled"), and fails unless that workflow's trigger set is a subset of the action's `track_progress`-valid events — plus, when the workflow also triggers on `pull_request`, that its declared (or the three GitHub-documented default) `types:` are a subset of the action's valid `pull_request` actions, the second check `validateTrackProgressEvent` performs. A positive floor (at least one real `claude-code-action` step found) keeps a guard that scanned nothing from reporting success; `--self-test` drives 6 positive + 6 negative fixtures offline first | every PR (the always-on `proto` job, no extra toolchain) |
 | **The published JSON Schema MIRRORS the proto, field for field** (#609) | `tools/check_proto_schema_drift.py` — `ball.schema.json` is the Draft 2020-12 mirror `docs/BALL_JSON_SPEC.md` points JSON-only implementers at, and every `$defs` object sets `additionalProperties: false`, so a proto field added without the matching schema edit does not merely go undocumented: the repo's own schema REJECTS the JSON this repo emits (`CallSite.resolved_module` did exactly that to `ball audit --output`). The checker parses `proto/ball/v1/ball.proto` with a deliberately STRICT reader (any line in a message/enum body that is not a comment, a field, a `oneof` or a brace is a hard error — never a silently skipped field) and asserts every message, field and enum value has the matching `$defs` entry of the matching JSON shape (`repeated` → `array`/`items`, `map<string,V>` → `object`/`additionalProperties`, `int64` → `$defs/Int64String`, …). The schema may be STRICTER than the proto (`ModuleImport.integrity` adds a `pattern`); it may never contradict or omit. Measured positive floors (34 messages / 153 fields / 2 enums) make "the reader found nothing" exit 2 rather than pass. `tools/test/test_check_proto_schema_drift.py` drives 11 offline cases first, including this defect from BOTH directions and three fake-green controls (unreadable proto line, below-floor proto, missing schema file). The corpus half — `scripts/validate_ball_schema.py`, every `.ball.json` against the schema — is a LOCAL check (it needs `pip install jsonschema`; the always-on job is deliberately hermetic and the `python` job that has pip is path-filtered to `python/**`), and it is structurally blind to this axis anyway: no corpus file is a `BallCapabilityReport`, a `BallManifest` or a `BallLockfile` | every PR (the always-on `Proto Checks` job, stdlib-only) |
 | **The Go module release lane stays machine-driven, and its own YAML-parsing leg cannot be silently disabled** (#361/#656/#694) | `tools/release/check_go_release_wiring.sh` — 27 legs over the lane's shape (one semantic-release config, the commit carrying every file the bump rewrites, `tag_go_modules.sh` as the single tagging path, no silent v2), of which the go-freshness `pull_request.paths` leg parses YAML rather than grepping because the claim is that a LIST IS EXACTLY A SET. `--self-test` drives 11 cases: 9 on the checker's verdicts (widened, narrowed, unfiltered, `paths-ignore`, no PR trigger, unparseable) and 2 on the **leg**, which run the whole guard with and without a `python3` that works — the §3a control, added after the leg was found reporting PASS with the checker unable to run | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |

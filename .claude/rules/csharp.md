@@ -43,7 +43,7 @@ root. Main `.csproj`s exclude `test/**/*.cs`/`tool/**/*.cs`/`conformance/**/*.cs
 compile items so the sibling projects never double-compile each other's files.
 
 - `Ball.Shared` (`csharp/shared/`) — `gen/Ball.cs` (buf-generated protobuf bindings, pinned
-  `Google.Protobuf 3.35.1` to match the `buf.build/protocolbuffers/csharp:v35.1` gencode line —
+  `Google.Protobuf 3.36.2` to match the `buf.build/protocolbuffers/csharp:v35.1` gencode line —
   bump both together, see "Generated Files" below) + the runtime value model
   (`BallValue`/`BallList`/`BallMap`/`BallMessage`/`BallFunction`, `src/BallValue.cs` et al.) + std
   module builders (`StdModuleBuilders.cs`) + the `BallRuntime` base-op helper layer the compiler
@@ -62,7 +62,7 @@ compile items so the sibling projects never double-compile each other's files.
   `engine/conformance/Ball.Engine.Conformance.csproj` is the committed conformance harness
   (`engine`/`compiler`/`roundtrip` legs, #384).
 - `Ball.Cli` (`csharp/cli/`) — the `ball` binary: `run`/`compile`/`encode`/`check` (via
-  `System.CommandLine` 2.0.9) plus the self-hosted cli-core verbs `info`/`validate`/`tree`/
+  `System.CommandLine` 2.0.12) plus the self-hosted cli-core verbs `info`/`validate`/`tree`/
   `version` (generated, gitignored `src/CompiledCli.cs`, compiled from
   `dart/shared/lib/cli_core.dart` via `cli/tool/Ball.Cli.Regen.csproj`).
 
@@ -611,7 +611,7 @@ compile items so the sibling projects never double-compile each other's files.
 
 ### CLI
 
-- `System.CommandLine` 2.0.9 (verify current stable on nuget.org before bumping — it only went GA
+- `System.CommandLine` 2.0.12 (verify current stable on nuget.org before bumping — it only went GA
   2025-11-11). Exit-code contract: `0` success, `1` runtime error, `2` invalid/unparseable
   program, `3` I/O error — mirrors `rust/cli/src/error.rs`.
 - `.ball.bin` is `Any`-wrapped (`Any.Pack(program).ToByteArray()`) — the Dart-canonical binary
@@ -738,18 +738,29 @@ compile items so the sibling projects never double-compile each other's files.
 
 ## Dependencies
 
-- `Google.Protobuf = "3.35.1"` — pinned to match the `buf.build/protocolbuffers/csharp:v35.1`
+- `Google.Protobuf = "3.36.2"` — pinned to match the `buf.build/protocolbuffers/csharp:v35.1`
   gencode plugin line exactly. When bumping the `csharp` plugin version in `buf.gen.yaml`, bump
   this in the same commit and rerun `shared/test/`'s binary+JSON round-trip smoke tests (a skewed
   pairing typically still *compiles* — only the smoke tests catch a meaningful skew).
-- `Microsoft.CodeAnalysis.CSharp = "5.6.0"` — Roslyn. Syntax API for the encoder's
+- `Microsoft.CodeAnalysis.CSharp = "5.9.0"` — Roslyn. Syntax API for the encoder's
   resolution-free entry points and the compiler test suite's in-memory compile-and-run harness;
   since #492 W12-C slice 1 also the `CSharpCompilation`/`SemanticModel` behind `EncodeProject`.
-- `Basic.Reference.Assemblies.Net100 = "1.8.11"` — hermetic net10.0 REFERENCE assemblies for that
+- `Basic.Reference.Assemblies.Net100 = "1.8.12"` — hermetic net10.0 REFERENCE assemblies for that
   compilation (MIT, netstandard2.0, references carried as embedded resources). Deliberately not
   the SDK ref pack: CI pins `dotnet-version: "10.0.x"`, so the pack's `<ver>` floats with the
   runner's patch and the encoder's binding answers would drift with it.
-- `System.CommandLine = "2.0.9"` — the CLI's arg parser; the newest GA (non-preview) release as
-  of the pin date.
-- `xunit.v3` + `xunit.runner.visualstudio` + `Microsoft.NET.Test.Sdk` + `coverlet.collector` —
-  the xUnit.net v3 test stack (`dotnet new xunit3` shape), bridged to `dotnet test` via VSTest.
+- `System.CommandLine = "2.0.12"` — the CLI's arg parser; the newest GA (non-preview) release the
+  dependabot-opened bump applied and CI verified (nuget.org has 2.0.13 too as of 2026-10-17, but
+  this pin matches the exact version that was tested — bump it separately if ever needed).
+- `Microsoft.NET.Test.Sdk = "18.10.1"` + `xunit.runner.visualstudio = "4.0.0"` +
+  `coverlet.collector = "10.1.0"` — the rest of the xUnit.net v3 test stack
+  (`dotnet new xunit3` shape), bridged to `dotnet test` via VSTest. **`xunit.v3` stays pinned at
+  `"3.2.2"` deliberately** — bumping it to 4.x pulls in Microsoft.Testing.Platform(.MSBuild) v2.x,
+  which removes the legacy VSTest-mode bridge `dotnet test` relies on under the .NET 10 SDK
+  (`error : Testing with VSTest target is no longer supported by Microsoft.Testing.Platform on
+  .NET 10 SDK and later`, see https://aka.ms/dotnet-test-mtp-error). Fixing that for real means
+  migrating the whole repo's `dotnet test` invocation to MTP mode (a `test.runner` entry in
+  `csharp/global.json`, plus every documented filtered `dotnet test` invocation across
+  `csharp/AGENTS.md`, this file and `CLAUDE.md` changing CLI shape) — out of scope for a
+  dependency-bump PR. `xunit.runner.visualstudio` bumps to 4.0.0 on its own without pulling MTP
+  v2 and is verified compatible with `xunit.v3 3.2.2`.

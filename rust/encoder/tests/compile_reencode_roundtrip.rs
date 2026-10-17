@@ -623,8 +623,7 @@ fn compiled_method_dispatcher_real_fallback_arm_re_encodes() {
          emits more than one (e.g. a second dispatcher), this test's single substitution is no \
          longer sound:\n{compiled}"
     );
-    let scrutinee_fixed =
-        compiled.replacen(scrutinee, "\"__ball_dispatcher_tag_placeholder\"", 1);
+    let scrutinee_fixed = compiled.replacen(scrutinee, "\"__ball_dispatcher_tag_placeholder\"", 1);
 
     let reencoded = ball_lang_encoder::encode_library(&scrutinee_fixed);
     let calls = std_calls(&reencoded);

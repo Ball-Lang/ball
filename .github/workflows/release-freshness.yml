@@ -1,0 +1,79 @@
+name: Release freshness
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The root release line's outcome alarm (issue #755's Definition of Done) —
+# the sibling of go-freshness.yml and pubdev-freshness.yml for THIS channel.
+#
+# Every other guard touching this line is STATIC: it proves the shape is
+# right (tools/release/check_release_pr_wiring.sh), never that a release
+# actually shipped. That is exactly how #755 itself went unwatched for
+# weeks — `release.yml` reported its own run as red, but nothing was
+# SCHEDULED to ask "does main have a releasable commit sitting unreleased
+# anyway?" independent of any one run's outcome. This asks that question
+# directly: tools/release/check_release_freshness.sh runs semantic-release's
+# dry-run computation against `main`, and if a release IS due, checks whether
+# the oldest unreleased commit is older than the grace window — failing loud
+# if so, citing the open release/next PR (or its absence) so the on-call
+# human has a lead immediately instead of discovering a silently stalled lane
+# a week later.
+#
+# WHY SCHEDULED AND NOT PR-GATED: whether main has an unreleased commit does
+# not depend on any one PR's diff, and a per-PR dependency on this channel
+# would redden unrelated work on a transient CI hiccup elsewhere — the same
+# reasoning pubdev-freshness.yml/go-freshness.yml already use. The classifier
+# itself IS PR-gated (tools/release/check_release_pr_wiring.sh runs its
+# --self-test in ci.yml's Proto Checks job on every PR), so a guard that
+# quietly stopped classifying anything cannot reach main. The one exception
+# is this alarm's OWN two files below, mirroring go-freshness.yml's rationale:
+# a workflow_dispatch workflow is not registered until its file is on the
+# default branch, so a brand-new alarm cannot otherwise be rehearsed by
+# dispatch before it merges.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release-freshness.yml
+      - tools/release/check_release_freshness.sh
+  schedule:
+    - cron: "0 7 * * 1" # Weekly, Monday 07:00 UTC (before pubdev-freshness's 07:00 — order doesn't matter, they're independent channels)
+  workflow_dispatch:
+    inputs:
+      max_lag_minutes:
+        description: "How long a releasable commit may sit on main with no new tag before this alarms, in minutes."
+        type: string
+        default: "1440"
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    name: releasable commits vs the last tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The classifier needs the full commit history (to find the oldest
+          # commit since the last `vX.Y.Z` tag) and every tag.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/release/package-lock.json
+
+      - name: Install release toolchain
+        run: cd tools/release && npm ci
+
+      # Proves the classifier still classifies before trusting a live
+      # verdict — a clean push history and a broken comparison look identical
+      # otherwise (the same discipline check_go_freshness.sh follows).
+      - name: Self-test the freshness classifier
+        run: bash tools/release/check_release_freshness.sh --self-test
+
+      - name: Compare main's unreleased commits against the grace window
+        env:
+          MAX_LAG_MINUTES: ${{ inputs.max_lag_minutes || '1440' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/release/check_release_freshness.sh

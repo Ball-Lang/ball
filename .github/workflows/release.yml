@@ -1,8 +1,40 @@
 name: Release
 
+# ─────────────────────────────────────────────────────────────────────────────
+# RELEASE VIA PR (issue #755). The `Protect main` ruleset (17056238) started
+# requiring 19 status checks on every push to `main` itself on 2026-09-13, and
+# the old shape — `npx semantic-release` pushing its version-bump commit and
+# tag straight to `main` — hits that rejection (GH013) unconditionally, every
+# time: see docs/RELEASE.md's "Release via PR" section for the full design and
+# the GitHub-docs citations behind it.
+#
+# The release job now runs in two independent phases EVERY push, in order:
+#   Phase 1 (tools/release/open_release_pr.sh) computes the next version via a
+#     semantic-release DRY RUN (no push, no tag — see that script's header),
+#     and if there is one, opens-or-refreshes an auto-merging PR carrying the
+#     version-bump commit on a `release/next` branch. No tag, no GitHub
+#     Release, no publish dispatch happens here.
+#   Phase 2 (tools/release/finish_release.sh) detects whether THIS push's HEAD
+#     is a release PR that just merged, and ONLY then tags it, creates the
+#     GitHub Release, and (below) dispatches the four downstream publish
+#     workflows. A push that isn't a release-PR merge is a true no-op here.
+# Phase 1 computing "nothing new" is what keeps this loop-free: the merge
+# commit's own subject (`chore(release): X.Y.Z`) carries no conventional-commit
+# type semantic-release's commit-analyzer treats as releasable, so the SAME
+# run's phase 1 proposes nothing for it and phase 2 is the only one that acts.
+#
+# `workflow_dispatch`'s `dry_run` input rehearses the computation on ANY branch
+# with zero side effects (no branch push, no PR, no tag, no release, no
+# dispatch) — the same shape go-release.yml/pubdev-release.yml already use.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only (no branch push, no PR, no tag, no release, no publish dispatch). Leave ON unless rehearsing a change to this workflow against a branch about to become main."
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -77,7 +109,7 @@ jobs:
         run: cd ts/engine && npm test
 
   # ──────────────────────────────────────────────────
-  # Semantic Release
+  # Semantic Release — via PR (issue #755, see this file's header)
   # ──────────────────────────────────────────────────
   release:
     name: Semantic Release
@@ -88,32 +120,60 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # Credentials ARE persisted (the default) here, unlike the old
+          # single-phase flow: tools/release/open_release_pr.sh and
+          # finish_release.sh push a branch and a tag with plain `git push`,
+          # not through a plugin that manages its own auth.
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: tools/release/package-lock.json
 
-      - name: Install semantic-release plugins
-        run: >
-          npm install -g
-          semantic-release
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/github
-          @semantic-release/git
+      - name: Install release toolchain
+        run: cd tools/release && npm ci
 
-      # semantic-release creates the GitHub release + changelog and bumps the
-      # four npm package.json versions in lockstep (see .releaserc.json). The
-      # exec plugin's successCmd writes `released_version` to this step's
-      # outputs — set ONLY when a release was actually published.
-      - name: Run semantic-release
-        id: semrel
-        run: npx semantic-release
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # A push to main always runs for real. A workflow_dispatch defaults to
+      # a side-effect-free rehearsal (dry_run input defaults true) and must be
+      # told `-f dry_run=false` to act — the same opt-in shape
+      # go-release.yml/pubdev-release.yml already use.
+      - name: Decide dry-run vs real
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rehearsal — show what Phase 1 would compute (dry run only)
+        if: steps.cfg.outputs.dry_run != 'false'
+        run: node tools/release/compute_next_release.mjs
+
+      # Phase 1: compute the next version (semantic-release dry run) and
+      # open/refresh an auto-merging PR carrying the version bump. No tag, no
+      # GitHub Release, no publish dispatch here — see the script's header.
+      - name: Phase 1 — open/refresh the auto-merging release PR
+        if: steps.cfg.outputs.dry_run == 'false'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/release/open_release_pr.sh
+
+      # Phase 2: detect whether THIS push's HEAD is a release PR that just
+      # merged, and if so tag it + create the GitHub Release. `is_release`
+      # drives the four downstream dispatches below.
+      - name: Phase 2 — finish a release PR that just merged
+        id: finish
+        if: steps.cfg.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/release/finish_release.sh
 
       # npm publishing runs in publish-npm.yml (OIDC trusted publishing, no
       # token). Its `release: published` trigger never fires for releases
@@ -123,21 +183,21 @@ jobs:
       # pinned to the fresh release tag (same proven pattern as
       # release-tag.yml → release-publish.yml).
       - name: Dispatch npm publish for the new release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run publish-npm.yml --ref "v${{ steps.semrel.outputs.released_version }}"
+        run: gh workflow run publish-npm.yml --ref "v${{ steps.finish.outputs.version }}"
 
-      # Same recursion-protection issue as npm publish above: semantic-release's
-      # @semantic-release/github plugin already created the GitHub Release +
-      # `vX.Y.Z` tag using this step's GITHUB_TOKEN, so release-cpp.yml's
-      # `release: published` trigger will never fire for it. Dispatch it
-      # explicitly, pinned to the fresh tag (issue #368).
+      # Same recursion-protection issue as npm publish above: Phase 2 already
+      # created the GitHub Release + `vX.Y.Z` tag using this step's
+      # GITHUB_TOKEN, so release-cpp.yml's `release: published` trigger will
+      # never fire for it. Dispatch it explicitly, pinned to the fresh tag
+      # (issue #368).
       - name: Dispatch C++ binary release for the new release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release-cpp.yml --ref "v${{ steps.semrel.outputs.released_version }}"
+        run: gh workflow run release-cpp.yml --ref "v${{ steps.finish.outputs.version }}"
 
       # Go modules are consumed straight from the module proxy — a
       # `go/<module>/vX.Y.Z` tag IS the release, and that tag's VERSION is its
@@ -161,7 +221,7 @@ jobs:
       # has landed, and shares a concurrency group with pubdev-release.yml so
       # the two never push to main at once.
       - name: Dispatch the Go module release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run go-release.yml --ref main
@@ -183,7 +243,7 @@ jobs:
       # (squash-merging that PR) stopped happening for two months while every
       # automated part of it stayed green (#551).
       - name: Dispatch the pub.dev per-package release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run pubdev-release.yml --ref main

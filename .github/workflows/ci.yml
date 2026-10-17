@@ -254,6 +254,34 @@ jobs:
       - name: Release dispatch wiring guard (#361)
         run: bash tools/release/check_release_dispatch_wiring.sh
 
+      # Issue #755: pins that release.yml/coverage-study.yml never go back to
+      # pushing a bot commit straight to `main` (the pattern the `Protect
+      # main` ruleset's required-status-checks rule rejects outright, GH013),
+      # and that both are wired to the shared release-via-PR helper scripts.
+      - name: Release-via-PR wiring guard (#755)
+        run: bash tools/release/check_release_pr_wiring.sh
+
+      # The negative controls for the sweep above's own regex: a COMMENT that
+      # merely documents this defect's history (as this very fix does) must
+      # never trip it, and both real historical spellings of the direct push
+      # must.
+      - name: Release-via-PR wiring guard negative controls (#755)
+        run: bash tools/release/check_release_pr_wiring.sh --self-test
+
+      # The release-via-PR scripts' own unit/integration self-tests — pure
+      # file-mutation logic (changelog/package.json edits) plus the shared
+      # PR-opening and release-finishing helpers, exercised against throwaway
+      # local git repos and a stub `gh` (zero network, zero real
+      # credentials). `compute_next_release.mjs` itself (the one script that
+      # needs the real `semantic-release` package) is exercised at release
+      # time by `release.yml`'s own dry-run rehearsal, not here.
+      - name: Release-via-PR script self-tests (#755)
+        run: |
+          node --test tools/release/test/release_pr_lib_test.mjs tools/release/test/apply_version_bump_test.mjs
+          bash tools/release/test/open_bot_pr_test.sh
+          bash tools/release/test/finish_release_test.sh
+          bash tools/release/check_release_freshness.sh --self-test
+
       # The guard above pins that a release channel CAN fire. It cannot see the
       # failure #551 reported: the pub.dev lane's trigger chain was reachable
       # and green the whole time, and shipped nothing for two months, because

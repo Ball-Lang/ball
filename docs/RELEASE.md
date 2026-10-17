@@ -25,29 +25,190 @@ trunk, **all fully automated with no human step in any critical path**.
 > for free) and `.github/workflows/pubdev-freshness.yml` (weekly — pub.dev's live
 > state versus `main`).
 
-## npm lane (@ball-lang/engine, cli, compiler, encoder)
+## Release via PR (issue #755)
+
+**What broke.** The `Protect main` ruleset
+([17056238](https://github.com/Ball-Lang/ball/rules/17056238)) started
+requiring its 19 status-check contexts on `main` itself (not just on PRs) on
+2026-09-13. `release.yml`'s `npx semantic-release` step, and
+`coverage-study.yml`'s weekly "Publish coverage table" job, each pushed a bot
+commit straight to `main` with a plain `git push` — and GitHub rejects that
+outright with `GH013` the moment the target branch has even one required
+status check, because the ruleset enforces on the push itself, independent of
+who performs it. Every push to `main` failed `release.yml`'s `Semantic
+Release` job from that date on, silently skipping the npm/C++/Go/pub.dev
+publish dispatches gated on it; `coverage-study.yml`'s weekly run has been red
+for the same reason since 2026-09-21 (e.g. run
+[38284141945](https://github.com/Ball-Lang/ball/actions/runs/38284141945)).
+
+**Why not just give the bot's token a bypass.** `bypass_actors` on that
+ruleset names exactly one human; widening it to a bot identity reopens the
+exact hole required status checks exist to close — a release landing without
+having actually passed them. The owner's ruling (2026-10-17) was **release via
+auto-merged PR**: a release becomes an ordinary PR that earns its merge
+through the same required checks as everyone else's, with no human step.
+
+**The two GitHub mechanics this design has to work around**, both verified
+against this repo's live ruleset rather than assumed:
+
+1. **A `git push --dry-run` is NOT evaluated against branch protection.**
+   Verified empirically 2026-10-17: `git push --dry-run --no-verify -- origin
+   <new-commit>:refs/heads/main` against this repo's real `Protect main`
+   ruleset reports the would-be fast-forward update and exits 0 — GitHub does
+   not run required-status-checks/non-fast-forward enforcement for a push
+   that never actually updates the ref. `semantic-release`'s own
+   `dryRun: true` mode calls exactly this (`lib/git.js`'s `verifyAuth`,
+   unconditionally, even in dry-run) before doing anything else, so running it
+   in dry-run mode against the live protected branch is safe and needs no
+   bypass. Confirmed from `semantic-release`'s own source
+   (`lib/definitions/plugins.js`): only `verifyConditions`/`analyzeCommits`/
+   `verifyRelease`/`generateNotes` run under `dryRun: true`; `prepare`/
+   `publish`/`addChannel`/`success`/`fail` (where the real commit, tag and
+   push happen) are skipped entirely. `tools/release/compute_next_release.mjs`
+   uses exactly this to get `nextRelease.{version,notes,gitTag}` with zero
+   side effects.
+2. **A PR (or branch) created with the default `GITHUB_TOKEN` does not get its
+   `pull_request`-triggered required checks run.** GitHub's own docs state the
+   recursion-protection rule's two exceptions by name —
+   `workflow_dispatch`/`repository_dispatch` are the only events a
+   `GITHUB_TOKEN`-driven action still triggers new workflow runs for — and this
+   is independently confirmed by numerous real-world reports: a PR opened (or
+   whose branch is pushed) by a workflow's own `GITHUB_TOKEN` never gets a
+   `pull_request`-triggered check run, same-repo branch or not (searched
+   2026-10-17; see e.g. GitHub community discussions
+   [#65321](https://github.com/orgs/community/discussions/65321) and
+   [#199292](https://github.com/orgs/community/discussions/199292)). Every
+   bot-PR workflow already in this org's fleet that needs its own checks to
+   run (`js-autofix.yml`, `train-open-pr.py`) works around this with a
+   **GitHub App installation token**, never `GITHUB_TOKEN` — but minting one
+   needs a new App + org secret, an owner-level action this fix does not take.
+   The alternative this repo already had available, with no new credential:
+   `workflow_dispatch` IS exempted, and the branch ruleset's
+   `required_status_checks` rule matches a context by **(name, head SHA)**
+   regardless of which event produced the check run — the same mechanism that
+   lets a human unblock a PR today by manually re-running a required
+   workflow. So `tools/release/open_bot_pr.sh` explicitly dispatches `ci.yml`
+   and `regression-gates.yml` (the two workflows that produce all 19 required
+   contexts) via `gh workflow run <file> --ref <bot-branch>` after pushing the
+   branch — using `GITHUB_TOKEN`, which is allowed for `workflow_dispatch` —
+   and `gh pr merge --auto` only after that.
+
+**The merge-queue caveat this leaves open, by design.** A **separate**
+GitHub mechanic — a merge QUEUE (as opposed to plain auto-merge on required
+status checks, which is all this repo's ruleset has today) attributes its
+`merge_group` "checks_requested" event to whoever enqueued the PR, and several
+real-world reports describe a `GITHUB_TOKEN`-attributed enqueue getting no
+`merge_group`-triggered CI run at all, stalling at `AWAITING_CHECKS` (searched
+2026-10-17; e.g. GitHub community discussion
+[#51120](https://github.com/orgs/community/discussions/51120) and issue
+[chtypes#291](https://github.com/Wave-RF/chtypes/issues/291)). As of this
+writing the `Protect main` ruleset has no `merge_queue` rule — only
+`required_status_checks` — so `gh pr merge --auto` merges a release PR
+directly once its checks (dispatched as above) pass, and this caveat does not
+apply yet. If/when a `merge_queue` rule is added to this ruleset, re-verify
+this specific scenario (an auto-merge **armed** by `GITHUB_TOKEN`, later
+enqueued automatically by GitHub itself once checks pass — distinct from the
+reported case of a workflow calling the enqueue API directly, which the
+sources above do confirm fails) before relying on it; the fix, if it does
+stall, is the same GitHub App token the checks-dispatch workaround above
+avoided needing.
+
+**The shape, end to end** (`.github/workflows/release.yml`'s `release` job,
+every push to `main`):
 
 ```
 push to main
   └► release.yml
-       ├─ Pre-release tests (proto lint, Dart suites, TS engine)
-       └─ semantic-release (.releaserc.json)
-            ├─ analyzes conventional commits → next repo version vX.Y.Z
-            ├─ bumps ALL FOUR ts/*/package.json versions in LOCKSTEP
-            ├─ commits CHANGELOG + package.jsons ("chore(release): X.Y.Z [skip ci]")
-            ├─ tags vX.Y.Z + creates the GitHub release
-            └─ successCmd (@semantic-release/exec) → released_version output
+       ├─ Phase 1 (tools/release/open_release_pr.sh), ALWAYS runs:
+       │    ├─ compute_next_release.mjs — semantic-release DRY RUN against the
+       │    │    root .releaserc.json → {version, notes} or "nothing to do"
+       │    ├─ apply_version_bump.mjs — CHANGELOG.md + the four
+       │    │    ts/*/package.json versions, applied to a branch `release/next`
+       │    │    freshly forked from origin/main (never to `main` itself)
+       │    ├─ commit "chore(release): X.Y.Z" + the full notes as the body
+       │    └─ open_bot_pr.sh — force-push `release/next`, open-or-refresh its
+       │         PR, dispatch ci.yml + regression-gates.yml (produces the 19
+       │         required contexts against this branch's head SHA — see
+       │         mechanic 2 above), arm `gh pr merge --auto --squash` with the
+       │         commit subject/body PINNED to the exact release message
+       │    (a push whose HEAD is itself that release commit computes nothing
+       │    new here — a lone "chore" commit is not releasable to
+       │    commit-analyzer — so this phase self-terminates the loop)
+       └─ Phase 2 (tools/release/finish_release.sh), ALWAYS runs:
+            ├─ HEAD's subject matches `chore(release): X.Y.Z`? If not: no-op.
+            ├─ (only when it matches — i.e. that release PR just merged)
+            │    tag vX.Y.Z at HEAD, push it, `gh release create` with the
+            │    commit body as notes
+            └► gh workflow run publish-npm.yml / release-cpp.yml --ref vX.Y.Z
+               gh workflow run go-release.yml / pubdev-release.yml --ref main
+               (unchanged from before — same explicit-dispatch pattern, same
+               recursion-protection reason, just gated on Phase 2's verdict
+               instead of semantic-release's own `released_version` output)
+```
+
+No tag, GitHub Release or publish dispatch happens until the PR in Phase 1
+has actually merged through the normal required-checks path — merging IS what
+makes Phase 2 see the release commit on `main`. `workflow_dispatch`'s
+`dry_run` input (default `true`) rehearses Phase 1's computation with zero
+side effects on any branch, the same shape go-release.yml/pubdev-release.yml
+already use.
+
+**The freshness alarm this issue's Definition of Done asked for**:
+`.github/workflows/release-freshness.yml` (weekly + dispatch) runs
+`tools/release/check_release_freshness.sh`, the sibling of
+`go-freshness.yml`/`pubdev-freshness.yml` for this channel — it asks whether
+`main` has a releasable commit that has sat unreleased for more than a grace
+window (`MAX_LAG_MINUTES`, default 24h) with no new tag to show for it, citing
+the open `release/next` PR (or its absence) so a silently stalled lane reds a
+real, scheduled gate instead of being invisible between someone noticing
+CHANGELOG.md looks stale.
+
+**What is explicitly NOT fixed here, and why.** `pubdev-release.yml` (nine
+Dart packages) and `go-release.yml` (the Go module line) each run a REAL
+(non-dry-run) `semantic-release` of their own, and each pushes its own
+version-bump commit straight to `main` the exact same way — the identical
+GH013 defect, one level down, for the SAME reason: once this fix makes
+`finish_release.sh`'s downstream dispatches actually fire again (they haven't,
+at all, since 2026-09-13), those two lanes will hit this exact rejection the
+moment they run. Fixing them is the same shape of work as this fix — issue
+[#879](https://github.com/Ball-Lang/ball/issues/879) tracks it rather than
+folding an equally large second effort into this one; see that issue for the
+current status before assuming either lane works.
+
+**The guards:** `tools/release/check_release_pr_wiring.sh` (every PR,
+`Proto Checks`) sweeps every workflow for the exact rejected pattern (`git
+push … HEAD:main`, comment-stripped so a line merely documenting this
+history — like this section — never trips it) and asserts both call sites are
+wired to the shared helpers; `tools/release/check_release_freshness.sh
+--self-test` proves the alarm's classifier in isolation; and
+`tools/release/test/{release_pr_lib_test.mjs,apply_version_bump_test.mjs,
+open_bot_pr_test.sh,finish_release_test.sh}` exercise the file-mutation logic
+and the shared PR-opening/release-finishing scripts end-to-end against
+throwaway local git repos and a stubbed `gh` (zero network, zero real
+credentials) — all four run in `ci.yml`'s `Proto Checks` job on every PR.
+
+## npm lane (@ball-lang/engine, cli, compiler, encoder)
+
+**Versioning and tagging now happen via a PR** — see "Release via PR (issue
+#755)" above for the full two-phase shape (`release.yml`'s Phase 1 opens the
+version-bump PR, Phase 2 tags + releases once it merges). What follows is
+what runs AFTER that PR has merged and Phase 2 has tagged `vX.Y.Z`:
+
+```
+release/next PR merges into main
+  └► release.yml (Phase 2, tools/release/finish_release.sh)
+       ├─ tags vX.Y.Z at the merge commit + creates the GitHub release
        └► gh workflow run publish-npm.yml --ref vX.Y.Z      ← EXPLICIT dispatch
             └► publish-npm.yml: build+test all four packages, then
                npm publish --provenance via OIDC trusted publishing
 ```
 
-**Why the explicit dispatch:** semantic-release authenticates with the
-default `GITHUB_TOKEN`, and GitHub suppresses workflow triggers for events
-created with it (recursion protection). The `release: published` trigger on
-publish-npm.yml therefore never fires for automated releases — npm silently
-froze at 0.2.x for months before the dispatch existed. The `release:` trigger
-is kept only for manually-published releases.
+**Why the explicit dispatch:** Phase 2 creates the tag + GitHub Release with
+the default `GITHUB_TOKEN`, and GitHub suppresses workflow triggers for
+events created with it (recursion protection). The `release: published`
+trigger on publish-npm.yml therefore never fires for automated releases — npm
+silently froze at 0.2.x for months before the dispatch existed. The
+`release:` trigger is kept only for manually-published releases.
 
 **Versioning:** all four npm packages share the repo version (lockstep,
 `.releaserc.json` has one `@semantic-release/npm` entry per `pkgRoot`).

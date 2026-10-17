@@ -359,7 +359,8 @@ for gomod in "$VERSION_TREE"/go/*/go.mod; do
   UNTAGGED)
     no "proxy.golang.org serves go/$dir at $version" "$detail" \
       "the module line moved on main and the six go/<module>/$version tags were never cut;" \
-      "the tagger is dispatched by .github/release/go.releaserc.json's publishCmd (#361, #623)"
+      "the tagger is dispatched by tools/release/finish_go_release.sh (go-release.yml's finish-release" \
+      "job) once the chore(release): go $version PR has merged — check that job's recent runs (#361, #879)"
     ;;
   *)
     no "go/$dir could be evaluated" "$detail" \

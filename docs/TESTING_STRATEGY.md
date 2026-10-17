@@ -1229,7 +1229,7 @@ own follow-up, scoped around that model — not a free rider on this fix.
 
 Two instruments close it, the same division as the subsection above:
 
-* `tests/conformance/481_as_expression_identity` — the cross-target
+* `tests/conformance/482_as_expression_identity` — the cross-target
   observable. Real Dart's `as` genuinely IS a checked runtime cast, so the
   fixture's own `describeAs` wraps the cast in a `try`/`catch`: the SDK run
   that builds the golden throws and the catch body prints the original value
@@ -1247,7 +1247,7 @@ Two instruments close it, the same division as the subsection above:
   on each target in turn and asserts the checker names it.
 
 Neither instrument above can tell Rust's pre-#707 panic apart from the fix on
-its own: fixture 481 wraps every `as` in a Ball `try`, whose `catch` arm
+its own: fixture 482 wraps every `as` in a Ball `try`, whose `catch` arm
 prints the identical text the `try` arm would have printed on success, so a
 panic `compile_try`'s `catch_unwind` recovers passes the fixture's golden
 just as cleanly as a non-panicking `ball_as` does; the structural checker

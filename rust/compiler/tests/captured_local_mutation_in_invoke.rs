@@ -5,7 +5,7 @@
 //! `rust-compiler`/`rust-roundtrip` legs, which live only in
 //! `conformance-matrix.yml` — a workflow with no `pull_request:` trigger that
 //! RATCHETS an aggregate count rather than gating every individual fixture,
-//! so adding fixture 480 there alone would not have made this defect loud).
+//! so adding fixture 481 there alone would not have made this defect loud).
 //!
 //! ## The mechanism, measured
 //!
@@ -26,7 +26,7 @@
 //! afterward — matching the Dart reference engine's own shared-scope
 //! `_evalLambda` semantics.
 //!
-//! Fixture `480_iife_mutates_captured_local` is the cross-target conformance
+//! Fixture `482_iife_mutates_captured_local` is the cross-target conformance
 //! guard; this is the Rust-only HARD gate TDD asked for, since Rust cannot be
 //! built/tested in this repo's local dev loop — only CI runs it.
 
@@ -173,7 +173,7 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
 /// computes.
 #[test]
 fn captured_local_mutation_through_immediate_invoke_is_visible_to_the_caller() {
-    let compiled = compile_fixture("480_iife_mutates_captured_local.ball.json");
+    let compiled = compile_fixture("481_iife_mutates_captured_local.ball.json");
     assert!(
         compiled.contains("(|input: BallValue| -> BallValue {"),
         "this test is only meaningful while the immediately-invoked zero-argument lambda \

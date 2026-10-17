@@ -270,7 +270,7 @@ jobs:
       # `fn main()` and crashed the whole process, on Rust alone (#707). This
       # is the sibling closed-set check #641's own rendering-table gate was
       # asked to spawn — structural, not observable (conformance fixture
-      # 481_as_expression_identity is the observable half, on every
+      # 482_as_expression_identity is the observable half, on every
       # engine/compiler row; the Rust-only no-`try` case is pinned by
       # rust/compiler/tests/as_expression_identity.rs's
       # as_on_a_mismatched_type_never_panics_with_no_enclosing_try, part of the

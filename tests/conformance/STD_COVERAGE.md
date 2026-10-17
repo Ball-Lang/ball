@@ -27,7 +27,7 @@ Universal standard library base module. Every function here represents a languag
 |---|---|---|---|
 | `add` | ✅ | ✅ 113 fixture(s): `101_simple_class`, `104_getter_setter`, `107_method_override_super` +110 more | ✅ |
 | `and` | ✅ | ✅ 16 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `131_insertion_sort` +13 more | ✅ |
-| `as` | ✅ | ✅ 3 fixture(s): `195_deep_nesting`, `256_editions_resolver`, `481_as_expression_identity` | ✅ |
+| `as` | ✅ | ✅ 3 fixture(s): `195_deep_nesting`, `256_editions_resolver`, `482_as_expression_identity` | ✅ |
 | `assert` | ✅ | ✅ 1 fixture(s): `313_assert_statement` | ✅ |
 | `assign` | ✅ | ✅ 133 fixture(s): `100_complex_control_flow`, `101_simple_class`, `104_getter_setter` +130 more | ✅ |
 | `await` | ✅ | ✅ 11 fixture(s): `160_async_basic`, `161_async_chained`, `163_generator_async` +8 more | ✅ |

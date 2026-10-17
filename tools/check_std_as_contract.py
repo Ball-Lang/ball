@@ -28,7 +28,7 @@ the source that implements `std.as` and asserts it contains none of a
 FORBIDDEN set of throw/panic/raise tokens — the plain, structural proof that
 the value flows through unchanged on every path, whatever the runtime type.
 
-Conformance fixture `481_as_expression_identity` is one OBSERVABLE half,
+Conformance fixture `482_as_expression_identity` is one OBSERVABLE half,
 running on every engine/compiler in the matrix, but it wraps the cast in a
 `try`/`catch` (real Dart's own `as` is a checked cast, so the golden needs
 one) whose `catch` arm prints the SAME text the `try` arm would have on

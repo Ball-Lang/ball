@@ -91,6 +91,32 @@ checks always start and can actually reach "green" to queue; see
 `docs/TESTING_STRATEGY.md` → "Docs-only PRs and required-context workflows"
 for why that matters once a merge queue is the only way to land.
 
+## Your PR title is what the release lines read
+
+`main` squash-merges with `squash_merge_commit_title: PR_TITLE` and
+`squash_merge_commit_message: BLANK` (issue #881), so the **PR title** becomes
+the commit semantic-release analyzes on every release line. Your branch's
+commit messages and the PR body never reach `main`. Every line runs the
+`conventionalcommits` preset (issue #923; see `docs/RELEASE.md` → "Release
+notes and breaking changes from a squash-merged PR"), so:
+
+- **Write the title as a conventional commit**, `type(scope): subject`.
+  `feat` cuts a minor release, `fix` and `perf` cut a patch, and every other
+  type (`chore`, `docs`, `ci`, `test`, `refactor`, `build`, `style`) cuts none.
+  The scope is free text for humans. Which lines release is decided by the
+  paths your PR touches, not by the scope.
+- **Signal a breaking change with `!` in the PR TITLE**:
+  `feat(engine)!: drop the legacy loader`, or `fix!: change a default`. That
+  cuts a MAJOR release on every line whose paths the PR touches, and a 0.x line
+  goes to 1.0.0. A `BREAKING CHANGE:` footer does nothing in a squash-merged
+  PR, whether it is in a commit message or in the PR body, because neither
+  reaches `main`.
+- **Get the title right before the PR merges.** The queue reads it at merge
+  time, and a squash commit on the protected `main` cannot be re-worded
+  afterwards. A stray `!` cannot be taken back. On the Go lane a second major
+  is refused outright: Go's v2 module-path rule (`docs/RELEASE.md` → "The v2
+  cliff is a hard stop").
+
 ## Build, test, verify
 
 Everything is in `CLAUDE.md` → Build & Test (Dart workspace at repo root, `cd <pkg> && dart test`; TS per-package `npm test`; C++ CMake — protobuf-free, configure ≈1 min; Rust `cargo test --workspace`). The conformance corpus (`tests/conformance/`) is the cross-language bar: a change to any target must keep every leg green, and CI runs changed fixtures per-PR on every stack.

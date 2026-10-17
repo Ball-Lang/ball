@@ -119,10 +119,12 @@ two things for every bot PR `open_bot_pr.sh` opens:
    the optional ` (#N)`, and both still require a version starting with a
    digit, so neither lane can read the other's release commit as its own.
    `finish_release_test.sh` and `finish_go_release_test.sh` (tests 6-8) pin
-   the queue shape, a re-poll of it, and the cross-lane exclusion. The release
-   commits themselves already carry the exact subject and the full notes as
-   their body, which is why a queue that ignores our pinned subject and body
-   loses nothing but the missing suffix.
+   the queue shape, a re-poll of it, and the cross-lane exclusion. The body a
+   queue (or the repository's squash default) drops no longer matters either:
+   since issue #923 the finish scripts take a release's notes from the
+   changelog entry in the release commit's TREE, never from its message — see
+   "Release notes and breaking changes from a squash-merged PR (issue #923)"
+   below.
 2. **A merge group enqueued for `GITHUB_TOKEN` starts no CI at all.** Once a
    bot PR's own checks pass, GitHub enqueues it on behalf of whoever armed its
    auto-merge, here the `github-actions` bot, and the merge group's
@@ -219,6 +221,8 @@ push to main / recurring schedule (every 15 min) / workflow_dispatch
        │    │    │    `release/next` freshly forked from origin/main (never to
        │    │    │    `main` itself)
        │    │    ├─ commit "chore(release): X.Y.Z" + the full notes as the body
+       │    │    │    (the body does not survive the squash onto main; the
+       │    │    │    CHANGELOG.md entry in the tree does — issue #923)
        │    │    └─ open_bot_pr.sh — force-push `release/next`, open-or-refresh
        │    │         its PR, dispatch ci.yml + regression-gates.yml (produces
        │    │         the 19 required contexts against this branch's head SHA
@@ -246,8 +250,10 @@ push to main / recurring schedule (every 15 min) / workflow_dispatch
             │    Phase 1 would recompute + duplicate it). None found: no-op
             │    (`is_release=false`).
             ├─ (only when one is found — i.e. that release PR merged, at or
-            │    before HEAD) tag vX.Y.Z at THAT commit (not necessarily
-            │    HEAD), push it, `gh release create` with the commit body as
+            │    before HEAD) read the CHANGELOG.md entry THAT commit added
+            │    (release_notes_from_changelog.mjs; none → fail, nothing
+            │    tagged — #923), tag vX.Y.Z at that commit (not necessarily
+            │    HEAD), push it, `gh release create` with that entry as the
             │    notes. `newly_tagged=true` ONLY the one run that actually
             │    created the tag — a poll that lands with nothing new since
             │    the last tag reports `is_release=true` (for visibility) but
@@ -410,6 +416,109 @@ cut and which `release-publish.yml` dispatches to fire) — issue
 that slice; see that issue for the current status before assuming the pub.dev
 lane works.
 
+**Release notes and breaking changes from a squash-merged PR (issue #923).**
+`main` squash-merges with `squash_merge_commit_title: PR_TITLE` and
+`squash_merge_commit_message: BLANK` (issue #881; verify live:
+`gh api repos/Ball-Lang/ball --jq '{t:.squash_merge_commit_title,m:.squash_merge_commit_message}'`),
+merge queue included. So the only text of ANY PR that reaches `main` is
+`<PR title> (#N)`: no body, and therefore no footer. That silently broke two
+things, both fixed here.
+
+1. **The GitHub Release's notes.** `finish_release.sh` and
+   `finish_go_release.sh` used to read them off the landed release commit with
+   `git log -1 --format=%b`, which is now always empty, so every Release would
+   have shipped blank and green. They now publish the changelog entry that
+   release commit itself added: `CHANGELOG.md` for the root line,
+   `go/CHANGELOG.md` for Go. `tools/release/release_notes_from_changelog.mjs`
+   computes it as the changelog at the commit minus the changelog at its first
+   parent (`extractPrependedChangelogEntry`, the exact inverse of the
+   `prependChangelogEntry` Phase 1 ran). That source was chosen over the two
+   alternatives because:
+   - a squash setting can rewrite a commit's message but never its tree, so
+     this survives any future change of those settings by construction;
+   - it is byte-for-byte the `nextRelease.notes` Phase 1 computed, and it was
+     reviewed in the release PR's own diff;
+   - reading it is offline and deterministic. **Reading the merged PR's body
+     through the API** would need a commit-to-PR lookup (the bare
+     `chore(release): X` subject carries no `(#N)`), would make the token and
+     the API a release blocker, and would publish whatever the editable body
+     says at tag time. **Recomputing with semantic-release at tag time** runs
+     later, on whatever `main` is by then (a gap commit can land first), so it
+     would need a pinned second checkout plus the whole toolchain in a job that
+     needs none today, and it is a second computation that can disagree with
+     the first.
+
+   The extraction diffs the changelog instead of parsing version headings, so
+   it does not care which preset rendered them. When the commit adds no entry,
+   or changed the changelog in some way other than a prepend, the script
+   **fails before anything is tagged**: `finish-release` goes red, no tag, no
+   GitHub Release, no publish dispatch, and the next poll retries from the same
+   clean state. Phase 1 always writes the entry, so this means the release
+   commit is malformed. A human then decides how to finish that release.
+   `finish_release_test.sh` and `finish_go_release_test.sh` pin it on
+   real-shaped commits (empty body, entry in the tree): tests 2, 4 and 6 assert
+   the notes `gh release create` receives are exactly that release's entry,
+   never an older one and never a stale body; test 9 asserts a commit with no
+   entry fails with nothing tagged and `gh` never called. On the Go lane, that
+   test's commit adds a ROOT `CHANGELOG.md` entry, which proves the lane reads
+   its own file. `release_pr_lib_test.mjs` round-trips the inverse against the
+   real prepend.
+2. **Signalling a breaking change.** Every line used semantic-release's
+   default `angular` preset. Its parser recognises a breaking change only from
+   a `BREAKING CHANGE:` footer in the commit body, which a squash merge now
+   never carries. It cannot even parse a `feat(x)!: …` header: the `!` breaks
+   its `headerPattern`, so that commit was not even a `feat`, and it vanished
+   from the notes too. So no PR could cut a major release on any line. Now
+   every config sets `{ "preset": "conventionalcommits", "presetConfig": {} }`
+   on both `@semantic-release/commit-analyzer` and
+   `@semantic-release/release-notes-generator`. That covers the root
+   `.releaserc.json` and every `.github/release/*.releaserc.json` (pub.dev, npm,
+   crates, Go, repo). The plugins' READMEs require `presetConfig` for this
+   preset. On the path-filtered lines the options go inside
+   `only-package-commits.mjs`'s `commitAnalyzer` / `releaseNotesGenerator`
+   blocks, because a top-level `preset` stops at the wrapper and is never
+   forwarded.
+
+   **Signal a breaking change with `!` in the PR TITLE**:
+   `feat(engine)!: drop the legacy loader`, or `fix!: change a default`. The
+   preset's `breakingHeaderPattern` (`/^(\w*)(?:\((.*)\))?!: (.*)$/`) makes
+   `conventional-commits-parser` attach a BREAKING CHANGE note to that header.
+   commit-analyzer's default rule `{ breaking: true, release: "major" }` fires
+   on any note, and the notes get a `⚠ BREAKING CHANGES` section. The title is
+   read at merge time, so it has to be right when the PR merges; editing it
+   afterwards changes nothing. Do not rely on a `BREAKING CHANGE:` footer: it
+   would count only on a commit that reaches `main` with its body, and no
+   squash-merged PR does. What a `!` does on each line:
+   - **every line whose paths the PR touches** cuts a major (the path filter
+     decides which lines see the commit, not the scope), so a `!` PR that
+     touches `dart/engine` and `go/` majors both;
+   - **0.x lines go to 1.0.0**: semantic-release does not special-case 0.x
+     (`semver.inc("0.4.1", "major")` is `1.0.0`). That covers the pub.dev
+     packages, the crates and the Go modules today;
+   - **the Go lane refuses 2.0.0** (the v2 cliff, see "Go modules lane"), so on
+     a `go/`-touching PR a `!` is a one-way door the second time.
+
+   The preset is pinned as `conventional-changelog-conventionalcommits@9.3.1` in
+   `tools/release/package.json`. That is the newest release whose templates
+   `conventional-changelog-writer` 8 can render, and writer 8 is what
+   `@semantic-release/release-notes-generator` 14.1.1 (the latest) depends on.
+   10.x replaced the Handlebars templates with render functions, needs writer
+   ≥ 9, and since 10.4.0 fails loudly on an older writer. Bump the preset and
+   the notes generator together. `tools/release/test/conventional_commits_preset_test.mjs`
+   (`Proto Checks`, after `npm ci --ignore-scripts` in `tools/release`) loads
+   every config, asserts both plugins' preset options, then runs the REAL
+   analyzer and notes generator through each config's own plugin entry
+   against empty-body commits in a throwaway repo:
+   - `feat(x)!:` and `fix!:` compute major;
+   - `feat` computes minor, `fix`/`perf` patch;
+   - `chore`/`docs`/a release commit compute no release;
+   - on the path-filtered lines, a breaking commit outside the line's paths
+     changes neither the bump nor the notes, and the notes render through the
+     pinned writer.
+
+   Its negative control proves the same `feat(x)!:` commit computes NO release
+   under the old angular default, so the test can tell the two apart.
+
 **The guards:** `tools/release/check_release_pr_wiring.sh` (every PR,
 `Proto Checks`) sweeps every workflow for the exact rejected pattern (`git
 push … HEAD:main`, comment-stripped so a line merely documenting this
@@ -438,7 +547,10 @@ service_bot_merge_queue_test.sh}` exercise the file-mutation logic, the shared
 PR-opening/release-finishing scripts (both lanes, both subject shapes), the
 freshness alarm's live path, and the merge-queue servicer end-to-end against
 throwaway local git repos and a stubbed `gh` (zero network, zero real
-credentials). All of them run in `ci.yml`'s `Proto Checks` job on every PR.
+credentials). `tools/release/test/conventional_commits_preset_test.mjs` proves
+every release line computes a major from a `!` PR title (#923, above); it is
+the one test here that needs the pinned plugins installed, and it is offline
+once they are. All of them run in `ci.yml`'s `Proto Checks` job on every PR.
 
 ## npm lane (@ball-lang/engine, cli, compiler, encoder)
 
@@ -1183,13 +1295,17 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   tools/go-module-proxy/build_local_proxy.py --print-version` versus `git tag
   --list 'go/cli/v*'`). Fix forward; never hand-tag to make the check pass.
 - **`go-release.yml`'s `open-release-pr` job red citing `major-version-suffixes`:**
-  a breaking-change commit under `go/` computed a major ≥ 2, which Go cannot
-  serve from these module paths. This is a design decision, not an outage:
-  either the commit should not have been `BREAKING CHANGE`/`feat!` (amend the
-  message and the next release computes a normal bump), or the modules really
-  do need `/v2` paths — a separate, deliberate rename of every module path,
-  `go.work` pin and intra-repo `require`. The lane stays stopped until one of
-  those happens.
+  a breaking change under `go/` computed a major ≥ 2, which Go cannot serve
+  from these module paths. Since #923 that means a `go/`-touching PR merged
+  with `!` in its TITLE (`feat(go)!: …`), the only breaking-change signal a
+  squash merge carries onto `main` (see "Release notes and breaking changes
+  from a squash-merged PR" above). This is a design decision, not an outage:
+  either that change should not have been marked breaking, or the modules
+  really do need `/v2` paths — a separate, deliberate rename of every module
+  path, `go.work` pin and intra-repo `require`. A squash commit on the
+  protected `main` cannot be re-worded after the fact, so the cheap moment to
+  catch the first case is the PR title before merge. The lane stays stopped
+  until a maintainer decides which case it is.
 - **`open_go_release_pr.sh` red force-pushing `release/go-next`:** unlikely
   (the push is `--force`, via `open_bot_pr.sh`), but if it happens re-dispatch
   `go-release.yml --ref main`; the next run recomputes from `main`'s current

@@ -14,10 +14,13 @@
 #   (2) the two call sites that used to do it are wired to the shared
 #       release-via-PR helper scripts instead.
 #
-# Deliberately textual/grep-based against the DOCUMENTED pattern (same style
-# as check_release_dispatch_wiring.sh), not a YAML parser: it asserts the
-# things that make the channel safe, not the incidental shape of the YAML
-# around them.
+# Mostly textual/grep-based against the DOCUMENTED pattern (same style as
+# check_release_dispatch_wiring.sh): it asserts the things that make the
+# channel safe, not the incidental shape of the YAML around them. The one
+# exception is check_semantic_release_steps_have_token, which parses YAML
+# (python3 + PyYAML, like tools/ci/check_merge_group_wiring.sh) because a
+# token can sit in a step's, job's or workflow's `env:` mapping and only a real
+# parse tells those apart from a comment.
 #
 # Usage:
 #   bash tools/release/check_release_pr_wiring.sh
@@ -281,9 +284,100 @@ check_merge_queue_servicer() {
   done
 }
 
+# Every step that drives semantic-release — even as a dry run — needs a GitHub
+# token in its environment: @semantic-release/github's verifyConditions refuses
+# to run without one ("SemanticReleaseError: No GitHub token specified.",
+# release.yml's dry-run rehearsal, run 39064722119, the first rehearsal after
+# #881). python3 + PyYAML because the token can sit in the step's, the job's or
+# the workflow's `env:` mapping, which only a real parse can tell apart from a
+# comment. Every invocation shape this repo actually uses is matched against
+# the step's `run:` text with its shell-comment lines stripped:
+#   compute_next_release.mjs / open_release_pr.sh / open_go_release_pr.sh
+#     (release.yml, go-release.yml),
+#   semantic-release/bin/semantic-release.js (pubdev-release.yml and
+#     release-v2.yml run it as `node "$SR"`),
+#   check_release_freshness.sh WITHOUT --self-test (release-freshness.yml; its
+#     --self-test exits before semantic-release ever runs),
+#   npx semantic-release (the retired direct shape, still guarded).
+# SEMREL_LANES are the workflows that MUST contribute at least one matched
+# step, so a pattern that goes stale for one lane fails loud instead of
+# silently shrinking the check (PR #922 review).
+SEMREL_STEP_PATTERN='compute_next_release\.mjs|open_release_pr\.sh|open_go_release_pr\.sh|npx\s+semantic-release|semantic-release/bin/semantic-release\.js|check_release_freshness\.sh(?![ \t]+--self-test)'
+SEMREL_LANES='release.yml go-release.yml pubdev-release.yml release-v2.yml release-freshness.yml'
+
+check_semantic_release_steps_have_token() {
+  local workflows_dir="$1" lanes="${2-$SEMREL_LANES}" out rc
+  out="$(python3 - "$workflows_dir" "$SEMREL_STEP_PATTERN" "$lanes" <<'PY'
+import glob
+import os
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - the runner image ships PyYAML
+    print("ERROR PyYAML is required (pip install pyyaml)")
+    sys.exit(2)
+
+workflows_dir, pattern = sys.argv[1], re.compile(sys.argv[2])
+lanes = sys.argv[3].split()
+TOKENS = ("GH_TOKEN", "GITHUB_TOKEN")
+seen = 0
+per_file = {}
+for path in sorted(glob.glob(os.path.join(workflows_dir, "*.yml"))):
+    base = os.path.basename(path)
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    wf_env = doc.get("env") or {}
+    for job_id, job in (doc.get("jobs") or {}).items():
+        job_env = (job or {}).get("env") or {}
+        for step in (job or {}).get("steps") or []:
+            run = step.get("run") or ""
+            # A shell comment naming a script is documentation, not an
+            # invocation: match only the executable lines.
+            code = "\n".join(l for l in run.splitlines() if not l.lstrip().startswith("#"))
+            if not pattern.search(code):
+                continue
+            seen += 1
+            per_file[base] = per_file.get(base, 0) + 1
+            env = dict(wf_env)
+            env.update(job_env)
+            env.update(step.get("env") or {})
+            name = step.get("name") or code.strip().splitlines()[0]
+            if any(t in env for t in TOKENS):
+                print(f"OK {base}:{job_id}: '{name}' has a GitHub token in env")
+            else:
+                print(f"MISSING {base}:{job_id}: '{name}' runs semantic-release with no GH_TOKEN/GITHUB_TOKEN in its step, job or workflow env")
+for lane in lanes:
+    if per_file.get(lane, 0) == 0:
+        print(f"STALE {lane}: no semantic-release step matched in this lane's workflow (the invocation pattern went stale for it, or the file is gone)")
+print(f"SEEN {seen}")
+PY
+)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    no "semantic-release token check ran (python3 exit $rc: $out)"
+    return
+  fi
+  local line seen=0 missing=0
+  while IFS= read -r line; do
+    case "$line" in
+      MISSING*) no "${line#MISSING }"; missing=1 ;;
+      STALE*) no "${line#STALE }"; missing=1 ;;
+      SEEN*) seen="${line#SEEN }" ;;
+    esac
+  done <<< "$out"
+  if [ "$seen" -eq 0 ]; then
+    no "found at least one semantic-release step under $workflows_dir to check (found none - the pattern went stale)"
+  elif [ "$missing" -eq 0 ]; then
+    ok "every one of the $seen semantic-release step(s) under $workflows_dir has GH_TOKEN/GITHUB_TOKEN in its env (lanes: $lanes)"
+  fi
+}
+
 run_checks() {
   local workflows_dir="$1"
   check_no_direct_push_to_main "$workflows_dir"
+  check_semantic_release_steps_have_token "$workflows_dir"
   check_no_quoted_boolean_dry_run_comparison "$workflows_dir"
   check_release_yml_wiring "$workflows_dir/release.yml"
   check_coverage_study_wiring "$workflows_dir/coverage-study.yml"
@@ -530,7 +624,119 @@ EOF
     echo "FAIL  self-test: negative control — an unscheduled servicer workflow is caught (got fail=$unschedsvc_fail, want 1)"
   fi
 
+  # Negative control: a semantic-release step with no token anywhere (the exact
+  # shape of release.yml's rehearsal step before this guard) must be caught; a
+  # step-level and a job-level token must each satisfy it.
+  # Every invocation shape the repo uses, each without a token, must be caught:
+  # the rehearsal (compute_next_release.mjs), the per-package lanes
+  # (node "$SR" with SR=…/semantic-release/bin/semantic-release.js) and the
+  # freshness alarm (check_release_freshness.sh, which calls
+  # compute_next_release.mjs internally).
+  mkdir -p "$tmp/semrel-bad" "$tmp/semrel-good" "$tmp/semrel-stale"
+  cat > "$tmp/semrel-bad/release.yml" <<'EOF'
+name: bad
+jobs:
+  release:
+    steps:
+      - name: Rehearsal
+        run: node tools/release/compute_next_release.mjs
+EOF
+  cat > "$tmp/semrel-bad/pubdev-release.yml" <<'EOF'
+name: bad-pubdev
+jobs:
+  release:
+    steps:
+      - name: Run semantic-release per package
+        run: |
+          set -euo pipefail
+          SR="tools/release/node_modules/semantic-release/bin/semantic-release.js"
+          node "$SR" --extends ./x.releaserc.json
+EOF
+  cat > "$tmp/semrel-bad/release-freshness.yml" <<'EOF'
+name: bad-freshness
+jobs:
+  freshness:
+    steps:
+      - run: bash tools/release/check_release_freshness.sh
+EOF
+  # Satisfied three ways (step, job and workflow env); a freshness --self-test
+  # step and a shell comment naming a script are NOT semantic-release steps.
+  cat > "$tmp/semrel-good/release.yml" <<'EOF'
+name: good
+jobs:
+  release:
+    steps:
+      - name: Rehearsal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/release/compute_next_release.mjs
+  go:
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - run: bash tools/release/open_go_release_pr.sh
+EOF
+  cat > "$tmp/semrel-good/release-freshness.yml" <<'EOF'
+name: good-freshness
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+jobs:
+  freshness:
+    steps:
+      - run: bash tools/release/check_release_freshness.sh --self-test
+      - run: |
+          # compute_next_release.mjs is documented here, not run
+          echo ok
+      - run: bash tools/release/check_release_freshness.sh
+EOF
+  # A lane listed as required but contributing no matched step is a stale pattern.
+  cat > "$tmp/semrel-stale/release.yml" <<'EOF'
+name: stale
+jobs:
+  release:
+    env:
+      GH_TOKEN: x
+    steps:
+      - run: node tools/release/compute_next_release.mjs
+EOF
+  cat > "$tmp/semrel-stale/go-release.yml" <<'EOF'
+name: stale-go
+jobs:
+  x:
+    steps:
+      - run: echo renamed-the-script
+EOF
+  pass=0
+  fail=0
+  check_semantic_release_steps_have_token "$tmp/semrel-bad" "release.yml pubdev-release.yml release-freshness.yml"
+  local semrelbad_fail=$fail semrelbad_pass=$pass
+  if [ "$semrelbad_fail" -eq 3 ] && [ "$semrelbad_pass" -eq 0 ]; then
+    echo "PASS  self-test: negative control — every semantic-release invocation shape with no GitHub token is caught (3 of 3)"
+  else
+    echo "FAIL  self-test: negative control — every semantic-release invocation shape with no GitHub token is caught (got pass=$semrelbad_pass fail=$semrelbad_fail, want pass=0 fail=3)"
+  fi
+  pass=0
+  fail=0
+  check_semantic_release_steps_have_token "$tmp/semrel-good" "release.yml release-freshness.yml"
+  local semrelgood_fail=$fail semrelgood_pass=$pass
+  if [ "$semrelgood_fail" -eq 0 ] && [ "$semrelgood_pass" -eq 1 ]; then
+    echo "PASS  self-test: negative control — step, job and workflow tokens satisfy the check; --self-test and comments are not flagged"
+  else
+    echo "FAIL  self-test: negative control — step, job and workflow tokens satisfy the check (got pass=$semrelgood_pass fail=$semrelgood_fail, want pass=1 fail=0)"
+  fi
+  pass=0
+  fail=0
+  check_semantic_release_steps_have_token "$tmp/semrel-stale" "release.yml go-release.yml"
+  local semrelstale_fail=$fail
+  if [ "$semrelstale_fail" -eq 1 ]; then
+    echo "PASS  self-test: negative control — a required lane whose invocation no longer matches is reported stale"
+  else
+    echo "FAIL  self-test: negative control — a required lane whose invocation no longer matches is reported stale (got fail=$semrelstale_fail, want 1)"
+  fi
+
   [ "$real_fail" -eq 0 ] && [ "$neg_fail" -eq 2 ] && [ "$neg_pass" -eq 0 ] && [ "$cleanonly_fail" -eq 0 ] &&
+    [ "$semrelbad_fail" -eq 3 ] && [ "$semrelbad_pass" -eq 0 ] && [ "$semrelgood_fail" -eq 0 ] && [ "$semrelgood_pass" -eq 1 ] &&
+    [ "$semrelstale_fail" -eq 1 ] &&
     [ "$dryrun_fail" -eq 2 ] && [ "$dryrun_pass" -eq 0 ] && [ "$dryrunclean_fail" -eq 0 ] && [ "$dryrunclean_pass" -eq 1 ] &&
     [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ] && [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ] &&
     [ "$goodsvc_fail" -eq 0 ] && [ "$goodsvc_pass" -eq 4 ] && [ "$driftsvc_fail" -eq 1 ] && [ "$unschedsvc_fail" -eq 1 ]

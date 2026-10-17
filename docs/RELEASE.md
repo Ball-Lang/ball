@@ -425,7 +425,15 @@ finding 1) that `bot-merge-queue.yml` is scheduled, runs
 `service_bot_merge_queue.sh` with `actions: write`, and that the servicer's
 `REQUIRED_CHECK_WORKFLOWS` equals every bot-PR caller's `--dispatch` set (a
 third required-check workflow added to the callers only would let a bot PR's
-own checks pass while its merge group never reports that context);
+own checks pass while its merge group never reports that context), AND
+(#922) that every step driving semantic-release — the rehearsal and Phase 1
+in `release.yml`/`go-release.yml`, the `node "$SR"` per-package runs in
+`pubdev-release.yml`/`release-v2.yml`, and the freshness alarm in
+`release-freshness.yml` — carries `GH_TOKEN`/`GITHUB_TOKEN` in its step, job
+or workflow `env:` (`@semantic-release/github`'s verifyConditions refuses
+even a dry run without one: run 39064722119), with each of those five
+workflows required to contribute a matched step so a stale pattern fails
+loud;
 `tools/release/check_release_dispatch_wiring.sh` (and its Go/pub.dev
 siblings) assert the four downstream dispatches are gated on
 `steps.finish.outputs.newly_tagged`, not `is_release` (a poll ticking on an

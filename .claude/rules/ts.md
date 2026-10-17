@@ -267,13 +267,16 @@ const json = toJson(ProgramSchema, program);
   `tools/check_ts_engine_setup_declared.py` now closes that class: every
   `_r(...)`'d name must be declared by a canonical `std*.dart` builder or be a
   frozen, ratchet-only entry in `tools/declared_ts_engine_overrides_known_gaps.txt`.
-  Separately, a name registered here that ALSO exists in
-  `dart/engine/lib/engine_std.dart`'s `_buildStdDispatch()` is permanently
-  SHADOWED (this registry runs after the compiled table is built, and
-  `register()` is last-write-wins) — `tools/check_ts_engine_overrides_sync.py`
-  fingerprints each such Dart entry's behaviour and fails when it changes shape
-  without the committed snapshot being refreshed, generalizing the single
-  override family `tools/check_error_rendering_tables.py` already pinned
+  Separately, a name registered here — via `registerExtraStdFunctions`'s
+  `_r(...)` OR `patchCompiledEngine`'s `handler.register(...)` loop, both
+  checked (PR #919 review found the latter shape, 17 names, initially
+  missing) — that ALSO exists in `dart/engine/lib/engine_std.dart`'s
+  `_buildStdDispatch()` is permanently SHADOWED (both registries run after
+  the compiled table is built, and `register()` is last-write-wins) —
+  `tools/check_ts_engine_overrides_sync.py` fingerprints each such Dart
+  entry's behaviour and fails when it changes shape without the committed
+  snapshot being refreshed, generalizing the single override family
+  `tools/check_error_rendering_tables.py` already pinned
   (#732). See `ts/engine/AGENTS.md`'s "The override registry's two drift
   guards" for the full mechanism of both.
 - **`patchCompiledEngine`'s fast paths run BEFORE the compiled engine's own

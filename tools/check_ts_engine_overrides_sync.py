@@ -31,8 +31,22 @@ WHAT THIS DOES
 1. Extracts every `name -> value` entry from `dart/engine/lib/engine_std.dart`'s
    `_buildStdDispatch()` map literal (the single source `dart/self_host/
    engine.ball.json` is compiled FROM — see `dart/compiler/tool/
-   gen_engine_json.dart`), and every name `ts/engine/src/engine_setup.ts`'s
-   `registerExtraStdFunctions` registers via `_r('name', ...)`.
+   gen_engine_json.dart`), and every name `ts/engine/src/engine_setup.ts`
+   registers as an override — from BOTH of the file's two registration call
+   shapes: `registerExtraStdFunctions`'s `_r('name', ...)` and
+   `patchCompiledEngine`'s `for (const handler of e.moduleHandlers ?? [])`
+   loop, which registers via `handler.register('name', ...)` instead (PR #919
+   review: this second shape — 17 arithmetic/comparison overrides, `add`,
+   `subtract`, `multiply`, `divide`, `modulo`, `negate`, `bitwise_and`,
+   `bitwise_or`, `bitwise_xor`, `bitwise_not`, `left_shift`, `right_shift`,
+   `unsigned_right_shift`, `less_than`, `greater_than`, `lte`, `gte` — was
+   invisible to this gate until then; it is a LATER registration than
+   `registerExtraStdFunctions` too, so it shadows the compiled table exactly
+   the same way). Issue #732's Definition of Done asks for "every
+   base-function name `engine_setup.ts` overrides after
+   `registerExtraStdFunctions`/`installNativeStdTimeOverrides`-style
+   registration" — not just the names reachable through one of its two call
+   shapes.
 2. The INTERSECTION of those two sets is the real, STRUCTURAL "shadow"
    inventory this issue's Definition of Done asks for — a name in both places
    is one where the TS override supersedes a Dart dispatch entry that exists
@@ -101,12 +115,30 @@ REGISTER_FN_RE = re.compile(
 )
 CALL_RE = re.compile(r"_r\(\s*'([A-Za-z0-9_]+)'")
 
-# Positive floor on the intersection size. Measured value is ~100; the floor
-# sits well below it so ordinary churn (a declared name moving, a TS override
-# deleted because the compiled handler is now correct — see .claude/rules/
-# ts.md's #597/#616 lessons) never trips it, but a regex that stops matching
-# does.
+# patchCompiledEngine's `for (const handler of e.moduleHandlers ?? [])` loop
+# registers a SECOND family of overrides via `handler.register('name', ...)`
+# instead of `_r('name', ...)` — found missing from this gate's coverage by
+# PR #919's review. It runs after registerExtraStdFunctions (index.ts calls
+# both, registerExtraStdFunctions first), so it shadows the compiled table
+# exactly the same way and belongs in the same inventory.
+PATCH_FN_RE = re.compile(
+    r"function patchCompiledEngine\([^)]*\)\s*:\s*void\s*\{"
+)
+HANDLER_REGISTER_RE = re.compile(r"handler\.register\(\s*'([A-Za-z0-9_]+)'")
+
+# Positive floor on the intersection size. Measured value is ~117 (counting
+# both registration shapes); the floor sits well below it so ordinary churn
+# (a declared name moving, a TS override deleted because the compiled handler
+# is now correct — see .claude/rules/ts.md's #597/#616 lessons) never trips
+# it, but a regex that stops matching does.
 MIN_INTERSECTION = 60
+
+# Positive floor on the number of `handler.register(...)` calls extracted from
+# patchCompiledEngine. Measured value is 19; the floor sits below it so this
+# extraction alone (which the intersection floor above cannot isolate, since
+# the `_r(...)` extraction alone comfortably clears MIN_INTERSECTION) can
+# still fail loud if its regex stops matching.
+MIN_PATCH_HANDLER_NAMES = 12
 
 
 class ExtractionError(Exception):
@@ -232,30 +264,83 @@ def fingerprint_text(raw_value: str, dart_src: str) -> str:
     return value
 
 
-def extract_ts_registered_names(ts_src: str) -> set[str]:
-    m = REGISTER_FN_RE.search(ts_src)
+def _extract_braced_body(src: str, header_re: "re.Pattern[str]", what: str) -> str:
+    """Brace-depth-bounded body text starting right after `header_re`'s match
+    (which must itself consume the opening `{`), or raise if `header_re`
+    never matches or the body never closes.
+
+    Walked by simple brace counting, same as this file's other extractions —
+    not string/comment-aware, but every call site here is this project's own
+    generated-style TypeScript, where that has never been an issue.
+    """
+    m = header_re.search(src)
     if not m:
         raise ExtractionError(
-            "could not locate registerExtraStdFunctions(...): void { — the "
-            "extraction regex has stopped matching ts/engine/src/engine_setup.ts"
+            f"could not locate {what} — the extraction regex has stopped "
+            "matching ts/engine/src/engine_setup.ts"
         )
     depth = 1
     i = m.end()
     while depth > 0:
-        if i >= len(ts_src):
-            raise ExtractionError("registerExtraStdFunctions's body never closed")
-        if ts_src[i] == "{":
+        if i >= len(src):
+            raise ExtractionError(f"{what}'s body never closed")
+        if src[i] == "{":
             depth += 1
-        elif ts_src[i] == "}":
+        elif src[i] == "}":
             depth -= 1
         i += 1
-    return set(CALL_RE.findall(ts_src[m.end():i]))
+    return src[m.end():i]
 
 
-def compute_snapshot(dart_src: str, ts_src: str, min_intersection: int = MIN_INTERSECTION) -> dict[str, str]:
+def extract_register_extra_names(ts_src: str) -> set[str]:
+    """Every name `_r('<name>', ...)` inside `registerExtraStdFunctions`."""
+    body = _extract_braced_body(
+        ts_src, REGISTER_FN_RE, "registerExtraStdFunctions(...): void { "
+    )
+    return set(CALL_RE.findall(body))
+
+
+def extract_patch_compiled_engine_names(
+    ts_src: str, min_names: int = MIN_PATCH_HANDLER_NAMES
+) -> set[str]:
+    """Every name `handler.register('<name>', ...)` inside
+    `patchCompiledEngine`'s `for (const handler of ...)` loop — the second
+    override-registration shape in this file (PR #919 review)."""
+    body = _extract_braced_body(
+        ts_src, PATCH_FN_RE, "patchCompiledEngine(...): void { "
+    )
+    names = set(HANDLER_REGISTER_RE.findall(body))
+    if len(names) < min_names:
+        raise ExtractionError(
+            f"found only {len(names)} handler.register(...) calls inside "
+            f"patchCompiledEngine (floor: {min_names}) — the extraction has "
+            "stopped matching; fix it before trusting the drift check"
+        )
+    return names
+
+
+def extract_ts_registered_names(
+    ts_src: str, min_patch_handler: int = MIN_PATCH_HANDLER_NAMES
+) -> set[str]:
+    """The UNION of both override-registration call shapes
+    `ts/engine/src/engine_setup.ts` uses — `registerExtraStdFunctions`'s
+    `_r('name', ...)` and `patchCompiledEngine`'s `handler.register('name',
+    ...)` — since both run after the compiled std dispatch table is built
+    and both are last-write-wins against it (see module docstring)."""
+    return extract_register_extra_names(ts_src) | extract_patch_compiled_engine_names(
+        ts_src, min_patch_handler
+    )
+
+
+def compute_snapshot(
+    dart_src: str,
+    ts_src: str,
+    min_intersection: int = MIN_INTERSECTION,
+    min_patch_handler: int = MIN_PATCH_HANDLER_NAMES,
+) -> dict[str, str]:
     """name -> sha256 hex digest, for every name BOTH files register."""
     dart_entries = extract_dart_dispatch_entries(dart_src)
-    ts_names = extract_ts_registered_names(ts_src)
+    ts_names = extract_ts_registered_names(ts_src, min_patch_handler)
     inter = sorted(set(dart_entries) & ts_names)
     if len(inter) < min_intersection:
         raise ExtractionError(
@@ -272,9 +357,10 @@ def compute_snapshot(dart_src: str, ts_src: str, min_intersection: int = MIN_INT
 
 
 def check(dart_src: str, ts_src: str, snapshot: dict[str, str],
-          min_intersection: int = MIN_INTERSECTION) -> list[str]:
+          min_intersection: int = MIN_INTERSECTION,
+          min_patch_handler: int = MIN_PATCH_HANDLER_NAMES) -> list[str]:
     """Returns a list of error messages; empty means the gate passes."""
-    current = compute_snapshot(dart_src, ts_src, min_intersection)
+    current = compute_snapshot(dart_src, ts_src, min_intersection, min_patch_handler)
     errors: list[str] = []
 
     new_names = sorted(set(current) - set(snapshot))
@@ -326,62 +412,101 @@ def _dart_fixture(entries_block: str, helpers_block: str = "") -> str:
     )
 
 
-def _ts_fixture(names: list[str]) -> str:
-    calls = "\n".join(f"  _r('{n}', (i: any) => null);" for n in names)
-    return (
+def _ts_fixture(
+    r_names: list[str],
+    handler_names: list[str] = (),
+    include_patch_fn: bool = True,
+) -> str:
+    """A fixture carrying BOTH override-registration call shapes:
+    `registerExtraStdFunctions`'s `_r(...)` (from `r_names`) and
+    `patchCompiledEngine`'s `handler.register(...)` (from `handler_names`,
+    which may overlap or differ from `r_names` — the two are independent
+    registries in the real file). `include_patch_fn=False` drops the second
+    function entirely, for the "patchCompiledEngine vanished" extraction test.
+    """
+    r_calls = "\n".join(f"  _r('{n}', (i: any) => null);" for n in r_names)
+    register_fn = (
         "function registerExtraStdFunctions(stdHandler: StdHandler, engine: any): void {\n"
         "  const _r = stdHandler.register.bind(stdHandler);\n"
-        f"{calls}\n"
+        f"{r_calls}\n"
         "}\n"
     )
+    if not include_patch_fn:
+        return register_fn
+    handler_calls = "\n".join(
+        f"      handler.register('{n}', (i: any) => null);" for n in handler_names
+    )
+    patch_fn = (
+        "function patchCompiledEngine(engine: CompiledEngine): void {\n"
+        "  for (const handler of (engine.moduleHandlers ?? [])) {\n"
+        f"{handler_calls}\n"
+        "  }\n"
+        "}\n"
+    )
+    return register_fn + "\n" + patch_fn
 
 
 def _run_self_test() -> int:
     failures: list[str] = []
 
+    # 'divide' is shadowed ONLY via patchCompiledEngine's handler.register
+    # (never via _r) — mirroring PR #919's review repro exactly: it mutated
+    # dart/engine/lib/engine_std.dart's real 'divide' entry and showed this
+    # gate, before the fix, answered `[]` (not detected).
     dart_v1 = _dart_fixture(
         "      'add': _stdAdd,\n"
-        "      'concat': (i) => 'left:right',\n",
+        "      'concat': (i) => 'left:right',\n"
+        "      'divide': (i) => 'div result',\n",
         "\n  FutureOr<Object?> _stdAdd(Object? i) {\n"
         "    return i;\n"
         "  }\n",
     )
     dart_v2_changed_inline = _dart_fixture(
         "      'add': _stdAdd,\n"
-        "      'concat': (i) => 'left-right',\n",  # behaviour changed
+        "      'concat': (i) => 'left-right',\n"  # behaviour changed
+        "      'divide': (i) => 'div result',\n",
         "\n  FutureOr<Object?> _stdAdd(Object? i) {\n"
         "    return i;\n"
         "  }\n",
     )
     dart_v3_changed_tearoff_target = _dart_fixture(
         "      'add': _stdAdd,\n"
-        "      'concat': (i) => 'left:right',\n",
+        "      'concat': (i) => 'left:right',\n"
+        "      'divide': (i) => 'div result',\n",
         "\n  FutureOr<Object?> _stdAdd(Object? i) {\n"
         "    return _stdBinary(i, (a, b) => a + b);\n"  # tear-off target changed
         "  }\n",
     )
+    dart_v4_changed_patch_only = _dart_fixture(
+        "      'add': _stdAdd,\n"
+        "      'concat': (i) => 'left:right',\n"
+        "      'divide': (i) => 'div result CHANGED',\n",  # handler.register-only name changed
+        "\n  FutureOr<Object?> _stdAdd(Object? i) {\n"
+        "    return i;\n"
+        "  }\n",
+    )
     dart_unresolved = _dart_fixture("      'add': _stdMissing,\n")
 
-    ts_src = _ts_fixture(["add", "concat", "unshadowed_only_in_ts"])
+    ts_src = _ts_fixture(["add", "concat", "unshadowed_only_in_ts"], ["divide"])
 
     try:
-        snap1 = compute_snapshot(dart_v1, ts_src, min_intersection=1)
+        snap1 = compute_snapshot(dart_v1, ts_src, min_intersection=1, min_patch_handler=1)
     except ExtractionError as e:
         failures.append(f"compute_snapshot on a clean fixture should not raise: {e}")
         snap1 = {}
 
     if "unshadowed_only_in_ts" in snap1:
         failures.append("a name only TS registers must not appear in the intersection")
-    if set(snap1) != {"add", "concat"}:
-        failures.append(f"expected intersection {{'add', 'concat'}}, got {set(snap1)}")
+    if set(snap1) != {"add", "concat", "divide"}:
+        failures.append(f"expected intersection {{'add', 'concat', 'divide'}}, got {set(snap1)}")
 
     # 1. Unchanged Dart source against its own snapshot -> passes.
-    errs = check(dart_v1, ts_src, snap1, min_intersection=1)
+    errs = check(dart_v1, ts_src, snap1, min_intersection=1, min_patch_handler=1)
     if errs:
         failures.append(f"an unchanged Dart source should pass, got: {errs}")
 
     # 2. An inline closure's behaviour changed -> caught, naming 'concat'.
-    errs = check(dart_v2_changed_inline, ts_src, snap1, min_intersection=1)
+    errs = check(dart_v2_changed_inline, ts_src, snap1, min_intersection=1, min_patch_handler=1)
     if not any("concat" in e and "changed shape" in e for e in errs):
         failures.append(f"a changed inline closure should be reported, got: {errs}")
     if any("'add'" in e for e in errs if "changed shape" in e):
@@ -389,59 +514,109 @@ def _run_self_test() -> int:
 
     # 3. A TEAR-OFF's TARGET method changed -> caught, naming 'add' (proves
     #    tear-off resolution, not just literal map-entry text, drives the hash).
-    errs = check(dart_v3_changed_tearoff_target, ts_src, snap1, min_intersection=1)
+    errs = check(dart_v3_changed_tearoff_target, ts_src, snap1, min_intersection=1, min_patch_handler=1)
     if not any("add" in e and "changed shape" in e for e in errs):
         failures.append(
             f"a changed TEAR-OFF TARGET should be reported even though the "
             f"one-line map entry naming it is unchanged, got: {errs}"
         )
 
-    # 4. A brand-new shadowed name with no snapshot entry -> caught.
-    ts_src_extra = _ts_fixture(["add", "concat", "new_shadow"])
+    # 3b. A name shadowed ONLY through patchCompiledEngine's
+    #     handler.register(...) (never through _r(...)) still gets its Dart
+    #     entry fingerprinted and a changed shape caught, naming 'divide' —
+    #     the exact PR #919 review reproduction (mutating the Dart engine's
+    #     real 'divide' entry used to return `[]` from this gate).
+    errs = check(dart_v4_changed_patch_only, ts_src, snap1, min_intersection=1, min_patch_handler=1)
+    if not any("divide" in e and "changed shape" in e for e in errs):
+        failures.append(
+            f"a changed Dart entry for a name shadowed only via "
+            f"patchCompiledEngine's handler.register(...) should be reported, "
+            f"got: {errs}"
+        )
+
+    # 4. A brand-new shadowed name with no snapshot entry -> caught, for
+    #    EITHER registration shape: 'new_shadow' via _r(...), 'modulo' via
+    #    patchCompiledEngine's handler.register(...) only.
+    ts_src_extra = _ts_fixture(["add", "concat", "new_shadow"], ["divide", "modulo"])
     dart_with_new_shadow = _dart_fixture(
         "      'add': _stdAdd,\n"
         "      'concat': (i) => 'left:right',\n"
-        "      'new_shadow': (i) => 1,\n",
+        "      'divide': (i) => 'div result',\n"
+        "      'new_shadow': (i) => 1,\n"
+        "      'modulo': (i) => 2,\n",
         "\n  FutureOr<Object?> _stdAdd(Object? i) {\n"
         "    return i;\n"
         "  }\n",
     )
-    errs = check(dart_with_new_shadow, ts_src_extra, snap1, min_intersection=1)
+    errs = check(dart_with_new_shadow, ts_src_extra, snap1, min_intersection=1, min_patch_handler=1)
     if not any("new_shadow" in e and "no snapshot entry" in e for e in errs):
-        failures.append(f"a new shadowed name should be reported, got: {errs}")
+        failures.append(f"a new shadowed name (via _r) should be reported, got: {errs}")
+    if not any("modulo" in e and "no snapshot entry" in e for e in errs):
+        failures.append(
+            f"a new shadowed name reaching the intersection ONLY via "
+            f"patchCompiledEngine's handler.register(...) should be reported "
+            f"too, got: {errs}"
+        )
 
     # 5. A stale snapshot entry (name no longer shadows anything) -> caught.
     stale_snapshot = dict(snap1)
     stale_snapshot["long_gone"] = "deadbeef"
-    errs = check(dart_v1, ts_src, stale_snapshot, min_intersection=1)
+    errs = check(dart_v1, ts_src, stale_snapshot, min_intersection=1, min_patch_handler=1)
     if not any("long_gone" in e and "no longer shadow" in e for e in errs):
         failures.append(f"a stale snapshot entry should be reported, got: {errs}")
 
     # 6. An unresolvable tear-off must be a visible, distinct fingerprint
     #    (never silently equal to some other unresolved name), so a real
     #    drift there is still seen as a change rather than vanishing.
-    snap_unresolved = compute_snapshot(dart_unresolved, _ts_fixture(["add"]), min_intersection=1)
+    snap_unresolved = compute_snapshot(
+        dart_unresolved, _ts_fixture(["add"], []), min_intersection=1, min_patch_handler=0
+    )
     if snap_unresolved.get("add") is None:
         failures.append("an unresolved tear-off must still get a fingerprint")
 
     # 7. Positive floor: a below-floor intersection must fail loud.
     try:
-        compute_snapshot(dart_v1, ts_src, min_intersection=99)
+        compute_snapshot(dart_v1, ts_src, min_intersection=99, min_patch_handler=1)
         failures.append("a below-floor intersection should raise ExtractionError")
+    except ExtractionError:
+        pass
+
+    # 7b. Positive floor: a below-floor handler.register(...) extraction
+    #     must fail loud too (the default floor, 12, comfortably exceeds the
+    #     one name 'divide' this fixture's patchCompiledEngine loop carries).
+    try:
+        compute_snapshot(dart_v1, ts_src, min_intersection=1)
+        failures.append(
+            "a below-floor handler.register(...) extraction should raise "
+            "ExtractionError"
+        )
     except ExtractionError:
         pass
 
     # 8. A vanished Dart dispatch header must fail loud, not pass vacuously.
     try:
-        compute_snapshot("class Nothing {}\n", ts_src, min_intersection=1)
+        compute_snapshot("class Nothing {}\n", ts_src, min_intersection=1, min_patch_handler=1)
         failures.append("a missing _buildStdDispatch() should raise ExtractionError")
     except ExtractionError:
         pass
 
     # 9. A vanished TS registration function must fail loud too.
     try:
-        compute_snapshot(dart_v1, "const x = 1;\n", min_intersection=1)
+        compute_snapshot(dart_v1, "const x = 1;\n", min_intersection=1, min_patch_handler=1)
         failures.append("a missing registerExtraStdFunctions should raise ExtractionError")
+    except ExtractionError:
+        pass
+
+    # 9b. A vanished patchCompiledEngine function must fail loud too — this is
+    #     exactly the regression class PR #919's review found: if this
+    #     extraction silently answered an empty set instead of raising, the
+    #     17-name blind spot would still be a blind spot, just a quieter one.
+    try:
+        compute_snapshot(
+            dart_v1, _ts_fixture(["add", "concat"], [], include_patch_fn=False),
+            min_intersection=1, min_patch_handler=1,
+        )
+        failures.append("a missing patchCompiledEngine should raise ExtractionError")
     except ExtractionError:
         pass
 
@@ -449,7 +624,7 @@ def _run_self_test() -> int:
         for f in failures:
             sys.stderr.write(f"SELF-TEST FAILURE: {f}\n")
         return 1
-    print("check_ts_engine_overrides_sync.py: self-test passed (9 cases)")
+    print("check_ts_engine_overrides_sync.py: self-test passed (13 cases)")
     return 0
 
 
@@ -505,8 +680,10 @@ def main(argv: list[str]) -> int:
     print(
         "check_ts_engine_overrides_sync.py: every name "
         "ts/engine/src/engine_setup.ts shadows in "
-        "dart/engine/lib/engine_std.dart's dispatch still fingerprints "
-        f"identically to the committed snapshot ({len(snapshot)} names)."
+        "dart/engine/lib/engine_std.dart's dispatch — via EITHER "
+        "registerExtraStdFunctions's _r(...) or patchCompiledEngine's "
+        "handler.register(...) — still fingerprints identically to the "
+        f"committed snapshot ({len(snapshot)} names)."
     )
     return 0
 

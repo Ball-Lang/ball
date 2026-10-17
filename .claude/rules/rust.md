@@ -300,9 +300,13 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 11 on 2026-09-21, after #767 added two (`.finish()`, a PERMANENT carve-out rather
-  than a backlog item, and the ARRAY half of the `impl` self-type boundary, which had no pin at
-  all beside the tuple half). THREE of the rest are #632 siblings, and #712 changed *which* three: the
+  prose** — 16 after #767's follow-up (issues #887/#888), up from 11 on 2026-09-21, when #767
+  itself added two (`.finish()`, a PERMANENT carve-out rather than a backlog item, and the ARRAY
+  half of the `impl` self-type boundary, which had no pin at all beside the tuple half); the
+  follow-up added 5 more, one per sub-pattern of the "non-identifier Some/Ok/Err binding" gap
+  (#888 — see `rust/AGENTS.md`'s "Non-identifier `Some`/`Ok`/`Err` bindings" section), leaving
+  the data-carrying-enum-variant gap's single pre-existing pin as the ADT-representation
+  question tracked by #887. THREE of the rest are #632 siblings, and #712 changed *which* three: the
   compiled method dispatcher's `ball_message_type_name` scrutinee (#718's unmapped-helper family),
   the spliced MAP literal's `ball_map_create` tail — mapped since #692, but only over a LITERAL
   pair list, so the comprehension's local accumulator is still refused by SHAPE — plus `matches!`,

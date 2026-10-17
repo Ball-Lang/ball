@@ -601,9 +601,9 @@ fn compiled_method_dispatcher_real_fallback_arm_re_encodes() {
         )
     });
     let whole_dispatcher_message = whole_dispatcher_err
-        .downcast_ref::<String>()
-        .cloned()
-        .or_else(|| whole_dispatcher_err.downcast_ref::<&str>().map(|s| s.to_string()))
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| whole_dispatcher_err.downcast_ref::<String>().cloned())
         .unwrap_or_default();
     assert!(
         whole_dispatcher_message.contains("ball_message_type_name"),

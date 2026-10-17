@@ -622,7 +622,7 @@ impl Encoder {
             // an empty string, which would silently lose the failure's identity.
             "panic" => {
                 let message = if mac.tokens.is_empty() {
-                    string_literal("explicit panic MUTATED-FOR-717-RED-EVIDENCE")
+                    string_literal("explicit panic")
                 } else {
                     self.build_format_expr(mac)
                 };
@@ -910,8 +910,7 @@ impl Encoder {
 /// `library/core/src/panic.rs` (`unreachable_2015`/`unreachable_2021`): the
 /// argument-less form panics with exactly this, and the formatted form with
 /// this plus `": "` and the formatted arguments.
-const UNREACHABLE_MESSAGE: &str =
-    "internal error: entered unreachable code MUTATED-FOR-717-RED-EVIDENCE";
+const UNREACHABLE_MESSAGE: &str = "internal error: entered unreachable code";
 
 /// `std.concat(left, right)` — the string-joining node `format!`'s
 /// interpolation chain is built from, shared with `unreachable!`'s

@@ -617,6 +617,30 @@ instructions.
   dispatcher's behavioural half is untouched and still run-proved by
   `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
   fail-loud direction.
+  **The composite property #685/#632 established and #718's fix narrowed away is restored,
+  #761.** "The compiler's REAL emitted dispatcher, taken as emitted, re-encodes" is not two
+  separate, weaker facts combined — the compiled text merely CONTAINS the right substring, or a
+  hand-written STAND-IN function (different parameter name/type, and a different syntactic
+  POSITION: a function-body STATEMENT with a PARAMETER binding, never a match-arm EXPRESSION with
+  a match-arm PATTERN binding) happens to encode correctly. Review of this PR (round 1, at head
+  `7cb5cc70`) caught exactly that mistake in an earlier version of
+  `compile_reencode_roundtrip.rs::compiled_method_dispatcher_real_fallback_arm_re_encodes`: it
+  wrapped the extracted `panic!` in `fn fallback(other: String) -> String { panic!(..); }`, which
+  exercises `block.rs`'s statement-position macro handling and a parameter binding — a different
+  code path from `control_flow.rs::encode_switch_arm`'s `syn::Pat::Ident` catch-all-binding arm the
+  real dispatcher goes through. Fixed to substitute ONLY #718's own scrutinee
+  (`ball_message_type_name(&__self).as_str()`, which has no universal-`std` inverse) inside the
+  compiler's own, otherwise byte-for-byte UNTOUCHED dispatcher text, and re-encode the whole
+  substituted function — both match arms, including the owner arm (`"main:Point" =>
+  Point::sum(input)`) and the real fallback arm (`other => panic!(..)`), read back from their
+  real match-arm positions. The owner arm resolves because every compiled method is one-input
+  (invariant #1): the compiled `impl Point { pub fn sum(input: BallValue) -> BallValue { .. } }`
+  has no `self` receiver, so `types.rs::collect_impl_method_params` registers it as a
+  receiver-less associated function exactly the way #491 slice 3 registers `Point::new(..)` — no
+  compiler or encoder production code changed, only how the test exercises what already exists.
+  The whole-dispatcher re-confirmation (still blocked by #718) also asserts the panic's own
+  MESSAGE names `ball_message_type_name` specifically, so an unrelated refusal firing first can't
+  silently pass it.
   `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
   `ThrowExpression` arm emits: on this target the two are literally one mechanism
   (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a

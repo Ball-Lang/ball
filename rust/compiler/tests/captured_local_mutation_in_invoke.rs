@@ -178,7 +178,7 @@ fn captured_local_mutation_through_immediate_invoke_is_visible_to_the_caller() {
         compiled.contains("(|input: BallValue| -> BallValue {"),
         "this test is only meaningful while the immediately-invoked zero-argument lambda \
          compiles through the inlining path (a bare closure call, no `move`) rather than \
-         `compile_lambda`'s `move |input: BallValue| -> BallValue {` — if that changed, \
+         `compile_lambda`'s `move |input: BallValue| -> BallValue {{` — if that changed, \
          re-measure #734 and update this test:\n{compiled}"
     );
     let stdout = compile_and_run("captured_local_mutation", &compiled);

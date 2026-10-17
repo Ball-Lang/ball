@@ -1039,7 +1039,13 @@ jobs:
       # is not green until it is claimed. `Results: 283 passed, 81 failed, 364
       # total (floor: 282)` on run 38998673595 (job 117296783328). Measured by
       # THIS row, never predicted.
-      CSHARP_COMPILER_FLOOR: "283"
+      #
+      # 285: the corpus grew to 366 (480_iife_mutates_captured_local +
+      # 481_as_expression_identity, landed for #734/#707), and this leg passed
+      # both of the two new fixtures. `Results: 285 passed, 81 failed, 366
+      # total (floor: 283)` on run 39010115147 (job 117331134023). Measured by
+      # THIS row, never predicted.
+      CSHARP_COMPILER_FLOOR: "285"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1538,7 +1544,13 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "282"
+      #
+      # 284: the corpus grew to 366 (480_iife_mutates_captured_local +
+      # 481_as_expression_identity, landed for #734/#707), and this leg passed
+      # both of the two new fixtures. `Results: 284 passed, 82 failed, 366
+      # total (floor: 282)` on run 39010115147 (job 117331134055). Measured by
+      # THIS row, never predicted.
+      RUST_COMPILER_FLOOR: "284"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1605,7 +1617,13 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "298"
+      #
+      # 300: the corpus grew to 366 (480_iife_mutates_captured_local +
+      # 481_as_expression_identity, landed for #734/#707), and this leg passed
+      # both of the two new fixtures. `Results: 300 passed, 66 failed, 366
+      # total (floor: 298)` on run 39010115147 (job 117331134048). Measured by
+      # THIS row, never predicted.
+      GO_COMPILER_FLOOR: "300"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1668,7 +1686,14 @@ jobs:
       # and the corpus's own growth to 363, sitting unclaimed under the old
       # advisory ::notice::. Measured by THIS row on run 35604595391 (job
       # 106348942693), never predicted.
-      PYTHON_COMPILER_FLOOR: "268"
+      #
+      # 269: the corpus grew to 366 (480_iife_mutates_captured_local +
+      # 481_as_expression_identity, landed for #734/#707). This leg still
+      # raises `UnboundLocalError` on 480 (filed separately as #897, out of
+      # scope for the fix that added it) but passes 481, a net gain of one.
+      # `Results: 269 passed, 97 failed, 366 total (floor: 268)` on run
+      # 39010115147 (job 117331133953). Measured by THIS row, never predicted.
+      PYTHON_COMPILER_FLOOR: "269"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

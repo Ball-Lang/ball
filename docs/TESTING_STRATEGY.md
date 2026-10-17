@@ -1405,6 +1405,70 @@ Ratchet` is on it too — it is easy to overlook because it is an independent jo
 (`dart-coverage` in `ci.yml`) rather than part of the `Dart` job; the
 `coverage.yml` workflow next to it owns NO required context.
 
+### Merge-queue readiness (#756)
+
+#749's own closing note deferred a decision: `strict_required_status_checks_policy`
+was off on ruleset 17056238, so a PR could merge without first being brought up
+to date with `main` — which is exactly how #749 happened. PR #741 (regenerated
+`cpp/shared/ball_protobuf_rt.h`) and PR #723 (changed the input that header is
+derived from) were each green alone and red on their union, and the union was
+only discovered on `main` itself, after both had merged. The owner's
+2026-10-17 decision on #756 is to close that gap with GitHub's **merge
+queue**, not the strict-policy flag: queueing a PR builds a speculative merge
+of `main` plus every entry ahead of it in the queue and re-runs the 19
+required checks against THAT commit before fast-forwarding `main` to it — so a
+PR that is only broken in combination with another queued PR is caught and
+dequeued before either one reaches `main`, one merge sooner than the #749
+failure was caught.
+
+**This issue (and this PR) only prepares the workflows for that flag; the flag
+itself is a separate, later step on ruleset 17056238 — see the issue for the
+owner's reasoning for not folding the two together.**
+
+A merge queue entry runs under GitHub's `merge_group` event, which is NOT a
+`pull_request` or a `push`: it carries no `pull_request` payload and no
+`before` SHA, and (unlike `pull_request`/`push`) it supports no `paths`/
+`paths-ignore` filter at all — only `branches`/`branches-ignore`
+([events reference](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#merge_group)).
+Two things had to be true before a queue could work here, and both are gated:
+
+1. **Every workflow that owns one of the 19 required contexts must declare a
+   `merge_group:` trigger** (`types: [checks_requested]` — the only activity
+   type GitHub supports today). Today that is exactly `ci.yml` and
+   `regression-gates.yml`; a workflow with no `merge_group:` trigger simply
+   never starts for a merge group's ref, so the context it owns never
+   reports and the queue blocks that entry FOREVER waiting on a check that
+   will never run — a stuck repository, not a weaker guard.
+2. **`detect-changed-stacks`** (the single source of truth for `ci.yml`'s and
+   `regression-gates.yml`'s `changes` jobs, #458) **must resolve a real diff
+   base for `merge_group` too**, diffing
+   `github.event.merge_group.base_sha..github.event.merge_group.head_sha` —
+   exactly like it already does for `pull_request`
+   (`base.sha..HEAD`) and `push` (`before..HEAD`). Without this branch a
+   merge_group run's `EVENT` matches neither existing case, so its base stays
+   empty and it silently FAILS OPEN: safe (every stack still runs — "on any
+   doubt, run everything" holds either way) but it means a merge group always
+   pays the full ~25-minute C++ matrix and every other heavy job instead of
+   the entries' real diff, and a classifier that regressed to always-fail-open
+   would look identical to one wired correctly on every queue run that
+   happened to touch `infra` anyway.
+
+`tools/ci/check_merge_group_wiring.sh` (always-on `Proto Checks` job,
+`--self-test` first) gates both: it re-derives which workflows own a required
+context the same way `tools/ci/check_pr_job_fanout.sh` does (job `name:`,
+matrix-expanded) and asserts each one's `merge_group:` trigger and `types:`;
+and it asserts `detect-changed-stacks/action.yml` feeds the detect step an env
+value sourced from `github.event.merge_group`, and that `detect.sh` carries a
+REAL `[ "${EVENT:-}" = "merge_group" ]` branch assigning `base` from
+`MERGE_GROUP_BASE_SHA` — not merely a comment that says so, which a plain grep
+would have missed and which is exactly the shape this doc's own prose now
+contains repeatedly. `.github/actions/detect-changed-stacks/test/truth_table.sh`
+pins the classifier's own behaviour end-to-end: a `merge_group` event with no
+usable base fails open identically to the existing `pull_request`/`push`
+fail-open rows, and a `merge_group` event with a real base is cross-checked
+against an equivalent `push` run sharing that exact base, proving it takes the
+real diff path rather than silently reusing the fail-open block.
+
 ### Per-PR job fan-out (issue #666)
 
 Runner concurrency is the measured bottleneck of this repo's PR sweep. The org

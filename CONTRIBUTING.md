@@ -35,6 +35,32 @@ gh api repos/Ball-Lang/ball -q .permissions   # {"push":true,...} = maintainer; 
 - Guard rails: `.claude/hookify.*.local.md` rules (require the [hookify](https://github.com/anthropics/claude-code) plugin) block generated-file edits and remind PR discipline — they activate automatically for any contributor with hookify installed and are inert otherwise.
 - Cloud surfaces (Claude Code web, Claude Cowork) run in Linux sandboxes: the WSL notes in `CLAUDE.md` are for local Windows development only; on Linux just build natively. Sandboxes without `gh` follow the "No gh" tier above.
 
+## Landing via the merge queue
+
+`main`'s `Protect main` ruleset (17056238) is moving from a plain "19 required
+checks must be green" gate to GitHub's **merge queue** (#756, owner decision
+2026-10-17) — the fix for #749, where two PRs were each green alone and broke
+`main` on their union, discovered only after both had merged. Once the
+`merge_queue` rule is enabled on that ruleset (a separate step from the PR that
+wires the workflows up for it — see `docs/TESTING_STRATEGY.md` → "Merge-queue
+readiness (#756)"), landing a PR works like this:
+
+1. Get the PR's own `pull_request` checks green, same as always — queueing
+   does **not** skip that.
+2. Queue it (the PR page's merge button, or `gh pr merge --queue`, once your
+   tier allows merging per the table above).
+3. GitHub builds a **merge group**: a speculative commit of `main` plus this
+   PR and anything else already ahead of it in the queue, and re-runs every
+   one of the 19 required checks AGAINST THAT COMMIT via each workflow's
+   `merge_group:` trigger (`ci.yml`, `regression-gates.yml` today).
+4. If the merge group is green, GitHub fast-forwards `main` to it. If it is
+   red, your PR is dequeued (the others in the queue are retried without it)
+   and you fix it and re-queue — exactly the #749 shape, caught one step
+   earlier than before.
+
+`gh pr checks <n> --watch` while queued follows the merge-group run, not the
+PR's own `pull_request` run — they are separate check-run sets on the same PR.
+
 ## Build, test, verify
 
 Everything is in `CLAUDE.md` → Build & Test (Dart workspace at repo root, `cd <pkg> && dart test`; TS per-package `npm test`; C++ CMake — protobuf-free, configure ≈1 min; Rust `cargo test --workspace`). The conformance corpus (`tests/conformance/`) is the cross-language bar: a change to any target must keep every leg green, and CI runs changed fixtures per-PR on every stack.

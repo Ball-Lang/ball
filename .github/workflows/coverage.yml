@@ -205,7 +205,7 @@ jobs:
         run: cd dart && dart pub get
 
       # Runs the SAME `npm test` ts/engine's own package.json defines
-      # (engine_test.ts's 355-fixture conformance run through the compiled
+      # (engine_test.ts's whole-corpus conformance run through the compiled
       # engine, THEN the dedicated unit suites), under ONE c8 invocation so
       # both halves land in a single merged lcov.info — a prior version of
       # this step ran engine_test.ts only (as its own `node` invocation,
@@ -219,7 +219,7 @@ jobs:
 
       # Two invocations merged into one lcov.info (the second's --clean=false
       # keeps the first's V8 coverage instead of overwriting it): the fast
-      # unit-test loop, THEN full_e2e.ts's 317-fixture conformance harness.
+      # unit-test loop, THEN full_e2e.ts's whole-corpus conformance harness.
       # full_e2e.ts is deliberately excluded from `npm test`'s test/*.test.ts
       # glob (see its own docstring) so the fast dev loop stays fast, but
       # skipping it here as well understated coverage for any code path only

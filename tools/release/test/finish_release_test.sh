@@ -34,15 +34,67 @@ git -C "$WORK" commit -q -m "chore: initial commit"
 git -C "$WORK" push -q origin HEAD:refs/heads/main
 
 # ── stub `gh` on PATH: logs its argv, does nothing else ────────────────────
+# It also copies the file a `--notes-file` argument names into NOTES_SEEN,
+# because finish_release.sh deletes its own temp notes file on exit: without
+# the copy a test could only see THAT `gh release create` ran, never WHAT
+# notes the GitHub Release would have carried (issue #923 — they went blank).
 STUBDIR="$WORKDIR/stubbin"
 mkdir -p "$STUBDIR"
 GH_LOG="$WORKDIR/gh_invocations.log"
+NOTES_SEEN="$WORKDIR/notes_seen.md"
 cat > "$STUBDIR/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$GH_LOG"
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "--notes-file" ]; then cp "\$arg" "$NOTES_SEEN"; fi
+  prev="\$arg"
+done
 exit 0
 EOF
 chmod +x "$STUBDIR/gh"
+
+# ── the release commit, shaped the way GitHub actually lands it ───────────
+# `main` squash-merges with `squash_merge_commit_title: PR_TITLE` and
+# `squash_merge_commit_message: BLANK` (issue #881), so a release-PR merge
+# reaches `main` as "<PR title>" (+ " (#N)" from the merge queue) with an
+# EMPTY body — `git log -1 --format=%b` reads "" — while its TREE still carries
+# the CHANGELOG.md entry the release PR's own commit prepended
+# (open_release_pr.sh -> apply_version_bump.mjs -> prependChangelogEntry).
+# This writes that entry through the REAL prependChangelogEntry, not a bash
+# re-implementation of it, so the fixture cannot drift from the writer.
+CHANGELOG_LIB="$HERE/../lib/changelog_entry.mjs"
+prepend_changelog_entry() {
+  # $1: the changelog file to edit in place, $2: the entry (notes) to prepend.
+  node --input-type=module -e '
+    import { existsSync, readFileSync, writeFileSync } from "node:fs";
+    import { pathToFileURL } from "node:url";
+    const [lib, file, notes] = process.argv.slice(1);
+    const { prependChangelogEntry } = await import(pathToFileURL(lib).href);
+    const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+    writeFileSync(file, prependChangelogEntry(current, notes));
+  ' "$CHANGELOG_LIB" "$1" "$2"
+}
+
+# land_release_commit <subject> <changelog entry> [body]
+# The body defaults to EMPTY, the only shape `main` produces now; a non-empty
+# one is accepted only to prove the notes never come from it.
+land_release_commit() {
+  prepend_changelog_entry "$WORK/CHANGELOG.md" "$2"
+  git -C "$WORK" add CHANGELOG.md
+  if [ -n "${3:-}" ]; then
+    printf '%s\n\n%s\n' "$1" "$3" | git -C "$WORK" commit -q -F -
+  else
+    git -C "$WORK" commit -q -m "$1"
+  fi
+}
+
+# notes_seen: what the last `gh release create --notes-file` carried, or ""
+# when gh never got a notes file (a missing file is an expected outcome here,
+# named rather than swallowed).
+notes_seen() {
+  if [ -f "$NOTES_SEEN" ]; then cat "$NOTES_SEEN"; fi
+}
 
 run_finish_release() {
   PATH="$STUBDIR:$PATH" BALL_REPO_ROOT="$WORK" GITHUB_OUTPUT="$WORKDIR/gh_output" bash "$SCRIPT"
@@ -86,12 +138,27 @@ else
 fi
 
 # ── Test 2: a release-PR-merge commit tags + creates the GitHub Release ───
-printf 'chore(release): 1.73.0\n\n## [1.73.0](url) (2026-10-17)\n\n* new thing\n' \
-  | git -C "$WORK" commit -q --allow-empty -F -
+# The commit is real-shaped (issue #923): EMPTY body, CHANGELOG.md entry in
+# its tree. Before #923 the script read the notes from `git log --format=%b`,
+# which is "" here, so the GitHub Release would have shipped with no notes.
+ENTRY_173=$'## [1.73.0](url) (2026-10-17)\n\n### Features\n\n* new thing'
+land_release_commit "chore(release): 1.73.0" "$ENTRY_173"
 
 : > "$GH_LOG"
 : > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
 if run_finish_release > "$WORKDIR/log2.txt" 2>&1; then
+  BODY="$(git -C "$WORK" log -1 --format=%b HEAD)"
+  if [ -z "$BODY" ]; then
+    ok "fixture -> the release commit's body is EMPTY, as squash_merge_commit_message: BLANK writes it"
+  else
+    no "fixture -> the release commit's body is EMPTY (got: $BODY)"
+  fi
+  if [ "$(notes_seen)" = "$ENTRY_173" ]; then
+    ok "empty-body release commit -> GitHub Release notes are the CHANGELOG.md entry it added (non-empty)"
+  else
+    no "empty-body release commit -> GitHub Release notes are the CHANGELOG.md entry it added (got: '$(notes_seen)', log: $(cat "$WORKDIR/log2.txt"))"
+  fi
   IS_RELEASE="$(output_value is_release)"
   VERSION="$(output_value version)"
   if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "1.73.0" ]; then
@@ -161,16 +228,25 @@ fi
 # 2, finding 1). Against the pre-fix script (HEAD-only `git log -1`), this
 # reproduces the exact bug: HEAD is "fix: unrelated", does not match
 # `chore(release): …`, and v2.0.0 is NEVER tagged. The fix scans every commit
-# since the last tag for the release commit instead of trusting HEAD. ─────
-printf 'chore(release): 2.0.0\n\n## [2.0.0](url) (2026-10-17)\n\n* second thing\n' \
-  | git -C "$WORK" commit -q --allow-empty -F -
+# since the last tag for the release commit instead of trusting HEAD.
+# This one release commit DOES carry a body, and a stale one, to pin issue
+# #923's other half: the notes come from the tree, never from the message,
+# whatever a future squash setting puts there. ───────────────────────────
+ENTRY_200=$'# [2.0.0](url) (2026-10-17)\n\n### Features\n\n* second thing'
+land_release_commit "chore(release): 2.0.0" "$ENTRY_200" "stale body -- must never become the release notes"
 RELEASE_COMMIT_SHA="$(git -C "$WORK" rev-parse HEAD)"
 git -C "$WORK" commit -q --allow-empty -m "fix: unrelated PR merged before the next poll tick"
 GAP_HEAD_SHA="$(git -C "$WORK" rev-parse HEAD)"
 
 : > "$GH_LOG"
 : > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
 if run_finish_release > "$WORKDIR/log4.txt" 2>&1; then
+  if [ "$(notes_seen)" = "$ENTRY_200" ]; then
+    ok "release commit followed by another commit -> notes are ITS changelog entry, not its (stale) body"
+  else
+    no "release commit followed by another commit -> notes are ITS changelog entry, not its (stale) body (got: '$(notes_seen)')"
+  fi
   IS_RELEASE="$(output_value is_release)"
   VERSION="$(output_value version)"
   if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "2.0.0" ]; then
@@ -233,21 +309,27 @@ fi
 
 # ── Test 6: the release commit as the MERGE QUEUE actually writes it ───────
 # `main` requires a merge queue (ruleset 17056238's `merge_queue` rule,
-# merge_method SQUASH). A queue squash ignores the subject
-# `gh pr merge --auto --subject` asked for and uses the repository default
-# (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`): for a single-commit PR,
-# "<that commit's subject> (#<PR number>)", body = that commit's body
+# merge_method SQUASH). A queue squash ignores the subject/body
+# `gh pr merge --auto --subject` asked for and uses the repository defaults,
+# `squash_merge_commit_title: PR_TITLE` / `squash_merge_commit_message: BLANK`
+# (issue #881): "<the PR's title> (#<PR number>)" with NO body at all
 # (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges#merge-message-for-a-squash-merge;
 # every queue-merged commit on main has this shape, e.g. 009fad1c "… (#905)").
 # PR #881 review round 3, finding 1: the `$`-anchored subject pattern rejected
 # the suffix, so a real release commit was never tagged and nothing published.
-printf 'chore(release): 2.1.0 (#912)\n\n## [2.1.0](url) (2026-10-17)\n\n* queued thing\n' \
-  | git -C "$WORK" commit -q --allow-empty -F -
+ENTRY_210=$'# [2.1.0](url) (2026-10-17)\n\n### Features\n\n* queued thing'
+land_release_commit "chore(release): 2.1.0 (#912)" "$ENTRY_210"
 QUEUE_RELEASE_SHA="$(git -C "$WORK" rev-parse HEAD)"
 
 : > "$GH_LOG"
 : > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
 if run_finish_release > "$WORKDIR/log6.txt" 2>&1; then
+  if [ "$(notes_seen)" = "$ENTRY_210" ]; then
+    ok "merge-queue squash (empty body) -> notes are the 2.1.0 changelog entry alone, none of the older entries"
+  else
+    no "merge-queue squash (empty body) -> notes are the 2.1.0 changelog entry alone (got: '$(notes_seen)')"
+  fi
   IS_RELEASE="$(output_value is_release)"
   VERSION="$(output_value version)"
   if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "2.1.0" ]; then
@@ -323,6 +405,44 @@ if run_finish_release > "$WORKDIR/log8.txt" 2>&1; then
   fi
 else
   no "Go release commit on main -> script must exit 0 ($(cat "$WORKDIR/log8.txt"))"
+fi
+
+# ── Test 9: a release commit with no notes anywhere FAILS LOUD (#923) ─────
+# Empty body (as always now) AND a tree that adds no CHANGELOG.md entry: there
+# are no notes to publish. The pre-#923 script tagged it and created a GitHub
+# Release with an empty body, green — the silent downgrade #923 reports. It
+# must instead fail before tagging anything, so the next poll retries from a
+# clean state once a human has looked. LAST on purpose: this untagged release
+# commit stays the oldest candidate for every later run against this fixture.
+git -C "$WORK" commit -q --allow-empty -m "chore(release): 2.2.0 (#915)"
+
+: > "$GH_LOG"
+: > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
+if run_finish_release > "$WORKDIR/log9.txt" 2>&1; then
+  no "release commit with no changelog entry -> script must exit NON-zero (it exited 0: $(cat "$WORKDIR/log9.txt"))"
+else
+  ok "release commit with no changelog entry -> script exits non-zero (fails loud)"
+fi
+if grep -q "CHANGELOG.md" "$WORKDIR/log9.txt"; then
+  ok "release commit with no changelog entry -> the error names CHANGELOG.md"
+else
+  no "release commit with no changelog entry -> the error names CHANGELOG.md (log: $(cat "$WORKDIR/log9.txt"))"
+fi
+if git -C "$BARE" rev-parse --verify --quiet refs/tags/v2.2.0 >/dev/null; then
+  no "release commit with no changelog entry -> tag v2.2.0 must NOT be pushed (it was)"
+else
+  ok "release commit with no changelog entry -> tag v2.2.0 is not pushed"
+fi
+if git -C "$WORK" rev-parse --verify --quiet refs/tags/v2.2.0 >/dev/null; then
+  no "release commit with no changelog entry -> tag v2.2.0 must NOT be created locally (it was)"
+else
+  ok "release commit with no changelog entry -> tag v2.2.0 is not created locally"
+fi
+if [ ! -s "$GH_LOG" ]; then
+  ok "release commit with no changelog entry -> gh never invoked (no notes-less GitHub Release)"
+else
+  no "release commit with no changelog entry -> gh never invoked (log: $(cat "$GH_LOG"))"
 fi
 
 echo

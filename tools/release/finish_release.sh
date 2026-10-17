@@ -73,15 +73,35 @@
 # in practice: it is specifically the GAP a job split (or a missed poll)
 # leaves open that a HEAD-only check cannot recover from.
 #
+# WHERE THE GITHUB RELEASE'S NOTES COME FROM (issue #923): the CHANGELOG.md
+# entry the release commit itself adds — never the commit's message body.
+# `main` squash-merges with `squash_merge_commit_message: BLANK` (issue #881),
+# so the body that used to carry the notes (`git log -1 --format=%b`) is empty
+# on every commit there, and every GitHub Release went out blank. The entry is
+# the same `nextRelease.notes` bytes, committed in the release commit's TREE,
+# which no squash setting can drop. tools/release/release_notes_from_changelog.mjs
+# reads it (its header weighs this against the two alternatives — the PR body
+# via the API, or recomputing at tag time) and fails if there is none, in
+# which case this script refuses to tag or publish anything.
+#
 # Outputs (GITHUB_OUTPUT): is_release (true|false), newly_tagged (true|false),
 # version (when is_release is true).
 set -euo pipefail
 
+# HERE is THIS script's own real location — never overridden — so
+# release_notes_from_changelog.mjs below is always this checkout's copy, even
+# when ROOT is a throwaway fixture with no tools/ directory of its own.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # BALL_REPO_ROOT overrides the repo root this operates in — used only by
 # tools/release/test/finish_release_test.sh to run the real script against a
 # throwaway fixture repo instead of this checkout.
-ROOT="${BALL_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+ROOT="${BALL_REPO_ROOT:-$(cd "$HERE/../.." && pwd)}"
 cd "$ROOT"
+
+# The changelog the root release PR prepends its notes to — the file
+# open_release_pr.sh's apply_version_bump.mjs writes and `git add`s.
+CHANGELOG_FILE="CHANGELOG.md"
 
 # The release-PR merge's subject, in BOTH shapes it can land on `main` in:
 #   chore(release): 1.73.0          — a plain squash honouring the subject
@@ -159,7 +179,6 @@ if [ -n "$CANDIDATE" ]; then
   [[ "$SUBJECT" =~ $RELEASE_SUBJECT_RE ]]
   VERSION="${BASH_REMATCH[1]}"
   TAG="v$VERSION"
-  NOTES="$(git log -1 --format=%b "$COMMIT_SHA")"
 
   if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
     # Should not normally happen — $COMMIT_SHA was found precisely because it
@@ -170,6 +189,18 @@ if [ -n "$CANDIDATE" ]; then
     echo "newly_tagged=false" >> "${GITHUB_OUTPUT:-/dev/null}"
     echo "version=$VERSION" >> "${GITHUB_OUTPUT:-/dev/null}"
     exit 0
+  fi
+
+  # The notes, read BEFORE anything is tagged: a release with no notes fails
+  # here, leaving no tag behind, so the next poll retries from a clean state
+  # instead of finding a tag and reporting this release as finished (#923).
+  # The whitespace test is belt-and-braces on top of the reader's own
+  # non-empty guarantee — an empty GitHub Release is the exact outcome this
+  # step must never produce, so it is checked where it would happen.
+  if ! NOTES="$(node "$HERE/release_notes_from_changelog.mjs" "$COMMIT_SHA" "$CHANGELOG_FILE")" ||
+     [ -z "${NOTES//[[:space:]]/}" ]; then
+    echo "::error::finish_release: no release notes for $TAG: release commit $COMMIT_SHA must add this release's entry to $CHANGELOG_FILE (see the reason above). Refusing to tag $TAG or create an empty GitHub Release (issue #923)." >&2
+    exit 1
   fi
 
   WORKDIR="$(mktemp -d)"

@@ -245,6 +245,19 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   put a new name — it freezes the six measured, cross-target spellings (`for_each`,
   `parenthesized`, `null_aware_index`, `set_create`, the `*_than_or_equal` pair) and can only
   shrink.
+  **The dispatch-site extraction is SHAPE-bound, not NAME-bound (#827).** It used to require the
+  dispatched name be held in a local literally spelled `fn` — a dispatcher that extracted it into
+  `name` (or anything else) via `call.get("function", "")` was simply invisible to the walk, so a
+  mutation adding `def extra_expr(self, call): name = call.get("function", ""); if name ==
+  "totally_phantom_fn": ...` left the suite green. `_discover_dispatch_key` now traces an
+  assignment (plain or tuple-unpacked, like `mod, fn = call.get("module", ""), call.get("function",
+  "")`) back to a `.get("function", ...)` read and uses WHATEVER name it was bound to, falling back
+  to the literal `fn` only for the delegate-style dispatchers (`collections_expr`, `convert_expr`,
+  `stub_call`) that take it already extracted as a parameter. The fall-through dispatcher's
+  delegated-module set is PINNED exactly (`ball_proto`/`std_collections`/`std_convert`) rather than
+  floored at `>= 2`, so a `mod == "..."` shape rewritten as a dict lookup — which derives an EMPTY
+  set, not merely a different one — fails loud too, and `MIN_TOTAL_NAMES` sits at 195, close to the
+  measured 201 (was 150, ~50 names of slack).
 
 ### Encoder
 
@@ -269,6 +282,17 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   right answer for a script. `python/encoder/tests/test_top_level_vars.py` pins each condition with
   its negative control. The compiler's matching half is the `top_var_names` branch in `value_call`:
   a top-level variable can hold a function, and `add10(5)` must apply it.
+  **Condition 4's own negative control must not be masked by an earlier one (#815).** The walk
+  `break`s at the FIRST statement that fails, so a fixture whose earlier name already fails
+  condition 2 (`count = 1\ncount = 2\ndoubled = count`) never lets the walk even REACH `doubled`'s
+  statement — it would pass identically with condition 4 deleted entirely. Condition 4 can only be
+  isolated by a name that is never a module-level binding at all, so the walk's own conditions 1-3
+  hold for the READING statement while `_free_names(value) <= visible` is what trips it: a module
+  with a `def helper(n): return n` followed by `X = n` reads a name that is purely a PARAMETER of
+  another function, never bound at module scope, which lifts only when condition 4 is disabled.
+  `test_an_initializer_reading_a_function_local_is_not_lifted` is the isolated case; the original
+  fixture is kept as `test_a_reassigned_name_read_by_a_later_initializer_is_not_lifted`, relabelled
+  as the condition-2 control it actually is.
 
 ### Engine
 

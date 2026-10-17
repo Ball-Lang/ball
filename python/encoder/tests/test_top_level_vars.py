@@ -173,10 +173,38 @@ def test_a_variable_named_main_is_not_lifted():
     assert names.count("main") == 1, names
 
 
-def test_an_initializer_reading_a_main_local_is_not_lifted():
-    """Condition 4 — ``doubled`` reads ``count``, which stayed a local of main;
-    lifting it would emit a module-level read of a name that is not there."""
-    program = encode("count = 1\ncount = 2\ndoubled = count\n")
+def test_a_reassigned_name_read_by_a_later_initializer_is_not_lifted():
+    """A condition-2 negative control, not condition-4's: ``count`` fails to
+    lift (bound twice) on its OWN statement, which is the FIRST one the walk
+    examines — so it ``break``s there and ``doubled = count`` is never even
+    reached. This fixture proves nothing about condition 4; it would pass
+    identically if condition 4 were deleted from ``_lifted_top_level_vars``
+    entirely (issue #815). See
+    :func:`test_an_initializer_reading_a_function_local_is_not_lifted` for the
+    isolated case."""
+    program = encode('count = 1\ncount = 2\ndoubled = count\n')
+
+    assert top_level_vars(program) == {}
+
+
+def test_an_initializer_reading_a_function_local_is_not_lifted():
+    """Condition 4, isolated: ``X``'s own statement satisfies conditions 1-3
+    (one plain-name target, bound once, nothing effectful stepped over — only
+    a ``def`` precedes it), so the walk actually reaches it and must reject it
+    on condition 4 alone — its initializer reads ``n``, a name that is only a
+    PARAMETER of ``helper`` (a local of a function, never a module-level
+    declaration), not a lifted variable or a ``def`` name. Disabling condition
+    4 alone (the ``_free_names(value) <= visible`` check) flips this fixture
+    from unlifted to lifted, which is what the earlier reassignment-based
+    fixture above could not prove (issue #815)."""
+    program = encode(
+        "def helper(n):\n"
+        "    return n\n"
+        "\n"
+        "\n"
+        "X = n\n"
+        "print(X)\n"
+    )
 
     assert top_level_vars(program) == {}
 

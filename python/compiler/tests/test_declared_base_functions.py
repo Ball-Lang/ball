@@ -93,9 +93,12 @@ NOT_MODULE_SCOPED = {
 
 # Positive floor on the per-dispatcher name count summed across the mapped
 # dispatchers. The current measurement is not frozen in prose (a number in a
-# comment rots); `test_report` prints it on every run. The floor sits well below
-# it so ordinary churn never trips it, but an AST walk that stops matching does.
-MIN_TOTAL_NAMES = 150
+# comment rots); `test_report` prints it on every run. Measured at 201 (issue
+# #827); the floor sits close to that — a little slack for ordinary dispatcher
+# churn, nowhere near the ~50-name gap that used to let a partial-extraction
+# regression (the AST walk quietly stopping matching) pass as a clean bill of
+# health.
+MIN_TOTAL_NAMES = 195
 
 
 # ── extraction ──────────────────────────────────────────────────────────────
@@ -124,15 +127,67 @@ def _name_bindings(scope: ast.AST) -> dict[str, list[str]]:
     return out
 
 
+def _is_function_get_call(node: ast.AST) -> bool:
+    """True for ``<expr>.get("function", ...)`` / ``<expr>.get("function")`` —
+    the shape every real dispatcher in ``compiler.py`` uses to pull the
+    dispatched name out of a call, whatever it then calls the result."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and bool(node.args)
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == "function"
+    )
+
+
+def _discover_dispatch_key(fnode: ast.AST) -> str:
+    """The local name [fnode]'s body uses to hold the dispatched base-function
+    NAME — discovered STRUCTURALLY (by tracing an assignment back to a
+    ``.get("function", ...)`` read, direct or tuple-unpacked alongside a
+    sibling like ``mod, fn = call.get("module", ""), call.get("function",
+    "")``) rather than by requiring the particular spelling ``fn``. This is
+    what stops a dispatcher that calls the result ``name`` (or anything else)
+    from being invisible to the walk below (issue #827).
+
+    Falls back to the literal name ``fn`` when no such assignment is found —
+    the delegate-style dispatchers (``collections_expr``, ``convert_expr``,
+    ``stub_call``) take the name already extracted as a PARAMETER, so they
+    have no ``.get("function", ...)`` call of their own; the fallback is a
+    no-op (an empty site set) for any OTHER function that happens to mention
+    no ``fn`` at all, exactly like today.
+    """
+    for node in ast.walk(fnode):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if isinstance(target, ast.Name) and _is_function_get_call(node.value):
+            return target.id
+        if (
+            isinstance(target, ast.Tuple)
+            and isinstance(node.value, ast.Tuple)
+            and len(target.elts) == len(node.value.elts)
+        ):
+            for lhs, rhs in zip(target.elts, node.value.elts):
+                if isinstance(lhs, ast.Name) and _is_function_get_call(rhs):
+                    return lhs.id
+    return "fn"
+
+
 def dispatched_names(source: str) -> dict[str, set[str]]:
     """Function name -> the base-function names its body dispatches on.
 
     A dispatch site is any of:
 
-    * ``fn == "name"`` / ``fn != "name"``
-    * ``fn in ("a", "b")`` (or a set/list display)
-    * ``fn in TABLE`` / ``TABLE[fn]`` where ``TABLE`` is a dict or set literal
-      bound in the same function or at module level.
+    * ``<key> == "name"`` / ``<key> != "name"``
+    * ``<key> in ("a", "b")`` (or a set/list display)
+    * ``<key> in TABLE`` / ``TABLE[<key>]`` where ``TABLE`` is a dict or set
+      literal bound in the same function or at module level,
+
+    where ``<key>`` is that function's own dispatch-key local, discovered by
+    :func:`_discover_dispatch_key` rather than hard-coded as ``fn`` — a
+    dispatcher that extracts the name under a different local variable is
+    found exactly the same way (issue #827).
 
     Only functions with at least one such site appear in the result, so the set
     of dispatchers is DERIVED from the compiler source rather than listed here.
@@ -148,13 +203,14 @@ def dispatched_names(source: str) -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
     for fnode in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
         local = _name_bindings(fnode)
+        key = _discover_dispatch_key(fnode)
 
         def resolve(ident: str) -> list[str]:
             return local.get(ident, module_bindings.get(ident, []))
 
         names: set[str] = set()
         for node in ast.walk(fnode):
-            if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "fn":
+            if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == key:
                 for op, comp in zip(node.ops, node.comparators):
                     if isinstance(op, (ast.Eq, ast.NotEq)):
                         if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
@@ -168,7 +224,7 @@ def dispatched_names(source: str) -> dict[str, set[str]]:
                 isinstance(node, ast.Subscript)
                 and isinstance(node.value, ast.Name)
                 and isinstance(node.slice, ast.Name)
-                and node.slice.id == "fn"
+                and node.slice.id == key
             ):
                 names.update(resolve(node.value.id))
         if names:
@@ -353,6 +409,13 @@ def test_inventory_agrees_with_std_json():
     )
 
 
+# The exact set `base_expr()` delegates away today (issue #827): pinned, not
+# just floored, so a change to the `mod == "..."` dispatch shape that silently
+# re-derives a DIFFERENT set (shrunk, grown, or emptied) fails loud instead of
+# passing as long as the set merely stays non-empty.
+EXPECTED_DELEGATED_MODULES = frozenset({"ball_proto", "std_collections", "std_convert"})
+
+
 def test_fallthrough_modules_are_derived():
     """The fall-through dispatcher's module set must come from real delegations.
 
@@ -365,6 +428,15 @@ def test_fallthrough_modules_are_derived():
     assert len(delegated) >= 2, (
         "%s() delegates no module at all (found: %s) - the `mod == ...` extraction "
         "has stopped matching." % (FALLTHROUGH_DISPATCHER, sorted(delegated))
+    )
+    # The EXACT set, not just "at least two": a shape change that silently
+    # re-derives a wrong (but still non-empty) set must fail here too (#827).
+    assert delegated == EXPECTED_DELEGATED_MODULES, (
+        "%s() now delegates %s, expected %s. If this is an intentional change, "
+        "update EXPECTED_DELEGATED_MODULES; if it isn't, the `mod == ...` "
+        "extraction found something it shouldn't have (or stopped finding "
+        "something it should)."
+        % (FALLTHROUGH_DISPATCHER, sorted(delegated), sorted(EXPECTED_DELEGATED_MODULES))
     )
     modules = dispatcher_modules(source, declared_names(COVERAGE_JSON))[FALLTHROUGH_DISPATCHER]
     assert modules[0] == FALLTHROUGH_PRIMARY_MODULE
@@ -412,6 +484,36 @@ class Compiler:
         table = {"negate": "negate"}
         if fn in table:
             return table[fn]
+%s
+        return self.fail("unsupported")
+
+    def collections_expr(self, fn, f):
+        if fn == "list_push":
+            return "push"
+        return self.fail("unsupported")
+
+    def value_call(self, call):
+        fn = call.get("function", "")
+        if fn == "toString":
+            return "str"
+        return ""
+'''
+
+# The same `base_expr` shape as `_FAKE_SOURCE`, but with its dispatch-key local
+# renamed from `fn` to `flavor` throughout — proving extraction is SHAPE-bound
+# (any name a `.get("function", ...)` assignment is traced back to), not bound
+# to the literal spelling `fn` (issue #827).
+_FAKE_SOURCE_RENAMED_KEY = '''\
+class Compiler:
+    def base_expr(self, call):
+        mod, flavor = call.get("module", ""), call.get("function", "")
+        if flavor == "add":
+            return "a + b"
+        if flavor in ("is", "is_not"):
+            return "t"
+        table = {"negate": "negate"}
+        if flavor in table:
+            return table[flavor]
 %s
         return self.fail("unsupported")
 
@@ -514,3 +616,77 @@ def test_control_unmapped_dispatcher_fails():
 @pytest.mark.parametrize("path", [COMPILER_SRC, COVERAGE_JSON, STD_JSON, KNOWN_GAPS])
 def test_control_inputs_exist(path):
     assert path.is_file(), "%s is missing - the gate cannot run" % path
+
+
+# ── regression controls: the three #827 blind spots ─────────────────────────
+#
+# Each of these proves the SPECIFIC mutation issue #827 named would have
+# slipped past the gate before this file's fix, and does not now.
+
+# The real-world repro from #827: a mutation adding a dispatcher that extracts
+# the function name into a local called `name` (not `fn`) and dispatches a
+# PHANTOM base function the canonical builders never declare.
+_PHANTOM_DIFFERENTLY_NAMED_DISPATCHER = '''
+
+    def extra_expr(self, call):
+        name = call.get("function", "")
+        if name == "totally_phantom_fn":
+            return "x"
+        return self.fail("unsupported")
+'''
+
+
+def test_control_a_differently_named_dispatch_key_is_still_discovered():
+    """`dispatched_names()` must not require the local literally be called
+    `fn` — the exact shape of the #827 mutation (`name = call.get("function",
+    "")`) must still be found, under the name it actually uses."""
+    src = (_FAKE_SOURCE % "") + _PHANTOM_DIFFERENTLY_NAMED_DISPATCHER
+    dispatched = dispatched_names(src)
+    assert "extra_expr" in dispatched, (
+        "a dispatcher binding the function name to `name` instead of `fn` was "
+        "not found at all - the extraction is still name-bound, not shape-bound."
+    )
+    assert "totally_phantom_fn" in dispatched["extra_expr"]
+
+
+def test_control_new_differently_named_dispatcher_cannot_appear_unnoticed():
+    """The #827 mutation end to end: a brand-new, differently-named dispatcher
+    with an undeclared name must still flip the gate - as an UNMAPPED
+    DISPATCHER (it maps to no module yet), never a silent pass."""
+    src = (_FAKE_SOURCE % "") + _PHANTOM_DIFFERENTLY_NAMED_DISPATCHER
+    errors = _run_fake(source=src)
+    assert any("UNMAPPED DISPATCHER" in e for e in errors)
+    assert any("extra_expr" in e for e in errors)
+
+
+def test_control_renamed_dispatch_key_inside_a_mapped_dispatcher_is_caught():
+    """The same mutation, but inside an ALREADY-MAPPED dispatcher rather than a
+    brand-new one: renaming `base_expr`'s own local from `fn` to `flavor` must
+    not hide the phantom arm it dispatches on."""
+    src = _FAKE_SOURCE_RENAMED_KEY % (
+        '        if flavor == "totally_phantom_fn":\n            return "x"\n'
+    )
+    errors = _run_fake(source=src)
+    assert any("DISPATCHED BUT NOT DECLARED" in e for e in errors)
+    assert any("std.totally_phantom_fn" in e for e in errors)
+
+
+def test_control_dict_based_mod_dispatch_shape_derives_a_different_set():
+    """If `base_expr`'s `mod == "..."` comparisons were rewritten as a dict
+    lookup, `delegated_modules()` finds NOTHING - exactly the silent
+    re-derivation `test_fallthrough_modules_are_derived`'s exact-set pin
+    (rather than a bare `>= 2` floor) is there to catch."""
+    src = (_FAKE_SOURCE % "").replace(
+        '        if fn in ("is", "is_not"):',
+        '        table_mod = {"std_collections": "list_push"}\n'
+        "        if mod in table_mod:\n"
+        "            return table_mod[mod]\n"
+        '        if fn in ("is", "is_not"):',
+    )
+    delegated = delegated_modules(src, "base_expr")
+    assert delegated != EXPECTED_DELEGATED_MODULES
+    assert delegated == set(), (
+        "a dict-based `mod` dispatch is not read as a delegation at all by "
+        "the `mod == ...` extraction, which is exactly the silent-drift shape "
+        "the exact-set pin (not a `>= 2` floor) exists to catch: %s" % sorted(delegated)
+    )

@@ -32,6 +32,25 @@ kept beside the table:
 
 plus whole-fixture round trips (Ball -> Python -> Ball -> Python -> run,
 byte-compared against the fixture's own golden) for one fixture per shape.
+
+**`ball_proto` has NO executed fixture, and cannot (issue #833).** `std_collections`
+and `std_convert` each get a `ROUND_TRIP_FIXTURES` entry below; `ball_proto`
+only gets the two structural checks above. That is not an oversight — the
+Dart REFERENCE ENGINE (`dart/engine`), the authoritative oracle every
+`tests/conformance/*.ball.json` fixture runs against, dispatches NO
+`ball_proto` module call at all (there is no `ball_proto` case anywhere in
+`dart/engine/lib/engine*.dart`); only `dart/self_host/engine.ball.json` — the
+self-hosted engine's OWN source — calls into it, and each target wraps that
+with its own hand-written `ball_proto` runtime (this package's `proto.py`
+being the Python one) rather than the generic conformance sweep. A fixture
+authored the normal way (`tests/conformance/src/*.dart` through
+`generate_conformance.dart`) would therefore fail on the Dart engine itself —
+the oracle every OTHER fixture is checked against — before any target-specific
+inverse is even exercised. `test_every_proto_helper_has_a_unary_obj_inverse`
+and `test_a_proto_helper_encodes_into_ball_proto_over_obj` below are this
+table's whole proof, and that is the deliberate ceiling until the engines gain
+an injected `ball_proto` handler for the general sweep (not just the
+self-hosted-engine build).
 """
 
 from __future__ import annotations
@@ -342,6 +361,7 @@ ROUND_TRIP_FIXTURES = [
     "386_list_concat_addall",    # ballrt.col.list_concat
     "392_empty_set_literal",     # ballrt.col.set_create(None) — the input-less form
     "463_list_find_no_match",    # ballrt.col.list_find — callback, and it throws
+    "480_list_take_drop",        # ballrt.col.list_take / list_drop (issue #833)
     "190_utf8_encode_decode",    # ballrt.cvt.utf8_encode / utf8_decode
     "191_base64_encode_decode",  # ballrt.cvt.base64_encode / base64_decode
 ]

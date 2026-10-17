@@ -559,7 +559,13 @@ Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** on
 PR #738's matrix (run 35549906393 — `Results: 79 passed, 281 failed, 360
 total`), when `go/encoder` gained the
 `std_collections` inverses and the four shapes `go/compiler` emits for every
-program (#691). Those are the floors. None of the four is a parity gate — most of
+program (#691), and to **80** on PR #866's matrix (run 35606234552 —
+`Results: 80 passed, 283 failed, 363 total`), when the std half of that inverse
+table gained a derivation guard of its own and the nine `std` helpers it found
+un-inverted were mapped (#793). That +1 is attributable rather than corpus
+drift: the same row on the commit this branched from (run 35603702521, main at
+`ea8724bb`) measured `79 passed, 284 failed, 363 total` — same corpus, one more
+fixture. Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 
@@ -634,6 +640,33 @@ promised a custom format string that no engine, compiler or runtime in the
 repository has ever implemented) and nineteen alias spellings the Dart engine
 accepts that `std.json` never mentioned, so no other target could implement them
 and no encoder knew they were safe to emit.
+
+**A derived closed set covers the dispatcher it PARSES, and nothing else
+(#793).** `go/encoder/ballrt_table_test.go` was written for #691 and got the
+method right — it parses `go/compiler/base_call.go` and compares every emission
+against the encoder's inverse table, with negative controls proving it catches
+each way the two files can part. It parsed exactly ONE function,
+`compileCollectionsCall`, and checked exactly one of the two tables. The sibling
+`stdHelpers` (~80 entries, the other half of the same map) was covered only by
+`TestHelperTablesAreDisjoint`, a cross-table property that never reads the
+compiler at all, so the very drift the guard was written to close could still
+happen one `std` helper at a time — and had: the generalized guard's first run
+named NINE `std` base functions the compiler emits with no inverse
+(`sink_create`/`sink_write`/`sink_to_string`, `string_from_char_code`, the four
+`*_to_double`, and `throw`). Two rules follow. **Parameterize the guard over
+(source-of-truth function, table) pairs rather than hard-coding one**, so adding
+a dispatcher is a spec entry instead of a second copy of the instrument; the
+`go` guard is now one `inverseSpec` per pair driving the same parse and the same
+comparison. And **an emission the parser cannot read must be RECORDED, not
+skipped**: the std switch has shapes the collections one does not (a `%q` verb,
+a `c.typeName(f)` operand, the `ballrt.Value(nil)` placeholder for an omitted
+optional argument, a bare `"ballrt.Rethrow()"` literal), and a parser that
+quietly ignores what it cannot line up lets the table assert a shape no test
+checks — the same vacuous-pass shape a missing positive floor produces. Those
+are recorded as opaque and must carry a documented exclusion with a reason.
+The negative controls take a floor of their own here: with the live table
+already failing, a battery that accepts any non-empty report passes vacuously,
+so each mutation is judged on the problems it ADDS.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not

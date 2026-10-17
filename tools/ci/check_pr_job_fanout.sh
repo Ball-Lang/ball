@@ -52,8 +52,11 @@
 #   (b) its job-level `if:` references a `changes` job output
 #       (`needs.<job>.outputs.<x>` where <job> is a job using the
 #       detect-changed-stacks action);
-#   (c) its workflow's `pull_request:` trigger carries a `paths:` filter, so the
-#       whole workflow is already conditioned on the diff;
+#   (c) its workflow's `pull_request:` trigger carries a `paths:` ALLOW-LIST
+#       (never a `paths-ignore:` deny-list — that only excludes a small set
+#       and leaves the workflow starting for almost every other diff, so it
+#       does not "already condition" anything inside), so the whole workflow
+#       is already conditioned on the diff;
 #   (d) it is listed in tools/ci/pr_job_fanout_allowlist.txt with a reason;
 #   (e) it IS the `changes` classifier itself — the ~10-second job every other
 #       condition reads. Conditioning the classifier on its own output is not a
@@ -324,10 +327,20 @@ for wf_name in WORKFLOWS:
                 "is to avoid requiring workflows that can be skipped."
             )
 
-        # ── fan-out: required, conditioned, workflow-filtered, allow-listed,
-        # or the `changes` classifier itself. ───────────────────────────────
-        if owns or conditioned or workflow_conditioned or key in allowed or job_id in detect_jobs:
-            if key in allowed and not (owns or conditioned or workflow_conditioned):
+        # ── fan-out: required, conditioned, workflow-ALLOWLIST-filtered,
+        # allow-listed, or the `changes` classifier itself. `workflow_denylisted`
+        # (`paths-ignore:`) must NOT exempt a job here, only `workflow_allowlisted`
+        # (`paths:`) may: an allow-list means the workflow only ever starts for
+        # diffs its jobs already care about, so an unconditional job inside one
+        # really is "already conditioned". A deny-list only excludes a SMALL set
+        # (e.g. docs) and the workflow starts for almost every other diff, so an
+        # unconditional job inside a `paths-ignore:`-only workflow is still
+        # effectively unconditional on nearly every code PR — accepting it here
+        # would silently reopen the exact fan-out hole THE RULE (c) exists to
+        # close. See "paths-ignore-only workflow does not exempt its
+        # unconditional job" in the self-test below. ─────────────────────────
+        if owns or conditioned or workflow_allowlisted or key in allowed or job_id in detect_jobs:
+            if key in allowed and not (owns or conditioned or workflow_allowlisted):
                 notes.append(f"allow-listed  {key}: {allowed[key]}")
             continue
         errors.append(
@@ -611,7 +624,25 @@ open(path, "w", encoding="utf-8").write(src)
 PY
   case_run "required context behind a paths-ignore filter rejected" 1 "$tmp/paths-ignore-required" "$tmp/empty-allowlist"
 
-  # 9. NEGATIVE CONTROL — a renamed job orphans a required context.
+  # 9. NEGATIVE CONTROL — the fan-out exemption (rule (c)) must NOT accept a
+  # `paths-ignore:` deny-list in place of a `paths:` allow-list. Swap
+  # ball-audit.yml's `paths:` allow-list for `paths-ignore: ["**.md"]`: its
+  # `audit` job owns no required context, has no job-level `if:`, and is not
+  # allow-listed, so it must still be rejected as unconditional — a workflow a
+  # deny-list leaves running on almost every code PR does not "already
+  # condition" the job inside it the way an allow-list does.
+  scaffold "$tmp/denylist-fanout-exemption"
+  python3 - "$tmp/denylist-fanout-exemption/ball-audit.yml" <<'PY'
+import sys
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+src = src.replace('    paths: ["**.ball.json"]\n', '    paths-ignore: ["**.md"]\n')
+open(path, "w", encoding="utf-8").write(src)
+PY
+  case_run "paths-ignore-only workflow does not exempt its unconditional job" 1 \
+    "$tmp/denylist-fanout-exemption" "$tmp/empty-allowlist"
+
+  # 10. NEGATIVE CONTROL — a renamed job orphans a required context.
   scaffold "$tmp/renamed"
   python3 - "$tmp/renamed/ci.yml" <<'PY'
 import sys
@@ -625,8 +656,8 @@ PY
   local total=$((pass + fail))
   # Positive floor: an exit code plus a failure count cannot tell "everything
   # passed" from "nothing ran".
-  if [ "$total" -lt 9 ]; then
-    echo "::error::self-test ran $total case(s), expected 9"
+  if [ "$total" -lt 10 ]; then
+    echo "::error::self-test ran $total case(s), expected 10"
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"

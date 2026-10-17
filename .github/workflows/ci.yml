@@ -8,16 +8,18 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
-  # NO `paths-ignore:` here (#756 follow-up, 2026-10-17). This workflow owns 15
-  # of the 19 required contexts of ruleset 17056238, and a `pull_request:`
-  # trigger that path-filters a required-context workflow is exactly the shape
-  # GitHub's own troubleshooting docs name and warn against: "Avoid requiring
-  # workflows that can be skipped" (Handling skipped but required checks —
+  # NO `paths-ignore:` here (#756 follow-up, 2026-10-17). This workflow owns 16
+  # of the 19 required contexts of ruleset 17056238 (regression-gates.yml owns
+  # 4; `Detect changed stacks` is SHARED between them — 16 + 4 - 1 = 19), and a
+  # `pull_request:` trigger that path-filters a required-context workflow is
+  # exactly the shape GitHub's own troubleshooting docs name and warn against:
+  # "Avoid requiring workflows that can be skipped" (Handling skipped but
+  # required checks —
   # https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks).
   # A workflow skipped by path filtering never starts, so every context it
   # owns stays "Pending" forever — before this change, ANY PR whose WHOLE diff
   # matched `**.md`/`docs/**`/`LICENSE`/`.gitignore` (a docs-only PR) could
-  # never merge, because none of its 15 contexts here would ever report. Now
+  # never merge, because none of its 16 contexts here would ever report. Now
   # every PR starts this workflow, and
   # `.github/actions/detect-changed-stacks/detect.sh`'s `infra` signal carries
   # the SAME four entries as an in-classifier carve-out, so a docs-only PR

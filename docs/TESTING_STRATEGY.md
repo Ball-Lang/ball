@@ -1509,11 +1509,15 @@ trigger. GitHub's own troubleshooting documentation names this exact shape:
 So any PR whose WHOLE diff matched that `paths-ignore:` list — a docs-only
 PR, e.g. a CONTRIBUTING.md typo fix or this very doc's own edits — never
 started either workflow at all. Every one of the 19 required contexts stayed
-"Pending" forever, and the PR could never merge (queue or no queue). Before
-#756's merge-queue work this was merely wasteful friction (a maintainer could
-`--admin`-override); with the queue as the only path onto `main`, "Pending
-forever" is an unconditional block with no bypass that doesn't itself defeat
-the queue's purpose.
+"Pending" forever, and the PR could never merge through the normal, all-green
+path (queue or no queue). Ruleset 17056238 still names a bypass actor (the
+repo owner), so an `--admin` override was — and remains — technically
+possible; the point isn't that there was literally no way through, it's that
+the only way through was defeating the gate's entire purpose for a change
+that had nothing to check in the first place. CONTRIBUTING.md's landing
+steps already warn against exactly that: "`--admin` bypasses the queue
+entirely for an administrator; don't use it to dodge a legitimately red
+merge group."
 
 **The fix, following GitHub's own guidance literally:**
 
@@ -1524,20 +1528,35 @@ the queue's purpose.
 2. Removing the trigger-level filter would, on its own, make a docs-only PR
    expensive instead of blocked: `detect-changed-stacks/detect.sh`'s `infra`
    fail-safe is true for any file outside the single-stack language dirs —
-   which includes every doc file — so every heavy per-stack job (the full
-   ~25-minute C++ matrix included) would run on a diff that could not
-   possibly need it. `detect.sh` now carries the SAME four `paths-ignore:`
-   entries as an in-classifier carve-out: a file matching `*.md` (anywhere,
-   mirroring `**.md`'s own double-star semantics — not just the repo root or
-   `docs/`), `docs/**`, the root `LICENSE`, or the root `.gitignore` no longer
-   counts toward `infra`. A docs-only diff now starts both workflows (so
-   their required contexts report) but every per-stack job's `if:` still
-   evaluates false and the job SKIPS (a skipped job reports `success` and
-   satisfies a required check — a workflow that never starts does not).
-   `.github/actions/detect-changed-stacks/test/truth_table.sh` pins this: one
-   row per carve-out shape, a negative control proving a docs file alongside
-   a genuinely cross-cutting file still trips `infra`, and a control proving
-   a docs file alongside a stack-dir file flips only that stack's own flag.
+   which includes every doc file OUTSIDE those dirs — so every heavy
+   per-stack job (the full ~25-minute C++ matrix included) would run on a
+   diff that could not possibly need it. `detect.sh` now carries the SAME
+   four `paths-ignore:` entries as an in-classifier carve-out: a file
+   matching `*.md` (anywhere, mirroring `**.md`'s own double-star semantics —
+   not just the repo root or `docs/`), `docs/**`, the root `LICENSE`, or the
+   root `.gitignore` no longer counts toward `infra` — **except** under
+   `tests/conformance/`, where several `*.md` files (`CARVEOUTS.md`,
+   `ENCODER_COMPLETENESS_CARVEOUTS.md`, `NODE_SHAPE_COVERAGE_CARVEOUTS.md`,
+   the generated `STD_COVERAGE.md`) are machine-read gate ledgers, not prose;
+   carving those out too would silently stop running the `ball-freshness`
+   Asserts that read them on a ledger-only PR, so `tests/conformance/**` is
+   excluded from the carve-out regardless of extension. A docs-only diff
+   (strictly outside every language dir and outside `tests/conformance/`)
+   now starts both workflows (so their required contexts report) but every
+   per-stack job's `if:` still evaluates false and the job SKIPS (a skipped
+   job reports `success` and satisfies a required check — a workflow that
+   never starts does not). The claim is narrower than "every doc change":
+   a doc file INSIDE a language dir — `rust/AGENTS.md`, say — still sets
+   that stack's own flag (the stack check is a directory PREFIX match, not
+   an extension exclusion), which is safe (it runs MORE than strictly
+   necessary, never less) but is not "skipped".
+   `.github/actions/detect-changed-stacks/test/truth_table.sh` pins all of
+   this: one row per carve-out shape, rows for the `tests/conformance/`
+   ledger exclusion
+   (alone and paired with an unrelated stack file), a negative control
+   proving a docs file alongside a genuinely cross-cutting file still trips
+   `infra`, and a control proving a docs file alongside a stack-dir file
+   flips only that stack's own flag.
 3. `tools/ci/check_pr_job_fanout.sh` — already the static guard for "a
    required context must never live behind a workflow-level `paths:`
    allow-list" (report-safety 2, above its "THE RULE") — now checks

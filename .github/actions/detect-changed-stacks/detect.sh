@@ -97,6 +97,28 @@ ball_classify_stacks() {
   # build if either workflow's `pull_request:` trigger grows a `paths:` or
   # `paths-ignore:` filter again while owning a required context, so this
   # carve-out and that removal can never drift apart undetected.
+  #
+  # EXCEPT `tests/conformance/` (code review finding, 2026-10-17). Several
+  # `*.md` files living there are machine-READ ledgers, not prose:
+  # `CARVEOUTS.md`, `ENCODER_COMPLETENESS_CARVEOUTS.md` and
+  # `NODE_SHAPE_COVERAGE_CARVEOUTS.md` are read by
+  # check_conformance_sources.dart / check_encoder_completeness.dart /
+  # check_node_shape_coverage.dart, and the generated `STD_COVERAGE.md` is
+  # read by gen_std_coverage.dart's drift assert — all four run ONLY inside
+  # ci.yml's `ball-freshness` job (`Ball Artifact Freshness`), which is gated
+  # on `dart || ts || go || infra`. A diff touching only one of these ledgers
+  # (or one plus an unrelated rust/csharp/python/go file) used to set
+  # `infra=true` like any other non-stack-dir file, which ran
+  # `ball-freshness` and let its Asserts actually check the ledger. Exempting
+  # `tests/conformance/**.md` as "docs" the same way `docs/**.md` is exempted
+  # would silently stop running those Asserts — a ledger-only PR would go
+  # green unchecked, and the drift would surface later on an unrelated
+  # dart/ts/go PR, misattributed (`detect.sh`'s own `std_inventory` comment
+  # above describes this exact failure shape). So `tests/conformance/**` is
+  # excluded from the carve-out below, regardless of extension — exactly as
+  # it was before this carve-out existed. (It already has its own narrower
+  # `corpus` signal, below, for the conformance-matrix's row selection; this
+  # exclusion is the separate `infra`/`ball-freshness` concern.)
   local docs_only_re='\.md$|^docs/|^LICENSE$|^\.gitignore$'
 
   # infra = ANY changed file OUTSIDE the single-stack dirs AND outside the
@@ -129,7 +151,15 @@ ball_classify_stacks() {
     # writing) and check whether anything in it survives the carve-out too.
     local non_stack_files
     non_stack_files="$(grep -vE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<<"$files")"
-    if grep -qvE "$docs_only_re" <<<"$non_stack_files"; then infra=true; fi
+    # infra=true if EITHER: something survives the docs carve-out (a real
+    # non-docs, non-stack file), OR anything at all sits under
+    # `tests/conformance/` — the ledger exclusion above, which must trip
+    # infra even when the file itself matches `docs_only_re` (e.g. a
+    # `tests/conformance/*.md` carve-out ledger).
+    if grep -qvE "$docs_only_re" <<<"$non_stack_files" ||
+      grep -qE '^tests/conformance/' <<<"$non_stack_files"; then
+      infra=true
+    fi
   fi
 
   # self_host = the diff touches a Dart source that CROSS-COMPILES into the

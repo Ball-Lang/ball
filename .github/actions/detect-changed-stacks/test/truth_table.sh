@@ -125,6 +125,32 @@ row "docs-plus-infra-file-is-still-infra" \
   "$(printf 'CONTRIBUTING.md\nproto/ball/v1/ball.proto')" '' \
   "$(expect infra)"
 
+# ── Ledger exclusion (code review finding, 2026-10-17): the docs carve-out
+# must NOT cover `tests/conformance/**`, even when the file is `*.md`.
+# CARVEOUTS.md / ENCODER_COMPLETENESS_CARVEOUTS.md /
+# NODE_SHAPE_COVERAGE_CARVEOUTS.md are machine-read ledgers, and
+# STD_COVERAGE.md is generated; all four are read by Asserts that run only
+# inside ci.yml's `ball-freshness` job (gated on `dart || ts || go || infra`).
+# Carving them out as "docs" would silently stop running those Asserts on a
+# ledger-only PR. `corpus` is ALSO true for every row here (any
+# `tests/conformance/` file is a conformance-matrix input), independent of
+# this fix.
+row "ledger-only-is-still-infra" 'tests/conformance/CARVEOUTS.md' '' \
+  "$(expect infra corpus)"
+row "ledger-generated-std-coverage-is-still-infra" 'tests/conformance/STD_COVERAGE.md' '' \
+  "$(expect infra corpus)"
+# Ledger + a non-dart/ts/go stack file: `ball-freshness` is gated on
+# `dart || ts || go || infra`, so WITHOUT `infra` staying true here a
+# rust/csharp/python/cpp/go-only diff that also touches a ledger would never
+# run the Asserts that read it (`go` already sets `infra` false-or-true on
+# its own merits, so pairing with `rust` below is the sharper negative case).
+row "ledger-plus-rust-file-is-infra-and-rust" \
+  "$(printf 'tests/conformance/ENCODER_COMPLETENESS_CARVEOUTS.md\nrust/shared/src/lib.rs')" '' \
+  "$(expect infra corpus rust)"
+row "ledger-plus-python-file-is-infra-and-python" \
+  "$(printf 'tests/conformance/NODE_SHAPE_COVERAGE_CARVEOUTS.md\npython/engine/ball_engine/__init__.py')" '' \
+  "$(expect infra corpus python)"
+
 # ── Conformance fixtures: infra=true AND the fixture stem is reported ────────
 row "fixture-added" 'tests/conformance/426_example.ball.json' \
   "$(printf 'A\ttests/conformance/426_example.ball.json')" \

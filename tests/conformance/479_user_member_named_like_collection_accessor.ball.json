@@ -133,6 +133,10 @@
               {
                 "name": "values",
                 "is_this": true
+              },
+              {
+                "name": "runtimeType",
+                "is_this": true
               }
             ]
           }
@@ -157,6 +161,10 @@
               },
               {
                 "name": "values",
+                "is_this": true
+              },
+              {
+                "name": "runtimeType",
                 "is_this": true
               }
             ]
@@ -227,6 +235,24 @@
                 }
               },
               "field": "values"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Counted.readRuntimeTypeViaThis",
+          "outputType": "Type",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "runtimeType"
             }
           },
           "metadata": {
@@ -593,6 +619,19 @@
                                 "intValue": "99"
                               }
                             }
+                          },
+                          {
+                            "name": "arg5",
+                            "value": {
+                              "fieldAccess": {
+                                "object": {
+                                  "literal": {
+                                    "stringValue": "abc"
+                                  }
+                                },
+                                "field": "runtimeType"
+                              }
+                            }
                           }
                         ]
                       }
@@ -744,6 +783,34 @@
                   }
                 },
                 {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "runtimeType"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
                   "let": {
                     "name": "n",
                     "value": {
@@ -779,6 +846,19 @@
                             "value": {
                               "literal": {
                                 "intValue": "12"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg4",
+                            "value": {
+                              "fieldAccess": {
+                                "object": {
+                                  "literal": {
+                                    "boolValue": true
+                                  }
+                                },
+                                "field": "runtimeType"
                               }
                             }
                           }
@@ -951,6 +1031,43 @@
                             {
                               "name": "message",
                               "value": {
+                                "call": {
+                                  "function": "readRuntimeTypeViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "n"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
                                 "fieldAccess": {
                                   "object": {
                                     "messageCreation": {
@@ -1025,6 +1142,19 @@
                                           "value": {
                                             "literal": {
                                               "intValue": "2"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg5",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "literal": {
+                                                  "intValue": "7"
+                                                }
+                                              },
+                                              "field": "runtimeType"
                                             }
                                           }
                                         }
@@ -1733,6 +1863,12 @@
                 "number": 5,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_INT64"
+              },
+              {
+                "name": "runtimeType",
+                "number": 6,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
               }
             ]
           },
@@ -1763,6 +1899,11 @@
               {
                 "name": "values",
                 "type": "int",
+                "is_final": true
+              },
+              {
+                "name": "runtimeType",
+                "type": "Type",
                 "is_final": true
               }
             ]
@@ -1796,6 +1937,12 @@
                 "number": 4,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_INT64"
+              },
+              {
+                "name": "runtimeType",
+                "number": 5,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
               }
             ]
           },
@@ -1821,6 +1968,11 @@
               {
                 "name": "values",
                 "type": "int",
+                "is_final": true
+              },
+              {
+                "name": "runtimeType",
+                "type": "Type",
                 "is_final": true
               }
             ]

@@ -105,6 +105,18 @@ compile items so the sibling projects never double-compile each other's files.
   throwaway copy. `BallRawMap` (a typedef in `dart/engine/lib/engine_types.dart`) is that second
   question, answered structurally: `value is BallMap`, no exclusion. Conformance fixture
   `462_set_mutation_in_place` is the guard.
+- **`BallRuntime.FieldGet`'s `.runtimeType` shortcut defers to a real message/map key of that
+  name, the same own-key-first rule `.length`/`.entries`/`.keys` already follow — the C# analog
+  of #863, found when fixture 479 restored its `runtimeType` FIELD shape.** The shortcut used to
+  fire UNCONDITIONALLY, before ever checking the receiver's own data, so `Collected(..., 'abc'
+  .runtimeType).runtimeType` answered the class's own short type name (`"Collected"`) instead of
+  the stored field value (`"String"`) — a silent wrong answer that regressed the `csharp-compiler`
+  conformance row below its floor (283 -> 282) the moment that fixture's carve-out was lifted. A
+  `HasOwnKey` helper now gates the shortcut: a `BallMessage`/`BallMap` carrying its own real key
+  wins, and only a receiver with none (including every non-message/map value, where the virtual
+  property is the only possible answer) falls back to the computed type name.
+  `csharp/shared/test/BallRuntimeTests.cs`'s `RuntimeTypeFieldOnAMessageWinsOverTheComputedTypeName`
+  / `RuntimeTypeKeyOnAMapWinsOverTheComputedTypeName` are the guard.
 - Documented scope gaps live in `csharp/AGENTS.md`'s "Compiler" section (body-carrying
   constructors, `super` chains, static members, labelled `break`/`continue` were closed during
   the self-host grind; read the current gap list before assuming something is a bug vs. a known

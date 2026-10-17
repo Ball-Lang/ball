@@ -585,4 +585,45 @@ public class BallRuntimeTests
         Assert.Equal(BallValue.Int(2), BallRuntime.SetLength(set));
         Assert.Equal(BallValue.Bool(false), BallRuntime.SetContains(set, BallValue.Int(2)));
     }
+
+    // ── a user field literally named `runtimeType` wins over the virtual
+    // property of the same name (#787's family, the C# analog of #863) ──
+    //
+    // `FieldGet`'s `.runtimeType` shortcut used to fire UNCONDITIONALLY, before
+    // ever checking whether the receiver carries its own real key of that name
+    // — exactly the by-name-shortcut anti-pattern this file's #787 fixture
+    // (`tests/conformance/479_user_member_named_like_collection_accessor`)
+    // documents for `.first`/`.last`/`.entries`/`.keys`/`.values`. Restoring
+    // that fixture's `runtimeType` FIELD shape (to fix #863 on the TS target)
+    // regressed the `csharp-compiler` conformance row: `c.runtimeType` on a
+    // `Collected` instance answered the class's own short type name
+    // ("Collected") instead of the stored field value. The own-key-first rule
+    // must hold for both representations `FieldGet` dispatches on.
+
+    [Fact]
+    public void RuntimeTypeFieldOnAMessageWinsOverTheComputedTypeName()
+    {
+        var fields = new BallMap();
+        fields.Set("runtimeType", BallValue.Str("String"));
+        var collected = new BallMessage("main:Collected", fields);
+
+        Assert.Equal(BallValue.Str("String"), BallRuntime.FieldGet(collected, "runtimeType"));
+
+        // A message with NO such field still answers the computed virtual
+        // property — the shortcut must still apply as a fallback, not vanish.
+        var plain = new BallMessage("main:Plain", new BallMap());
+        Assert.Equal(BallValue.Str("Plain"), BallRuntime.FieldGet(plain, "runtimeType"));
+    }
+
+    [Fact]
+    public void RuntimeTypeKeyOnAMapWinsOverTheComputedTypeName()
+    {
+        var map = new BallMap();
+        map.Set("runtimeType", BallValue.Int(42));
+
+        Assert.Equal(BallValue.Int(42), BallRuntime.FieldGet(map, "runtimeType"));
+
+        // A map with no such key still answers the computed "Map".
+        Assert.Equal(BallValue.Str("Map"), BallRuntime.FieldGet(new BallMap(), "runtimeType"));
+    }
 }

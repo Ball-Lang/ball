@@ -328,11 +328,14 @@ jobs:
       # `BALL_FORCE_RELEASE_DUE` override meant only for this test.
       - name: Release-via-PR script self-tests (#755)
         run: |
-          node --test tools/release/test/release_pr_lib_test.mjs tools/release/test/apply_version_bump_test.mjs
+          node --test tools/release/test/release_pr_lib_test.mjs tools/release/test/apply_version_bump_test.mjs tools/release/test/apply_changelog_bump_test.mjs
           bash tools/release/test/open_bot_pr_test.sh
           bash tools/release/test/finish_release_test.sh
           bash tools/release/check_release_freshness.sh --self-test
           bash tools/release/test/check_release_freshness_live_test.sh
+          # The Go module lane's own Phase 2 (issue #879) -- the
+          # finish_release.sh sibling adapted to go-modules/vX.Y.Z.
+          bash tools/release/test/finish_go_release_test.sh
 
       # The guard above pins that a release channel CAN fire. It cannot see the
       # failure #551 reported: the pub.dev lane's trigger chain was reachable

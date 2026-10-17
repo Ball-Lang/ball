@@ -1608,6 +1608,45 @@ question and its own closure is a separate call; this doc states only the
 mechanical fact that the rule is live, verified against the API above, not
 the issue's lifecycle.
 
+**The repo's squash-commit settings, and why they matter here (issue #881).**
+A merge queue squash-merges with the repository's `squash_merge_commit_title`/
+`squash_merge_commit_message` DEFAULTS, ignoring any commit headline/body/
+method a caller's `gh pr merge`/auto-merge request sends — the same mechanic
+docs/RELEASE.md's "Release via PR" section documents for the bot-opened
+release PRs. Those defaults are now `squash_merge_commit_title: PR_TITLE` and
+`squash_merge_commit_message: BLANK` (verify live: `gh api
+repos/Ball-Lang/ball --jq
+'{t:.squash_merge_commit_title,m:.squash_merge_commit_message}'`), so **every**
+squash-merged commit on `main` — queued or not — is exactly `<PR title> (#N)`
+with an empty body. They used to be `COMMIT_OR_PR_TITLE`/(a commit's own body);
+the owner changed them 2026-10-17 after PR #881's merge commit 6be2d949
+carried a literal `[skip ci]` inherited from a branch commit under the old
+setting, which silently skipped **every** push-triggered workflow on `main`
+for that merge — including the first run of the new release flow — because
+GitHub's `[skip ci]`/`[ci skip]`/`[no ci]`/`[skip actions]`/`[actions skip]`/
+`skip-checks: true` skip tokens are matched case-insensitively against the
+commit message
+(https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/skipping-workflow-runs),
+and a PR's own `pull_request`-triggered checks never see the title-as-commit-
+message substitution happen — it happens only at squash-merge time, after
+every required check already reported green. `tools/ci/check_pr_title_skip_tokens.sh`
+(always-on, `Proto Checks` job in `ci.yml`) now fails any PR whose title
+contains one of those tokens, reading `github.event.pull_request.title`
+through a `PR_TITLE` env var (never interpolated into the shell) and skipping
+cleanly on `merge_group`/`push`/`schedule`/`workflow_dispatch`, none of which
+carry a PR title at all.
+
+The blank body has a second consequence this doc flags rather than silently
+leaving stale: `tools/release/finish_release.sh` and
+`finish_go_release.sh` read `git log -1 --format=%b` on the landed release
+commit as the GitHub Release's notes, which docs/RELEASE.md's "Release via
+PR" section used to justify by name ("the release commits themselves already
+carry … the full notes as their body"). That justification was true only
+under the OLD `COMMIT_OR_PR_TITLE` default; under the new `BLANK` default the
+squash commit's body is empty for every release the same way it is for every
+other PR, so that notes-from-body read now returns nothing. See
+docs/RELEASE.md's own callout for the tracking issue.
+
 A merge queue entry runs under GitHub's `merge_group` event, which is NOT a
 `pull_request` or a `push`: it carries no `pull_request` payload and no
 `before` SHA, and (unlike `pull_request`/`push`) it supports no `paths`/

@@ -839,6 +839,40 @@ jobs:
           bash tools/ci/check_merge_group_wiring.sh --self-test
           bash tools/ci/check_merge_group_wiring.sh
 
+      # PR-title skip-CI token guard (#881). The repo now squash-merges with
+      # `squash_merge_commit_title: PR_TITLE` and `squash_merge_commit_message:
+      # BLANK` (verify live with `gh api repos/Ball-Lang/ball --jq
+      # '{t:.squash_merge_commit_title,m:.squash_merge_commit_message}'`), so a
+      # PR's TITLE — typed verbatim, including by a contributor who never reads
+      # this comment — becomes `main`'s squash commit SUBJECT for every merge,
+      # merge-queue included (a queue ignores any commit headline/body
+      # `gh pr merge` sends and uses these repository defaults instead — see
+      # docs/RELEASE.md). GitHub skips starting any push/pull_request-triggered
+      # workflow — Release included — for a commit whose message contains
+      # `[skip ci]`/`[ci skip]`/`[no ci]`/`[skip actions]`/`[actions skip]` or a
+      # `skip-checks: true` trailer, case-insensitively
+      # (https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/skipping-workflow-runs).
+      # PR #881's own merge commit 6be2d949 carried a literal `[skip ci]`
+      # inherited from its branch commits, under the OLD squash setting
+      # (`COMMIT_OR_PR_TITLE`) — it silently skipped the first run of the new
+      # release flow on `main`. Nothing else in the required-status-check set
+      # catches this: a PR's own `pull_request` checks never see its title
+      # become a commit message — that substitution happens only at
+      # squash-merge time, after every check already reported green. Only
+      # `pull_request` carries `github.event.pull_request.title` at all, so the
+      # guard passes it through the `PR_TITLE` env var below — NEVER
+      # interpolated into the shell — and skips cleanly on `merge_group`/`push`/
+      # `schedule`/`workflow_dispatch` (no PR title exists on those events, and
+      # by the time one of them runs, this PR's own `pull_request` run already
+      # checked the title). `--self-test` first: a guard that stopped matching
+      # must not pass.
+      - name: "PR-title skip-CI token guard (#881)"
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          bash tools/ci/check_pr_title_skip_tokens.sh --self-test
+          bash tools/ci/check_pr_title_skip_tokens.sh
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

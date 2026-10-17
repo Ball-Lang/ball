@@ -713,6 +713,27 @@ jobs:
           bash tools/test/test_check_required_contexts.sh
           bash tools/ci/check_required_contexts.sh
 
+      # claude-iterate.yml's weekly `schedule` run has been red since the
+      # workflow was added on 2026-07-10 (#359) -- every scheduled run from
+      # 2026-07-14 onward failed identically (most recently run 38421075334)
+      # because it passed `track_progress: true` to
+      # anthropics/claude-code-action on a schedule/workflow_dispatch trigger
+      # — an input the action hardcodes valid only for pull_request/issues/
+      # issue_comment/pull_request_review_comment/pull_request_review events
+      # (src/modes/detector.ts). Every run threw before Claude was even
+      # invoked, on all three failover accounts, every time (#870). Nothing
+      # in actionlint or any build gate models a THIRD-PARTY ACTION's own
+      # input semantics, so this parses every workflow, finds every
+      # anthropics/claude-code-action step, and fails when an input it sets
+      # is invalid for that workflow's own `on:` trigger(s) — so this class
+      # of config/trigger mismatch cannot silently reappear on a different
+      # workflow or a different input. `--self-test` first: a guard that
+      # stopped checking must not pass.
+      - name: "claude-code-action input/trigger-event guard (#870)"
+        run: |
+          bash tools/ci/check_claude_action_inputs.sh --self-test
+          bash tools/ci/check_claude_action_inputs.sh
+
       # Merge-queue wiring guard (#756): every workflow that owns one of the
       # 19 required contexts must run on `merge_group` too (ruleset
       # 17056238's checks would otherwise never report for a queued merge,

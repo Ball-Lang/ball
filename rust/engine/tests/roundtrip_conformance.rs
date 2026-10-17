@@ -644,7 +644,10 @@ fn the_per_fixture_budget_is_read_from_ball_timeout_ms() {
     );
     assert_eq!(budget, Duration::from_millis(300));
 
-    assert_eq!(budget_from(|_| Some("  1500  ".to_string())), Duration::from_millis(1500));
+    assert_eq!(
+        budget_from(|_| Some("  1500  ".to_string())),
+        Duration::from_millis(1500)
+    );
     assert_eq!(
         budget_from(|_| None),
         Duration::from_millis(DEFAULT_TIMEOUT_MS),

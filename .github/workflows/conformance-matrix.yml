@@ -1022,7 +1022,14 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "281"
+      #
+      # 282 is the #792 shape reproducing on a THIRD row: this PR's own
+      # enforcement (compiler_floor.sh) fired on this leg at its own head —
+      # `Results: 282 passed, 81 failed, 363 total (floor: 281)` on run
+      # 35606307019 (job 106358136265), one fixture of gain already on main
+      # and never claimed under the old advisory ::notice::. Measured by THIS
+      # row, never predicted.
+      CSHARP_COMPILER_FLOOR: "282"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

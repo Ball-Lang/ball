@@ -280,6 +280,14 @@ jobs:
       - name: Every shell verdict loop is carved out or fixed (#705)
         run: python tools/check_verdict_exit_status.py
 
+      # The `rust` job's own floor proves specific tests ran as `ok`; this
+      # proves the INSTRUMENT that floor uses, without running cargo at all —
+      # a log-shaped text fixture reproducing PR #725's own masked-test log
+      # (issue #735) is enough. Self-test first: a checker nobody has
+      # watched fail is not a gate.
+      - name: Rust test floor self-test (#735)
+        run: bash tools/test/test_rust_test_floor.sh
+
       - name: Proto/JSON-Schema drift self-test (#609)
         run: python tools/test/test_check_proto_schema_drift.py
 
@@ -2782,8 +2790,50 @@ jobs:
       - name: Build
         run: cd rust && cargo build --workspace
 
+      # `--no-fail-fast` so an earlier-failing target can never keep a LATER
+      # target's tests from running at all — without it, `cargo test` stops
+      # enumerating tests the moment any target fails, which is exactly how
+      # three brand-new `compiler_output.rs` tests in PR #725 (job
+      # 103825892782) never ran at all, let alone RED, before merging
+      # (issue #735). Captured to a file via `>`, never through `| tee`, so
+      # the real exit code is read straight off `$?` with no pipefail
+      # bookkeeping; `cat` right after keeps the full log visible in this
+      # step too. `set +e` only around the one command that is allowed to
+      # fail here — the job's overall red/green verdict is the floor step
+      # below, which gates on BOTH the exit code and the named tests.
       - name: Test
-        run: cd rust && cargo test --workspace
+        id: rust_test
+        run: |
+          set +e
+          (cd rust && cargo test --workspace --no-fail-fast) >cargo-test-output.log 2>&1
+          echo "cargo_test_exit=$?" >>"$GITHUB_OUTPUT"
+          cat cargo-test-output.log
+
+      # ── Rust test floor: named tests actually ran as `ok` (issue #735) ──
+      # `cargo test` exiting 0 answers "nothing failed", which is also what
+      # "nothing ran" answers — a `cargo test` invocation and a positive
+      # proof that a SPECIFIC test executed are different claims. This
+      # asserts the second one directly, for the tests whose own PRs were
+      # reviewed on the (wrong) assumption that a green `cargo test` meant
+      # they had been observed passing. See tools/ci/rust_test_floor.sh and
+      # its self-test, tools/test/test_rust_test_floor.sh (gated in the
+      # `proto` job).
+      - name: Rust test floor — named tests actually ran as `ok` (#735)
+        if: always()
+        run: |
+          bash tools/ci/rust_test_floor.sh \
+            "${{ steps.rust_test.outputs.cargo_test_exit }}" cargo-test-output.log \
+            an_iife_with_an_early_return_encodes_as_std_invoke_over_a_lambda \
+            an_iife_whose_body_uses_the_question_mark_operator_encodes_as_std_invoke \
+            an_iife_without_an_early_return_inlines_into_a_block \
+            compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro \
+            compiled_method_dispatcher_real_fallback_arm_re_encodes \
+            dispatcher_fallback_throws_the_target_neutral_message \
+            a_bare_panic_encodes_the_message_rust_itself_prints \
+            a_bare_unreachable_encodes_the_message_rust_itself_prints \
+            an_unreachable_throws_rusts_own_internal_error_message \
+            compile_assert_without_a_message_round_trips_through_its_own_panic \
+            compile_assert_with_a_message_round_trips_through_its_own_panic
 
       # ── Cross-CLI verb-set parity (issue #570) ──
       # The same tools/check_cli_verb_parity.py the always-on `CLI Verb Parity`

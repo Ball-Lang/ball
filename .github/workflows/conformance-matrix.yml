@@ -1618,12 +1618,30 @@ jobs:
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
       #
-      # 300: the corpus grew to 366 (480_iife_mutates_captured_local +
+      # 298 -> 300: the corpus grew to 366 (480_iife_mutates_captured_local +
       # 481_as_expression_identity, landed for #734/#707), and this leg passed
       # both of the two new fixtures. `Results: 300 passed, 66 failed, 366
       # total (floor: 298)` on run 39010115147 (job 117331134048). Measured by
       # THIS row, never predicted.
-      GO_COMPILER_FLOOR: "300"
+      #
+      # Separately, 298 -> 308 by #813's getter/setter accessor-dispatch fix
+      # (memberImplName's setter suffix + the dedicated per-property
+      # ballAccessorGet_*/ballAccessorSet_* dispatch): field read/write now
+      # goes through a class's own declared getter/setter instead of a plain
+      # FieldGet/FieldSet, unblocking 470_setter_beside_final_field and nine
+      # other fixtures whose first blocker was the same shape. Measured by
+      # this row at 308 on run 39008181371 (job 117325339800), against 298 on
+      # the commit it branched from.
+      #
+      # Merged here from two branches that each raised the floor off the same
+      # 298 baseline for disjoint reasons (two new corpus fixtures vs. ten
+      # newly-unblocked existing ones) — kept at the LOWER, already-measured
+      # 308 rather than predicting the union (310) unmeasured on the merged
+      # tree. 308 remains a safe floor either way: adding fixtures can only
+      # raise the achievable count, never lower it below what #813 alone
+      # already measured. Re-measure and raise further once this merge's own
+      # CI run prints the combined total.
+      GO_COMPILER_FLOOR: "308"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

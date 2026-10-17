@@ -1647,7 +1647,16 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "298"
+      #
+      # Raised 298 -> 308 by #813's getter/setter accessor-dispatch fix
+      # (memberImplName's setter suffix + the dedicated per-property
+      # ballAccessorGet_*/ballAccessorSet_* dispatch): field read/write now
+      # goes through a class's own declared getter/setter instead of a plain
+      # FieldGet/FieldSet, unblocking 470_setter_beside_final_field and nine
+      # other fixtures whose first blocker was the same shape. Measured by
+      # this row at 308 on run 39008181371 (job 117325339800), against 298 on
+      # the commit it branched from.
+      GO_COMPILER_FLOOR: "308"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -375,14 +375,18 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - Compiler runs end-to-end (compile → `go run`): `hello_world`, `fibonacci`, a
   while-loop, and a `for_in` loop (see `go/compiler/compiler_test.go` + `testdata/`).
 - **Compiler vs the whole corpus (measured, not assumed):**
-  `Results: 243 passed, 77 failed, 320 total (4 skipped carve-outs)` via
-  `go run ./cmd/ballgoconf`. The engine's 320/320 says nothing about this number —
-  they are different legs. Top gaps: unsupported base functions (`std.yield*`,
-  `std.labeled`/`std.label`, `std_collections.list_foreach`/`list_reduce`,
-  `std.math_is_nan`, `std.type_literal`, `std.symbol`, `std_time.*`), pattern
-  matching / switch-expression semantics (~20 wrong-output fixtures), class features
-  (getter+setter name collision, named/factory constructors, `super`, statics, enum
-  values, mixins), and **assignment to a module-level variable** — those are emitted
+  `Results: 308 passed, 56 failed, 364 total` via `go run ./cmd/ballgoconf`
+  (`GO_COMPILER_FLOOR`, measured by the `go-compiler` row at run 39008181371 /
+  job 117325339800 — see `conformance-matrix.yml`'s `go-compiler` job for how
+  that number moved over time as the corpus grew and gaps closed). The engine's
+  364/364 says nothing about this number — they are different legs. Top gaps:
+  unsupported base functions (`std.yield*`, `std.labeled`/`std.label`,
+  `std_collections.list_foreach`/`list_reduce`, `std.math_is_nan`,
+  `std.type_literal`, `std.symbol`, `std_time.*`), pattern matching /
+  switch-expression semantics (~20 wrong-output fixtures), class features
+  (named/factory constructors, `super`, statics, enum values, mixins; the
+  getter+setter name-collision gap closed in #813 — see the Key Patterns
+  entry above), and **assignment to a module-level variable** — those are emitted
   as a lazily-initialized *function* (`func moves(input) Value` + `moves__val`), so a
   write emits `moves = ballrt.Add(moves, 1)`, i.e. an assignment to a package-level
   func (`89_tower_of_hanoi`, `151_recursive_descent_parser` fail to build).

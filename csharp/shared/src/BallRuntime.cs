@@ -1125,7 +1125,15 @@ public static partial class BallRuntime
     /// </summary>
     public static BallValue FieldGet(BallValue obj, string field)
     {
-        if (field == "runtimeType")
+        // `.runtimeType` is a virtual property (Dart's `Object.runtimeType`), but
+        // a real message/map key literally named "runtimeType" wins over it — the
+        // same own-key-first rule `.length`/`.entries`/`.keys` follow below (#787's
+        // family). Before this guard the shortcut fired UNCONDITIONALLY, so a user
+        // class declaring a plain `runtimeType` field read back its own type name
+        // instead of the field's stored value — the C# analog of #863 (fixed on
+        // the TS target by routing `runtimeType` through the same getter/setter
+        // pair as its siblings instead of a getter-only prototype accessor).
+        if (field == "runtimeType" && !HasOwnKey(obj, field))
         {
             return BallValue.Str(RuntimeTypeName(obj));
         }
@@ -1241,6 +1249,14 @@ public static partial class BallRuntime
                 throw new BallRuntimeException($"no field '{field}' on {TypeName(obj)}");
         }
     }
+
+    /// <summary>Whether <paramref name="value"/> is a message/map carrying its own real key named <paramref name="field"/> — the own-key-first guard <see cref="FieldGet"/>'s <c>runtimeType</c> shortcut defers to.</summary>
+    private static bool HasOwnKey(BallValue value, string field) => value switch
+    {
+        BallMessage m => m.Get(field) is not null,
+        BallMap map => map.Get(field) is not null,
+        _ => false,
+    };
 
     /// <summary>Dart's <c>.runtimeType</c> surfaced as the value's type-name string (a message reports its own short type name).</summary>
     private static string RuntimeTypeName(BallValue value) => value switch

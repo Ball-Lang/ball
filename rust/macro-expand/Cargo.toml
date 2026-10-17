@@ -18,7 +18,7 @@ syn = { workspace = true }
 # are republished in lockstep with rust-analyzer's weekly release: bump all four
 # together, deliberately, never one at a time and never automatically — see
 # `rust/AGENTS.md` § "macro_rules! expansion" for the dependabot note.
-ra_ap_mbe = "=0.0.351"
+ra_ap_mbe = "=0.0.352"
 ra_ap_tt = "=0.0.351"
 ra_ap_span = "=0.0.351"
 ra_ap_intern = "=0.0.351"

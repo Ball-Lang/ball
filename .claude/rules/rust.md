@@ -1021,7 +1021,8 @@ and its own encoder refuses caps that column no matter how good either half is o
   whole process TREE — `dart run` forks the Dart VM, so killing the launcher alone left one
   orphaned VM per timed-out fixture in the runner. `run_dart` spawns into its own process group
   and `kill_process_tree` kills the group, matching C#'s `Kill(entireProcessTree: true)`). Every
-  test in that target except the whole-corpus sweep is non-`#[ignore]`d — six of them as of #791
+  test in that target except the whole-corpus sweep is non-`#[ignore]`d — ten of them as of #836
+  (count with `grep -c '^#\[test\]'` minus the one `#[ignore]`, never from this prose)
   — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here may write
   the process environment** (`std::env::set_var` is `unsafe` for exactly that reason), and the
   target carries `#![deny(unsafe_code)]` so that is a BUILD ERROR rather than a rule a reader has

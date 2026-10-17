@@ -257,6 +257,28 @@ const json = toJson(ProgramSchema, program);
   only `value`/`prefix` made both collapse to `''.startsWith('')` — **always
   true**, for years, because every corpus use of them asserted a TRUE answer.
   Fixture `260_string_functions` now pins the false cases too.
+- **A registered name needs to be DECLARED somewhere, and its Dart COUNTERPART
+  needs to stay watched — two separate gates (#817, #732).** A phantom
+  `string_from_char_codes` (plural) arm sat in this registry unreachable in
+  both directions — no builder declared it, no encoder emitted it, the Dart
+  reference engine never dispatched it — exercised only by six tests that
+  called the handler directly, proving nothing about any real program; deleted
+  (#817, the sibling of #743's identical Python arm).
+  `tools/check_ts_engine_setup_declared.py` now closes that class: every
+  `_r(...)`'d name must be declared by a canonical `std*.dart` builder or be a
+  frozen, ratchet-only entry in `tools/declared_ts_engine_overrides_known_gaps.txt`.
+  Separately, a name registered here — via `registerExtraStdFunctions`'s
+  `_r(...)` OR `patchCompiledEngine`'s `handler.register(...)` loop, both
+  checked (PR #919 review found the latter shape, 17 names, initially
+  missing) — that ALSO exists in `dart/engine/lib/engine_std.dart`'s
+  `_buildStdDispatch()` is permanently SHADOWED (both registries run after
+  the compiled table is built, and `register()` is last-write-wins) —
+  `tools/check_ts_engine_overrides_sync.py` fingerprints each such Dart
+  entry's behaviour and fails when it changes shape without the committed
+  snapshot being refreshed, generalizing the single override family
+  `tools/check_error_rendering_tables.py` already pinned
+  (#732). See `ts/engine/AGENTS.md`'s "The override registry's two drift
+  guards" for the full mechanism of both.
 - **`patchCompiledEngine`'s fast paths run BEFORE the compiled engine's own
   resolution order, so each one must defer to it (#664).**
   `engine_setup.ts`'s `_collectionFieldAccess` answered `length`/`isEmpty`/

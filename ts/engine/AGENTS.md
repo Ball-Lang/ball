@@ -94,3 +94,51 @@ field named `isEmpty` (the Dart encoder rewrites any `.isEmpty` to `std.string_i
 without consulting the receiver's type) and `.length` on a map carrying a `'length'` key, which
 every engine answers with the key's value rather than the entry count. Both are wrong on every
 target, so they are encoder / reference-engine bugs rather than TS ones.
+
+### The override registry's two drift guards (#817, #732)
+
+`registerExtraStdFunctions` (`engine_setup.ts`) is `_r('name', handler)` repeated ~135 times.
+Two different classes of drift it can hide needed their own gates — see each script's own
+docstring for exactly what it checks and does not:
+
+- **A registered name may be a phantom no builder declares at all (#817).**
+  `tools/check_ts_engine_setup_declared.py` asserts every `_r(...)`'d name is DECLARED by some
+  canonical `dart/shared/lib/std*.dart` builder (`tests/conformance/std_coverage.json`'s union
+  across all eight modules — `StdHandler.register` is a flat, module-less namespace, the TS
+  mirror of `dart/engine/lib/engine_types.dart`'s `StdModuleHandler._dispatch`), or is a frozen
+  entry in `tools/declared_ts_engine_overrides_known_gaps.txt`. `string_from_char_codes`
+  (plural) was exactly this: no builder declared it, no encoder anywhere emitted it, the Dart
+  reference engine never dispatched it, and the six tests beside it called the handler
+  directly — covering nothing but themselves. Deleted, the same branch #743 took for the
+  identical arm in the Python compiler. The known-gaps file freezes 34 more names found the
+  same way but not individually investigated by #817's scope — a RATCHET (the gate also fails
+  when an entry becomes declared or stops being registered), never a dumping ground for a new
+  one.
+- **A registered name's Dart COUNTERPART can change shape with nothing noticing (#732).**
+  `register()` is last-write-wins, and BOTH of this file's override-registration call shapes —
+  `registerExtraStdFunctions`'s `_r('name', ...)` and `patchCompiledEngine`'s
+  `for (const handler of e.moduleHandlers ?? [])` loop, which calls `handler.register('name',
+  ...)` instead — run AFTER the compiled engine's own table is built. So a name registered by
+  EITHER shape, if it is ALSO in `dart/engine/lib/engine_std.dart`'s `_buildStdDispatch()`,
+  permanently SHADOWS that Dart entry (~117 names, measured) — and a later change to the Dart
+  side is invisible here: the TS regen gate (`Ball Artifact Freshness`) only diffs the COMPILED
+  half, never this hand-written registry, and conformance only catches it if some fixture happens
+  to hit the exact input shape the two now disagree on. **PR #919's review caught the checker
+  covering only the first shape**: `patchCompiledEngine`'s loop registers 17
+  arithmetic/comparison overrides (`add`, `subtract`, `multiply`, `divide`, `modulo`, `negate`,
+  `bitwise_and`/`bitwise_or`/`bitwise_xor`/`bitwise_not`, `left_shift`, `right_shift`,
+  `unsigned_right_shift`, `less_than`, `greater_than`, `lte`, `gte`) that `tools/
+  check_ts_engine_overrides_sync.py` could not see at all — reproduced by mutating
+  `dart/engine/lib/engine_std.dart`'s real `divide` entry and watching the gate answer `[]`.
+  The checker now extracts names from both call shapes (its own module docstring has the detail)
+  and fingerprints each shadowed Dart entry's behaviour (resolving a bare tear-off —
+  `'concat': _stdConcat,` — to `_stdConcat`'s own body, not the one-line reference that never
+  changes) against a committed snapshot, failing on any mismatch, any newly-shadowed name with
+  no snapshot entry (from either shape), or any stale entry for a name that no longer shadows
+  anything. `--update` regenerates the snapshot — run it, then actually read the diff and decide
+  whether the override at `engine_setup.ts` still agrees, before committing. This generalizes the
+  single override family `tools/check_error_rendering_tables.py` already pinned (PR #722's
+  error-rendering table) to every other shadowing site reachable through either of the file's two
+  registration-call shapes, structurally rather than by a hand-curated line list.
+
+Both run in the `typescript` CI job, `--self-test` first.

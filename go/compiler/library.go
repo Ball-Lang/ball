@@ -374,12 +374,14 @@ func (c *Compiler) compileDispatcher(short string, targets []struct{ owner, impl
 // `__t := ballrt.ToStr(...)` followed by an unconditional fallback — a Go
 // compile error (`declared and not used: __t`) on ANY program with an
 // extension declaring a getter or setter, extension-override test program
-// included. An extension's accessor is reached exclusively through the
-// override CALL mechanism (compileCall + extensionMemberImpl) — Dart has no
-// `obj.property` syntax that resolves to an extension on an unrelated
-// receiver type — so it was never reachable through
-// compileFieldAccess/emitMutation/compileReference's redirect in the first
-// place; excluding it here loses nothing.
+// included. Excluding it here loses nothing: accessorTargets can never
+// resolve an extension, so the redirect could only ever fall back to the
+// plain FieldGet/FieldSet it emits without one. The one Ball shape that does
+// reach an extension accessor is the override CALL (compileCall +
+// extensionMemberImpl). Dart's IMPLICIT application, `xs.label` with no
+// `Ext(...)` wrapper, is valid Dart, but today the encoder emits it as a plain
+// field access that names no extension at all. That is an encoder gap, and a
+// per-NAME accessor redirect here could not close it either (#918).
 func (c *Compiler) indexAccessors() {
 	for _, owner := range c.classMemberOrder {
 		// A member whose owner has no TypeDefinition gets no impl emitted (see

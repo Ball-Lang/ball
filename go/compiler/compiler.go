@@ -258,18 +258,28 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 // LATER module than the one whose body names it would not yet be in
 // typeDefsByShort there.
 //
-// isSetter is read per-member (not hardcoded false) so a getter and its
-// same-named setter — sharing one QUALIFIED Ball name, exactly like the
-// plain-class pair issue #813 fixed memberImplName's signature for — resolve
-// to the two DISTINCT impl names compileClassMembers now actually emits for
-// them, rather than colliding onto the getter's name (the collision #865
-// item 1 names as still open for the plain CALL-dispatch table in C#/Rust;
-// see also #813's fixture 470 for the EMISSION-side half of the same bug,
-// which this inherits the fix for automatically since compileClassMembers'
-// isGetter/isSetter-aware memberImplName call never special-cased an
-// extension typeDef). The compiler-side WRITE path (#865 item 2, routing a
-// std.assign to this setter impl) is still unimplemented for Go — this only
-// keeps the READ-dispatch map internally consistent with what gets emitted.
+// SETTERS ARE NOT INDEXED. A Dart `get m` and its `set m(v)` share ONE
+// qualified Ball name (`main:Ext.m`) — only `metadata.is_getter`/`is_setter`
+// tells them apart — and this table is keyed by that name, so it can hold
+// only one of the two. It is the CALL table: compileCall's extension-override
+// branch is its only reader, and every call that reaches it is a READ (a
+// method call or a getter). A setter is reached only through a WRITE —
+// `std.assign` whose target is the accessor call — and resolveLValue refuses
+// that target shape loud without compiling the call at all (#865 item 2,
+// still open for Go). Indexing the setter too would let the LAST accessor
+// visited win the slot; since #813 gave the setter its own `__set` impl name,
+// that is the setter for every real extension (which declares `get` before
+// `set`), and a read `Ext(xs).m` silently compiled to `Ext__m__set(...)` —
+// the PR #829 round-2 review finding, guarded by
+// TestExtensionOverrideReadOfAGetterSetterPairCallsTheGetter. Before #813 the
+// same pair failed LOUD instead, on a duplicate Go func.
+//
+// A read naming a SETTER-ONLY member is not valid Dart; in hand-built IR it
+// misses this table and falls through to ballrt.CallMethod, which panics
+// naming the method — loud, where routing it to the setter impl would run the
+// setter with a null value. The setter impl itself is still EMITTED, by
+// compileClassMembers under memberImplName(..., true): only the dispatch
+// table skips it.
 func (c *Compiler) indexExtensionMembers() {
 	for owner, members := range c.classMembers {
 		td, ok := c.typeDefsByShort[typeShortName(owner)]
@@ -277,12 +287,14 @@ func (c *Compiler) indexExtensionMembers() {
 			continue
 		}
 		for _, f := range members {
+			if metaBool(f.GetMetadata(), "is_setter") {
+				continue
+			}
 			_, member, split := splitMemberName(f.GetName())
 			if !split {
 				continue
 			}
-			isSetter := metaBool(f.GetMetadata(), "is_setter")
-			c.extensionMemberImpl[f.GetName()] = memberImplName(typeShortName(owner), member, isSetter)
+			c.extensionMemberImpl[f.GetName()] = memberImplName(typeShortName(owner), member, false)
 		}
 	}
 }

@@ -130,6 +130,49 @@ func TestExtensionOverrideReadOfAGetterSetterPairCallsTheGetter(t *testing.T) {
 	}
 }
 
+// A read naming a SETTER-ONLY extension member is not valid Dart, so it can
+// only come from hand-built IR — and it must stay LOUD: routing it to the
+// setter impl would run the setter with a null value and answer whatever the
+// setter returns. With setters kept out of the call table, the read falls
+// through to `ballrt.CallMethod`, whose unknown-name arm panics naming the
+// method. Here 480's `AlphaTag.label` getter is turned into a setter, so the
+// fixture's own `AlphaTag(xs).label` read names a member with no getter.
+func TestExtensionOverrideReadOfASetterOnlyMemberNeverCallsTheSetter(t *testing.T) {
+	prog := load(t, conformancePath("480_extension_override_selection.ball.json"))
+	turned := false
+	for _, m := range prog.GetModules() {
+		if m.GetName() != "main" {
+			continue
+		}
+		for i, f := range m.GetFunctions() {
+			if f.GetName() == "main:AlphaTag.label" {
+				m.Functions[i] = extensionSetter(f.GetName())
+				turned = true
+			}
+		}
+	}
+	if !turned {
+		t.Fatal("480 no longer declares main:AlphaTag.label")
+	}
+
+	src := compileFmt(t, prog)
+	idx := strings.Index(src, "func main()")
+	if idx < 0 {
+		t.Fatalf("no func main() in emitted Go\n---\n%s", src)
+	}
+	entry := src[idx:]
+	if strings.Contains(entry, "AlphaTag__label__set(") {
+		t.Errorf("a READ of a setter-only member calls the SETTER impl\n---\n%s", entry)
+	}
+	if !strings.Contains(entry, `ballrt.CallMethod("main:AlphaTag.label"`) {
+		t.Errorf("a READ of a setter-only member must reach ballrt.CallMethod's loud unknown-method arm\n---\n%s", entry)
+	}
+	// The untouched BetaTag getter still dispatches to its own impl.
+	if !strings.Contains(entry, "BetaTag__label(") {
+		t.Errorf("BetaTag(xs).label no longer reaches its getter impl\n---\n%s", entry)
+	}
+}
+
 // extensionSetter is the setter the Dart encoder emits for
 // `set label(String value) { … }` on an extension: the getter's qualified
 // name, `is_setter`, and one declared parameter. Its body answers "SETTER" so

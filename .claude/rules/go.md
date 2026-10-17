@@ -359,13 +359,29 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `tests/conformance/480_extension_override_selection` (cross-target) and
   `go/compiler/extension_override_test.go`, which compiles the fixture and RUNS
   it against the golden.
-  **`indexExtensionMembers` reads `is_setter` per member** (not a hardcoded
-  `false`) so a getter and its same-named setter on an extension resolve to
-  the two DISTINCT impl names #813 (below) made `memberImplName` emit for
-  that pair, rather than colliding both override-call lookups onto the
-  getter's name — the READ-dispatch half of #865 item 1, which is otherwise
-  still open for Go (no corpus fixture exercises an extension's write path
-  yet, and `std.assign` to an accessor call still refuses loud).
+  **`indexExtensionMembers` SKIPS setters — the table is the CALL table, and
+  every call that reaches it is a READ (PR #829 round-2 review).** A getter and
+  its same-named setter share ONE qualified Ball name (`main:AlphaTag.label`),
+  and the table is keyed by it, so it can hold only one of them. Since #813
+  (below) gave the setter its own `__set` impl, indexing both let the accessor
+  visited LAST win — the setter, for every real extension, since `get` precedes
+  `set` — and a read `AlphaTag(xs).label` silently compiled to
+  `AlphaTag__label__set(...)` and printed the setter's answer (before #813 the
+  same pair failed LOUD, on a duplicate Go func). A setter is reached only by a
+  WRITE, which `resolveLValue` refuses loud without compiling the target call
+  (#865 item 2, still open for Go), so leaving it out of the table costs
+  nothing; a read naming a SETTER-ONLY member (not valid Dart, hand-built IR
+  only) falls through to `ballrt.CallMethod`'s loud unknown-method panic
+  instead of running the setter with a null value. The setter impl is still
+  EMITTED (`compileClassMembers`, `memberImplName(..., true)`) — only the
+  dispatch table skips it. This deliberately differs from C#/Python/TS, which
+  keep a setter-only entry as a fallback. Guards:
+  `TestExtensionOverrideReadOfAGetterSetterPairCallsTheGetter` (splices a
+  setter beside each of 480's `label` getters, in BOTH declaration orders,
+  and RUNS it against 480's golden) and
+  `TestExtensionOverrideReadOfASetterOnlyMemberNeverCallsTheSetter`, both in
+  `go/compiler/extension_override_test.go`. The corpus still has no setter arm
+  and no compiler but Dart emits an override WRITE — that is #865.
 - **A getter and its same-named setter get DISTINCT impl identifiers, and a property dispatches
   through a dedicated per-NAME accessor mechanism — never the general per-short-name method
   dispatcher (#813, fixture `470_setter_beside_final_field`).** A Dart `get celsius` and its

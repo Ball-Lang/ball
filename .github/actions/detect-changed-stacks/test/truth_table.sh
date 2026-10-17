@@ -192,7 +192,8 @@ row "dart-encoder-is-not-core" 'dart/encoder/lib/encoder.dart' '' "$(expect dart
 row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
 
 # ── matrix_self: the conformance matrix's OWN definition (#642) ──────────────
-# conformance-matrix.yml and tools/ci/roundtrip_floor.sh are in that workflow's
+# conformance-matrix.yml, tools/ci/roundtrip_floor.sh and tools/ci/compiler_floor.sh
+# (#792) are in that workflow's
 # `paths:` filter, so a PR that only moves a row's floor re-runs the matrix —
 # and EVERY row ORs `matrix_self` in. Without the signal those two entries map
 # to `infra` alone, which no row reads: the workflow would start with every
@@ -200,6 +201,7 @@ row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
 # tools/ci/check_matrix_paths.sh is the static half of the same invariant.
 row "matrix-workflow-is-matrix-self" '.github/workflows/conformance-matrix.yml' ''   "$(expect infra matrix_self)"
 row "roundtrip-floor-script-is-matrix-self" 'tools/ci/roundtrip_floor.sh' ''   "$(expect infra matrix_self)"
+row "compiler-floor-script-is-matrix-self" 'tools/ci/compiler_floor.sh' ''   "$(expect infra matrix_self)"
 # Negative controls: a NEIGHBOURING workflow and a NEIGHBOURING tools/ci script
 # are infra (every ci.yml stack runs) but must NOT re-enable every matrix row —
 # if they did, `matrix_self` would just be `infra` under another name.

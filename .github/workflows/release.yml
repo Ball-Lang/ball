@@ -133,7 +133,7 @@ jobs:
       - name: Dart resolver tests
         run: cd dart/resolver && dart test
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -168,7 +168,7 @@ jobs:
           # finish_release.sh push a branch and a tag with plain `git push`,
           # not through a plugin that manages its own auth.
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm

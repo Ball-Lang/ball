@@ -1023,13 +1023,20 @@ jobs:
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
       #
-      # 282 is the #792 shape reproducing on a THIRD row: this PR's own
+      # 282 was the #792 shape reproducing on a THIRD row: this PR's own
       # enforcement (compiler_floor.sh) fired on this leg at its own head —
       # `Results: 282 passed, 81 failed, 363 total (floor: 281)` on run
       # 35606307019 (job 106358136265), one fixture of gain already on main
-      # and never claimed under the old advisory ::notice::. Measured by THIS
-      # row, never predicted.
-      CSHARP_COMPILER_FLOOR: "282"
+      # and never claimed under the old advisory ::notice::.
+      #
+      # 283: merging main in brought the corpus to 364 fixtures (the new
+      # 479_user_member_named_like_collection_accessor), and this row happened
+      # to pass it while Go/Rust/Python's compiler legs did not — the SAME
+      # gate firing again, on the SAME PR, for the SAME reason: an earned gain
+      # is not green until it is claimed. `Results: 283 passed, 81 failed, 364
+      # total (floor: 282)` on run 38998673595 (job 117296783328). Measured by
+      # THIS row, never predicted.
+      CSHARP_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

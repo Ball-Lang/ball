@@ -1107,6 +1107,48 @@ in a different, correct place: C++ renames in its compiler's throw lowering
 source-pattern check would either demand one shape of all of them or rubber-stamp
 whatever each does; the fixture measures the observable instead.
 
+#### `std.as` is an UNCHECKED IDENTITY, by decision, and the contract is checked structurally (#707)
+
+`value as T` — the cast EXPRESSION, as opposed to the cast PATTERN (`case var x
+as int:`) the previous subsection's table closes — had no written contract at
+all until #707: the Dart reference engine's `'as': _extractUnaryArg`
+(`dart/engine/lib/engine_std.dart`) just hands the operand back, and Python's
+`ballrt.selfhost.as_type`, Go's `ballrt.AsType`, C#'s `BallStd.AsType` and the
+TS/C++ compilers' `"as"` dispatch arms all do the same — but Rust's compiled
+`ball_as` PANICKED on a mismatch, an **uncatchable** process abort (not even a
+typed `TypeError` a Ball `try` could see) that no sibling target produces. A
+Ball program doing `x as SomeType` on a mismatched value was silently accepted
+everywhere and crashed the whole process on Rust alone.
+
+**The decision:** `std.as` is an unchecked identity on every target. Dart's
+own implementation is the natural reference default (it needs no new type
+machinery), and the alternative — a CHECKED cast that throws a typed
+`TypeError` a `try` can catch, matching real Dart's own `as` operator — was
+considered and set aside: it would need a nullable-type-name model (`as
+String?`) the self-hosted engine's own source leans on extensively, and
+retrofitting that as a side effect of this decision would risk regressing the
+self-host conformance sweep. If a checked contract is ever wanted, it is its
+own follow-up, scoped around that model — not a free rider on this fix.
+
+Two instruments close it, the same division as the subsection above:
+
+* `tests/conformance/481_as_expression_identity` — the cross-target
+  observable. Real Dart's `as` genuinely IS a checked runtime cast, so the
+  fixture's own `describeAs` wraps the cast in a `try`/`catch`: the SDK run
+  that builds the golden throws and the catch body prints the original value
+  through string interpolation, and every Ball engine's UNCHECKED cast simply
+  returns the same original value, which the same interpolation prints
+  identically — interpolation never inspects the declared static type, only
+  the runtime value, so both paths land on one golden.
+* `tools/check_std_as_contract.py` (`Proto Checks`, every PR) — the
+  STRUCTURAL half. It extracts, per target, the source implementing `std.as`
+  and asserts it contains none of a forbidden set of throw/panic/raise
+  tokens — the same closed-set discipline #641's rendering-table checker
+  applies, aimed at a function with no "raised name" to tabulate at all (an
+  unchecked identity never raises anything). Its own self-test
+  (`tools/test/test_check_std_as_contract.py`) re-introduces the #707 defect
+  on each target in turn and asserts the checker names it.
+
 #### A by-NAME ROUTE is only bounded when a test derives its cases from the route table (#697)
 
 The Dart encoder diverts ten getter names — `isEmpty`, `isNotEmpty`, `sign`,

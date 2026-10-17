@@ -57,9 +57,12 @@
 #
 # Usage:
 #   bash tools/release/check_go_release_wiring.sh              # gate the repo
-#   bash tools/release/check_go_release_wiring.sh --self-test  # the go-freshness
-#                                                              # paths leg's own
-#                                                              # negative controls
+#   bash tools/release/check_go_release_wiring.sh --self-test  # the negative
+#                                                              # controls for the
+#                                                              # go-freshness paths,
+#                                                              # tagger-header and
+#                                                              # awaited-dispatch
+#                                                              # checkers
 
 set -uo pipefail
 
@@ -243,10 +246,149 @@ freshness_paths_findings() {
   esac
 }
 
-# ── The negative controls for the checker above. ──────────────────────────
+# ── The tagger's header must describe the lane as it IS (#627, #879). ─────
+# tag-go-modules.yml is the file an operator lands on when a tag cut goes wrong,
+# and its header is the only explanation of the lane it carries. It has outlived
+# that lane twice. After #623 it still said a human PR moved the version and
+# that release.yml dispatched it, and #627 added this check. After #879 it still
+# said go.releaserc.json's publishCmd dispatched it, that a prepareCmd ran the
+# bump and that @semantic-release/git pushed the result. #879 deleted all three
+# hooks, and leg 2 asserts they stay deleted. This check still PASSED that
+# header, because it required the words "go.releaserc.json" and "publishCmd" to
+# appear, so correcting the header would have turned it red (PR #881 review
+# round 4). Stale prose in a release file is not cosmetic: it is the
+# instruction a human follows at 2am.
+#
+# So the positive half is DERIVED, never spelled. The header must name every
+# file leg 5 found dispatching this workflow (passed in as arguments). The next
+# time the dispatcher moves, a header that still names the old one goes red.
+# The negative half refuses every lifecycle hook leg 2 forbids in
+# go.releaserc.json. The header describes the lane as it is; how the dispatch
+# used to work is history, and it lives in docs/RELEASE.md's "Go modules lane".
+#
+# tagger_header_problems <tag-go-modules.yml> [dispatcher-basename …]
+# Prints one problem per line. Exit 0 = clean (prints nothing), 1 = problems.
+TAGGER_DEAD_HOOKS=('@semantic-release/git' '@semantic-release/github' 'prepareCmd' 'publishCmd')
+tagger_header_problems() {
+  local file="$1"
+  shift
+  if [ ! -f "$file" ]; then
+    echo "$file does not exist"
+    return 1
+  fi
+  local header lines flat probs=0 dead d
+  header="$(sed -n '1,/^on:/p' "$file" | grep -E '^[[:space:]]*#')"
+  lines="$(printf '%s\n' "$header" | grep -c .)"
+  case "$lines" in
+  '' | *[!0-9]*) lines=0 ;;
+  esac
+  if [ "$lines" -lt 10 ]; then
+    # A vanished header would make every forbidden-phrase check below vacuously
+    # true, which is the shape this guard refuses everywhere else.
+    echo "found $lines comment lines before 'on:', expected >= 10: with no header there is" \
+      "nothing to keep honest, and every prose assertion below would pass by being empty"
+    return 1
+  fi
+  # One line, comment markers stripped, whitespace collapsed: a phrase that wraps
+  # across two comment lines is still the same phrase.
+  flat="$(printf '%s\n' "$header" | sed -E 's/^[[:space:]]*#[[:space:]]?//' | tr '\n\r\t' '   ' | tr -s ' ')"
+
+  if grep -qE '(^|[^-[:alnum:]_])release\.yml`?[[:space:]]+dispatches[[:space:]]+(this|it|`?tag-go-modules)' <<<"$flat"; then
+    echo "says \"release.yml dispatches\" this workflow. It does not (it dispatches go-release.yml), and leg 4" \
+      "of this guard fails if it ever does again"
+    probs=1
+  fi
+  if grep -qF 'cuts the tags on the next release' <<<"$flat"; then
+    echo "still describes the bump as a human PR that this workflow tags \"on the next release\"; the" \
+      "bump is open_go_release_pr.sh's release PR, and the release that merges it is the one tagged"
+    probs=1
+  fi
+  if grep -qF 'one-time backfill' <<<"$flat"; then
+    echo "still offers the one-time backfill hand-dispatch; that backfill happened in #618"
+    probs=1
+  fi
+  for dead in "${TAGGER_DEAD_HOOKS[@]}"; do
+    if grep -qF -- "$dead" <<<"$flat"; then
+      echo "names '$dead', a go.releaserc.json lifecycle hook #879 removed (leg 2 fails if it comes" \
+        "back). Describe the lane as it is; the history belongs in docs/RELEASE.md's \"Go modules lane\""
+      probs=1
+    fi
+  done
+  if [ "$#" -eq 0 ]; then
+    echo "was given no dispatcher to check against: leg 5 found nothing dispatching tag-go-modules.yml," \
+      "so there is no truth for this header to tell"
+    probs=1
+  fi
+  for d in "$@"; do
+    if ! grep -qF -- "$d" <<<"$flat"; then
+      echo "never names $d, which is what actually dispatches this workflow (leg 5 found it)"
+      probs=1
+    fi
+  done
+  if ! grep -qF 'go-release.yml' <<<"$flat"; then
+    echo "never names go-release.yml, the workflow whose finish-release job runs the dispatch"
+    probs=1
+  fi
+  if ! grep -qF 'await_workflow_run.py' <<<"$flat"; then
+    echo "never names tools/release/await_workflow_run.py, the poller that makes the dispatch AWAITED" \
+      "rather than fire-and-forget (#627)"
+    probs=1
+  fi
+  return "$probs"
+}
+
+# ── The sole dispatcher's dispatch is AWAITED (#627, #879). ───────────────
+# Until #879, leg 2 pinned this on go.releaserc.json's publishCmd. #879 moved the
+# dispatch into tools/release/finish_go_release.sh, deleted publishCmd, and the
+# pin went with it. Leg 5 only asks WHO dispatches, and it accepts the bare
+# `gh workflow run` spelling as readily as the awaited one (it has to, because
+# it hunts stray dispatchers in either spelling). So nothing static would have
+# noticed the awaited call turning back into a bare `gh workflow run`. That
+# command returns the moment GitHub accepts the request, which leaves the
+# finish-release job green over a tag cut that failed.
+# tools/release/test/finish_go_release_test.sh pins the same contract
+# behaviourally (leg 10 asserts ci.yml runs it); this is the static half.
+#
+# finish_dispatch_problems <finish_go_release.sh>
+# Prints one problem per line. Exit 0 = clean (prints nothing), 1 = problems.
+finish_dispatch_problems() {
+  local file="$1" joined probs=0
+  if [ ! -f "$file" ]; then
+    echo "$file does not exist"
+    return 1
+  fi
+  # Comments stripped and backslash-continued lines joined, because the awaited
+  # call spans two physical lines.
+  joined="$(awk '
+    /^[[:space:]]*#/ { next }
+    { sub(/[[:space:]]+#.*$/, "") }
+    /\\$/ { sub(/\\$/, ""); buf = buf $0 " "; next }
+    { print buf $0; buf = "" }
+  ' "$file")"
+  if ! grep -qE 'await_workflow_run\.py"?[[:space:]]+--dispatch[[:space:]]+--workflow[[:space:]]+tag-go-modules\.yml[[:space:]]+--ref[[:space:]]+"?\$TAG"?([[:space:]]|$)' <<<"$joined"; then
+    echo "expected the dispatch: python3 \"\$HERE/await_workflow_run.py\" --dispatch --workflow tag-go-modules.yml --ref \"\$TAG\"" \
+      "(a bare 'gh workflow run' returns as soon as GitHub accepts the request, so a tagger run that" \
+      "fails, is cancelled or never starts would leave the finish-release job green, #627)"
+    probs=1
+  fi
+  if ! grep -qE '^[[:space:]]*TAG="go-modules/v\$VERSION"' <<<"$joined"; then
+    echo "expected TAG=\"go-modules/v\$VERSION\": the dispatch must be pinned to the channel tag whose" \
+      "commit carries the bumped go.mod files, which is where tag-go-modules.yml reads the version from"
+    probs=1
+  fi
+  if grep -qE 'gh[[:space:]]+workflow[[:space:]]+run[[:space:]]+tag-go-modules\.yml' <<<"$joined"; then
+    echo "found a bare 'gh workflow run tag-go-modules.yml': a fire-and-forget dispatch beside, or" \
+      "instead of, the awaited one"
+    probs=1
+  fi
+  return "$probs"
+}
+
+# ── The negative controls for the checkers above. ─────────────────────────
 # A guard whose own failure path is never exercised is decoration: the leg would
-# pass identically if `freshness_paths_problems` stopped looking at the list.
-# Driven from ci.yml's always-on `Proto Checks` job.
+# pass identically if `freshness_paths_problems` stopped looking at the list, or
+# if `tagger_header_problems` / `finish_dispatch_problems` stopped reading their
+# file. Driven from ci.yml's always-on `Proto Checks` job.
 SCRATCH=""
 cleanup() {
   [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
@@ -380,6 +522,139 @@ YML
   expect "unparseable YAML is refused, never read as agreement" 1 "$SCRATCH/broken.yml" "not parseable YAML"
   expect "the shipped .github/workflows/go-freshness.yml satisfies it" 0 "$WORKFLOWS/go-freshness.yml"
 
+  # ── The tagger-header and awaited-dispatch checkers. ────────────────────
+  # expect_cmd <name> <want-exit> <needles, '|'-separated, or ''> <command> [args …]
+  # A clean verdict must also be SILENT: a checker that exits 0 while printing
+  # a problem has started disagreeing with itself.
+  expect_cmd() {
+    local name="$1" want="$2" needles="$3"
+    shift 3
+    local out rc=0 good=1 needle
+    local -a wanted=()
+    out="$("$@" 2>&1)" || rc=$?
+    [ "$rc" -eq "$want" ] || good=0
+    [ "$want" -ne 0 ] || [ -z "$out" ] || good=0
+    [ -n "$needles" ] && IFS='|' read -r -a wanted <<<"$needles"
+    for needle in ${wanted[@]+"${wanted[@]}"}; do
+      case "$out" in
+      *"$needle"*) ;;
+      *) good=0 ;;
+      esac
+    done
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (exit $rc, wanted $want)"
+      printf '%s\n' "$out" | sed 's/^/    | /'
+    fi
+  }
+
+  # The header this PR's previous head shipped, abridged but verbatim: it named
+  # three hooks #879 had already deleted as the live mechanism, and the leg-11
+  # check of that head PASSED it (PR #881 review round 4).
+  write stale_header.yml <<'YML'
+name: Tag Go modules
+#
+# WHO DISPATCHES THIS, AND WHEN. Exactly one thing does:
+# `.github/release/go.releaserc.json`'s **publishCmd**, at the end of a
+# `go-release.yml` semantic-release run, pinned to that run's own
+# `go-modules/vX.Y.Z` channel tag. Since #623 the Go module version is its own
+# semantic-release line computed from `go/`-path commits: the same config's
+# prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh`, @semantic-release/git
+# pushes the bump as `chore(release): go vX.Y.Z [skip ci]`, semantic-release
+# creates the channel tag ON that commit (it tags after prepare and before
+# publish), and publishCmd then dispatches this workflow at it.
+#
+# The dispatch is AWAITED (#627). `gh workflow run` returns the moment GitHub
+# accepts the request, so publishCmd goes through
+# `tools/release/await_workflow_run.py`, which polls this run to completion.
+on:
+  workflow_dispatch:
+YML
+
+  write good_header.yml <<'YML'
+name: Tag Go modules
+# Cuts the six go/<module>/vX.Y.Z tags on one commit, in one push.
+#
+# WHO DISPATCHES THIS: tools/release/finish_go_release.sh, Phase 2 of
+# go-release.yml, pinned to the go-modules/vX.Y.Z channel tag it just created.
+#
+# The dispatch is AWAITED: finish_go_release.sh dispatches through
+# tools/release/await_workflow_run.py, which polls this run to completion and
+# fails the finish-release job on any non-success conclusion.
+#
+# Idempotent: all six tags already present is a clean no-op.
+on:
+  workflow_dispatch:
+YML
+  sed 's#tools/release/finish_go_release\.sh#a release script#; s#finish_go_release\.sh dispatches#it dispatches#' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/no_dispatcher_header.yml"
+  sed 's#tools/release/await_workflow_run\.py#a poller#' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/no_poller_header.yml"
+  sed 's@^# Idempotent.*@&\n# release.yml dispatches this explicitly on every release.@' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/release_yml_header.yml"
+  sed "s@^# Idempotent.*@&\n# (Before #879 the dispatch was go.releaserc.json's publishCmd.)@" \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/history_header.yml"
+  sed 's@^# Idempotent.*@&\n# A human PR bumps the version, and this workflow cuts the tags on the next\n# release.@' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/wrapped_header.yml"
+  write short_header.yml <<'YML'
+name: Tag Go modules
+# Dispatched by tools/release/finish_go_release.sh (go-release.yml), awaited
+# through tools/release/await_workflow_run.py.
+on:
+  workflow_dispatch:
+YML
+
+  expect_cmd "a header naming the real dispatcher, its driver and the poller is accepted" 0 "" \
+    tagger_header_problems "$SCRATCH/good_header.yml" finish_go_release.sh
+  expect_cmd "the shipped .github/workflows/tag-go-modules.yml header is accepted" 0 "" \
+    tagger_header_problems "$TAGGER" finish_go_release.sh
+  expect_cmd "the pre-fix header (dispatched by publishCmd) is refused" 1 \
+    "'publishCmd'|'prepareCmd'|'@semantic-release/git'|never names finish_go_release.sh" \
+    tagger_header_problems "$SCRATCH/stale_header.yml" finish_go_release.sh
+  expect_cmd "a header that never names the dispatcher leg 5 found is refused" 1 \
+    "never names finish_go_release.sh" \
+    tagger_header_problems "$SCRATCH/no_dispatcher_header.yml" finish_go_release.sh
+  expect_cmd "a header that never names the poller is refused" 1 "await_workflow_run.py" \
+    tagger_header_problems "$SCRATCH/no_poller_header.yml" finish_go_release.sh
+  expect_cmd "a header claiming release.yml dispatches the tagger is refused" 1 "release.yml dispatches" \
+    tagger_header_problems "$SCRATCH/release_yml_header.yml" finish_go_release.sh
+  expect_cmd "a header naming a removed hook even as history is refused" 1 "'publishCmd'" \
+    tagger_header_problems "$SCRATCH/history_header.yml" finish_go_release.sh
+  expect_cmd "a stale phrase wrapped across two comment lines is still refused" 1 "on the next release" \
+    tagger_header_problems "$SCRATCH/wrapped_header.yml" finish_go_release.sh
+  expect_cmd "a vanished header (< 10 comment lines) is refused, never vacuously clean" 1 "comment lines" \
+    tagger_header_problems "$SCRATCH/short_header.yml" finish_go_release.sh
+  expect_cmd "a header checked against no dispatcher at all is refused" 1 "no dispatcher" \
+    tagger_header_problems "$SCRATCH/good_header.yml"
+
+  write finish_bare.sh <<'SH'
+TAG="go-modules/v$VERSION"
+gh workflow run tag-go-modules.yml --ref "$TAG"
+SH
+  write finish_wrong_ref.sh <<'SH'
+TAG="go-modules/v$VERSION"
+python3 "$HERE/await_workflow_run.py" --dispatch \
+  --workflow tag-go-modules.yml --ref main
+SH
+  write finish_commented.sh <<'SH'
+TAG="go-modules/v$VERSION"
+# python3 "$HERE/await_workflow_run.py" --dispatch \
+#   --workflow tag-go-modules.yml --ref "$TAG"
+SH
+
+  expect_cmd "the shipped finish_go_release.sh dispatches through the poller, at the channel tag" 0 "" \
+    finish_dispatch_problems "$FINISH_SH"
+  expect_cmd "a bare 'gh workflow run' in place of the awaited dispatch is refused" 1 \
+    "await_workflow_run.py|bare 'gh workflow run tag-go-modules.yml'" \
+    finish_dispatch_problems "$SCRATCH/finish_bare.sh"
+  expect_cmd "an awaited dispatch pinned to the wrong ref is refused" 1 "--ref \"\$TAG\"" \
+    finish_dispatch_problems "$SCRATCH/finish_wrong_ref.sh"
+  expect_cmd "a commented-out awaited dispatch is refused" 1 "await_workflow_run.py" \
+    finish_dispatch_problems "$SCRATCH/finish_commented.sh"
+
   # ── The LEG, not the checker (#694). ────────────────────────────────────
   # Everything above proves what `freshness_paths_problems` ANSWERS. None of it
   # can see what the leg that consumes that answer does when the checker cannot
@@ -447,15 +722,15 @@ STUB
     FAIL "$SCRATCH/nopy"
 
   local total=$((pass + fail))
-  local MIN=11
+  local MIN=25
   case "$pass$fail$total" in
   *[!0-9]*)
-    echo "::error::go-freshness paths self-test produced a non-numeric tally"
+    echo "::error::check_go_release_wiring.sh --self-test produced a non-numeric tally"
     return 1
     ;;
   esac
   if [ "$total" -lt "$MIN" ]; then
-    echo "::error::go-freshness paths self-test ran $total cases, expected at least $MIN — the sweep itself is broken"
+    echo "::error::check_go_release_wiring.sh --self-test ran $total cases, expected at least $MIN — the sweep itself is broken"
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"
@@ -714,6 +989,9 @@ dispatchers=()
 for f in "$WORKFLOWS"/*.yml "$CONFIGS"/*.json "$ROOT/tools/release"/*.sh; do
   [ -f "$f" ] || continue
   [ "$(basename "$f")" = "tag-go-modules.yml" ] && continue
+  # This guard dispatches nothing. Its self-test fixtures and its own patterns
+  # spell both dispatch shapes on purpose (the same exclusion leg 6 makes).
+  [ "$(basename "$f")" = "check_go_release_wiring.sh" ] && continue
   sed 's/#.*$//' "$f" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml' &&
     dispatchers+=("$(basename "$f")")
 done
@@ -836,60 +1114,60 @@ else
     "live run with 'fatal: too many arguments' (run 33939440446)"
 fi
 
-# ── 11. The tagger's header tells the post-#623 truth. ────────────────────
-# tag-go-modules.yml is the file an operator lands on when a tag cut goes wrong,
-# and its header is the only explanation of the lane it carries. It described a
-# world that stopped existing when #623 landed: "Bumping the Go modules is
-# therefore a normal PR that runs bump_go_modules.sh; this workflow then cuts
-# the tags on the next release" (the bump is a prepareCmd now), "release.yml
-# dispatches this explicitly" (leg 4 above asserts it does NOT), and an offer to
-# hand-dispatch for "the one-time backfill" (done in #618). Stale prose in a
-# release file is not cosmetic — it is the instruction a human follows at 2am,
-# and nothing else in this guard reads comments. So this one does (#627).
+if grep -qF 'tools/release/test/finish_go_release_test.sh' "$CI"; then
+  ok "ci.yml runs finish_go_release.sh's behavioural test (the awaited tagger dispatch)"
+else
+  no "ci.yml runs finish_go_release.sh's behavioural test (the awaited tagger dispatch)" \
+    "Phase 2 only runs once a release PR has merged, and it is the one place the tagger is" \
+    "dispatched; without a PR-time test, which commit it tags and whether its dispatch is awaited" \
+    "would first be exercised by a real release (#879)"
+fi
+
+# ── 11. The tagger's header tells the truth about today's lane. ──────────
+# See tagger_header_problems above for the history and the rules. The
+# dispatcher list it checks the header against is leg 5's DISCOVERED one, so
+# the header has to follow the dispatcher wherever it moves next.
 if [ -f "$TAGGER" ]; then
-  header="$(sed -n '1,/^on:/p' "$TAGGER" | grep -E '^[[:space:]]*#')"
-  header_lines="$(printf '%s\n' "$header" | grep -c .)"
-  case "$header_lines" in
-  *[!0-9]*) header_lines=0 ;;
-  esac
-  if [ "$header_lines" -lt 10 ]; then
-    # A vanished header would make every forbidden-phrase check below vacuously
-    # true, which is the shape this guard refuses everywhere else.
-    no "tag-go-modules.yml carries an explanatory header (>= 10 comment lines before 'on:')" \
-      "found $header_lines — with no header there is nothing to keep honest, and the prose" \
-      "assertions below would pass by being empty"
+  hrc=0
+  hout="$(tagger_header_problems "$TAGGER" ${dispatchers[@]+"${dispatchers[@]}"})" || hrc=$?
+  hprobs=()
+  while IFS= read -r hline; do
+    [ -n "$hline" ] && hprobs+=("$hline")
+  done <<EOF
+$hout
+EOF
+  if [ "$hrc" -eq 0 ] && [ "${#hprobs[@]}" -eq 0 ]; then
+    ok "tag-go-modules.yml's header names its real dispatcher (${dispatchers[*]:-<none>}) and no removed hook"
   else
-    hprobs=()
-    printf '%s\n' "$header" | grep -qE 'release\.yml dispatches' &&
-      hprobs+=(
-        "says \"release.yml dispatches\" — it does not, and leg 4 of this guard fails if it ever"
-        "does again. Since #623 the only dispatcher is .github/release/go.releaserc.json's"
-        "publishCmd, pinned to the go-modules/vX.Y.Z channel tag."
-      )
-    printf '%s\n' "$header" | grep -qE 'cuts the tags on the next release' &&
-      hprobs+=(
-        "still describes the bump as a human PR that this workflow tags \"on the next release\";"
-        "since #623 the bump is go.releaserc.json's prepareCmd and the tags are cut by the"
-        "publishCmd of the same release that made it"
-      )
-    printf '%s\n' "$header" | grep -qE 'one-time backfill' &&
-      hprobs+=("still offers the one-time backfill hand-dispatch; that backfill happened in #618")
-    printf '%s\n' "$header" | grep -qF 'go.releaserc.json' ||
-      hprobs+=("never names .github/release/go.releaserc.json, which is what actually dispatches it")
-    printf '%s\n' "$header" | grep -qF 'publishCmd' ||
-      hprobs+=("never names the publishCmd that dispatches it")
-    if [ "${#hprobs[@]}" -eq 0 ]; then
-      ok "tag-go-modules.yml's header describes the post-#623 lane ($header_lines comment lines)"
-    else
-      no "tag-go-modules.yml's header describes the post-#623 lane" "${hprobs[@]}"
-    fi
+    [ "${#hprobs[@]}" -eq 0 ] &&
+      hprobs=("the header checker failed with exit status $hrc and said nothing")
+    no "tag-go-modules.yml's header names its real dispatcher and no removed hook" "${hprobs[@]}"
   fi
 fi
 
 # ── 12. The dispatch is AWAITED, by a poller with a bounded budget. ───────
-# Leg 2 pins that publishCmd calls the poller. This pins that the poller is a
-# poller: a script that shells out to `gh workflow run` and returns would
-# satisfy that grep and change nothing.
+# Two halves. finish_dispatch_problems (above) pins that the sole dispatcher leg
+# 5 found, tools/release/finish_go_release.sh, dispatches THROUGH the poller and
+# at the channel tag. The checks after it pin that the poller is a poller: a
+# script that shells out to `gh workflow run` and returns would satisfy the
+# first half and change nothing.
+drc=0
+dout="$(finish_dispatch_problems "$FINISH_SH")" || drc=$?
+dprobs=()
+while IFS= read -r dline; do
+  [ -n "$dline" ] && dprobs+=("$dline")
+done <<EOF
+$dout
+EOF
+if [ "$drc" -eq 0 ] && [ "${#dprobs[@]}" -eq 0 ]; then
+  ok "finish_go_release.sh dispatches tag-go-modules.yml through await_workflow_run.py, at the channel tag"
+else
+  [ "${#dprobs[@]}" -eq 0 ] &&
+    dprobs=("the dispatch checker failed with exit status $drc and said nothing")
+  no "finish_go_release.sh dispatches tag-go-modules.yml through await_workflow_run.py, at the channel tag" \
+    "${dprobs[@]}"
+fi
+
 AWAIT="$ROOT/tools/release/await_workflow_run.py"
 if [ -f "$AWAIT" ]; then
   aprobs=()
@@ -924,9 +1202,9 @@ if [ -f "$AWAIT" ]; then
   fi
 else
   no "tools/release/await_workflow_run.py exists (the awaited dispatch, #627)" \
-    "publishCmd's dispatch is fire-and-forget without it: 'gh workflow run' returns as soon as" \
-    "GitHub accepts the request, so a tagger run that fails, is cancelled, or never starts leaves" \
-    "the go-release run green"
+    "finish_go_release.sh's dispatch is fire-and-forget without it: 'gh workflow run' returns as" \
+    "soon as GitHub accepts the request, so a tagger run that fails, is cancelled, or never starts" \
+    "leaves the go-release.yml finish-release job green"
 fi
 
 # ── 13. The Go lane has an OUTCOME alarm, not just wiring guards. ─────────
@@ -1041,18 +1319,18 @@ else
 fi
 
 if grep -qF 'tools/release/check_go_release_wiring.sh --self-test' "$CI"; then
-  ok "ci.yml runs this guard's own paths-scoping negative controls"
+  ok "ci.yml runs this guard's own negative controls (--self-test)"
 else
-  no "ci.yml runs this guard's own paths-scoping negative controls" \
-    "the go-freshness paths leg above is the one leg here that parses YAML rather than grepping," \
-    "and a leg whose failure path is never exercised would pass identically if it stopped looking" \
-    "at the list: bash tools/release/check_go_release_wiring.sh --self-test (#656)"
+  no "ci.yml runs this guard's own negative controls (--self-test)" \
+    "the go-freshness paths, tagger-header and awaited-dispatch legs each consume a checker, and a" \
+    "leg whose failure path is never exercised would pass identically if its checker stopped" \
+    "looking: bash tools/release/check_go_release_wiring.sh --self-test (#656, #879)"
 fi
 
 total=$((pass + fail))
 # Positive floor (#439/#444): an exit code plus a zero failure count cannot tell
 # "all passed" from "nothing ran".
-MIN=22
+MIN=24
 case "$pass$fail$total" in
 *[!0-9]*)
   echo "::error::Go release wiring guard produced a non-numeric tally"

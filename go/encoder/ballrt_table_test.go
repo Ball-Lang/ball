@@ -79,25 +79,30 @@ var documentedStdExclusions = map[string]string{
 	"Break":     "the operand is a quoted label string (strconv.Quote), not an encodable expression",
 	"Continue":  "the operand is a quoted label string (strconv.Quote), not an encodable expression",
 
-	// Base functions the universal std module does not declare, so there is no
-	// `std.<fn>` to invert into (ballrt.go's second rule).
-	"PrintError": "`std.print_error` is not declared in dart/shared/std.json, so there is no universal base function to invert into",
+	// Base functions NO universal module builder declares at all, so there is
+	// no `std.<fn>` to invert into (ballrt.go's second rule).
 	"MapAddEntry": "`map_add_entry` is declared by no universal module builder (it exists only as this compiler case), " +
 		"so there is no base function to invert into",
 	"MapSpread": "`map_spread`/`map_merge_into` are declared by no universal module builder (they exist only as this compiler case), " +
 		"so there is no base function to invert into",
 
-	// `std.invoke` IS declared, but its InvokeInput descriptor holds a single
-	// `callee` field — neither of the two names the compiler's first-alias rule
-	// would produce, and no field at all for the argument.
-	"Invoke": "`std.invoke`'s InvokeInput declares only `callee`; the compiler emits `function`/`argument`, " +
-		"so a first-alias inverse would hand every engine an input message the descriptor does not declare",
+	// `std.invoke` IS declared, but the Dart reference engine's own
+	// `_stdInvoke` reads the callee strictly under the key `callee`
+	// (`engine_std.dart`) and treats every OTHER key as a call argument. The
+	// compiler's first alias for that position is `function` (`callee` is only
+	// its third fallback), so a first-alias inverse hands every engine a
+	// message with no `callee` key at all, which `_stdInvoke` rejects outright
+	// ("callee is not callable").
+	"Invoke": "`std.invoke`'s compiler-first-alias inverse would carry `function`/`argument`, never `callee`, " +
+		"and the Dart reference engine's `_stdInvoke` reads `callee` strictly with no fallback",
 
 	// The std switch is reached for EVERY module except ball_proto and
-	// std_collections, so it also lowers std_convert's six functions. Their
-	// inverse is `std_convert.<fn>`, and this file has no std_convert table —
+	// std_collections, so it also lowers std_io's `print_error` and
+	// std_convert's six functions. Their inverse is `std_io.print_error` /
+	// `std_convert.<fn>`, and this file has no table for either module —
 	// mapping them here would emit a call to a base function `std` does not
 	// declare.
+	"PrintError":   "`print_error` belongs to std_io, not std, and ballrt.go has no std_io inverse table",
 	"JSONEncode":   "`json_encode` belongs to std_convert, not std, and ballrt.go has no std_convert inverse table",
 	"JSONDecode":   "`json_decode` belongs to std_convert, not std, and ballrt.go has no std_convert inverse table",
 	"UTF8Encode":   "`utf8_encode` belongs to std_convert, not std, and ballrt.go has no std_convert inverse table",

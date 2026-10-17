@@ -33,17 +33,26 @@ import (
 //     with a `ballrt.Value(nil)` placeholder for an omitted optional argument
 //     (`Substring`, `ToStringAsExponential`, `Assert`, `Return`) are left out
 //     rather than guessed at;
-//   - a base function the module's own builder actually declares, with the
-//     fields the compiler's first-alias rule produces —
-//     `dart/shared/std.json` for `std`, `dart/shared/lib/std_collections.dart`
-//     for `std_collections`. `print_error` is in no builder at all, and
-//     `std.invoke`'s InvokeInput declares only `callee` (never the
-//     `function`/`argument` the compiler emits), so neither is here;
+//   - a base function the module's own builder declares — `dart/shared/std.json`
+//     for `std`, `dart/shared/lib/std_collections.dart` for `std_collections` —
+//     under a shape the compiler's first-alias rule can invert back into: one
+//     field per emitted argument, in order. The mapped field NAME need not be
+//     the descriptor's own spelling: the compiler's first alias for
+//     `string_contains`'s first argument is `value`, not `std.json`'s declared
+//     `BinaryInput.left` (see issue #876 for what that costs some entries at
+//     RUN time — this table only has to stay self-consistent with the
+//     compiler). `std.invoke` IS declared, but the Dart reference engine's own
+//     `_stdInvoke` reads the callee strictly under the key `callee`
+//     (`engine_std.dart`) and treats every OTHER key as a call argument, while
+//     the compiler's first alias for that position is `function` (`callee` is
+//     only its third fallback) — so a first-alias inverse hands every engine a
+//     message with no `callee` key at all, which `_stdInvoke` rejects outright;
 //   - not ANOTHER universal module's function. The std switch is reached for
 //     every module except `ball_proto` and `std_collections`, so it also lowers
-//     std_convert's `json_*`/`utf8_*`/`base64_*`; those invert to
-//     `std_convert.<fn>`, which this file has no table for, and are excluded
-//     rather than mis-filed under `std`;
+//     std_io's `print_error` and std_convert's `json_*`/`utf8_*`/`base64_*`;
+//     those invert to `std_io.print_error` / `std_convert.<fn>`, which this
+//     file has no table for, and are excluded rather than mis-filed under
+//     `std`;
 //   - no type-name string operands (`IsType`/`AsType` take a quoted Go string,
 //     not an encodable expression);
 //   - ONE module. A helper the compiler emits from two switches at once (today

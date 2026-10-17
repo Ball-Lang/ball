@@ -86,6 +86,13 @@ internal static class RoundTripLeg
             }
         }
 
+        // The row naming its own PASS SET too (issue #896, generalizing #836):
+        // a pass-COUNT floor cannot tell "nothing changed" from "one fixture
+        // newly passes and a different one newly regresses" — printed BEFORE
+        // Summary.Print's own "=== ... ===" header + Results line so
+        // tools/ci/roundtrip_passset.sh's parser (which stops at the first
+        // blank line) never swallows that header text as a fixture name.
+        PassingFixtures.Print(results.Where(r => r.Status == FixtureStatus.Pass).Select(r => r.Name));
         return Summary.Print("Round-Trip (compile -> encode -> Dart engine)", results, skipped);
     }
 

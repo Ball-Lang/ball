@@ -182,6 +182,25 @@ def _run_one(name: str, path: str, golden: bytes, dart: str, workdir: str) -> Re
     return Result(name, "fail", detail)
 
 
+def _format_passing_block(passing: list) -> str:
+    """Render the ``Passing fixtures (<N>, sorted):`` block a round-trip leg
+    prints so ``tools/ci/roundtrip_passset.sh`` can diff the per-fixture PASS
+    SET against a committed baseline (issue #896, generalizing #836's Rust
+    fix to the C#/Go/Python legs) -- a pass-COUNT floor cannot tell "nothing
+    changed" from "one fixture newly passes while a different one
+    regresses", because the count is identical either way.
+
+    Mirrors ``rust/engine/tests/roundtrip_conformance.rs``'s own
+    ``format_passing_block`` byte for byte: the same header shape and the
+    same two-space indent per name. ``passing`` must already be sorted --
+    this never re-sorts it, the same contract the Rust printer documents.
+    """
+    lines = [f"Passing fixtures ({len(passing)}, sorted):"]
+    for name in passing:
+        lines.append(f"  {name}")
+    return "\n".join(lines) + "\n"
+
+
 def run_all(only: str = "") -> Summary:
     dart = _dart_executable()
     paths = sorted(glob.glob(str(_CONFORMANCE / "*.ball.json")))
@@ -243,6 +262,17 @@ def main() -> int:
     for r in s.results:
         if r.status != "pass":
             print(f"FAILING [{r.name}] {r.status} {r.detail}")
+
+    # The row naming its own PASS SET too (issue #896, generalizing #836):
+    # printed BEFORE the Results line, with a blank line after it, so
+    # tools/ci/roundtrip_passset.sh's parser (which stops at the first blank
+    # line or the Results line, whichever comes first) never swallows
+    # anything else as a fixture name. s.results is already sorted by
+    # fixture name (run_all sorts it before building the Summary), so this
+    # list comprehension comes out sorted too.
+    passing = [r.name for r in s.results if r.status == "pass"]
+    print(_format_passing_block(passing))
+
     print(f"Results: {s.passed} passed, {s.failed} failed, {s.total} total "
           f"({s.skipped} skipped carve-outs)")
     return 0 if s.failed == 0 else 1

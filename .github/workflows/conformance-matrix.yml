@@ -1176,6 +1176,15 @@ jobs:
           # own TIMEOUT pattern for the no-fixture-may-hang gate (#693).
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note" "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)" "^ +[0-9A-Za-z_]+: TIMEOUT"
 
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836, generalized to this leg by #896): one fixture newly
+          # passing while a different one regresses leaves the count
+          # unchanged, so `passed >= floor` alone stays green through a real
+          # regression. This is a set-difference check against the committed
+          # per-fixture baseline, run AFTER the floor so a harness-health
+          # failure is diagnosed by the floor script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "C#" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/csharp_roundtrip_passing.txt"
+
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
@@ -1284,6 +1293,15 @@ jobs:
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836, generalized to this leg by #896): one fixture newly
+          # passing while a different one regresses leaves the count
+          # unchanged, so `passed >= floor` alone stays green through a real
+          # regression. This is a set-difference check against the committed
+          # per-fixture baseline, run AFTER the floor so a harness-health
+          # failure is diagnosed by the floor script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "Python" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/python_roundtrip_passing.txt"
+
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
@@ -1368,6 +1386,15 @@ jobs:
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
+
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836, generalized to this leg by #896): one fixture newly
+          # passing while a different one regresses leaves the count
+          # unchanged, so `passed >= floor` alone stays green through a real
+          # regression. This is a set-difference check against the committed
+          # per-fixture baseline, run AFTER the floor so a harness-health
+          # failure is diagnosed by the floor script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "Go" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/go_roundtrip_passing.txt"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}

@@ -493,3 +493,20 @@ python -m conformance.runner                             # prints the CI-parseab
   `passed >= PYTHON_ROUNDTRIP_FLOOR`, enforced by `tools/ci/roundtrip_floor.sh`. Still NOT a parity
   gate — but a flat zero is red, and the floor only rises. **Raise it in the SAME PR as the fix
   that earned it**; the job prints the exact new value.
+  **The leg also names its own PASS SET (issue #896, generalizing #836's Rust fix to C#/Go/
+  Python).** A pass-COUNT floor (the ratchet just above) cannot tell "nothing changed" from "one
+  fixture newly passes and a different one newly regresses" — the printed `Results:` count is
+  identical either way — so `_format_passing_block` (`python/engine/conformance/roundtrip.py`)
+  renders a second block, `Passing fixtures (<N>, sorted):`, byte-identical to Rust's own
+  `format_passing_block` (same header shape, same two-space indent per name), and `main()` prints
+  it BEFORE the `Results:` line (`s.results` is already sorted by fixture name, so the list
+  comprehension that builds `passing` comes out sorted too). `tools/ci/roundtrip_passset.sh`,
+  invoked right after `roundtrip_floor.sh` in the `python-roundtrip` row, diffs it against the
+  committed baseline (`tools/ci/baselines/python_roundtrip_passing.txt`) as a SET, not a count —
+  a baseline-named fixture missing from the current block is a hard CI error even when `passed`
+  held steady or rose. Guard: `python/engine/tests/test_roundtrip_passing_block.py` — it loads
+  `python/engine/conformance/roundtrip.py` **by file path**, not by package import, because
+  `python/compiler/conformance/` is a real package that shadows the `python/engine/conformance/`
+  namespace package once `python/compiler` lands on `sys.path` ahead of it (both are isolated
+  packages per `python/AGENTS.md`, and pytest's `conftest.py` bootstrapping puts siblings on the
+  path in an order this collision depends on).

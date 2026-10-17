@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Self-test for tools/ci/roundtrip_passset.sh — the per-fixture PASS SET
-# set-difference gate (issue #836), complementing
-# tools/test/test_roundtrip_floor.sh's floor/ratchet coverage.
+# set-difference gate (issue #836, generalized from Rust-only to all four
+# round-trip legs -- rust/csharp/go/python -- by issue #896; the script
+# itself carries no per-language variant, so this self-test's "measure
+# before gating" cases exercise it once under a synthetic "TestLang" label
+# and the wiring loop at the bottom is what proves EVERY real leg actually
+# calls it), complementing tools/test/test_roundtrip_floor.sh's
+# floor/ratchet coverage.
 #
 # "Measure before gating": prove the instrument before trusting what it
 # prints. The bug this guards against is not hypothetical — a pass-COUNT
@@ -240,25 +245,31 @@ else
   failures=$((failures + 1))
 fi
 
-# ── The wiring: the rust-roundtrip row must actually CALL this script, with
-#    the committed baseline it ships beside it ─────────────────────────────
+# ── The wiring: EVERY <lang>-roundtrip row must actually CALL this script,
+#    with the committed baseline it ships beside it (issue #896 generalized
+#    this mechanism from Rust-only to all four round-trip legs) ───────────
 matrix="$repo_root/.github/workflows/conformance-matrix.yml"
-ran=$((ran + 1))
-if grep -qF 'tools/ci/roundtrip_passset.sh" "Rust"' "$matrix"; then
-  echo "ok   [wiring:the rust-roundtrip row invokes roundtrip_passset.sh]"
-else
-  echo "FAIL [wiring]: the rust-roundtrip row in $matrix does not invoke roundtrip_passset.sh"
-  failures=$((failures + 1))
-fi
+for lang_pair in "Rust:rust" "C#:csharp" "Go:go" "Python:python"; do
+  label=${lang_pair%%:*}
+  slug=${lang_pair##*:}
 
-ran=$((ran + 1))
-baseline_committed="$repo_root/tools/ci/baselines/rust_roundtrip_passing.txt"
-if [ -f "$baseline_committed" ]; then
-  echo "ok   [wiring:the committed Rust round-trip baseline file exists]"
-else
-  echo "FAIL [wiring]: $baseline_committed does not exist"
-  failures=$((failures + 1))
-fi
+  ran=$((ran + 1))
+  if grep -qF "tools/ci/roundtrip_passset.sh\" \"$label\"" "$matrix"; then
+    echo "ok   [wiring:the $slug-roundtrip row invokes roundtrip_passset.sh]"
+  else
+    echo "FAIL [wiring]: the $slug-roundtrip row in $matrix does not invoke roundtrip_passset.sh"
+    failures=$((failures + 1))
+  fi
+
+  ran=$((ran + 1))
+  baseline_committed="$repo_root/tools/ci/baselines/${slug}_roundtrip_passing.txt"
+  if [ -f "$baseline_committed" ]; then
+    echo "ok   [wiring:the committed $label round-trip baseline file exists]"
+  else
+    echo "FAIL [wiring]: $baseline_committed does not exist"
+    failures=$((failures + 1))
+  fi
+done
 
 # ── Positive floor on the self-test itself ───────────────────────────────────
 echo ""

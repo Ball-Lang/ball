@@ -2,6 +2,16 @@
 # Set-difference gate for a round-trip conformance leg's PASSING FIXTURE SET
 # (issue #836), complementing tools/ci/roundtrip_floor.sh's pass-COUNT floor.
 #
+# SHARED BY ALL FOUR ROUND-TRIP LEGS — rust-roundtrip, csharp-roundtrip,
+# go-roundtrip and python-roundtrip (issue #896 generalized this script from
+# a Rust-only gate to every leg). There is no per-language variant and none
+# is needed: each leg's own harness (rust/engine/tests/roundtrip_conformance.rs,
+# csharp/engine/conformance/PassingFixtures.cs, go/engine/conformance/support.go,
+# python/engine/conformance/roundtrip.py) prints the identical
+# `Passing fixtures (<N>, sorted):` block shape, so this one script and its
+# `<label>`/baseline-file arguments are the whole generalization — see each
+# language's own `.claude/rules/<lang>.md` for its printer's name.
+#
 # Why this exists: a pass-count floor cannot distinguish "nothing changed"
 # from "one fixture newly passes and a different one newly regresses" — the
 # count is identical either way (run 35575539330 measured the Rust leg at
@@ -20,9 +30,13 @@
 #                 contain a `Passing fixtures (<N>, sorted):` block (one
 #                 two-space-indented fixture name per line, up to the next
 #                 blank line) and a final `Results: N passed, M failed, T
-#                 total` line — the exact shapes
-#                 rust/engine/tests/roundtrip_conformance.rs prints
-#                 (`format_passing_block`/`print_passing_fixtures`).
+#                 total` line — the exact, byte-identical shape every one of
+#                 the four round-trip legs prints:
+#                 rust/engine/tests/roundtrip_conformance.rs's
+#                 `format_passing_block`, csharp/engine/conformance/
+#                 PassingFixtures.cs's `Format`, go/engine/conformance/
+#                 support.go's `FormatPassingBlock`, and python/engine/
+#                 conformance/roundtrip.py's `_format_passing_block`.
 #   baseline-file a committed, sorted, deduplicated, one-name-per-line list of
 #                 fixtures that must keep passing. Must exist and be well
 #                 formed — never a silently-skipped gate on a missing or

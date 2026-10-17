@@ -547,6 +547,18 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `TestRoundTripKillEndsTheWholeProcessTree` leaves `killOnTimeout` untouched,
   so it still proves the real, unmodified tree kill. Every other caller,
   production included, always gets the real tree kill.
+- **The leg also names its own PASS SET (issue #896, generalizing #836's Rust fix to C#/Go/
+  Python).** A pass-COUNT floor (`GO_ROUNDTRIP_FLOOR`'s ratchet) cannot tell "nothing changed"
+  from "one fixture newly passes and a different one newly regresses" — the printed `Results:`
+  count is identical either way — so `FormatPassingBlock` (`go/engine/conformance/support.go`)
+  renders a second block, `Passing fixtures (<N>, sorted):`, byte-identical to Rust's own
+  `format_passing_block` (same header shape, same two-space indent per name), and
+  `roundtrip_test.go` prints it before the `Results:` line. `tools/ci/roundtrip_passset.sh`,
+  invoked right after `roundtrip_floor.sh` in the `go-roundtrip` row, diffs it against the
+  committed baseline (`tools/ci/baselines/go_roundtrip_passing.txt`) as a SET, not a count — a
+  baseline-named fixture missing from the current block is a hard CI error even when `passed`
+  held steady or rose. Guard: `go/engine/conformance/support_test.go`'s
+  `TestFormatPassingBlock`.
 - **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
   compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
   construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture

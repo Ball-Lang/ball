@@ -712,6 +712,21 @@ compile items so the sibling projects never double-compile each other's files.
   exact text. `Summary.Print(legName, results, skippedCarveouts, writer: null)` takes an optional
   `TextWriter` (default `Console.Out`) so `engine/test/TimeoutReportingTests.cs` can assert on the
   exact text without `Console.SetOut`.
+- **The leg also names its own PASS SET (issue #896, generalizing #836's Rust fix to C#/Go/
+  Python).** A pass-COUNT floor (`CSHARP_ROUNDTRIP_FLOOR`'s ratchet) cannot tell "nothing
+  changed" from "one fixture newly passes and a different one newly regresses" — the printed
+  `Results:` count is identical either way — so `PassingFixtures.Format`/`Print`
+  (`csharp/engine/conformance/PassingFixtures.cs`) prints a second block,
+  `Passing fixtures (<N>, sorted):`, byte-identical to Rust's own `format_passing_block` (same
+  header shape, same two-space indent, a trailing blank line so
+  `tools/ci/roundtrip_passset.sh`'s parser — which stops at the first blank line or the next
+  `Results:` line, whichever comes first — terminates cleanly), and `RoundTripLeg.cs` calls it
+  before printing `Results:`. `tools/ci/roundtrip_passset.sh`, invoked right after
+  `roundtrip_floor.sh` in the `csharp-roundtrip` row, diffs it against the committed baseline
+  (`tools/ci/baselines/csharp_roundtrip_passing.txt`) as a SET, not a count — a baseline-named
+  fixture missing from the current block is a hard CI error even when `passed` held steady or
+  rose. `\n` is written explicitly rather than through `TextWriter.WriteLine()`, so the block's
+  line endings never depend on `TextWriter.NewLine`. Guard: `engine/test/PassingFixturesTests.cs`.
 - **The round-trip leg launches the Dart reference CLI ONCE per sweep, never once per fixture
   (#784).** `DartCli.Prepare` AOT-compiles `dart/cli/bin/ball.dart` into the leg's temp directory
   and `DartCli.PlanFor` then names that executable plus `["run", <ball.json>]` — no shell, no

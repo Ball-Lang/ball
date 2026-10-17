@@ -88,3 +88,40 @@ func TestErrorDetailDropsBlankSegments(t *testing.T) {
 		t.Fatalf("errorDetail(%q) = %q, want %q", "first\n\n   \nsecond\n", got, "first / second")
 	}
 }
+
+// FormatPassingBlock — issue #896, generalizing #836's Rust fix to the
+// C#/Go/Python legs: a round-trip leg must name its own per-fixture PASSING
+// SET, because a pass-COUNT floor cannot tell "nothing changed" from "one
+// fixture newly passes while a different one regresses" — the printed
+// `Results:` count is identical either way. Mirrors
+// rust/engine/tests/roundtrip_conformance.rs's own format_passing_block
+// tests.
+func TestFormatPassingBlockHeaderAndNames(t *testing.T) {
+	got := FormatPassingBlock([]string{"100_a", "101_b"})
+	want := "Passing fixtures (2, sorted):\n  100_a\n  101_b\n"
+	if got != want {
+		t.Fatalf("FormatPassingBlock(...) = %q, want %q", got, want)
+	}
+}
+
+func TestFormatPassingBlockEmptySetStillPrintsAWellFormedHeader(t *testing.T) {
+	got := FormatPassingBlock(nil)
+	want := "Passing fixtures (0, sorted):\n"
+	if got != want {
+		t.Fatalf("FormatPassingBlock(nil) = %q, want %q", got, want)
+	}
+}
+
+// THE regression this block exists to let a set-difference gate catch: a
+// net-zero fixture swap (same cardinality, different membership) must print a
+// DIFFERENT block — a bare count could never distinguish these two sets.
+func TestFormatPassingBlockNetZeroSwapChangesTheBlock(t *testing.T) {
+	before := []string{"100_a", "101_b", "102_c"}
+	after := []string{"100_a", "102_c", "103_d"} // 101_b regressed, 103_d is new
+	if len(before) != len(after) {
+		t.Fatalf("the scenario is a net-zero swap by construction")
+	}
+	if FormatPassingBlock(before) == FormatPassingBlock(after) {
+		t.Fatalf("two passing sets of equal size but different membership must print different blocks")
+	}
+}

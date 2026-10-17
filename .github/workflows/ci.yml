@@ -2759,6 +2759,27 @@ jobs:
       - name: Test @ball-lang/encoder (coverage-gated)
         run: cd ts/encoder && npm run coverage
 
+      # TS engine std-override drift guards (#817, #732). engine_setup.ts's
+      # registerExtraStdFunctions registers hand-written std-function
+      # overrides by hardcoded name, and until now nothing compared that
+      # registry against the canonical dart/shared/lib/std*.dart declarations
+      # (a phantom 'string_from_char_codes' arm sat there unreachable — #817,
+      # the TS sibling of #505/#607/#743) or against the
+      # dart/engine/lib/engine_std.dart dispatch entries it SHADOWS (#732,
+      # generalizing the one-override-family check_error_rendering_tables.py
+      # already does). Both checkers are pure python3 (stdlib only, no
+      # toolchain) — see each script's own docstring for what each does and
+      # does not catch. Self-test first: a gate nobody has watched fail is not
+      # a gate.
+      - name: "TS engine std overrides are declared, or a frozen known gap (#817)"
+        run: |
+          python3 tools/check_ts_engine_setup_declared.py --self-test
+          python3 tools/check_ts_engine_setup_declared.py
+      - name: "TS engine std overrides stay in sync with dart/engine's dispatch (#732)"
+        run: |
+          python3 tools/check_ts_engine_overrides_sync.py --self-test
+          python3 tools/check_ts_engine_overrides_sync.py
+
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
       # first. The Tier A RUN itself is not a PR gate (coverage-study.yml has no

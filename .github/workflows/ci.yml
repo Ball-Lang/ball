@@ -406,7 +406,7 @@ jobs:
       # hooks #879 removed, and finish_go_release.sh's dispatch must go through
       # await_workflow_run.py at the channel tag. The previous leg-11 check
       # passed a header describing the removed publishCmd mechanism.
-      - name: Go release wiring guard negative controls (#656, #879)
+      - name: "Go release wiring guard negative controls (#656, #879)"
         run: bash tools/release/check_go_release_wiring.sh --self-test
 
       # #627: the two halves the guard above can only assert the EXISTENCE of.

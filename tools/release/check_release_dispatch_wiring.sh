@@ -3,9 +3,10 @@
 #
 # WHY THIS EXISTS: this repo cuts releases from `release.yml` (semantic-release).
 # Until #755 its `@semantic-release/git` plugin pushed a
-# `chore(release): X.Y.Z [skip ci]` commit, and GitHub's skip-ci recursion
-# protection suppresses the ENTIRE workflow run for any `push`-triggered
-# workflow on such a commit — not merely the job's own `if:`. Since #755 the
+# `chore(release): X.Y.Z [skip ci]` commit, and GitHub's skip instructions
+# suppress the ENTIRE workflow run for any `push`-triggered workflow on such a
+# commit — not merely the job's own `if:` (GitHub's "Skipping workflow runs"
+# docs). Since #755 the
 # release commit lands through an auto-merged PR armed with `GITHUB_TOKEN`,
 # whose events start no workflow run either, so the conclusion is unchanged.
 # Anything hung off `on: push: branches:[main]` +

@@ -59,9 +59,10 @@ name: Tag Go modules
 #
 # NOT triggered by `push: branches:[main]` + a `chore(release)` message match.
 # This job lived in release-tag.yml behind exactly that gate and never ran once:
-# the release commit it waited for carried `[skip ci]`, and GitHub's skip-ci
-# recursion protection suppresses the ENTIRE workflow run on such a push — not
-# merely the job's own `if:`. No run row is even created, so the dead channel
+# the release commit it waited for carried `[skip ci]`, and GitHub's skip
+# instructions suppress the ENTIRE `push`/`pull_request` workflow run for such a
+# commit — not merely the job's own `if:` (GitHub's "Skipping workflow runs"
+# docs). No run row is even created, so the dead channel
 # read as "nothing red" while five releases shipped with zero `go/**` tags.
 # Since #879 a push trigger would be dead for a second reason: the release PR is
 # merged by an auto-merge armed with `GITHUB_TOKEN`, and "events triggered by

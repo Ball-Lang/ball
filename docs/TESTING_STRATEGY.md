@@ -611,25 +611,89 @@ drop is red.
    them is not cosmetic: libtest runs a target's non-`#[ignore]`d tests
    concurrently, so a self-test that SET `BALL_TIMEOUT_MS` would be writing the
    environment out from under its neighbours, and `std::env::set_var` is `unsafe`
-   for exactly that reason. That target carries `#![forbid(unsafe_code)]` so the
+   for exactly that reason. That target carries `#![deny(unsafe_code)]` so the
    ban is a build error rather than a comment a later reader has to honour —
    the SAFETY note that justified the old `set_var` (“the only
    non-`#[ignore]`d test in this target”) was false when it was written, and
-   a rule that only prose enforces rots exactly that way (#790).
+   a rule that only prose enforces rots exactly that way (#790). `deny`, not
+   `forbid`: #791's whole-process-tree kill below needs one real syscall no
+   safe std API exposes (`libc::kill(-pid, SIGKILL)` on unix), so
+   `kill_process_tree`'s unix half carries its own narrowly-scoped,
+   SAFETY-commented `#[allow(unsafe_code)]` — the only unsafe the file permits,
+   and the one thing a crate-level `forbid` would have made impossible to
+   express here at all.
 
-   **Killing the process is not the same as ending the fixture (#691).** Every
-   one of these legs sets `cmd.Stdout` to an in-memory writer, so the runtime
-   pipes the child and copies in a goroutine — and the wait does not return until
-   that copy ends, which needs EVERY holder of the pipe's write end closed, the
-   killed process's own descendants included. Go's round-trip leg killed its
-   `dart` and then blocked forever on `cmd.Wait()`, so the sweep printed no
-   `Results:` line at all and the row would have died on the job's
-   `timeout-minutes` — reporting nothing, rather than reporting a timeout. The
-   bound is `cmd.WaitDelay` (`go/engine/conformance/roundtrip.go`), and
-   `roundtrip_timeout_test.go` is its negative control: a stand-in `dart` that
-   hands its stdout to a grandchild and blocks, measured at 5.6 s with the bound
-   and 30.1 s without. It stayed latent because only 31 fixtures ever reached the
-   engine; it surfaced the moment #691 raised that to 80.
+   **Killing the process is not the same as ending the fixture.** `dart run` is
+   a LAUNCHER: it forks the Dart VM, and the VM is what executes the program and
+   holds the inherited stdout pipe. Killing only the process the leg spawned
+   therefore leaves work behind — but *which* failure that becomes depends
+   entirely on the exec API, so the four legs do not share one story. Stated per
+   leg, because stating it once for all four is what let #791 sit unnoticed:
+
+   - **Go — the WAIT used to hang too (#691), and the TREE survived until
+     #862.** `roundtrip.go` sets `cmd.Stdout` to an in-memory writer, so
+     `os/exec` pipes the child and copies in a goroutine, and `cmd.Wait` does
+     not return until that copy ends — which needs EVERY holder of the pipe's
+     write end closed, the killed process's descendants included. The leg
+     killed its `dart` and then blocked forever, so the sweep printed no
+     `Results:` line at all and the row would have died on the job's
+     `timeout-minutes` — reporting nothing, rather than reporting a timeout.
+     The bound is `cmd.WaitDelay`, and
+     `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe`
+     (`roundtrip_timeout_test.go`) is its negative control: a stand-in `dart`
+     that hands its stdout to a grandchild and blocks, measured at 5.6 s with
+     the bound and 30.1 s without. It stayed latent because only 31 fixtures
+     ever reached the engine; it surfaced the moment #691 raised that to 80.
+     **This WAS a Go-only mechanism** — the other three legs use exec APIs
+     that cannot block that way (`RoundTripLeg.cs` returns without awaiting its
+     read tasks; Rust's `run_dart` calls `child.wait()`, not
+     `wait_with_output()`; CPython's `subprocess` does not re-read the pipes on
+     the POSIX timeout path). But bounding the WAIT was never the same as
+     killing the TREE: until #862, `roundTripOne`'s timeout path called only
+     `cmd.Process.Kill()`, which reaches the immediate `dart` launcher and
+     nothing else — the elapsed-time assertion above is blind to it by
+     construction, because a harness that returns promptly and a grandchild
+     that is still running are the same observation. It now spawns the child
+     as its own process-group leader
+     (`cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`,
+     `roundtrip_unix.go`) and kills the GROUP on timeout
+     (`syscall.Kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on Windows,
+     `roundtrip_windows.go` — filename build constraints, since "unix" is not
+     a GOOS the filename convention recognizes on its own, so `roundtrip_unix.go`
+     also carries an explicit `//go:build unix`). The negative control is
+     `TestRoundTripKillEndsTheWholeProcessTree`: the SAME stand-in `dart`'s
+     grandchild now appends a heartbeat file every 50 ms, and the test asserts
+     it stops growing after the timeout fires, with a positive floor on that
+     file so a control that failed to fork anything cannot pass while proving
+     nothing — the Go sibling of the Rust/Python controls below. The group
+     kill ALSO reaches the WaitDelay control's own grandchild — the two
+     controls share the same stand-in `dart` — so left alone it would make
+     `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` pass on the
+     tree kill alone, with `cmd.WaitDelay` never engaging: the elapsed-time
+     numbers above (5.6 s / 30.1 s) would both read fast and the mutation of
+     deleting `cmd.WaitDelay` would go uncaught. That test substitutes a
+     package-level `killOnTimeout` var with a launcher-only kill for its own
+     run (restoring the pre-#862 topology, a descendant the tree kill does
+     not reach) so a prompt return can only be explained by the bound itself;
+     every other caller, production included, still gets the real tree kill.
+   - **Rust and Python — the process TREE survived until #791.** Neither
+     hangs; both used to kill only the immediate `dart`, leaving one orphaned
+     Dart VM per timed-out fixture burning a CI runner for the rest of the
+     job. Invisible to every test they had, because those assert only that
+     the HARNESS came back with a `timeout` status — which it always did.
+     Both now spawn the child as its own process-group leader
+     (`CommandExt::process_group(0)` / `start_new_session=True`) and kill the
+     GROUP on timeout (`libc::kill(-pid, SIGKILL)` / `os.killpg`;
+     `taskkill /T /F /PID` on Windows). The negative control per leg is
+     `a_timed_out_fixture_leaves_no_orphaned_descendant_process` (Rust) and
+     `python/engine/tests/test_roundtrip_process_tree.py`: a fabricated stand-in
+     `dart` that forks a grandchild inheriting its stdout and blocks, asserting
+     the GRANDCHILD is gone — observed through a heartbeat file it appends to
+     every 50 ms, with a positive floor on that file so a control that failed to
+     fork anything cannot pass while proving nothing.
+   - **C# — already correct.** `RoundTripLeg.cs` has always called
+     `process.Kill(entireProcessTree: true)`, which is the guarantee the other
+     three just acquired.
 
 Python's floor is **63** since PR #733 (run 34800144249, the PR's own row), which
 mapped every `ballrt.*` helper with an exact universal-`std` inverse — the
@@ -1481,13 +1545,31 @@ PR that is only broken in combination with another queued PR is caught and
 dequeued before either one reaches `main`, one merge sooner than the #749
 failure was caught.
 
-**This issue (and this PR) only prepares the workflows for that flag; the flag
-itself is a separate, later step on ruleset 17056238 — see
+**The first PR under #756 only prepared the workflows for the flag (every
+required-context workflow gained a `merge_group:` trigger); enabling the flag
+itself was a separate, later step on ruleset 17056238 — see
 [the recorded decision on #756](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998)
 for the reasoning (measured cost of `strict_required_status_checks_policy`
-vs. the merge queue) and why it isn't folded into the same PR. #756 stays
-open until that follow-up step enables the `merge_queue` rule and confirms it
-via `gh api repos/Ball-Lang/ball/rulesets/17056238`.**
+vs. the merge queue) and why it wasn't folded into the same PR. That follow-up
+step has now landed: the `merge_queue` rule is confirmed ENABLED on ruleset
+17056238 via `gh api repos/Ball-Lang/ball/rulesets/17056238 --jq
+'[.rules[].type]'` (the result includes `"merge_queue"`), with these
+parameters:**
+
+| Parameter | Value |
+| --- | --- |
+| `merge_method` | `SQUASH` |
+| `grouping_strategy` | `ALLGREEN` |
+| `max_entries_to_build` | 5 |
+| `max_entries_to_merge` | 5 |
+| `min_entries_to_merge` | 1 |
+| `min_entries_to_merge_wait_minutes` | 5 |
+| `check_response_timeout_minutes` | 90 |
+
+#756 itself tracks the broader "decide on strict_required_status_checks_policy"
+question and its own closure is a separate call; this doc states only the
+mechanical fact that the rule is live, verified against the API above, not
+the issue's lifecycle.
 
 A merge queue entry runs under GitHub's `merge_group` event, which is NOT a
 `pull_request` or a `push`: it carries no `pull_request` payload and no
@@ -1532,6 +1614,86 @@ usable base fails open identically to the existing `pull_request`/`push`
 fail-open rows, and a `merge_group` event with a real base is cross-checked
 against an equivalent `push` run sharing that exact base, proving it takes the
 real diff path rather than silently reusing the fail-open block.
+
+### Docs-only PRs and required-context workflows (#756 follow-up)
+
+Enabling the `merge_queue` rule (above) made a pre-existing problem fatal
+instead of merely slow: a merge queue entry can only be BUILT once the PR's
+own required checks are green, and `ci.yml` and `regression-gates.yml` — 19
+of the 19 required contexts between them — used to carry a `paths-ignore:`
+filter (`**.md`, `docs/**`, `LICENSE`, `.gitignore`) on their `pull_request:`
+trigger. GitHub's own troubleshooting documentation names this exact shape:
+
+> A workflow is skipped by path filtering, branch filtering, or a commit
+> message [...] Associated checks stay in a 'Pending' state and block
+> merging. [...] Avoid requiring workflows that can be skipped.
+
+(["Handling skipped but required checks"](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks))
+
+So any PR whose WHOLE diff matched that `paths-ignore:` list — a docs-only
+PR, e.g. a CONTRIBUTING.md typo fix or this very doc's own edits — never
+started either workflow at all. Every one of the 19 required contexts stayed
+"Pending" forever, and the PR could never merge through the normal, all-green
+path (queue or no queue). Ruleset 17056238 still names a bypass actor (the
+repo owner), so an `--admin` override was — and remains — technically
+possible; the point isn't that there was literally no way through, it's that
+the only way through was defeating the gate's entire purpose for a change
+that had nothing to check in the first place. CONTRIBUTING.md's landing
+steps already warn against exactly that: "`--admin` bypasses the queue
+entirely for an administrator; don't use it to dodge a legitimately red
+merge group."
+
+**The fix, following GitHub's own guidance literally:**
+
+1. `paths-ignore:` is gone from `ci.yml`'s and `regression-gates.yml`'s
+   `pull_request:` triggers (their `push:` triggers keep it unchanged — a
+   push to `main` owns no required context, so a skipped push run is not a
+   stuck PR). Every required context now always STARTS on every PR.
+2. Removing the trigger-level filter would, on its own, make a docs-only PR
+   expensive instead of blocked: `detect-changed-stacks/detect.sh`'s `infra`
+   fail-safe is true for any file outside the single-stack language dirs —
+   which includes every doc file OUTSIDE those dirs — so every heavy
+   per-stack job (the full ~25-minute C++ matrix included) would run on a
+   diff that could not possibly need it. `detect.sh` now carries the SAME
+   four `paths-ignore:` entries as an in-classifier carve-out: a file
+   matching `*.md` (anywhere, mirroring `**.md`'s own double-star semantics —
+   not just the repo root or `docs/`), `docs/**`, the root `LICENSE`, or the
+   root `.gitignore` no longer counts toward `infra` — **except** under
+   `tests/conformance/`, where several `*.md` files (`CARVEOUTS.md`,
+   `ENCODER_COMPLETENESS_CARVEOUTS.md`, `NODE_SHAPE_COVERAGE_CARVEOUTS.md`,
+   the generated `STD_COVERAGE.md`) are machine-read gate ledgers, not prose;
+   carving those out too would silently stop running the `ball-freshness`
+   Asserts that read them on a ledger-only PR, so `tests/conformance/**` is
+   excluded from the carve-out regardless of extension. A docs-only diff
+   (strictly outside every language dir and outside `tests/conformance/`)
+   now starts both workflows (so their required contexts report) but every
+   per-stack job's `if:` still evaluates false and the job SKIPS (a skipped
+   job reports `success` and satisfies a required check — a workflow that
+   never starts does not). The claim is narrower than "every doc change":
+   a doc file INSIDE a language dir — `rust/AGENTS.md`, say — still sets
+   that stack's own flag (the stack check is a directory PREFIX match, not
+   an extension exclusion), which is safe (it runs MORE than strictly
+   necessary, never less) but is not "skipped".
+   `.github/actions/detect-changed-stacks/test/truth_table.sh` pins all of
+   this: one row per carve-out shape, rows for the `tests/conformance/`
+   ledger exclusion
+   (alone and paired with an unrelated stack file), a negative control
+   proving a docs file alongside a genuinely cross-cutting file still trips
+   `infra`, and a control proving a docs file alongside a stack-dir file
+   flips only that stack's own flag.
+3. `tools/ci/check_pr_job_fanout.sh` — already the static guard for "a
+   required context must never live behind a workflow-level `paths:`
+   allow-list" (report-safety 2, above its "THE RULE") — now checks
+   `paths-ignore:` too, for exactly the same reason: a required-context
+   workflow whose `pull_request:` trigger carries either filter form can have
+   its entire diff miss the allow-list or match the whole deny-list, and
+   either way the workflow never starts. Its `--self-test` drives a
+   `paths-ignore:`-filtered required-context workflow as a dedicated negative
+   control, so a FUTURE regression — someone re-adding `paths-ignore:` to
+   either workflow's `pull_request:` trigger while it still owns a required
+   context — fails this guard (run from `ci.yml`'s always-on `Proto Checks`
+   job) immediately, rather than being discovered the next time someone opens
+   a docs-only PR.
 
 ### Per-PR job fan-out (issue #666)
 
@@ -2009,7 +2171,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/467_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | **A USER-thrown built-in Dart error reads the same on every target (§5b, #658)** — a caught `throw StateError('boom')` reads Dart's own `Bad state: boom` everywhere, INCLUDING the reference engine, while `.message` still reads the raw ctor argument; and every explicit rendering table covers every literal-throwable built-in (`ArgumentError` → `Invalid argument(s)`), raised or not | `tests/conformance/473_caught_user_thrown_builtin_error` (cross-target) + `tools/check_error_rendering_tables.py`'s `LITERAL_THROWABLE` check and its self-test + per-target tests: `dart/engine/test/user_thrown_builtin_error_test.dart`, `go/runtime/dart_error_rendering_test.go`, `go/compiler/user_thrown_builtin_error_test.go`, `csharp/compiler/test/UserThrownBuiltinErrorTests.cs`, `rust/shared/src/value.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
-| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
+| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds two entries (`459_set_add_remove_bool`, `462_set_mutation_in_place`, both `:dart-roundtrip`) the Dart encoder provably cannot express, and fails if either starts passing or names nothing real) | `slow-conformance.yml` — every PR touching `dart/compiler/**`, `dart/encoder/**`, or the workflow itself (closing the #880 gap), plus weekly + manual |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
@@ -2021,7 +2183,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **A Python re-encode that only the REFERENCE ENGINE can refute (#785)** — the fast Python round-trip guards (`python/encoder/tests/test_ballrt_inverse.py`, `test_ballrt_namespaced.py`) run the re-encoded fixture in-process under `ballrt` and compare to the golden. Python's runtime is tolerant where the reference engine is strict — `ballrt.getfield` answers `None` for an absent key (proto3-default tolerance) while the engine raises `BallRuntimeError: Field "…" not found` — so a re-encode that reads an absent key under the eager `std.null_coalesce` prints the golden there and DIES on the engine. The whole-corpus `python-roundtrip` row does use the engine, but it is a path-filtered floor/ratchet measurement, not a per-fixture gate on the suite that certifies those fixtures | `python/encoder/tests/test_reference_engine_roundtrip.py` — for every fixture those two suites certify (the set **derived from their own lists**, so a fixture added there is covered the same day) it runs the ORIGINAL `.ball.json` *and* the RE-ENCODED program on `dart run dart/cli/bin/ball.dart run` and asserts byte-identical stdout, with the fixture's own golden as the third leg so a failure names the guilty side. A negative control encodes two compiler-shaped programs `ballrt` cannot tell apart and the engine can, so the instrument is proven rather than trusted; a positive floor on the derivation stops an empty set from reading as green. No skip: an unresolvable `dart` FAILS (the #730/#764 precedent), which is why `ci.yml`'s `python` job sets Dart up BEFORE its test steps | every PR (the `python` job, `cd python/encoder && python -m pytest`) |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
-| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the budget it is HANDED — `run_dart` takes the budget as an ARGUMENT, so the kill is proven in milliseconds with no environment write. That seam is the point: libtest runs this target's five non-`#[ignore]`d tests concurrently (the whole-corpus sweep beside them is `#[ignore]`d and runs only under `--ignored`), so a `set_var` here would be writing the environment out from under its neighbours. The env SPELLING is pinned separately, through the injectable `budget_from(lookup)` seam, by `the_per_fixture_budget_is_read_from_ball_timeout_ms`, which calls it with a fake lookup that records the key name it was asked for | every PR (the `rust` job's `cargo test --workspace`) |
+| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the budget it is HANDED — `run_dart` takes the budget as an ARGUMENT, so the kill is proven in milliseconds with no environment write. That seam is the point: libtest runs this target's six non-`#[ignore]`d tests concurrently (the whole-corpus sweep beside them is `#[ignore]`d and runs only under `--ignored`), so a `set_var` here would be writing the environment out from under its neighbours. The env SPELLING is pinned separately, through the injectable `budget_from(lookup)` seam, by `the_per_fixture_budget_is_read_from_ball_timeout_ms`, which calls it with a fake lookup that records the key name it was asked for | every PR (the `rust` job's `cargo test --workspace`) |
 | **§3a itself is enforced, not merely documented** (#705) | `tools/check_verdict_exit_status.py` — every `done < <(…)` under `tools/**/*.sh` + `cpp/test/*.sh` must be named in `tools/verdict_loop_carveouts.tsv` WITH the reason it is safe (anchored on the loop's producer, so a rewritten producer is re-justified). A stale entry, an ambiguous anchor, an empty reason, an undelimitable substitution and a scan that inspected zero loops are each an error. A reviewed LIST rather than an inference: a wrong answer in the permissive direction is the exact hole §3a exists to close. `tools/test/test_check_verdict_exit_status.py` drives 18 offline cases first — an uncarved offender, a carved one, a floored-but-uncarved one, the stale/ambiguous/empty-reason refusals, the multi-line shape, a `)` inside a multi-line quoted string (quote state must carry across lines or the producer handed back is not what runs), the undelimitable shape, the scanned scope in both directions, the zero-loops floor — and ends on the real tree as the positive control | every PR (the always-on `proto` job, stdlib-only) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs the std builders and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose — an exclusion that is ENFORCED since #774, see the next row). One truth-table row per builder — all eight, not a sample — plus `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |
@@ -2033,6 +2195,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |
+| **A workflow cannot pass `anthropics/claude-code-action` an input invalid for its own trigger events** (#870) — `claude-iterate.yml`'s weekly `schedule` run was red from the day it was added (2026-07-10, every scheduled run since 2026-07-14 failing identically) because its three steps passed `track_progress: true` on a `schedule`/`workflow_dispatch` trigger, an input the action's own `validateTrackProgressEvent` (`src/modes/detector.ts`, read at the pinned SHA) hardcodes valid only for `pull_request`/`issues`/`issue_comment`/`pull_request_review_comment`/`pull_request_review` — every run threw in `detectMode()` before Claude was ever invoked, on all three failover accounts, and the workflow's own failover step then misreported it as an auth/rate-limit failure. Nothing else models a third-party action's own input semantics: the YAML is syntactically valid, actionlint has no opinion on it, and the failure only ever surfaces on the event the workflow is scheduled for, which PR-time CI never fires | `tools/ci/check_claude_action_inputs.sh` — parses every `.github/workflows/*.yml`, finds every `anthropics/claude-code-action` step whose `track_progress` is not statically `false`/absent (a dynamic `${{ ... }}` expression is treated conservatively as "possibly enabled"), and fails unless that workflow's trigger set is a subset of the action's `track_progress`-valid events — plus, when the workflow also triggers on `pull_request`, that its declared (or the three GitHub-documented default) `types:` are a subset of the action's valid `pull_request` actions, the second check `validateTrackProgressEvent` performs. A positive floor (at least one real `claude-code-action` step found) keeps a guard that scanned nothing from reporting success; `--self-test` drives 6 positive + 6 negative fixtures offline first | every PR (the always-on `proto` job, no extra toolchain) |
 | **The published JSON Schema MIRRORS the proto, field for field** (#609) | `tools/check_proto_schema_drift.py` — `ball.schema.json` is the Draft 2020-12 mirror `docs/BALL_JSON_SPEC.md` points JSON-only implementers at, and every `$defs` object sets `additionalProperties: false`, so a proto field added without the matching schema edit does not merely go undocumented: the repo's own schema REJECTS the JSON this repo emits (`CallSite.resolved_module` did exactly that to `ball audit --output`). The checker parses `proto/ball/v1/ball.proto` with a deliberately STRICT reader (any line in a message/enum body that is not a comment, a field, a `oneof` or a brace is a hard error — never a silently skipped field) and asserts every message, field and enum value has the matching `$defs` entry of the matching JSON shape (`repeated` → `array`/`items`, `map<string,V>` → `object`/`additionalProperties`, `int64` → `$defs/Int64String`, …). The schema may be STRICTER than the proto (`ModuleImport.integrity` adds a `pattern`); it may never contradict or omit. Measured positive floors (34 messages / 153 fields / 2 enums) make "the reader found nothing" exit 2 rather than pass. `tools/test/test_check_proto_schema_drift.py` drives 11 offline cases first, including this defect from BOTH directions and three fake-green controls (unreadable proto line, below-floor proto, missing schema file). The corpus half — `scripts/validate_ball_schema.py`, every `.ball.json` against the schema — is a LOCAL check (it needs `pip install jsonschema`; the always-on job is deliberately hermetic and the `python` job that has pip is path-filtered to `python/**`), and it is structurally blind to this axis anyway: no corpus file is a `BallCapabilityReport`, a `BallManifest` or a `BallLockfile` | every PR (the always-on `Proto Checks` job, stdlib-only) |
 | **The Go module release lane stays machine-driven, and its own YAML-parsing leg cannot be silently disabled** (#361/#656/#694) | `tools/release/check_go_release_wiring.sh` — 27 legs over the lane's shape (one semantic-release config, the commit carrying every file the bump rewrites, `tag_go_modules.sh` as the single tagging path, no silent v2), of which the go-freshness `pull_request.paths` leg parses YAML rather than grepping because the claim is that a LIST IS EXACTLY A SET. `--self-test` drives 11 cases: 9 on the checker's verdicts (widened, narrowed, unfiltered, `paths-ignore`, no PR trigger, unparseable) and 2 on the **leg**, which run the whole guard with and without a `python3` that works — the §3a control, added after the leg was found reporting PASS with the checker unable to run | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |

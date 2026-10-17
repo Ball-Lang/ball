@@ -337,4 +337,53 @@ void main() {
       },
     );
   });
+
+  group(
+    'round-trip: null-aware chain on a mutable field (#471, closes #880)',
+    () {
+      // `node?.leaf.value` on a MUTABLE field lowers to
+      // `node == null ? null : node.leaf.value` — Dart's flow analysis never
+      // promotes a field, so the compiled else-arm must assert `node!` or the
+      // emitted Dart is rejected outright ("The property 'leaf' can't be
+      // unconditionally accessed because the receiver can be 'null'."). The
+      // non-null-ref mechanism ([_nonNullRefs]) used to be wired to exactly
+      // one narrow shape (`X?.call()` on a nullable function field) — any
+      // OTHER member access or method call on the proven-non-null receiver
+      // compiled with no `!` at all.
+      String source({required String access}) =>
+          '''
+class Leaf {
+  final int value;
+  Leaf(this.value);
+  int twice() => value * 2;
+}
+class Node {
+  final Leaf leaf;
+  Node(this.leaf);
+}
+class Holder {
+  Node? node;
+  Holder(this.node);
+  $access
+}
+void main() {
+  print(Holder(Node(Leaf(5))).run());
+}
+''';
+
+      test(
+        'a plain field-access chain asserts non-null (`node!.leaf.value`)',
+        () {
+          final out = _rt(source(access: 'int? run() => node?.leaf.value;'));
+          expect(out, contains('node!.leaf.value'));
+        },
+      );
+
+      test('a method call at the end of the chain asserts non-null '
+          '(`node!.leaf.twice()`)', () {
+        final out = _rt(source(access: 'int? run() => node?.leaf.twice();'));
+        expect(out, contains('node!.leaf.twice()'));
+      });
+    },
+  );
 }

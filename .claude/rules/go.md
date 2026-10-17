@@ -507,6 +507,23 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   timeout fires — with a positive floor on that file (it must be non-empty
   before the stillness check) so a control that never forked a live
   grandchild cannot pass while proving nothing.
+- **The group kill shares its stand-in `dart` with the WaitDelay control above, so
+  left unmodified it defeats that control.** The SAME grandchild the WaitDelay
+  control's elapsed-time assertion depends on surviving is also what the group
+  kill now reaches — so without a seam,
+  `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` would pass on the
+  tree kill alone, `cmd.WaitDelay` would never engage, and the 5.6 s / 30.1 s
+  numbers above would both read fast (a prompt return either way), silently
+  losing the ability to catch a deleted `cmd.WaitDelay`. `roundTripOne`'s
+  timeout path calls a package-level `killOnTimeout` var (defaulting to
+  `killProcessTree`) instead of `killProcessTree` directly for exactly this
+  reason: `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` substitutes
+  a launcher-only kill (`cmd.Process.Kill()` alone) for the duration of its own
+  run, reproducing the pre-#862 topology — a descendant the tree kill does not
+  reach — so a prompt return can only be explained by the bound itself.
+  `TestRoundTripKillEndsTheWholeProcessTree` leaves `killOnTimeout` untouched,
+  so it still proves the real, unmodified tree kill. Every other caller,
+  production included, always gets the real tree kill.
 - **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
   compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
   construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture

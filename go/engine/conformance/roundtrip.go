@@ -211,11 +211,19 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 		// the inherited stdout pipe. Killing only the launcher leaves that VM
 		// orphaned, still running in the CI runner, for the rest of the job —
 		// invisible to a caller that only sees a `timeout` status come back.
-		killProcessTree(cmd)
+		killOnTimeout(cmd)
 		<-done
 		return Result{name, "timeout", fmt.Sprintf("killed after %s", timeout)}
 	}
 }
+
+// killOnTimeout is a package-level var — not a direct call to killProcessTree —
+// so TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe can substitute a
+// LAUNCHER-ONLY kill. #862's tree kill now reaches a holder grandchild too, so
+// without this seam that test could pass on the tree kill alone with
+// cmd.WaitDelay never engaging at all — see the comment on that test. Every
+// other caller, including this file at runtime, gets killProcessTree.
+var killOnTimeout = killProcessTree
 
 // writeEnvelopedJSON renders prog as proto3 JSON inside the cosmetic "@type"
 // google.protobuf.Any envelope every .ball.json carries — the same shape

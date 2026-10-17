@@ -370,6 +370,18 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   the test asserts it stops growing after the timeout — with a positive floor
   on that file so a control that failed to fork anything cannot pass while
   proving nothing.
+- **The group kill would otherwise defeat the WaitDelay control above, because
+  both share the same stand-in `dart`.** Left unmodified, the group kill ends
+  that control's grandchild too, so it would pass on the tree kill alone with
+  `cmd.WaitDelay` never engaging — the 5.6 s / 30.1 s numbers above would both
+  read fast and deleting `cmd.WaitDelay` would go uncaught.
+  `roundTripOne`'s timeout path therefore calls a package-level `killOnTimeout`
+  var (defaulting to `killProcessTree`) rather than `killProcessTree` directly,
+  and `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` substitutes a
+  launcher-only kill for the duration of its own run — the pre-#862 topology,
+  a descendant the tree kill does not reach — so a prompt return can only be
+  explained by `cmd.WaitDelay` itself. Every other caller, production
+  included, still gets the real tree kill.
 - CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
   **That workflow is a PR gate since #619** — it has a path-filtered
   `pull_request:` trigger sharing its `push` filter, and `go/**` is in that

@@ -27,6 +27,18 @@ import (
 // This is the negative control: a stand-in `dart` that starts a grandchild
 // inheriting stdout and then blocks, i.e. the exact shape. The test fails if the
 // leg does not come back well inside the grandchild's lifetime.
+//
+// Since #862, roundTripOne's timeout path kills the WHOLE process tree
+// (killProcessTree), not just the launcher — so left as originally written,
+// this control's grandchild would be killed by the tree kill too, the pipe
+// would close on its own, and Wait would return promptly with cmd.WaitDelay
+// never engaging at all: the mutation this test exists to catch (deleting
+// `cmd.WaitDelay = 5 * time.Second`) would then go undetected. The test
+// substitutes `killOnTimeout` with a LAUNCHER-ONLY kill (see its body) to
+// reproduce the pre-#862 topology — a descendant the tree kill does not
+// reach — so a prompt return can only be explained by cmd.WaitDelay itself.
+// TestRoundTripKillEndsTheWholeProcessTree below is the separate control that
+// the real, unmodified killProcessTree does reach the whole tree.
 
 // roundTripHelperEnv switches this test binary into one of the helper roles
 // below instead of running tests. Re-executing the test binary is the standard
@@ -78,6 +90,20 @@ func TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe(t *testing.T) {
 	// The leg starts its `dart` with this process's environment, so setting the
 	// role here is what makes the stand-in behave as the runaway.
 	t.Setenv(roundTripHelperEnv, "hang")
+
+	// Isolate cmd.WaitDelay from #862's tree kill: substitute a kill that reaches
+	// only the immediate `dart` process (cmd.Process), exactly roundTripOne's
+	// pre-#862 behavior, so the grandchild "holder" below survives the kill and
+	// keeps holding the stdout pipe. If this test came back quickly ONLY because
+	// killProcessTree also reached the grandchild, it would prove nothing about
+	// cmd.WaitDelay — see the file-level comment above.
+	prevKill := killOnTimeout
+	killOnTimeout = func(cmd *exec.Cmd) {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	defer func() { killOnTimeout = prevKill }()
 
 	dir, err := conformanceDir()
 	if err != nil {

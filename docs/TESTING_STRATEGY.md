@@ -628,7 +628,17 @@ drop is red.
      grandchild now appends a heartbeat file every 50 ms, and the test asserts
      it stops growing after the timeout fires, with a positive floor on that
      file so a control that failed to fork anything cannot pass while proving
-     nothing — the Go sibling of the Rust/Python controls below.
+     nothing — the Go sibling of the Rust/Python controls below. The group
+     kill ALSO reaches the WaitDelay control's own grandchild — the two
+     controls share the same stand-in `dart` — so left alone it would make
+     `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` pass on the
+     tree kill alone, with `cmd.WaitDelay` never engaging: the elapsed-time
+     numbers above (5.6 s / 30.1 s) would both read fast and the mutation of
+     deleting `cmd.WaitDelay` would go uncaught. That test substitutes a
+     package-level `killOnTimeout` var with a launcher-only kill for its own
+     run (restoring the pre-#862 topology, a descendant the tree kill does
+     not reach) so a prompt return can only be explained by the bound itself;
+     every other caller, production included, still gets the real tree kill.
    - **Rust and Python — the process TREE survived until #791.** Neither
      hangs; both used to kill only the immediate `dart`, leaving one orphaned
      Dart VM per timed-out fixture burning a CI runner for the rest of the

@@ -700,16 +700,29 @@ positional argument per input field". They have their own arms in
   so encoding it as an entry-less `map_create` would silently compute `{}` (the issue #55 class).
   Both helpers panic naming the shape instead; `a_map_create_over_a_spliced_list_fails_loud` and
   its set twin are the pins.
-- **Stated, pre-existing gap surfaced while measuring this: every compiled STRING literal
-  re-encodes wrapped in `std.to_string`.** `compile_expression` emits a Ball string literal as
-  `BallValue::String("a".to_string())`, and `.to_string()` is NOT one of `methods.rs`'s identity
-  passthroughs — in hand-written Rust, which is this encoder's actual input, it genuinely IS
-  `std.to_string`. Over a `String` that op returns its operand unchanged, so the re-encoded
-  program computes the same answer; the extra node is a node-fidelity difference, not a
-  behavioural one, and making it an identity would special-case a literal receiver on evidence
-  nobody has measured. It is ASSERTED, not normalized away, in
-  `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
-  `std.to_string({value: "a"})`), so the day it changes, a test says so.
+- **CLOSED (issue #807): a `.to_string()` call on a LITERAL receiver re-encodes as the bare
+  literal, not `std.to_string`.** `compile_expression` emits EVERY Ball string literal as exactly
+  `BallValue::String("a".to_string())`, and before #807 `.to_string()` was not one of
+  `methods.rs`'s identity passthroughs — in hand-written Rust, which is this encoder's actual
+  input, an UNGUARDED `.to_string()` genuinely IS `std.to_string`. Over a `String` that op returns
+  its operand unchanged, so the re-encoded program computed the same answer either way — the extra
+  node was a node-fidelity difference, not a behavioural one — but making it an identity was left
+  as a stated gap "on evidence nobody has measured" until #807 measured it: **251 of the 368
+  `tests/conformance` fixtures (68%) carry at least one string literal**, making this the single
+  largest node-fidelity gap in the compiler<->encoder round trip. `methods.rs::literal_string_value`
+  peels `(...)`/group wrappers to see whether a `.to_string()` call's receiver is, underneath, a
+  bare string LITERAL (the same literal-only receiver test `is_string_constructor` already applies
+  to this identical method, for the unrelated `write!`/`writeln!` sink detection, #630) and, when it
+  is, emits the literal directly. A NON-literal receiver (an `i64`, a `String` local, …) still routes
+  through `std.to_string`, because `.to_string()` is a REAL conversion there — `5.to_string()` is not
+  `5`. `a_compiled_map_literal_re_encodes_as_std_map_create` now asserts the map KEYS come back as
+  the bare literals `"a"`/`"b"`; `method_sugar.rs`'s
+  `literal_to_string_encodes_as_the_bare_literal_not_std_to_string` (encode → compile → run) and
+  `compiled_type_ops_and_literals.rs`'s `a_compiled_bare_string_literal_re_encodes_as_the_bare_literal`
+  pin the fix directly, and each has a non-literal-receiver control
+  (`non_literal_to_string_still_encodes_as_std_to_string`,
+  `a_compiled_non_literal_to_string_call_still_re_encodes_as_std_to_string`) proving the guard did
+  not widen past literal receivers.
 - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
   `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
   PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`

@@ -685,12 +685,21 @@ cargo fmt --check && cargo clippy --workspace
     Encoding it as an entry-less `map_create` would silently compute `{}` — the issue #55 class —
     so both helpers panic naming the shape. `a_map_create_over_a_spliced_list_fails_loud` and its
     set twin are the pins.
-  - **Stated gap (pre-existing, surfaced here): every compiled STRING literal re-encodes wrapped
-    in `std.to_string`.** `compile_expression` emits one as `BallValue::String("a".to_string())`,
-    and `.to_string()` is not one of `methods.rs`'s identity passthroughs — in hand-written Rust
-    it genuinely IS `std.to_string`, which over a `String` returns its operand unchanged. A
-    node-fidelity difference, not a behavioural one; asserted (map KEYS come back as
-    `std.to_string({value: "a"})`) rather than normalized away, so a change to it is loud.
+  - **CLOSED (issue #807): a `.to_string()` call on a LITERAL receiver re-encodes as the bare
+    literal, not `std.to_string`.** `compile_expression` emits EVERY Ball string literal as
+    `BallValue::String("a".to_string())`, and an UNGUARDED `.to_string()` genuinely IS
+    `std.to_string` in hand-written Rust — over a `String` that op returns its operand unchanged,
+    so the extra node was a node-fidelity difference, not a behavioural one, but it was left
+    unfixed "on evidence nobody has measured" until #807 measured it: 251 of the 368
+    `tests/conformance` fixtures (68%) carry a string literal. `methods.rs::literal_string_value`
+    peels `(...)`/group wrappers and recognizes a bare string-literal receiver — the same
+    literal-only test `is_string_constructor` already applies to this identical method for the
+    unrelated write!/writeln! sink detection (#630) — and emits the literal directly; a
+    NON-literal receiver still routes through `std.to_string`, since `.to_string()` is a REAL
+    conversion there. Guards: `compiled_type_ops_and_literals.rs`'s
+    `a_compiled_bare_string_literal_re_encodes_as_the_bare_literal` (plus its non-literal control)
+    and `method_sugar.rs`'s `literal_to_string_encodes_as_the_bare_literal_not_std_to_string`
+    (encode → compile → run, plus its non-literal control).
   - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950,
     job `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the
     same PR. All FOUR of #692's blockers left the first-blocker histogram entirely

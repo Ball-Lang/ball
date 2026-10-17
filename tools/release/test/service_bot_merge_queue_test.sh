@@ -46,6 +46,7 @@ case "$1 $2" in
   *)
     case "$2" in
       repos/*/git/matching-refs/*) cat "${STUB_REFS_JSON:?}" ;;
+      repos/*/rules/branches/*) printf '%s' "${STUB_RULES_JSON:-[]}" ;;
       repos/*/actions/workflows/*/runs*)
         wf="${2#*/actions/workflows/}"
         wf="${wf%%/runs*}"
@@ -96,6 +97,7 @@ run_service() {
   PATH="$STUBDIR:$PATH" GH_REPO="test-owner/test-repo" GH_LOG="$GH_LOG" \
     STUB_QUEUE_JSON="$WORKDIR/queue.json" STUB_REFS_JSON="$WORKDIR/refs.json" \
     STUB_RUNS_DIR="$RUNS_DIR" STUB_GRAPHQL_FAIL="${STUB_GRAPHQL_FAIL:-}" \
+    STUB_RULES_JSON="${STUB_RULES_JSON:-[]}" \
     bash "$SCRIPT" "$@"
 }
 
@@ -123,6 +125,21 @@ if run_service > "$WORKDIR/log1.txt" 2>&1; then
   fi
 else
   no "no merge queue configured -> exit 0 ($(cat "$WORKDIR/log1.txt"))"
+fi
+
+# ── Test 1b: GraphQL says "no queue" but the branch's rules REQUIRE one ─────
+#    -> the token cannot see the queue: FAIL LOUD, never "nothing to do" ─────
+reset
+write_queue null
+if STUB_RULES_JSON='[{"type":"required_status_checks"},{"type":"merge_queue"}]' \
+  run_service > "$WORKDIR/log1b.txt" 2>&1; then
+  no "null mergeQueue but a merge_queue rule -> must exit non-zero (exited 0: $(cat "$WORKDIR/log1b.txt"))"
+else
+  if grep -q "::error::" "$WORKDIR/log1b.txt" && [ "$(dispatches)" = "0" ]; then
+    ok "null mergeQueue but a merge_queue rule -> exit non-zero with ::error:: (an unreadable queue is not an absent one)"
+  else
+    no "null mergeQueue but a merge_queue rule -> ::error:: and nothing dispatched (out: $(cat "$WORKDIR/log1b.txt"))"
+  fi
 fi
 
 # ── Test 2: a HUMAN-enqueued entry is left alone — its merge_group runs fire

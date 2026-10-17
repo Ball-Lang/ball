@@ -39,8 +39,9 @@
 # normally. Run every 5 minutes by .github/workflows/bot-merge-queue.yml.
 #
 # Exit status: 0 when every bot entry awaiting checks was serviced (or none
-# needed it); non-zero when the queue could not be read, or an entry awaiting
-# checks has no queue branch at its head commit — never "nothing to do".
+# needed it); non-zero when the queue could not be read — including a null
+# queue on a branch whose rules require one — or an entry awaiting checks has
+# no queue branch at its head commit. Never "nothing to do" for any of those.
 #
 # Usage:
 #   bash tools/release/service_bot_merge_queue.sh [--dry-run] [--base <branch>]
@@ -97,7 +98,17 @@ query($owner: String!, $name: String!, $branch: String!) {
   }
 }' > "$WORKDIR/queue.json"
 
+# A `null` mergeQueue is ambiguous: GraphQL answers the same for "this branch
+# has no queue" and for "this token cannot see it". Reading the latter as the
+# former would turn this servicer green while a bot entry blocks the queue, so
+# a null is cross-checked against the branch's effective rules (readable by
+# any token with metadata access, unlike the ruleset itself).
 if jq -e '.data.repository.mergeQueue == null' "$WORKDIR/queue.json" > /dev/null; then
+  gh api "repos/$REPO/rules/branches/$BASE" > "$WORKDIR/rules.json"
+  if jq -e 'any(.[]; .type == "merge_queue")' "$WORKDIR/rules.json" > /dev/null; then
+    echo "::error::$BASE's rules require a merge queue, but the GraphQL mergeQueue for $REPO/$BASE is null — this token cannot read the queue, so bot-enqueued entries cannot be serviced"
+    exit 1
+  fi
   echo "service_bot_merge_queue: $REPO has no merge queue on $BASE — auto-merge lands bot PRs directly, nothing to service"
   exit 0
 fi

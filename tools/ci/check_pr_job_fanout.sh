@@ -26,9 +26,25 @@
 #     exactly that single collapsed check and three permanently-missing required
 #     contexts. Gate such a job at STEP level instead, so every leg reports.
 #   * A job that owns a required context inside a workflow whose
-#     `pull_request:` trigger is `paths:`-filtered. A PR that misses the filter
-#     never starts the workflow, so the context never reports. (docs/
-#     TESTING_STRATEGY.md, "never require path-filtered jobs".)
+#     `pull_request:` trigger carries a `paths:` allow-list OR a
+#     `paths-ignore:` deny-list. A PR whose diff misses the allow-list, or is
+#     fully covered by the deny-list, never starts the workflow, so the
+#     context never reports. (docs/TESTING_STRATEGY.md, "never require
+#     path-filtered jobs".) `paths-ignore:` joined this bullet in #756's
+#     follow-up: `ci.yml` and `regression-gates.yml` carried
+#     `paths-ignore: ["**.md", "docs/**", "LICENSE", ".gitignore"]` on
+#     `pull_request:` since before either owned a required context, so this
+#     guard never saw it — and a PR whose WHOLE diff matched that list (any
+#     docs-only PR) never started either workflow, leaving all 19 required
+#     contexts "Pending" forever. GitHub's own troubleshooting guidance names
+#     exactly this shape and its fix: "Avoid requiring workflows that can be
+#     skipped" (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks
+#     — "Handling skipped but required checks"). Both workflows' `paths-ignore:`
+#     is gone from `pull_request:` (still applies to `push:`, which owns no
+#     required context); `.github/actions/detect-changed-stacks/detect.sh`'s
+#     `infra` signal carries the same four entries as a carve-out instead, so a
+#     docs-only PR still SKIPS every heavy per-stack job (a skipped job reports
+#     success) — it just never leaves a required context unstarted.
 #
 # THE RULE. Every job reachable on `pull_request` in the five PR workflows must
 # satisfy at least one of:
@@ -244,7 +260,9 @@ for wf_name in WORKFLOWS:
     if pr is None:
         errors.append(f"{wf_name}: no `pull_request:` trigger — not a PR workflow")
         continue
-    workflow_conditioned = bool(pr.get("paths"))
+    workflow_allowlisted = bool(pr.get("paths"))
+    workflow_denylisted = bool(pr.get("paths-ignore"))
+    workflow_conditioned = workflow_allowlisted or workflow_denylisted
 
     jobs = doc.get("jobs")
     if not isinstance(jobs, dict) or not jobs:
@@ -287,12 +305,23 @@ for wf_name in WORKFLOWS:
             )
 
         # ── report-safety 2: a required context behind a workflow-level
-        # `paths:` filter never reports on a PR that misses the filter. ─────
+        # `paths:` allow-list OR `paths-ignore:` deny-list never reports on a
+        # PR that misses the allow-list, or is fully covered by the deny-list
+        # (#756 follow-up — this is exactly how a docs-only PR used to be
+        # blocked forever). ──────────────────────────────────────────────────
         if owns and workflow_conditioned:
+            if workflow_allowlisted and workflow_denylisted:
+                filter_kind = "paths:`/`paths-ignore:"
+            elif workflow_allowlisted:
+                filter_kind = "paths:"
+            else:
+                filter_kind = "paths-ignore:"
             errors.append(
                 f"{key}: owns required context(s) {sorted(owns)} inside a workflow whose "
-                "`pull_request:` trigger is `paths:`-filtered. A PR that misses the filter "
-                "never starts the workflow, so the context stays pending forever."
+                f"`pull_request:` trigger carries a `{filter_kind}` filter. A PR whose diff "
+                "misses the allow-list (or is fully covered by the deny-list) never starts "
+                "the workflow, so the context stays pending forever — GitHub's own guidance "
+                "is to avoid requiring workflows that can be skipped."
             )
 
         # ── fan-out: required, conditioned, workflow-filtered, allow-listed,
@@ -563,7 +592,26 @@ open(path, "w", encoding="utf-8").write(src)
 PY
   case_run "required context behind a paths filter rejected" 1 "$tmp/paths-required" "$tmp/empty-allowlist"
 
-  # 8. NEGATIVE CONTROL — a renamed job orphans a required context.
+  # 8. NEGATIVE CONTROL — a required context behind a workflow `paths-ignore:`
+  # deny-list never reports on a PR whose WHOLE diff matches it. This is the
+  # exact shape that blocked every docs-only PR on this repo until #756's
+  # follow-up: `ci.yml` and `regression-gates.yml` carried
+  # `paths-ignore: ["**.md", "docs/**", ...]` on `pull_request:` with no guard
+  # ever checking it, because this guard only ever looked at `paths:`.
+  scaffold "$tmp/paths-ignore-required"
+  python3 - "$tmp/paths-ignore-required/ci.yml" <<'PY'
+import sys
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+src = src.replace(
+    "  pull_request:\n    branches: [main]\n",
+    '  pull_request:\n    branches: [main]\n    paths-ignore: ["**.md", "docs/**"]\n',
+)
+open(path, "w", encoding="utf-8").write(src)
+PY
+  case_run "required context behind a paths-ignore filter rejected" 1 "$tmp/paths-ignore-required" "$tmp/empty-allowlist"
+
+  # 9. NEGATIVE CONTROL — a renamed job orphans a required context.
   scaffold "$tmp/renamed"
   python3 - "$tmp/renamed/ci.yml" <<'PY'
 import sys
@@ -577,8 +625,8 @@ PY
   local total=$((pass + fail))
   # Positive floor: an exit code plus a failure count cannot tell "everything
   # passed" from "nothing ran".
-  if [ "$total" -lt 8 ]; then
-    echo "::error::self-test ran $total case(s), expected 8"
+  if [ "$total" -lt 9 ]; then
+    echo "::error::self-test ran $total case(s), expected 9"
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"

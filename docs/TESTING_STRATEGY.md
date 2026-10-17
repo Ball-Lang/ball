@@ -1421,13 +1421,31 @@ PR that is only broken in combination with another queued PR is caught and
 dequeued before either one reaches `main`, one merge sooner than the #749
 failure was caught.
 
-**This issue (and this PR) only prepares the workflows for that flag; the flag
-itself is a separate, later step on ruleset 17056238 — see
+**The first PR under #756 only prepared the workflows for the flag (every
+required-context workflow gained a `merge_group:` trigger); enabling the flag
+itself was a separate, later step on ruleset 17056238 — see
 [the recorded decision on #756](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998)
 for the reasoning (measured cost of `strict_required_status_checks_policy`
-vs. the merge queue) and why it isn't folded into the same PR. #756 stays
-open until that follow-up step enables the `merge_queue` rule and confirms it
-via `gh api repos/Ball-Lang/ball/rulesets/17056238`.**
+vs. the merge queue) and why it wasn't folded into the same PR. That follow-up
+step has now landed: the `merge_queue` rule is confirmed ENABLED on ruleset
+17056238 via `gh api repos/Ball-Lang/ball/rulesets/17056238 --jq
+'[.rules[].type]'` (the result includes `"merge_queue"`), with these
+parameters:**
+
+| Parameter | Value |
+| --- | --- |
+| `merge_method` | `SQUASH` |
+| `grouping_strategy` | `ALLGREEN` |
+| `max_entries_to_build` | 5 |
+| `max_entries_to_merge` | 5 |
+| `min_entries_to_merge` | 1 |
+| `min_entries_to_merge_wait_minutes` | 5 |
+| `check_response_timeout_minutes` | 90 |
+
+#756 itself tracks the broader "decide on strict_required_status_checks_policy"
+question and its own closure is a separate call; this doc states only the
+mechanical fact that the rule is live, verified against the API above, not
+the issue's lifecycle.
 
 A merge queue entry runs under GitHub's `merge_group` event, which is NOT a
 `pull_request` or a `push`: it carries no `pull_request` payload and no
@@ -1472,6 +1490,67 @@ usable base fails open identically to the existing `pull_request`/`push`
 fail-open rows, and a `merge_group` event with a real base is cross-checked
 against an equivalent `push` run sharing that exact base, proving it takes the
 real diff path rather than silently reusing the fail-open block.
+
+### Docs-only PRs and required-context workflows (#756 follow-up)
+
+Enabling the `merge_queue` rule (above) made a pre-existing problem fatal
+instead of merely slow: a merge queue entry can only be BUILT once the PR's
+own required checks are green, and `ci.yml` and `regression-gates.yml` — 19
+of the 19 required contexts between them — used to carry a `paths-ignore:`
+filter (`**.md`, `docs/**`, `LICENSE`, `.gitignore`) on their `pull_request:`
+trigger. GitHub's own troubleshooting documentation names this exact shape:
+
+> A workflow is skipped by path filtering, branch filtering, or a commit
+> message [...] Associated checks stay in a 'Pending' state and block
+> merging. [...] Avoid requiring workflows that can be skipped.
+
+(["Handling skipped but required checks"](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks))
+
+So any PR whose WHOLE diff matched that `paths-ignore:` list — a docs-only
+PR, e.g. a CONTRIBUTING.md typo fix or this very doc's own edits — never
+started either workflow at all. Every one of the 19 required contexts stayed
+"Pending" forever, and the PR could never merge (queue or no queue). Before
+#756's merge-queue work this was merely wasteful friction (a maintainer could
+`--admin`-override); with the queue as the only path onto `main`, "Pending
+forever" is an unconditional block with no bypass that doesn't itself defeat
+the queue's purpose.
+
+**The fix, following GitHub's own guidance literally:**
+
+1. `paths-ignore:` is gone from `ci.yml`'s and `regression-gates.yml`'s
+   `pull_request:` triggers (their `push:` triggers keep it unchanged — a
+   push to `main` owns no required context, so a skipped push run is not a
+   stuck PR). Every required context now always STARTS on every PR.
+2. Removing the trigger-level filter would, on its own, make a docs-only PR
+   expensive instead of blocked: `detect-changed-stacks/detect.sh`'s `infra`
+   fail-safe is true for any file outside the single-stack language dirs —
+   which includes every doc file — so every heavy per-stack job (the full
+   ~25-minute C++ matrix included) would run on a diff that could not
+   possibly need it. `detect.sh` now carries the SAME four `paths-ignore:`
+   entries as an in-classifier carve-out: a file matching `*.md` (anywhere,
+   mirroring `**.md`'s own double-star semantics — not just the repo root or
+   `docs/`), `docs/**`, the root `LICENSE`, or the root `.gitignore` no longer
+   counts toward `infra`. A docs-only diff now starts both workflows (so
+   their required contexts report) but every per-stack job's `if:` still
+   evaluates false and the job SKIPS (a skipped job reports `success` and
+   satisfies a required check — a workflow that never starts does not).
+   `.github/actions/detect-changed-stacks/test/truth_table.sh` pins this: one
+   row per carve-out shape, a negative control proving a docs file alongside
+   a genuinely cross-cutting file still trips `infra`, and a control proving
+   a docs file alongside a stack-dir file flips only that stack's own flag.
+3. `tools/ci/check_pr_job_fanout.sh` — already the static guard for "a
+   required context must never live behind a workflow-level `paths:`
+   allow-list" (report-safety 2, above its "THE RULE") — now checks
+   `paths-ignore:` too, for exactly the same reason: a required-context
+   workflow whose `pull_request:` trigger carries either filter form can have
+   its entire diff miss the allow-list or match the whole deny-list, and
+   either way the workflow never starts. Its `--self-test` drives a
+   `paths-ignore:`-filtered required-context workflow as a dedicated negative
+   control, so a FUTURE regression — someone re-adding `paths-ignore:` to
+   either workflow's `pull_request:` trigger while it still owns a required
+   context — fails this guard (run from `ci.yml`'s always-on `Proto Checks`
+   job) immediately, rather than being discovered the next time someone opens
+   a docs-only PR.
 
 ### Per-PR job fan-out (issue #666)
 

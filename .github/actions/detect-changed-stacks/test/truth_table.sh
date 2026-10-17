@@ -88,6 +88,43 @@ row "proto-only" 'proto/ball/v1/ball.proto' '' "$(expect infra)"
 row "workflow-only" '.github/workflows/ci.yml' '' "$(expect infra)"
 row "root-config-only" 'pubspec.yaml' '' "$(expect infra)"
 
+# ── Docs carve-out (#756 follow-up): infra must stay false for exactly the
+# four path shapes ci.yml's/regression-gates.yml's `pull_request:` triggers
+# used to filter out at the trigger level via `paths-ignore:` — any `*.md`
+# file (anywhere, not just at the repo root), anything under `docs/`, the
+# root `LICENSE` file, and the root `.gitignore` file. That `paths-ignore:`
+# is now GONE from both workflows' `pull_request:` triggers (so every required
+# context always starts — see tools/ci/check_pr_job_fanout.sh's matching
+# guard), and this carve-out replaces it HERE: without it, a docs-only PR
+# would start both workflows (good — the contexts report) but then set
+# infra=true and run every heavy per-stack job anyway (bad — exactly the cost
+# the removed `paths-ignore:` existed to avoid). Keep this list IDENTICAL to
+# both workflows' `push:` `paths-ignore:` (still present there, unaffected).
+row "docs-root-md-is-not-infra" 'CONTRIBUTING.md' '' "$(expect)"
+row "docs-nested-md-is-not-infra" 'docs/TESTING_STRATEGY.md' '' "$(expect)"
+row "docs-license-is-not-infra" 'LICENSE' '' "$(expect)"
+row "docs-gitignore-is-not-infra" '.gitignore' '' "$(expect)"
+# The carve-out is repo-wide for `*.md` (mirroring `**.md`'s own semantics,
+# not just root/docs) — a markdown file anywhere, e.g. under tests/, is also
+# not infra. See "tests-outside-corpus-is-not-corpus" below for the sibling
+# non-markdown tests/ file that DOES still trip infra.
+row "docs-md-anywhere-is-not-infra" 'tests/editions/portability_matrix.md' '' "$(expect)"
+# A docs-only diff touching MULTIPLE carve-out shapes at once is still not
+# infra, and touching a stack dir alongside docs only flips that stack's own
+# flag — never infra.
+row "docs-only-multi-file-is-not-infra" \
+  "$(printf 'CONTRIBUTING.md\ndocs/TESTING_STRATEGY.md\nLICENSE\n.gitignore')" '' \
+  "$(expect)"
+row "docs-plus-stack-dir-is-still-only-that-stack" \
+  "$(printf 'CONTRIBUTING.md\ndart/compiler/lib/compiler.dart')" '' \
+  "$(expect dart dart_core)"
+# Negative control: a docs file ALONGSIDE a genuinely cross-cutting file still
+# trips infra — the carve-out narrows what counts as "docs-only", it does not
+# make infra ignore non-docs files in the same diff.
+row "docs-plus-infra-file-is-still-infra" \
+  "$(printf 'CONTRIBUTING.md\nproto/ball/v1/ball.proto')" '' \
+  "$(expect infra)"
+
 # ── Conformance fixtures: infra=true AND the fixture stem is reported ────────
 row "fixture-added" 'tests/conformance/426_example.ball.json' \
   "$(printf 'A\ttests/conformance/426_example.ball.json')" \
@@ -179,8 +216,11 @@ row "std-inventory-excludes-ball-proto-artifact" 'dart/shared/ball_proto.json' '
 row "corpus-fixture-source" 'tests/conformance/src/468_map_contains_value.dart' '' \
   "$(expect infra corpus)"
 # A tests/ file OUTSIDE the conformance corpus is infra (it forces every ci.yml
-# stack) but not corpus — it is no conformance row's input.
-row "tests-outside-corpus-is-not-corpus" 'tests/editions/portability_matrix.md' '' \
+# stack) but not corpus — it is no conformance row's input. Must be a
+# NON-markdown file: a `tests/**.md` file hits the docs carve-out above
+# instead (see "docs-md-anywhere-is-not-infra"), which is exactly why this
+# row no longer uses tests/editions/portability_matrix.md.
+row "tests-outside-corpus-is-not-corpus" 'tests/cli_core_goldens/100_complex_control_flow.info.txt' '' \
   "$(expect infra)"
 row "dart-core-compiler-tool" 'dart/compiler/tool/gen_engine_json.dart' '' \
   "$(expect dart dart_core)"

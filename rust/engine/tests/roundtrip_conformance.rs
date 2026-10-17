@@ -568,7 +568,7 @@ fn failure_histogram(failures: &[(String, String)]) -> Vec<(String, usize)> {
 /// [`format_passing_block_panics_in_debug_builds_on_an_unsorted_list`].
 fn format_passing_block(passing: &[String]) -> String {
     debug_assert!(
-        passing.windows(2).all(|pair| pair[0] <= pair[1]),
+        passing.is_sorted(),
         "format_passing_block's caller must hand it an already-sorted list — \
          tools/ci/roundtrip_passset.sh assumes the printed block is sorted and never re-sorts it"
     );
@@ -592,12 +592,24 @@ fn print_passing_fixtures(passing: &[String]) {
 /// disappearance even though the count alone reads as unchanged.
 #[test]
 fn a_net_zero_fixture_swap_changes_the_printed_set_even_though_the_count_is_unchanged() {
-    let before = vec!["100_a".to_string(), "101_b".to_string(), "102_c".to_string()];
+    let before = vec![
+        "100_a".to_string(),
+        "101_b".to_string(),
+        "102_c".to_string(),
+    ];
     // Same CARDINALITY (3), different membership: "101_b" regressed, "103_d"
     // newly passes. A bare count could never distinguish these two blocks.
-    let after = vec!["100_a".to_string(), "102_c".to_string(), "103_d".to_string()];
+    let after = vec![
+        "100_a".to_string(),
+        "102_c".to_string(),
+        "103_d".to_string(),
+    ];
 
-    assert_eq!(before.len(), after.len(), "the scenario is a net-zero swap by construction");
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "the scenario is a net-zero swap by construction"
+    );
     assert_ne!(
         format_passing_block(&before),
         format_passing_block(&after),

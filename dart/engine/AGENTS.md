@@ -213,5 +213,5 @@ while no engine could perform the write.
 `Ext(x).m = v`. Measured on this branch, the Go compiler emits
 `ballrt.UnsupportedBaseCall("std", "assign")` (and gives an extension
 getter/setter pair two identically-named Go funcs) and the Python compiler
-reports `assign: unsupported lvalue`, so `tests/conformance/479_extension_override_selection`
+reports `assign: unsupported lvalue`, so `tests/conformance/480_extension_override_selection`
 deliberately carries no setter arm yet. Tracked as #865.

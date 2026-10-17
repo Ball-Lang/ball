@@ -384,7 +384,7 @@ avoid constructs that need receiver-type info:
     in `test/extension_override_test.dart`), and since #670's last slice every
     non-Dart COMPILER honours it too — each reaching the member by whatever
     shape it already emits that member under (the table is in
-    `docs/METADATA_SPEC.md`). `tests/conformance/479_extension_override_selection`
+    `docs/METADATA_SPEC.md`). `tests/conformance/480_extension_override_selection`
     is the cross-target proof: two extensions on the same type declaring the
     same members, so the override is the only thing that selects which one runs.
     Two neighbouring shapes are NOT refusals and each had its own silent
@@ -853,7 +853,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   `Ext(x).m = v` (the Go compiler emits `ballrt.UnsupportedBaseCall("std",
   "assign")` and gives an extension getter/setter pair two identically-named Go
   funcs; the Python compiler reports `assign: unsupported lvalue`), so
-  `tests/conformance/479_extension_override_selection` carries no setter arm yet.
+  `tests/conformance/480_extension_override_selection` carries no setter arm yet.
 
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw

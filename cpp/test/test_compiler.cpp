@@ -5608,11 +5608,11 @@ TEST(string_sink_emits_the_runtime_helpers) {
 // `lower_extension_members` lowers each to a FREE function taking the receiver
 // as its first parameter, `self` — which is already what the call site emits.
 //
-// The fixture-level guard is `479_extension_override_selection` on the
+// The fixture-level guard is `480_extension_override_selection` on the
 // `C++ Compiled` matrix row; this is the fast one.
 TEST(extension_members_lower_to_free_functions_taking_self) {
     CppCompiler compiler(ball::LoadProgram(
-        (conformance_dir() / "479_extension_override_selection.ball.json").string()));
+        (conformance_dir() / "480_extension_override_selection.ball.json").string()));
     auto out = compiler.compile();
 
     // Both extensions' members must be DEFINED — the defect was that nothing

@@ -40,17 +40,19 @@ RELEASE="$WORKFLOWS/release.yml"
 # RELEASED TREE, and is therefore dispatched pinned to the fresh `vX.Y.Z` tag.
 # Adding a channel here without wiring its dispatch is a hard failure, by design.
 #
-# The two lanes that RUN semantic-release — pubdev-release.yml and
+# The two lanes that compute their OWN version — pubdev-release.yml and
 # go-release.yml — are deliberately not in this list: they are dispatched
-# `--ref main`, because @semantic-release/git pushes commits and tags to a
-# BRANCH and a detached tag ref gives it nothing to release from. Their
-# contracts live in check_pubdev_release_wiring.sh and
-# check_go_release_wiring.sh. `tag-go-modules.yml` left this list with #361's
-# second half: release.yml no longer dispatches it at all, because a dispatch
-# that carried no version only ever re-cut the tags a human had already written
-# into the go.mod files. go.releaserc.json's publishCmd dispatches it now,
-# pinned to the channel tag whose commit carries the bumped files — see the
-# stray-tagger leg below, which still pins that it has exactly one dispatcher.
+# `--ref main` because they open a version-bump PR against a BRANCH (issue
+# #879's release-via-PR shape, the release.yml/#755 sibling), and a detached
+# tag ref gives that nothing to branch from. Their contracts live in
+# check_pubdev_release_wiring.sh and check_go_release_wiring.sh. `tag-go-
+# modules.yml` left this list with #361's second half: release.yml no longer
+# dispatches it at all, because a dispatch that carried no version only ever
+# re-cut the tags a human had already written into the go.mod files.
+# tools/release/finish_go_release.sh dispatches it now (since #879 — formerly
+# go.releaserc.json's publishCmd), pinned to the channel tag whose commit
+# carries the bumped files — see the stray-tagger leg below, which still pins
+# that it has exactly one dispatcher.
 TARGETS="publish-npm.yml release-cpp.yml"
 
 pass=0
@@ -139,10 +141,12 @@ done
 # `if: contains(head_commit.message, 'chore(release)')`. That shape is proven
 # unreachable for `chore(release): X.Y.Z [skip ci]` commits; re-adding it would
 # silently resurrect the dead channel next to the live one. release-tag.yml is
-# gone entirely since #551, so this now checks the general case: no WORKFLOW may
-# declare the tagging job or dispatch it — its only dispatcher is
-# `.github/release/go.releaserc.json`'s publishCmd, which
-# check_go_release_wiring.sh pins as the single one.
+# gone entirely since #551, so this now checks the general case: no WORKFLOW
+# (.yml) may declare the tagging job or dispatch it — its only dispatcher is
+# the SCRIPT tools/release/finish_go_release.sh (since #879; formerly
+# `.github/release/go.releaserc.json`'s publishCmd), which
+# check_go_release_wiring.sh pins as the single one — a different file, so a
+# .yml sweep here and a .sh-aware sweep there is deliberate, not an omission.
 # Matched against the JOB declaration and the dispatch command only, never
 # against prose — several workflows legitimately describe this history in
 # comments.
@@ -156,8 +160,8 @@ for wf in "$WORKFLOWS"/*.yml; do
   # there is none: a version-less dispatch re-cuts whatever version the go.mod
   # files already carry, which is a no-op that reports success. Both dispatch
   # shapes are recognised — the bare `gh workflow run` and the awaited
-  # `await_workflow_run.py --workflow …` the publishCmd uses since #627 — so a
-  # stray dispatcher cannot hide behind the newer spelling.
+  # `await_workflow_run.py --workflow …` finish_go_release.sh uses since #627 —
+  # so a stray dispatcher cannot hide behind the newer spelling.
   sed 's/#.*$//' "$wf" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml' &&
     stray+=("$(basename "$wf"): dispatches tag-go-modules.yml")
 done

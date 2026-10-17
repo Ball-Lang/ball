@@ -27936,21 +27936,11 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj69, "take") {
-							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.CallMethod("take", func() ballrt.Value {
-								__m := ballrt.NewMap()
-								__m.Set("self", self)
-								__m.Set("arg0", _toInt(ballrt.Arg0WithSelf(arg0, __self)))
-								return __m
-							}()))))
+							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.ListTake(self, _toInt(ballrt.Arg0WithSelf(arg0, __self))))))
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj69, "skip") {
-							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.CallMethod("skip", func() ballrt.Value {
-								__m := ballrt.NewMap()
-								__m.Set("self", self)
-								__m.Set("arg0", _toInt(ballrt.Arg0WithSelf(arg0, __self)))
-								return __m
-							}()))))
+							_ = ballrt.Return(ballrt.CallFunction(_wrapList, ballrt.ListToList(ballrt.ListDrop(self, _toInt(ballrt.Arg0WithSelf(arg0, __self))))))
 							return ballrt.Value(nil)
 						}
 						if ballrt.Eq(__subj69, "followedBy") {
@@ -32084,18 +32074,13 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = func() ballrt.Value {
 				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
 				_ = m
-				var result ballrt.Value = ballrt.ListToList(ballrt.CallMethod("take", func() ballrt.Value {
-					__m := ballrt.NewMap()
-					__m.Set("self", ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))))
-					__m.Set("arg0", _toInt(ballrt.Arg0WithSelf(func() ballrt.Value {
-						__l := ballrt.IndexGet(m, "value")
-						if __l != nil {
-							return __l
-						}
-						return ballrt.IndexGet(m, "index")
-					}(), __self)))
-					return __m
-				}()))
+				var result ballrt.Value = ballrt.ListToList(ballrt.ListTake(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))), _toInt(ballrt.Arg0WithSelf(func() ballrt.Value {
+					__l := ballrt.IndexGet(m, "value")
+					if __l != nil {
+						return __l
+					}
+					return ballrt.IndexGet(m, "index")
+				}(), __self))))
 				_ = result
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(result, "length"), _ballPointerBytes(ballrt.Value(nil))), __self))
 				return result
@@ -32110,18 +32095,13 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = func() ballrt.Value {
 				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
 				_ = m
-				var result ballrt.Value = ballrt.ListToList(ballrt.CallMethod("skip", func() ballrt.Value {
-					__m := ballrt.NewMap()
-					__m.Set("self", ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))))
-					__m.Set("arg0", _toInt(ballrt.Arg0WithSelf(func() ballrt.Value {
-						__l := ballrt.IndexGet(m, "value")
-						if __l != nil {
-							return __l
-						}
-						return ballrt.IndexGet(m, "index")
-					}(), __self)))
-					return __m
-				}()))
+				var result ballrt.Value = ballrt.ListToList(ballrt.ListDrop(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(m, "list"), __self))), _toInt(ballrt.Arg0WithSelf(func() ballrt.Value {
+					__l := ballrt.IndexGet(m, "value")
+					if __l != nil {
+						return __l
+					}
+					return ballrt.IndexGet(m, "index")
+				}(), __self))))
 				_ = result
 				_ = _trackMemoryAllocation(ballrt.Arg0WithSelf(ballrt.Mul(ballrt.FieldGet(result, "length"), _ballPointerBytes(ballrt.Value(nil))), __self))
 				return result

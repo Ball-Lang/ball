@@ -1055,13 +1055,11 @@ jobs:
       # `origin/main`'s (#864's) path is 281 + 1 (the unclaimed fixture above)
       # + 1 (the SAME #834 fixture, counted once). THIS merge's tree carries
       # all three gains at once — #670's own fixture, #864's previously
-      # unclaimed one, and #834's — so the true count may be 284, not 283.
-      # Left at 283 here on purpose: a floor is MEASURED by the row that runs
-      # on the tree that actually merges, never predicted from a diff of two
-      # histories. If this run's own `Results:` line says 284, raise it then,
-      # per this file's own rule (and gate 6 of `compiler_floor.sh` will say
-      # so loudly if it isn't).
-      CSHARP_COMPILER_FLOOR: "283"
+      # unclaimed one, and #834's. Confirmed, not predicted: this merge's own
+      # run printed `Results: 284 passed, 81 failed, 365 total (floor: 283)`
+      # plus its own `IMPROVED` error (job 117425052451), so the floor raises
+      # to 284 here, in the same PR, per this file's own rule.
+      CSHARP_COMPILER_FLOOR: "284"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

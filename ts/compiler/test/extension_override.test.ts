@@ -116,7 +116,15 @@ describe("compiler — extension-override dispatch (#670)", () => {
       inputType: "int",
       outputType: "void",
       body: { literal: { stringValue: "SETTER" } },
-      metadata: { kind: "method", is_setter: true, expression_body: true },
+      metadata: {
+        kind: "method",
+        is_setter: true,
+        expression_body: true,
+        // A native `set slot(...)` accessor needs exactly one parameter
+        // (`extractParams` reads it from `metadata.params`) — every real
+        // encoded setter declares one, so this hand-built member must too.
+        params: [{ name: "value", type: "int" }],
+      },
     };
     const overrideCall = {
       call: {

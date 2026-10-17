@@ -192,7 +192,8 @@ row "dart-encoder-is-not-core" 'dart/encoder/lib/encoder.dart' '' "$(expect dart
 row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
 
 # ── matrix_self: the conformance matrix's OWN definition (#642) ──────────────
-# conformance-matrix.yml and tools/ci/roundtrip_floor.sh are in that workflow's
+# conformance-matrix.yml, tools/ci/roundtrip_floor.sh and tools/ci/compiler_floor.sh
+# (#792) are in that workflow's
 # `paths:` filter, so a PR that only moves a row's floor re-runs the matrix —
 # and EVERY row ORs `matrix_self` in. Without the signal those two entries map
 # to `infra` alone, which no row reads: the workflow would start with every
@@ -200,6 +201,7 @@ row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
 # tools/ci/check_matrix_paths.sh is the static half of the same invariant.
 row "matrix-workflow-is-matrix-self" '.github/workflows/conformance-matrix.yml' ''   "$(expect infra matrix_self)"
 row "roundtrip-floor-script-is-matrix-self" 'tools/ci/roundtrip_floor.sh' ''   "$(expect infra matrix_self)"
+row "compiler-floor-script-is-matrix-self" 'tools/ci/compiler_floor.sh' ''   "$(expect infra matrix_self)"
 # Negative controls: a NEIGHBOURING workflow and a NEIGHBOURING tools/ci script
 # are infra (every ci.yml stack runs) but must NOT re-enable every matrix row —
 # if they did, `matrix_self` would just be `infra` under another name.
@@ -247,6 +249,62 @@ event_fail_open_row "fail-open-event-workflow_dispatch" workflow_dispatch
 event_fail_open_row "fail-open-event-pull_request-empty-base" pull_request '' ''
 event_fail_open_row "fail-open-event-push-zero-sha" push '' \
   '0000000000000000000000000000000000000000'
+
+# merge_group (#756): an absent/zero MERGE_GROUP_BASE_SHA must fail open too —
+# the same event_fail_open_row helper, driven with the fourth env var it does
+# not otherwise take, proves EVENT=merge_group with no usable base is exactly
+# as safe as the pull_request/push rows above (run every stack, never skip).
+merge_group_fail_open_row() {
+  local name="$1" base="${2:-}"
+  local out_file actual
+  out_file="$(mktemp)"
+  ( EVENT=merge_group MERGE_GROUP_BASE_SHA="$base" GITHUB_OUTPUT="$out_file" ball_detect_main ) >/dev/null
+  actual="$(cat "$out_file")"
+  rm -f "$out_file"
+  expect_rows "$name" \
+    "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
+    "$actual"
+}
+merge_group_fail_open_row "fail-open-event-merge_group-empty-base"
+merge_group_fail_open_row "fail-open-event-merge_group-zero-sha" \
+  '0000000000000000000000000000000000000000'
+
+# merge_group with a REAL, reachable base must NOT fall open and must NOT
+# silently reuse PR_BASE/PUSH_BASE — it must drive the identical git-diff path
+# those take, off MERGE_GROUP_BASE_SHA. Proven by cross-checking against an
+# equivalent `push` run sharing the exact same base: if merge_group's base
+# selection were wired to the wrong env var (or not wired at all), this would
+# either fail open (fixtures=ALL, caught by the `expected != fail-open` guard
+# below) or silently diverge from the push row, both of which `expect_rows`
+# catches directly. Needs a real repo with at least one ancestor commit —
+# every CI checkout has `fetch-depth: 0` (#458's own precondition) and so does
+# any normal local clone; skipped (not silently passed) if not.
+merge_group_real_base_row() {
+  local base
+  base="$(git -C "$HERE" rev-parse HEAD~1 2>/dev/null || true)"
+  if [ -z "$base" ] || ! git -C "$HERE" cat-file -e "${base}^{commit}" 2>/dev/null; then
+    echo "SKIP  merge_group real-base row (no reachable HEAD~1 in this checkout)"
+    return
+  fi
+  local out_mg out_push
+  out_mg="$(mktemp)"
+  out_push="$(mktemp)"
+  ( cd "$HERE" && EVENT=merge_group MERGE_GROUP_BASE_SHA="$base" GITHUB_OUTPUT="$out_mg" ball_detect_main ) >/dev/null
+  ( cd "$HERE" && EVENT=push PUSH_BASE="$base" GITHUB_OUTPUT="$out_push" ball_detect_main ) >/dev/null
+
+  if [ "$(cat "$out_mg")" = "$(ball_fail_open)" ]; then
+    fail=$((fail + 1))
+    echo "FAIL  merge_group real base must not fall open (got the fail-open block)"
+  else
+    pass=$((pass + 1))
+    echo "PASS  merge_group real base is not the fail-open fallback"
+  fi
+
+  expect_rows "merge_group real base matches push's identical-base diff" \
+    "$(cat "$out_push")" "$(cat "$out_mg")"
+  rm -f "$out_mg" "$out_push"
+}
+merge_group_real_base_row
 
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything

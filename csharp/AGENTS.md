@@ -184,6 +184,18 @@ constant instead; `cli`'s test additionally asserts its `CliInfo.Banner` referen
 sibling packages, proving the whole project-reference graph resolves (the C# analog of Rust's
 Phase 1a "five member crates wired together via path dependencies").
 
+**`xunit.v3` is pinned at `3.2.2` deliberately and must not be bumped to 4.x without a separate
+migration PR.** xUnit v4 pulls in `Microsoft.Testing.Platform(.MSBuild)` v2.x, and MTP v2 removes
+the legacy VSTest-mode bridge `dotnet test` relies on under the .NET 10 SDK — bumping `xunit.v3`
+alone (dependabot PR #748, 3.2.2 -> 4.0.1) makes every `dotnet test` invocation in this repo fail
+with `Testing with VSTest target is no longer supported by Microsoft.Testing.Platform on .NET 10
+SDK and later` (https://aka.ms/dotnet-test-mtp-error). The real fix is migrating the whole repo's
+`dotnet test` invocation to MTP mode (a `test.runner` entry in `csharp/global.json`, plus every
+documented filtered `dotnet test` invocation across this file, `.claude/rules/csharp.md` and
+`CLAUDE.md` changing CLI shape) — deliberately out of scope for a routine dependency bump.
+`xunit.runner.visualstudio`/`Microsoft.NET.Test.Sdk`/`coverlet.collector` bump independently of
+`xunit.v3` without pulling MTP v2 and stay verified compatible with `xunit.v3 3.2.2`.
+
 ## Proto bindings (issue #379, epic #377 Wave B Phase 2)
 
 `shared/gen/Ball.cs` is buf-generated (`buf.build/protocolbuffers/csharp:v35.1`, see root
@@ -602,7 +614,7 @@ concurrent again.
 
 `csharp/encoder/` encodes C# source into a Ball `Program` via **Roslyn**
 (`Microsoft.CodeAnalysis.CSharp`, pinned in `Directory.Packages.props` — verified latest stable
-on nuget.org at lane time: `5.6.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line).
+on nuget.org at lane time: `5.9.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line).
 
 **Two entry-point families, and the distinction is load-bearing.** `Encode(string)` /
 `EncodeLibrary(string)` are **syntax-only** — the rest of this section describes them, and they are
@@ -1192,7 +1204,7 @@ The resolution-free path is untouched: the same text through `Encode(string)` st
 answer, and `ProjectEncodingTests` asserts both halves.
 
 **Reference assemblies are hermetic and version-pinned** —
-`Basic.Reference.Assemblies.Net100 1.8.11` (MIT, netstandard2.0, references as embedded resources),
+`Basic.Reference.Assemblies.Net100 1.8.12` (MIT, netstandard2.0, references as embedded resources),
 in `Directory.Packages.props`. Deliberately NOT the SDK ref pack under
 `$DOTNET_ROOT/packs/Microsoft.NETCore.App.Ref/<ver>/ref/net10.0`: CI pins `dotnet-version:
 "10.0.x"`, so `<ver>` floats with the runner's patch and the encoder's binding answers would drift
@@ -1499,19 +1511,21 @@ each side, so a divergence anywhere later rendered as a self-contradictory diff 
 `engine/test/MismatchDescriptionTests.cs` pins the invariant (the harness is a console app, so it
 exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly this).
 
-**CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
-row in `conformance-matrix.yml` runs the `compiler` leg on every PR touching a filtered path
-(since #619), on every push to `main`, and on the weekly cron / `workflow_dispatch`, prints the
-honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `258`, measured
-locally in #527/#528 — the leg's own printed count, never a predicted one). This is deliberate.
-Gating it at full parity would just hold `main` red on the remaining known gaps;
-leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
-regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
-only go up, and the job prints the exact new floor to commit when it does. **Raise the floor in
-the same PR that closes a family**, or the gain is not locked in. Never lower it to turn a red
-build green — preventing precisely that is what a ratchet is for. The `engine` leg stays a true
-parity gate (`failed == 0`), because it *is* at parity.
+**CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452, both directions since
+#792).** The `csharp-compiler` row in `conformance-matrix.yml` runs the `compiler` leg on every PR
+touching a filtered path (since #619), on every push to `main`, and on the weekly cron /
+`workflow_dispatch`, prints the honest count, and gates it through `tools/ci/compiler_floor.sh`
+against `CSHARP_COMPILER_FLOOR` (currently `283`, this PR's own measured value — the leg's own
+printed count, never a predicted one) — **in BOTH directions**: it fails when `passed` drops below
+the floor (a fixture that used to compile no longer does) **and** it fails when `passed` rises
+above the floor (an improvement is not green until it is locked in). This is deliberate. Gating it
+at full parity would just hold `main` red on the remaining known gaps; leaving it unrun — the
+status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap regresses silently. A
+ratchet gets the third thing: the number is visible on every run, a regression fails, AND an
+unclaimed gain fails too — the job names the exact new floor to write. **Raise the floor in the
+same PR that closes a family**, or the gate itself stays red. Never lower it to turn a red build
+green — preventing precisely that is what a ratchet is for. The `engine` leg stays a true parity
+gate (`failed == 0`), because it *is* at parity.
 
 **Regen seam for CI (issue #386, implemented):** the harness does not regenerate
 `CompiledEngine.cs` itself — same division of responsibility as `Ball.Engine.Tests`. A CI job
@@ -1528,10 +1542,11 @@ debugging a regression.
 The `ball` binary: `run`/`compile`/`encode`/`check` over `shared`/`compiler`/`encoder`/`engine`,
 plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` (epic #361 pattern,
 mirroring `rust/cli` — see `rust/cli/AGENTS.md` — and `ts/cli`). This is the binary #369 ships to
-NuGet. Argument parsing is **`System.CommandLine` 2.0.9** — verified the current stable release
-on nuget.org 2026-07-11 (`api.nuget.org/v3-flatcontainer/system.commandline/index.json` lists 51
-versions; highest non-preview is `2.0.9`, the newest overall is a `3.0.0-preview.*` deliberately
-not used here). It went GA (stable `2.0.0`) 2025-11-11 after years of beta/RC — the "`Option<T>`
+NuGet. Argument parsing is **`System.CommandLine` 2.0.12** — verified on nuget.org 2026-10-17
+(`api.nuget.org/v3-flatcontainer/system.commandline/index.json` lists 58 versions; highest
+non-preview is `2.0.13`, the newest overall is a `3.0.0` preview/rc build deliberately not used
+here; `2.0.12` is the exact version the dependabot-opened bump (PR #869) applied and CI verified).
+It went GA (stable `2.0.0`) 2025-11-11 after years of beta/RC — the "`Option<T>`
 + `Argument<T>` + `Command.SetAction(ParseResult -> int)` + `rootCommand.Parse(args).Invoke()`"
 shape (not the older `SetHandler`/`InvocationContext` API from pre-beta5 docs).
 
@@ -1667,7 +1682,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   `csharp/**` change) or `infra`; also fires whenever `needs.changes.outputs.self_host` is true
   (a `dart/engine/lib/**` edit cross-compiles into `CompiledEngine.cs`, same reasoning as the
   `cpp`/`rust` jobs — see the `changes` job's `self_host` computation in `ci.yml`). Mirrors the
-  `rust` job's shape: `actions/setup-dotnet@v5` (`dotnet-version: "10.0.x"`, matching
+  `rust` job's shape: `actions/setup-dotnet@v6.0.0` (`dotnet-version: "10.0.x"`, matching
   `csharp/global.json`'s `rollForward: latestFeature` floor of `10.0.100`) → `dotnet build
   Ball.slnx` → `dotnet test Ball.slnx` → `dotnet format Ball.slnx --verify-no-changes` → the
   self-host conformance sweep: `dart-lang/setup-dart` + `dart pub get` +
@@ -1705,13 +1720,14 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
 - Out of scope for #386 (left for a future pass): regenerating `CompiledCli.cs` /
   `-p:CliCore=true` in CI. The harness's `compiler` and `roundtrip` legs ARE both wired into
   `conformance-matrix.yml` now — `csharp-compiler` (#452 item 1, PR #459) as a RATCHET against
-  `CSHARP_COMPILER_FLOOR` (a drop fails; parity is not claimed), and `csharp-roundtrip` (#452
-  item 1's other half) as a MEASUREMENT row with no floor, since 0/320 is the expected baseline;
-  it gates only on the harness reporting a trustworthy count (`Results:` line present, counts are
-  bare integers, `total >= 1`). Both DO gate a PR since #619: `conformance-matrix.yml` has a
-  path-filtered `pull_request:` trigger sharing its `push` filter, so they run on any PR touching
-  `csharp/**` without a dispatch — `csharp-compiler` on its ratchet, `csharp-roundtrip` on harness
-  health alone.
+  `CSHARP_COMPILER_FLOOR`, enforced in BOTH directions by `tools/ci/compiler_floor.sh` since #792
+  (a drop fails, and so does a rise that has not raised the floor yet; parity is not claimed), and
+  `csharp-roundtrip` (#452 item 1's other half) as its own floored-and-ratcheted row against
+  `CSHARP_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh` (0/320 was the original baseline; the
+  floor only rises — see `csharp/AGENTS.md`'s "Conformance harness" section for the live number).
+  Both DO gate a PR since #619: `conformance-matrix.yml` has a path-filtered `pull_request:`
+  trigger sharing its `push` filter, so they run on any PR touching `csharp/**` without a
+  dispatch.
 
 ## Generated Files — NEVER Edit
 
@@ -1905,7 +1921,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   compiler-emitted `BallRuntime.*` shapes; see "Conformance harness" above). The `cli` package is
   now complete (Phase 8, see below).
   **Phase 8 (#385) added the `ball` CLI**: `run`/`compile`/`encode`/`check` (via
-  `System.CommandLine` 2.0.9, verified GA-stable on nuget.org) plus the self-hosted cli-core verbs
+  `System.CommandLine`, pinned at `2.0.12` as of 2026-10-17 — verified GA-stable on nuget.org, see
+  "CLI" above) plus the self-hosted cli-core verbs
   `info`/`validate`/`tree`/`version` (epic #361 pattern — `CompiledCli.cs` compiled clean on the
   first regen attempt, 0 errors), both input formats (`.ball.json`/`.ball.bin`, the latter
   `Any`-wrapped per the Dart-canonical shape — see "CLI" above for why this deliberately diverges

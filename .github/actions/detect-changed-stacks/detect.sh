@@ -14,6 +14,16 @@
 #
 # Native git-diff — no third-party action.
 #
+# EVENTS: pull_request (base = the PR's target-branch SHA), push (base = the
+# pre-push SHA), and merge_group (base = the merge group's target-branch SHA,
+# `github.event.merge_group.base_sha` — #756, owner decision 2026-10-17 to
+# adopt a merge queue for `main`). A merge_group run has no `pull_request` or
+# `before` payload of its own, so without this branch EVENT would match
+# neither case, base would stay empty, and every merge_group run would
+# silently fall through to the FAIL-OPEN block below — safe (it still runs
+# every stack) but it would mean the queue re-runs the ~25-minute C++ matrix
+# and friends unconditionally on every entry instead of the real diff.
+#
 # FAIL-OPEN: if a real diff base can't be determined (first push, force-push,
 # zero/missing base), every output is `true` so NO check is ever silently
 # skipped.
@@ -212,16 +222,17 @@ ball_classify_stacks() {
   if m '^dart/(engine|shared|compiler|self_host)/'; then dart_core=true; fi
 
   # matrix_self = the conformance matrix's OWN definition: the workflow file and
-  # the shared gate script its round-trip rows invoke. Both are in the workflow's
-  # `paths:` filter since #642 — a PR that only re-floors a row, or only edits
-  # tools/ci/roundtrip_floor.sh, MUST re-run the matrix, or the commit meant to
+  # the two shared gate scripts its rows invoke (tools/ci/roundtrip_floor.sh,
+  # #642; tools/ci/compiler_floor.sh, #792). All three are in the workflow's
+  # `paths:` filter — a PR that only re-floors a row, or only edits one of those
+  # scripts, MUST re-run the matrix, or the commit meant to
   # prove a floor RED proves nothing (an absent check reads as green). They map
   # onto `infra` alone, which no matrix row reads, so without this signal those
   # two entries would start the workflow with every row's `if:` false — the
   # silently-green shape tools/ci/check_matrix_paths.sh exists to catch. Every
   # row ORs this in, because a change to the matrix definition can move ANY row.
   local matrix_self=false
-  if m '^\.github/workflows/conformance-matrix\.yml$|^tools/ci/roundtrip_floor\.sh$'; then matrix_self=true; fi
+  if m '^\.github/workflows/conformance-matrix\.yml$|^tools/ci/(roundtrip|compiler)_floor\.sh$'; then matrix_self=true; fi
 
   out dart '^dart/'
   out ts '^ts/'
@@ -257,6 +268,12 @@ ball_detect_main() {
   # `|| true` so `set -e` cannot abort on the non-matching branch.
   [ "${EVENT:-}" = "pull_request" ] && base="${PR_BASE:-}" || true
   [ "${EVENT:-}" = "push" ] && base="${PUSH_BASE:-}" || true
+  # merge_group (#756): base_sha is the target branch's tip the queue built
+  # this speculative merge on top of; HEAD (already checked out by the caller)
+  # is merge_group.head_sha. base_sha is always an ancestor of head_sha here,
+  # so the three-dot merge-base diff below degenerates to the same result as a
+  # plain two-dot diff — no special-casing past selecting the right base.
+  [ "${EVENT:-}" = "merge_group" ] && base="${MERGE_GROUP_BASE_SHA:-}" || true
   if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
     echo "No usable diff base ('$base') — failing OPEN: run every stack."
     ball_fail_open >>"$GITHUB_OUTPUT"

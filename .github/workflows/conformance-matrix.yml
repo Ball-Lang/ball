@@ -49,6 +49,7 @@ on:
       # was supposed to prove them RED proved nothing.
       - ".github/workflows/conformance-matrix.yml"
       - "tools/ci/roundtrip_floor.sh"
+      - "tools/ci/compiler_floor.sh"
   pull_request:
     # The SAME list as `push` above, by YAML alias — never a second copy.
     paths: *matrix_paths
@@ -94,9 +95,9 @@ jobs:
   # every file that can start this workflow at all is one of tests/conformance/**
   # (-> corpus), the four dart_core dirs, ts/**, cpp/**, rust/**, csharp/**,
   # go/** or python/** (-> that language's own flag), or the matrix's OWN
-  # definition — this file and tools/ci/roundtrip_floor.sh, both added to the
-  # filter by #642 so a PR that only moves a row's floor still re-runs the
-  # matrix (-> `matrix_self`, which EVERY row below ORs in, because a change to
+  # definition — this file, tools/ci/roundtrip_floor.sh and
+  # tools/ci/compiler_floor.sh, all added to the filter (#642, #792) so a PR
+  # that only moves a row's floor still re-runs the matrix (-> `matrix_self`, which EVERY row below ORs in, because a change to
   # the matrix definition can move any row).
   #
   # "Every file that can start this workflow maps onto a signal some row reads"
@@ -235,7 +236,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -313,7 +314,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -387,7 +388,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -980,9 +981,12 @@ jobs:
   # status quo this closes) left the gap UNMEASURED, which is worse — an
   # unmeasured gap regresses silently.
   #
-  # So: run it every time, report the honest count, fail only if the count goes
-  # DOWN. Raise CSHARP_COMPILER_FLOOR as each family lands — the job prints the
-  # exact new value when it sees an improvement.
+  # So: run it every time, report the honest count, and gate it on
+  # tools/ci/compiler_floor.sh — ratcheted in BOTH directions (#792): a DROP
+  # below CSHARP_COMPILER_FLOOR fails (a fixture that used to compile no
+  # longer does), and so does a RISE above it (an unclaimed gain is not green
+  # until CSHARP_COMPILER_FLOOR is raised to match, in the same PR). Raise it
+  # as each family lands — the job names the exact new value to write.
   #
   # Needs no Dart bootstrap and no -p:SelfHost=true: the leg compiles each
   # fixture with CSharpCompiler + Roslyn in-memory and runs it, never touching
@@ -1026,14 +1030,37 @@ jobs:
       # rather than `BallRuntime.CallMethod`. Measured by this very row (PR
       # #829, job 106251801199: `Results: 282 passed, 81 failed, 363 total`),
       # never predicted.
-      # 283 once #670's branch merged with `origin/main`: the extra 1 is NOT
-      # this issue's — it is #834's `478_setter_backing_store_disambiguation`,
+      # 283 once #670's branch merged with an EARLIER `origin/main`: the extra
+      # 1 is NOT this issue's — it is #834's `478_setter_backing_store_disambiguation`,
       # which this compiler already emits correctly, joining the corpus on the
       # merged tree. A floor is about the tree that merges, not about whose
       # commit earned the gain, so leaving it at 282 would give that one back
       # silently. Measured by this very row (PR #829, job 106311674886:
       # `Results: 283 passed, 81 failed, 364 total (floor: 282)` plus its own
       # `IMPROVED` notice), never predicted.
+      #
+      # Independently, `origin/main`'s own #864 (closing #792) found a
+      # DIFFERENT unclaimed fixture on its own branch: `compiler_floor.sh`'s
+      # first run on this leg printed `Results: 282 passed, 81 failed, 363
+      # total (floor: 281)` on run 35606307019 (job 106358136265) — one
+      # fixture of gain already on `main`, unrelated to #834 or to #670's own
+      # fixture, never claimed under the old advisory `::notice::`. #864 then
+      # remeasured 283 after ITS OWN merge absorbed #834's fixture: `Results:
+      # 283 passed, 81 failed, 364 total (floor: 282)` on run 38998673595 (job
+      # 117296783328).
+      #
+      # Both paths land on "283" by coincidence of arithmetic, not because
+      # they counted the same two gains: PR #829's own path is 281 + 1 (its
+      # own `480_extension_override_selection`) + 1 (#834's fixture);
+      # `origin/main`'s (#864's) path is 281 + 1 (the unclaimed fixture above)
+      # + 1 (the SAME #834 fixture, counted once). THIS merge's tree carries
+      # all three gains at once — #670's own fixture, #864's previously
+      # unclaimed one, and #834's — so the true count may be 284, not 283.
+      # Left at 283 here on purpose: a floor is MEASURED by the row that runs
+      # on the tree that actually merges, never predicted from a diff of two
+      # histories. If this run's own `Results:` line says 284, raise it then,
+      # per this file's own rule (and gate 6 of `compiler_floor.sh` will say
+      # so loudly if it isn't).
       CSHARP_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1050,65 +1077,17 @@ jobs:
         run: |
           cd csharp
           set +e
-          output=$(dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=compiler 2>&1)
+          dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=compiler > "$RUNNER_TEMP/compiler.log" 2>&1
           exit_code=$?
-          echo "$output"
+          set -e
+          cat "$RUNNER_TEMP/compiler.log"
 
-          # Parse counts from the FINAL `Results:` line ONLY — never a global
-          # grep over all output. A leg's own progress chatter can contain a
-          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
-          # failed to compile"), which makes `grep -oP` return a MULTILINE
-          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
-          # Same summary-anchored idiom regression-gates.yml uses for dart test.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          # Assert each count is a single bare integer. A MULTILINE value would
-          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
-          # `[` in an `if` SKIPS the branch, so the script would fall through to
-          # `exit 0`: a silently disabled gate. tail -1 above makes that
-          # unreachable; this asserts it rather than trusting it.
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-          echo "floor=$CSHARP_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== C# Compiler Leg ==="
-          echo "Results: $passed passed, $failed failed, $total total (floor: $CSHARP_COMPILER_FLOOR)"
-
-          # A harness that printed nothing must never read as a silent pass
-          # (#439/#444). The ratchet floor below is >= 1 by construction, but
-          # keep the parse guard explicit and separate from it.
-          if [ "$exit_code" != "0" ] && [ "$total" -lt 1 ]; then
-            echo "::error::The compiler leg crashed without reporting a Results line — it measured nothing"
-            exit 1
-          fi
-          if [ "$total" -lt 1 ]; then
-            echo "::error::Could not parse a Results line from the compiler leg — it ran no fixtures"
-            exit 1
-          fi
-
-          if [ "$passed" -lt "$CSHARP_COMPILER_FLOOR" ]; then
-            echo "::error::C# compiler leg REGRESSED: $passed passed, below the floor of $CSHARP_COMPILER_FLOOR — a fixture that used to compile no longer does"
-            exit 1
-          fi
-
-          if [ "$passed" -gt "$CSHARP_COMPILER_FLOOR" ]; then
-            echo "::notice::C# compiler leg IMPROVED: $passed passed (floor was $CSHARP_COMPILER_FLOOR). Raise CSHARP_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
-          fi
-          exit 0
+          # The parse, the positive floor and the RATCHET IN BOTH
+          # DIRECTIONS live in one tested script (#792) — this row used
+          # to carry its own copy of all three, and the only response
+          # any copy had to a measured GAIN was an advisory ::notice::
+          # nobody had to act on.
+          bash "$GITHUB_WORKSPACE/tools/ci/compiler_floor.sh" "C#" CSHARP_COMPILER_FLOOR "$exit_code" "$RUNNER_TEMP/compiler.log"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1343,7 +1322,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      GO_ROUNDTRIP_FLOOR: "79"
+      GO_ROUNDTRIP_FLOOR: "80"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1475,6 +1454,18 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/roundtrip.log"
 
+          # The leaders come from THIS run's own histogram (#790), never from
+          # prose. The list that used to live here was hand-copied and had
+          # already drifted: it said `ball_arg_get` 61 and
+          # `ball_unsupported_base_call` 18 where the run printed 63 and 19, and
+          # named a `ball_iterate` bucket of 16 that no longer exists at all
+          # (the 16 belongs to `BallValue :: Function`). A number nothing
+          # re-derives is a number that rots — that drift, plus
+          # roundtrip_floor.sh's "first still-failing fixture" being the
+          # ALPHABETICALLY first one, is how `ball_message_type_name` (23) came
+          # to be published as the leader while `ball_arg_get` (63) really was.
+          histogram=$(awk '/^Failure buckets/ {on=1} on && /^Results:/ {exit} on' "$RUNNER_TEMP/roundtrip.log")
+
           {
             echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
             echo "the Ball -> Rust compiler dispatches through"
@@ -1484,13 +1475,29 @@ jobs:
             echo "\`ball_map_create\`/\`ball_set_create\` in #796), the"
             echo "\`__ball_register_types\` class prologue, and the is/as registry"
             echo "(\`ball_is\`/\`is_not\`/\`as\`/\`is_type\`); not one of them appears in the"
-            echo "histogram any more. The measured leaders now are \`ball_arg_get\`"
-            echo "(61 fixtures), \`ball_message_type_name\` (23, tracked separately as"
-            echo "#718), \`ball_unsupported_base_call\` (18) and \`ball_iterate\` (16)."
-            echo "The method-dispatcher \`panic!\` sub-case is #632, a different metric."
+            echo "histogram any more. The three largest buckets are tracked:"
+            echo "\`ball_arg_get\` (the compiled parameter prologue) is #858,"
+            echo "\`BallFlow::Normal\` (the compiled try/catch idiom) is #859, and"
+            echo "\`ball_message_type_name\` is #718. The method-dispatcher"
+            echo "\`panic!\` sub-case is #632, a different metric."
+            echo ""
+            echo "Measured by this run, not copied:"
+            echo ""
+            echo '```'
+            printf '%s\n' "$histogram"
+            echo '```'
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
+
+          # Checked AFTER the floor script so its own diagnosis wins when the
+          # sweep failed outright; reached only when the row is otherwise
+          # healthy. A row that publishes no leaders is the state #790 was
+          # filed to end, so it is an error, never a quietly empty block.
+          if [ -z "$histogram" ]; then
+            echo "::error::The Rust round-trip leg printed no \`Failure buckets\` histogram, so this row named no leaders. Re-deriving them by hand from --nocapture output is exactly what issue #790 was filed for."
+            exit 1
+          fi
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1517,9 +1524,12 @@ jobs:
   # corpus IS fully compilable and the algorithms exist. These four are ports
   # that are not finished.
   #
-  # Gate on "the count did not go DOWN". Raise the floor in the SAME PR that
-  # closes a family, or the gain is not locked in. NEVER lower a floor to turn
-  # a red build green — preventing exactly that is what a ratchet is for.
+  # Gated via tools/ci/compiler_floor.sh, ratcheted in BOTH directions (#792):
+  # "the count did not go DOWN" (a regression) AND "the count did not go UP
+  # unclaimed" (an improvement that has not raised its floor yet). Raise the
+  # floor in the SAME PR that lands a gain, or the gate itself fails red.
+  # NEVER lower a floor to turn a red build green — preventing exactly that is
+  # what a ratchet is for.
   # ──────────────────────────────────────────────────
   rust-compiler:
     name: Rust Compiler Leg (ratcheted)
@@ -1578,59 +1588,17 @@ jobs:
         working-directory: rust
         run: |
           set +e
-          output=$(cargo test -p ball-lang-compiler --test compiler_conformance -- --ignored --nocapture 2>&1)
+          cargo test -p ball-lang-compiler --test compiler_conformance -- --ignored --nocapture > "$RUNNER_TEMP/compiler.log" 2>&1
           exit_code=$?
-          echo "$output"
-          # Parse counts from the FINAL `Results:` line ONLY — never a global
-          # grep over all output. A leg's own progress chatter can contain a
-          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
-          # failed to compile"), which makes `grep -oP` return a MULTILINE
-          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
-          # Same summary-anchored idiom regression-gates.yml uses for dart test.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+          set -e
+          cat "$RUNNER_TEMP/compiler.log"
 
-          # Assert each count is a single bare integer. A MULTILINE value would
-          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
-          # `[` in an `if` SKIPS the branch, so the script would fall through to
-          # `exit 0`: a silently disabled gate. tail -1 above makes that
-          # unreachable; this asserts it rather than trusting it.
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-          echo "floor=$RUST_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Rust Compiler Leg ==="
-          echo "Results: $passed passed, $failed failed, $total total (floor: $RUST_COMPILER_FLOOR)"
-
-          # A harness that printed nothing must never read as a silent pass
-          # (#439/#444). Guard the parse separately from the ratchet floor.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The Rust compiler leg reported no Results line — it ran no fixtures"
-            exit 1
-          fi
-
-          if [ "$passed" -lt "$RUST_COMPILER_FLOOR" ]; then
-            echo "::error::Rust compiler leg REGRESSED: $passed passed, below the floor of $RUST_COMPILER_FLOOR — a fixture that used to compile no longer does"
-            exit 1
-          fi
-
-          if [ "$passed" -gt "$RUST_COMPILER_FLOOR" ]; then
-            echo "::notice::Rust compiler leg IMPROVED: $passed passed (floor was $RUST_COMPILER_FLOOR). Raise RUST_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
-          fi
-          exit 0
+          # The parse, the positive floor and the RATCHET IN BOTH
+          # DIRECTIONS live in one tested script (#792) — this row used
+          # to carry its own copy of all three, and the only response
+          # any copy had to a measured GAIN was an advisory ::notice::
+          # nobody had to act on.
+          bash "$GITHUB_WORKSPACE/tools/ci/compiler_floor.sh" "Rust" RUST_COMPILER_FLOOR "$exit_code" "$RUNNER_TEMP/compiler.log"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1686,59 +1654,17 @@ jobs:
         working-directory: go/compiler
         run: |
           set +e
-          output=$(go run ./cmd/ballgoconf 2>&1)
+          go run ./cmd/ballgoconf > "$RUNNER_TEMP/compiler.log" 2>&1
           exit_code=$?
-          echo "$output"
-          # Parse counts from the FINAL `Results:` line ONLY — never a global
-          # grep over all output. A leg's own progress chatter can contain a
-          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
-          # failed to compile"), which makes `grep -oP` return a MULTILINE
-          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
-          # Same summary-anchored idiom regression-gates.yml uses for dart test.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+          set -e
+          cat "$RUNNER_TEMP/compiler.log"
 
-          # Assert each count is a single bare integer. A MULTILINE value would
-          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
-          # `[` in an `if` SKIPS the branch, so the script would fall through to
-          # `exit 0`: a silently disabled gate. tail -1 above makes that
-          # unreachable; this asserts it rather than trusting it.
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-          echo "floor=$GO_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Go Compiler Leg ==="
-          echo "Results: $passed passed, $failed failed, $total total (floor: $GO_COMPILER_FLOOR)"
-
-          # A harness that printed nothing must never read as a silent pass
-          # (#439/#444). Guard the parse separately from the ratchet floor.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The Go compiler leg reported no Results line — it ran no fixtures"
-            exit 1
-          fi
-
-          if [ "$passed" -lt "$GO_COMPILER_FLOOR" ]; then
-            echo "::error::Go compiler leg REGRESSED: $passed passed, below the floor of $GO_COMPILER_FLOOR — a fixture that used to compile no longer does"
-            exit 1
-          fi
-
-          if [ "$passed" -gt "$GO_COMPILER_FLOOR" ]; then
-            echo "::notice::Go compiler leg IMPROVED: $passed passed (floor was $GO_COMPILER_FLOOR). Raise GO_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
-          fi
-          exit 0
+          # The parse, the positive floor and the RATCHET IN BOTH
+          # DIRECTIONS live in one tested script (#792) — this row used
+          # to carry its own copy of all three, and the only response
+          # any copy had to a measured GAIN was an advisory ::notice::
+          # nobody had to act on.
+          bash "$GITHUB_WORKSPACE/tools/ci/compiler_floor.sh" "Go" GO_COMPILER_FLOOR "$exit_code" "$RUNNER_TEMP/compiler.log"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1773,14 +1699,26 @@ jobs:
       # rather than through `ballrt.call_method`. Measured by this very row
       # (PR #829, job 106251801278: `Results: 266 passed, 97 failed, 363
       # total`), never predicted.
-      # 269 once #670's branch was merged with `origin/main`: the extra 3 are
-      # NOT this issue's — they come from main's own Python slices that the
-      # 266 measurement above predates. Leaving the floor at 266 would have
-      # given those back silently, which is exactly what a ratchet exists to
-      # prevent, and the row's own `IMPROVED` notice said so on two
-      # consecutive runs before anyone read it. Measured by this very row
-      # (PR #829, jobs 106269065646 and 106283796079, both `Results: 269
+      # 269 once #670's branch was merged with an EARLIER `origin/main`: the
+      # extra 3 are NOT this issue's — they come from main's own Python
+      # slices that the 266 measurement above predates. Leaving the floor at
+      # 266 would have given those back silently, which is exactly what a
+      # ratchet exists to prevent, and the row's own `IMPROVED` notice said so
+      # on two consecutive runs before anyone read it. Measured by this very
+      # row (PR #829, jobs 106269065646 and 106283796079, both `Results: 269
       # passed, 94 failed, 363 total (floor: 266)`), never predicted.
+      #
+      # Those same "three fixtures of gain already on main" are what #864's
+      # OWN enforcement commit (closing #792) found independently, on
+      # `origin/main`'s trunk: 265 -> 268 there directly. The enforcement half
+      # of #792 went in one commit earlier, and this row's very next run
+      # failed with `Results: 268 passed, 95 failed, 363 total (floor: 265)` —
+      # measured by THIS row on run 35604595391 (job 106348942693). That is
+      # the SAME three fixtures PR #829 already absorbed above (not a further
+      # three stacking on top of those), so the floor this merge carries
+      # forward is 269 (265 + the one shared 3-fixture gain + #670's own 1),
+      # not 265 + 3 + 3. If this merged tree's own run measures otherwise,
+      # raise it to match — a floor is measured, never predicted.
       PYTHON_COMPILER_FLOOR: "269"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1799,59 +1737,17 @@ jobs:
         id: conformance
         run: |
           set +e
-          output=$(python -m python.compiler.conformance.runner 2>&1)
+          python -m python.compiler.conformance.runner > "$RUNNER_TEMP/compiler.log" 2>&1
           exit_code=$?
-          echo "$output"
-          # Parse counts from the FINAL `Results:` line ONLY — never a global
-          # grep over all output. A leg's own progress chatter can contain a
-          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
-          # failed to compile"), which makes `grep -oP` return a MULTILINE
-          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
-          # Same summary-anchored idiom regression-gates.yml uses for dart test.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+          set -e
+          cat "$RUNNER_TEMP/compiler.log"
 
-          # Assert each count is a single bare integer. A MULTILINE value would
-          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
-          # `[` in an `if` SKIPS the branch, so the script would fall through to
-          # `exit 0`: a silently disabled gate. tail -1 above makes that
-          # unreachable; this asserts it rather than trusting it.
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-          echo "floor=$PYTHON_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Python Compiler Leg ==="
-          echo "Results: $passed passed, $failed failed, $total total (floor: $PYTHON_COMPILER_FLOOR)"
-
-          # A harness that printed nothing must never read as a silent pass
-          # (#439/#444). Guard the parse separately from the ratchet floor.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The Python compiler leg reported no Results line — it ran no fixtures"
-            exit 1
-          fi
-
-          if [ "$passed" -lt "$PYTHON_COMPILER_FLOOR" ]; then
-            echo "::error::Python compiler leg REGRESSED: $passed passed, below the floor of $PYTHON_COMPILER_FLOOR — a fixture that used to compile no longer does"
-            exit 1
-          fi
-
-          if [ "$passed" -gt "$PYTHON_COMPILER_FLOOR" ]; then
-            echo "::notice::Python compiler leg IMPROVED: $passed passed (floor was $PYTHON_COMPILER_FLOOR). Raise PYTHON_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
-          fi
-          exit 0
+          # The parse, the positive floor and the RATCHET IN BOTH
+          # DIRECTIONS live in one tested script (#792) — this row used
+          # to carry its own copy of all three, and the only response
+          # any copy had to a measured GAIN was an advisory ::notice::
+          # nobody had to act on.
+          bash "$GITHUB_WORKSPACE/tools/ci/compiler_floor.sh" "Python" PYTHON_COMPILER_FLOOR "$exit_code" "$RUNNER_TEMP/compiler.log"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1954,9 +1850,10 @@ jobs:
           # -- Compile legs, ratcheted -------------------------------------
           # Deliberately NOT part of the parity table above: this leg does
           # not claim full parity and must never be read as if it did. It
-          # gates on "the count did not go DOWN" (see the job floor), so a
-          # PASS here means "no regression", NOT "complete". #452 tracks the
-          # open families.
+          # gates on "the count exactly matches its floor" (tools/ci/
+          # compiler_floor.sh, ratcheted both ways per #792), so a PASS here
+          # means "no regression AND no unclaimed gain", NOT "complete". #452
+          # tracks the open families.
           echo ""
           echo "Compile leg (ratcheted - not a parity claim)"
           echo ""
@@ -2159,8 +2056,10 @@ jobs:
             fi
           done
 
-          # Each ratcheted compile leg self-gates on its own floor (a DROP fails
-          # the job), so its RESULT is the whole signal. They are intentionally
+          # Each ratcheted compile leg self-gates on its own floor (a DROP
+          # fails the job, and since #792 so does an unclaimed RISE — a gain
+          # whose `<LANG>_COMPILER_FLOOR` was not raised in the same PR), so its
+          # RESULT is the whole signal. They are intentionally
           # absent from the failed-count loop below: that loop asserts FULL
           # PARITY, and none of these four legs has it yet — each still fails
           # dozens of fixtures, which is exactly what its own
@@ -2175,7 +2074,7 @@ jobs:
             name="${leg%%:*}"; res="${leg#*:}"
             if engine_not_ok "$res"; then
               echo ""
-              echo "The $name compiler leg regressed below its floor. See its job log."
+              echo "The $name compiler leg did not hold its floor exactly — it regressed below it, or it improved without raising it (#792). See its job log."
               summary_failed=1
             fi
           done

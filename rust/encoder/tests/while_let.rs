@@ -481,9 +481,124 @@ fn while_let_encodes_as_an_always_true_std_while_with_a_break_else() {
     );
 }
 
+/// Issue #853: the one shape that can tell [`ball_lang_encoder`]'s
+/// `Encoder::with_pattern_binding` frame apart from a no-op stub.
+/// `write!`'s destination rule (`methods.rs::classify_write_destination`) is
+/// the ONLY reader of `Encoder::local_scopes` that treats a
+/// `LocalKind::PatternBinding` and a `LocalKind::LocalString` differently —
+/// every other read (`encode_path_expr`) resolves a pattern binding and a
+/// `let` identically, which is why the existing
+/// `while_let_binding_does_not_clobber_an_enclosing_local` test above cannot
+/// fail on a no-op `with_pattern_binding`: it never calls `write!`.
+///
+/// With the frame present, the PATTERN-bound `v` here (introduced by `while
+/// let Some(v) = ..`, never by a `let`) classifies as a sink and the write
+/// encodes as `std.sink_write`. Without the frame — or without the
+/// `LocalKind::PatternBinding` arm `classify_write_destination` matches on —
+/// `lookup_local("v")` walks straight past the (missing) inner frame to the
+/// OUTER `let mut v = String::new();` and misclassifies the pattern binding
+/// as THAT local, taking the re-assignment arm (`std.assign` of
+/// `std.concat`) instead. That silent swap — never a panic, never a refusal
+/// — is exactly the gap issue #853 is about.
+#[test]
+fn while_let_pattern_binding_write_is_a_sink_not_the_enclosing_string_local() {
+    let program = ball_lang_encoder::encode(
+        r#"
+fn next_str(n: i64) -> Option<String> {
+    if n < 2 { Some(String::new()) } else { None }
+}
+
+fn main() {
+    let mut v = String::new();
+    let mut cur = 0;
+    while let Some(v) = next_str(cur) {
+        write!(v, "x");
+        cur += 1;
+    }
+    println!("{}", v);
+}
+"#,
+    );
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("the encoded program must carry a `main` module");
+    let main_fn = main_module
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .expect("the encoded program must carry `main`");
+    let body = main_fn.body.as_ref().expect("`main` must carry a body");
+    let Some(Expr::Block(block)) = &body.expr else {
+        panic!("`main`'s body is a block");
+    };
+
+    let while_call = block
+        .statements
+        .iter()
+        .filter_map(statement_expression)
+        .find(|expr| call_named(expr, "while").is_some())
+        .expect("`main` must contain a `std.while` statement");
+
+    let loop_body = arg(while_call, "body");
+    let Some(Expr::Block(loop_body_block)) = &loop_body.expr else {
+        panic!("a `while let`'s loop body is a block, got {loop_body:?}");
+    };
+    let guard = loop_body_block
+        .result
+        .as_deref()
+        .expect("the loop body must end in the match check");
+    assert_eq!(as_call(guard).function, "if");
+
+    let then_branch = arg(guard, "then");
+    let Some(Expr::Block(then_block)) = &then_branch.expr else {
+        panic!("the `then` branch is a block, got {then_branch:?}");
+    };
+    let matched_inner = then_block
+        .result
+        .as_deref()
+        .expect("the `then` block must carry the spliced body as its result");
+    let Some(Expr::Block(body_block)) = &matched_inner.expr else {
+        panic!("the spliced `while let` body is a block, got {matched_inner:?}");
+    };
+
+    let write_stmt = body_block
+        .statements
+        .first()
+        .and_then(statement_expression)
+        .expect("the body's first statement must be the encoded `write!`");
+    let effect = message_field(write_stmt, "value");
+    assert_eq!(
+        as_call(effect).function,
+        "sink_write",
+        "the PATTERN-bound `v` must be classified as a sink, never as the \
+         enclosing `let mut v = String::new();` local — got {:?} instead",
+        as_call(effect)
+    );
+}
+
 fn statement_expression(statement: &Statement) -> Option<&Expression> {
     match &statement.stmt {
         Some(Stmt::Expression(expression)) => Some(expression),
         _ => None,
     }
+}
+
+/// A `message_creation`'s named field — the generic sibling of [`arg`],
+/// which only reads a CALL's input fields. `write!`'s own encoding
+/// (`option_result_message`) is the unified `Result` message directly, not a
+/// call, so this is what reaches its `value` field.
+fn message_field<'a>(expr: &'a Expression, name: &str) -> &'a Expression {
+    let Some(Expr::MessageCreation(message)) = &expr.expr else {
+        panic!("expected a message_creation, got {expr:?}");
+    };
+    message
+        .fields
+        .iter()
+        .find(|f| f.name == name)
+        .unwrap_or_else(|| panic!("no `{name}` field on {message:?}"))
+        .value
+        .as_ref()
+        .expect("a field always carries a value")
 }

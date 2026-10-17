@@ -113,55 +113,158 @@ sources above do confirm fails) before relying on it; the fix, if it does
 stall, is the same GitHub App token the checks-dispatch workaround above
 avoided needing.
 
-**The shape, end to end** (`.github/workflows/release.yml`'s `release` job,
-every push to `main`):
+**The caveat that DOES apply today, found by PR #881's review (finding 2):
+plain auto-merge itself.** The analysis above checked the wrong mechanic for
+whether the PUSH that lands the release merge can be trusted to trigger
+anything. `gh pr merge --auto` (no merge queue involved) ENABLES GitHub's
+native auto-merge on the PR; the actual merge is performed later, by GitHub
+itself, once the required checks go green — not synchronously inside any
+workflow run. Multiple independent real-world reports confirm that when
+auto-merge was *armed* with `GITHUB_TOKEN`, as it is here, that later merge's
+push is STILL credited to `GITHUB_TOKEN` and the recursion guard still
+suppresses any `on: push` run for it — not a hypothetical edge case, the
+literal common path:
+[wbrawner.com, "GitHub Actions auto-merge … workflow trigger issue"](https://wbrawner.com/2024/03/15/github-actions-not-triggering-on-pr-merge/)
+(`gh pr merge --auto` by name), the `release-please`-adjacent
+[rmartz/bot-automerge#8](https://github.com/rmartz/bot-automerge/issues/8),
+and GitHub community discussion
+[#70310](https://github.com/orgs/community/discussions/70310) (the sibling
+merge-queue-enqueue case). So the one push `finish_release.sh` exists to
+react to — the release PR's own auto-merge landing on `main` — is, by
+construction, the one push whose trigger is suppressed essentially always,
+not "sometimes missed". `release.yml` therefore does **not** rely on `push`
+for Phase 2 at all: see "The shape, end to end" below for the `schedule`
+recovery poll this drove.
+
+**The shape, end to end** (`.github/workflows/release.yml`, TWO independent
+jobs — not two steps of one job, after PR #881's review (finding 1) caught a
+duplicate-PR race in the original single-job shape; see that job's own
+header comments for the full mechanics):
 
 ```
-push to main
+push to main / recurring schedule (every 15 min) / workflow_dispatch
   └► release.yml
-       ├─ Phase 1 (tools/release/open_release_pr.sh), ALWAYS runs:
-       │    ├─ compute_next_release.mjs — semantic-release DRY RUN against the
-       │    │    root .releaserc.json → {version, notes} or "nothing to do"
-       │    ├─ apply_version_bump.mjs — CHANGELOG.md + the four
-       │    │    ts/*/package.json versions, applied to a branch `release/next`
-       │    │    freshly forked from origin/main (never to `main` itself)
-       │    ├─ commit "chore(release): X.Y.Z" + the full notes as the body
-       │    └─ open_bot_pr.sh — force-push `release/next`, open-or-refresh its
-       │         PR, dispatch ci.yml + regression-gates.yml (produces the 19
-       │         required contexts against this branch's head SHA — see
-       │         mechanic 2 above), arm `gh pr merge --auto --squash` with the
-       │         commit subject/body PINNED to the exact release message
-       │    (a push whose HEAD is itself that release commit computes nothing
-       │    new here — a lone "chore" commit is not releasable to
-       │    commit-analyzer — so this phase self-terminates the loop)
-       └─ Phase 2 (tools/release/finish_release.sh), ALWAYS runs:
-            ├─ HEAD's subject matches `chore(release): X.Y.Z`? If not: no-op.
+       │
+       ├─ `release` job (needs `test`; several minutes) — Phase 1, runs on
+       │  push/workflow_dispatch only, never on schedule:
+       │    ├─ open_release_pr.sh:
+       │    │    ├─ compute_next_release.mjs — semantic-release DRY RUN against
+       │    │    │    the root .releaserc.json → {version, notes} or "nothing
+       │    │    │    to do"
+       │    │    ├─ apply_version_bump.mjs — CHANGELOG.md + the four
+       │    │    │    ts/*/package.json versions, applied to a branch
+       │    │    │    `release/next` freshly forked from origin/main (never to
+       │    │    │    `main` itself)
+       │    │    ├─ commit "chore(release): X.Y.Z" + the full notes as the body
+       │    │    └─ open_bot_pr.sh — force-push `release/next`, open-or-refresh
+       │    │         its PR, dispatch ci.yml + regression-gates.yml (produces
+       │    │         the 19 required contexts against this branch's head SHA
+       │    │         — see mechanic 2 above), arm `gh pr merge --auto --squash`
+       │    │         with the commit subject/body PINNED to the exact release
+       │    │         message
+       │    └ No tag, GitHub Release or publish dispatch happens here.
+       │
+       └─ `finish-release` job (no `test` dependency; seconds) — Phase 2, runs
+          on push, schedule AND a real workflow_dispatch:
+            ├─ finish_release.sh: HEAD's subject matches `chore(release):
+            │    X.Y.Z`? If not: no-op (`is_release=false`).
             ├─ (only when it matches — i.e. that release PR just merged)
             │    tag vX.Y.Z at HEAD, push it, `gh release create` with the
-            │    commit body as notes
-            └► gh workflow run publish-npm.yml / release-cpp.yml --ref vX.Y.Z
+            │    commit body as notes. `newly_tagged=true` ONLY the one run
+            │    that actually created the tag — a poll that lands on an
+            │    already-tagged HEAD reports `is_release=true` (for
+            │    visibility) but `newly_tagged=false`, so it dispatches
+            │    nothing again.
+            └► gated on `newly_tagged == 'true'`:
+               gh workflow run publish-npm.yml / release-cpp.yml --ref vX.Y.Z
                gh workflow run go-release.yml / pubdev-release.yml --ref main
                (unchanged from before — same explicit-dispatch pattern, same
                recursion-protection reason, just gated on Phase 2's verdict
                instead of semantic-release's own `released_version` output)
 ```
 
+**Why the job split, not just a step reorder.** The original shape ran Phase
+1 then Phase 2 as two STEPS of one job, every push. On the one push whose
+HEAD actually is the release-PR merge, Phase 1's dry run ran BEFORE the tag
+existed — `semantic-release`'s `lastRelease` is computed from tags, so it
+still saw every original feat/fix commit as unreleased and recomputed the
+identical version, opening a SECOND `chore(release): X` PR with a duplicated
+`CHANGELOG.md` entry, and (via the old, un-split `is_release` gate) a second
+round of every downstream publish dispatch. Reordering the two steps helps
+the common case, but a parallel recovery poll (needed for the reason above)
+can still race a same-job Phase 1 that is mid-flight when Phase 2 tags.
+Splitting them into independent jobs removes the ordering dependency
+entirely: Phase 1 sits behind the `test` job (several minutes) while Phase 2
+needs nothing and finishes in seconds, so by the time Phase 1 even checks
+out the repo, Phase 2 has already pushed the tag — its dry run correctly
+sees it and computes nothing to release for the lone "chore" commit (which,
+yes, is still not releasable to commit-analyzer on its own; that fact alone
+was never what kept the loop from running away — the ordering was).
+
 No tag, GitHub Release or publish dispatch happens until the PR in Phase 1
-has actually merged through the normal required-checks path — merging IS what
-makes Phase 2 see the release commit on `main`. `workflow_dispatch`'s
+has actually merged through the normal required-checks path. `workflow_dispatch`'s
 `dry_run` input (default `true`) rehearses Phase 1's computation with zero
 side effects on any branch, the same shape go-release.yml/pubdev-release.yml
-already use.
+already use; it does not rehearse `finish-release` (nothing to rehearse —
+that job either sees a release-commit HEAD or it doesn't).
 
-**The freshness alarm this issue's Definition of Done asked for**:
-`.github/workflows/release-freshness.yml` (weekly + dispatch) runs
-`tools/release/check_release_freshness.sh`, the sibling of
-`go-freshness.yml`/`pubdev-freshness.yml` for this channel — it asks whether
-`main` has a releasable commit that has sat unreleased for more than a grace
-window (`MAX_LAG_MINUTES`, default 24h) with no new tag to show for it, citing
-the open `release/next` PR (or its absence) so a silently stalled lane reds a
-real, scheduled gate instead of being invisible between someone noticing
-CHANGELOG.md looks stale.
+**The freshness alarms** — two independent, differently-scheduled ones, not
+to be confused with each other:
+- `.github/workflows/release-freshness.yml` (weekly + dispatch) runs
+  `tools/release/check_release_freshness.sh`, the sibling of
+  `go-freshness.yml`/`pubdev-freshness.yml` for this channel — it asks
+  whether `main` has a releasable commit that has sat unreleased for more
+  than a grace window (`MAX_LAG_MINUTES`, default 24h) with no new tag to
+  show for it, citing the open `release/next` PR (or its absence) so a
+  silently stalled lane reds a real, scheduled gate instead of being
+  invisible between someone noticing `CHANGELOG.md` looks stale. This is
+  this issue's Definition of Done asking for an outcome alarm, not a
+  recovery mechanism — it alarms a human, it does not act.
+- `release.yml`'s own `schedule: cron: "*/15 * * * *"` (added by PR #881's
+  review, finding 2) is a DIFFERENT thing: the actual Phase-2 recovery
+  mechanism described above, not an alarm. It is cheap enough (git + gh
+  only, `finish-release` job, seconds) to run every 15 minutes forever, and
+  a `concurrency: group: release-finish` serialises any tick that overlaps a
+  `push`-triggered run instead of letting two race to tag the same release.
+
+**A second, independent bug PR #881's review (finding 4) turned up**: writing
+the first-ever test that exercises `check_release_freshness.sh`'s STALE
+message past the `classify()` call (previously untestable — see "Why the
+freshness alarm's own live path had no test" below) found that the alert's
+most actionable line — "Open release PR: …" — was silently dropped on every
+real STALE verdict whenever `main` had a prior release tag (i.e. essentially
+always). Root cause: bash's parser treats an unescaped `'` inside a
+`${var:-word}` default as opening a quoted region even inside an outer
+double-quoted string, and with TWO such apostrophes on that one line ("the
+repo's first commit", "release.yml's recent runs"), it silently absorbed
+everything between them into the (normally unused) `${LAST_TAG:-...}`
+default, truncating the echoed message right after `$LAST_TAG`'s value.
+Fixed by rephrasing both defaults with no apostrophe.
+
+**Why the freshness alarm's own live path had no test, and what now covers
+it.** `check_release_freshness.sh --self-test` only ever proved the pure
+`classify()` function in isolation. Everything after the
+`compute_next_release.mjs` call — the real `LAST_TAG`/`RANGE`/`OLDEST_ISO`
+computation against actual git state, `classify()` fed from it, the STALE
+branch's `gh pr list` lookup, and the alert text (the bug above) — was
+exercised NOWHERE: `semantic-release`'s core unconditionally refuses to
+compute a real answer for a `pull_request` event (logs "This run was
+triggered by a pull request and therefore a new version won't be
+published.") or for any branch other than its configured release branch
+(logs "… configured to only publish from main …"), and those are the *only*
+two ways `release-freshness.yml`'s own `pull_request` rehearsal (scoped to
+its own 2 files) and `release.yml`'s `workflow_dispatch` dry-run rehearsal
+ever call it. Both always see `{"release":false}`, so this script always
+reported FRESH trivially — a "test" that could not fail by construction, no
+matter what the rest of the script did. Confirmed from this repo's own CI
+logs on PR #881's branch (job `117304930214` and job `117303849054`).
+`tools/release/test/check_release_freshness_live_test.sh` is the fix: it runs
+the real script (`BALL_REPO_ROOT` override) against a throwaway local git
+repo, using a test-only `BALL_FORCE_RELEASE_DUE` env var to stand in for a
+real "yes, a release is due" verdict — never set by the real workflow — so
+the git-state computation, the classifier, the `gh pr list` lookup (stubbed)
+and the alert text all run for real, including the exact STALE path that hid
+the apostrophe bug above.
 
 **What is explicitly NOT fixed here, and why.** `pubdev-release.yml` (nine
 Dart packages) and `go-release.yml` (the Go module line) each run a REAL
@@ -178,14 +281,22 @@ current status before assuming either lane works.
 **The guards:** `tools/release/check_release_pr_wiring.sh` (every PR,
 `Proto Checks`) sweeps every workflow for the exact rejected pattern (`git
 push … HEAD:main`, comment-stripped so a line merely documenting this
-history — like this section — never trips it) and asserts both call sites are
-wired to the shared helpers; `tools/release/check_release_freshness.sh
+history — like this section — never trips it), asserts both call sites are
+wired to the shared helpers, AND (PR #881 review finding 3) that
+`coverage-study.yml`'s `publish` job's `permissions:` block grants all three
+scopes `open_bot_pr.sh` needs (`contents`/`pull-requests`/`actions: write` —
+`contents: write` alone 403s on the first `gh pr` call);
+`tools/release/check_release_dispatch_wiring.sh` (and its Go/pub.dev
+siblings) assert the four downstream dispatches are gated on
+`steps.finish.outputs.newly_tagged`, not `is_release` (a poll ticking on an
+already-tagged HEAD must not re-fire them); `tools/release/check_release_freshness.sh
 --self-test` proves the alarm's classifier in isolation; and
 `tools/release/test/{release_pr_lib_test.mjs,apply_version_bump_test.mjs,
-open_bot_pr_test.sh,finish_release_test.sh}` exercise the file-mutation logic
-and the shared PR-opening/release-finishing scripts end-to-end against
-throwaway local git repos and a stubbed `gh` (zero network, zero real
-credentials) — all four run in `ci.yml`'s `Proto Checks` job on every PR.
+open_bot_pr_test.sh,finish_release_test.sh,check_release_freshness_live_test.sh}`
+exercise the file-mutation logic, the shared PR-opening/release-finishing
+scripts, and the freshness alarm's live path end-to-end against throwaway
+local git repos and a stubbed `gh` (zero network, zero real credentials) —
+all five run in `ci.yml`'s `Proto Checks` job on every PR.
 
 ## npm lane (@ball-lang/engine, cli, compiler, encoder)
 

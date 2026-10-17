@@ -273,14 +273,27 @@ jobs:
       # PR-opening and release-finishing helpers, exercised against throwaway
       # local git repos and a stub `gh` (zero network, zero real
       # credentials). `compute_next_release.mjs` itself (the one script that
-      # needs the real `semantic-release` package) is exercised at release
-      # time by `release.yml`'s own dry-run rehearsal, not here.
+      # needs the real `semantic-release` package) is NOT exercised here, and
+      # — PR #881 review finding 4 — contrary to what this comment used to
+      # claim, it is also NOT meaningfully exercised by release.yml's own
+      # dry-run rehearsal or by release-freshness.yml's `pull_request`
+      # trigger: `semantic-release` unconditionally refuses to compute a real
+      # answer off its configured release branch or for a `pull_request`
+      # event (confirmed from this repo's own CI logs — see
+      # docs/RELEASE.md), so both rehearsals always see `{"release":false}`
+      # and could never fail regardless of what this script does. The
+      # `check_release_freshness_live_test.sh` run below is the test that
+      # DOES exercise everything downstream of that verdict — the
+      # LAST_TAG/RANGE/OLDEST_ISO git-state computation, the classifier fed
+      # from it, the `gh pr list` lookup, and the alert text — via a
+      # `BALL_FORCE_RELEASE_DUE` override meant only for this test.
       - name: Release-via-PR script self-tests (#755)
         run: |
           node --test tools/release/test/release_pr_lib_test.mjs tools/release/test/apply_version_bump_test.mjs
           bash tools/release/test/open_bot_pr_test.sh
           bash tools/release/test/finish_release_test.sh
           bash tools/release/check_release_freshness.sh --self-test
+          bash tools/release/test/check_release_freshness_live_test.sh
 
       # The guard above pins that a release channel CAN fire. It cannot see the
       # failure #551 reported: the pub.dev lane's trigger chain was reachable

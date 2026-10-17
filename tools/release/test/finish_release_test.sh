@@ -63,6 +63,12 @@ if run_finish_release > "$WORKDIR/log1.txt" 2>&1; then
   else
     no "non-release commit -> is_release=false (got: $IS_RELEASE)"
   fi
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "false" ]; then
+    ok "non-release commit -> newly_tagged=false"
+  else
+    no "non-release commit -> newly_tagged=false (got: $NEWLY_TAGGED)"
+  fi
   if [ ! -s "$GH_LOG" ]; then
     ok "non-release commit -> gh never invoked"
   else
@@ -85,6 +91,12 @@ if run_finish_release > "$WORKDIR/log2.txt" 2>&1; then
     ok "release commit -> is_release=true, version=1.73.0"
   else
     no "release commit -> is_release=true, version=1.73.0 (got is_release=$IS_RELEASE version=$VERSION)"
+  fi
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "true" ]; then
+    ok "release commit -> newly_tagged=true (the one run that should dispatch publishing)"
+  else
+    no "release commit -> newly_tagged=true (got: $NEWLY_TAGGED)"
   fi
   if git -C "$WORK" rev-parse --verify refs/tags/v1.73.0 >/dev/null 2>&1; then
     ok "release commit -> tag v1.73.0 created locally"
@@ -114,6 +126,19 @@ if run_finish_release > "$WORKDIR/log3.txt" 2>&1; then
     ok "re-run on already-tagged HEAD -> is_release=true (idempotent)"
   else
     no "re-run on already-tagged HEAD -> is_release=true (got: $IS_RELEASE)"
+  fi
+  # PR #881 review finding 2: release.yml now also polls this script on a
+  # recurring schedule as the recovery net for a GITHUB_TOKEN-armed
+  # auto-merge whose resulting push never triggers release.yml at all. A
+  # poll that lands on an already-tagged HEAD (the common case, between the
+  # merge and the NEXT push) must NOT look like a fresh release to the
+  # caller, or every downstream publish workflow gets re-dispatched on every
+  # poll interval forever.
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "false" ]; then
+    ok "re-run on already-tagged HEAD -> newly_tagged=false (must not re-dispatch publishing)"
+  else
+    no "re-run on already-tagged HEAD -> newly_tagged=false (got: $NEWLY_TAGGED)"
   fi
   if [ ! -s "$GH_LOG" ]; then
     ok "re-run on already-tagged HEAD -> gh never invoked again"

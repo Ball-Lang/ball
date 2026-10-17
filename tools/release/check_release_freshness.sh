@@ -95,8 +95,30 @@ cd "$ROOT"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-node "$ROOT/tools/release/compute_next_release.mjs" > "$WORKDIR/next.json"
-RELEASE="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).release)' "$WORKDIR/next.json")"
+# BALL_FORCE_RELEASE_DUE overrides the semantic-release dry-run verdict below
+# — used ONLY by tools/release/test/check_release_freshness_live_test.sh
+# (PR #881 review finding 4) to exercise this script's LIVE path (the
+# LAST_TAG/RANGE/OLDEST_ISO computation, the classify() call against real
+# git state, and the STALE branch's `gh pr list` lookup + error message)
+# against a throwaway fixture repo. `compute_next_release.mjs` itself calls
+# semantic-release's core, which unconditionally refuses to compute a real
+# answer for a `pull_request` event (sets `isPr`, logs "a new version won't
+# be published") OR for any branch other than its configured release branch
+# (logs "configured to only publish from main") — so this script's live path
+# (everything after the `RELEASE != true` check) is NOT exercisable through
+# release-freshness.yml's own `pull_request` rehearsal or release.yml's
+# `workflow_dispatch` dry-run rehearsal on a topic branch: both always see
+# `{"release":false}` and this script always reports FRESH trivially, never
+# touching the logic that would actually need to be correct the one time it
+# matters. Confirmed from this very PR's own CI runs — see docs/RELEASE.md's
+# "Release via PR" section. Never set in the real `release-freshness.yml`
+# workflow.
+if [ -n "${BALL_FORCE_RELEASE_DUE:-}" ]; then
+  RELEASE="$BALL_FORCE_RELEASE_DUE"
+else
+  node "$ROOT/tools/release/compute_next_release.mjs" > "$WORKDIR/next.json"
+  RELEASE="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).release)' "$WORKDIR/next.json")"
+fi
 
 if [ "$RELEASE" != "true" ]; then
   echo "release-freshness: nothing releasable on main — nothing to watch"
@@ -120,7 +142,19 @@ VERDICT="$(classify true "$OLDEST_EPOCH" "$NOW_EPOCH")"
 if [ "${VERDICT%% *}" = "STALE" ]; then
   AGE_MINUTES="${VERDICT##* }"
   OPEN_PR="$(gh pr list --head release/next --state open --json number,url --jq '.[0].url // ""' 2>/dev/null || true)"
-  echo "::error::release-freshness: main has had a releasable commit unreleased for ${AGE_MINUTES} minutes (> ${MAX_LAG_MINUTES}), oldest at ${OLDEST_ISO} since ${LAST_TAG:-the repo's first commit}. Open release PR: ${OPEN_PR:-NONE — check release.yml's recent runs and tools/release/open_release_pr.sh}"
+  # PR #881 review finding 4 turned up a second, independent bug while
+  # writing the first-ever live-path test for this branch: bash's parser
+  # treats an unescaped `'` inside a `${var:-word}` default as opening a
+  # quoted region, even when the whole expansion sits inside a double-quoted
+  # string — and with TWO such apostrophes on one line ("repo's", "yml's"),
+  # it silently swallows everything between them into the (unused, since
+  # LAST_TAG is normally non-empty) `${LAST_TAG:-...}` default, truncating
+  # the echoed message right after `$LAST_TAG`'s value and before "Open
+  # release PR:" ever printed — this alarm's single most actionable line,
+  # dropped on every real STALE verdict, caught by no self-test because
+  # `--self-test` never calls this branch with the real git/gh plumbing
+  # live. Neither default below spells an apostrophe now.
+  echo "::error::release-freshness: main has had a releasable commit unreleased for ${AGE_MINUTES} minutes (> ${MAX_LAG_MINUTES}), oldest at ${OLDEST_ISO} since ${LAST_TAG:-the very first commit}. Open release PR: ${OPEN_PR:-NONE — check recent release.yml runs and tools/release/open_release_pr.sh}"
   exit 1
 fi
 

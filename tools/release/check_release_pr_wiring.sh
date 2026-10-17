@@ -108,6 +108,30 @@ check_coverage_study_wiring() {
   else
     no "coverage-study.yml's publish job calls tools/release/open_bot_pr.sh"
   fi
+
+  # PR #881 review finding 3: open_bot_pr.sh needs `pull-requests: write`
+  # (gh pr list/create/edit/merge) and `actions: write` (the two
+  # `gh workflow run` dispatches) on top of `contents: write` (the branch
+  # push) — the job-level permissions block that overrides the workflow's
+  # `contents: read` default must grant all three, or every `gh pr`/
+  # `gh workflow run` call 403s the first time this job actually has
+  # something to commit. Scoped to the `publish:` job's own block (from its
+  # `publish:` line to EOF — it is the last job in the file) so a stricter
+  # grant elsewhere in the file can never satisfy this by accident.
+  local publish_block
+  publish_block="$(awk '/^  publish:/{found=1} found' "$wf")"
+  if [ -z "$publish_block" ]; then
+    no "coverage-study.yml has a publish: job"
+  else
+    local scope
+    for scope in 'contents: write' 'pull-requests: write' 'actions: write'; do
+      if printf '%s\n' "$publish_block" | grep -qF "$scope"; then
+        ok "coverage-study.yml's publish job permissions grant $scope"
+      else
+        no "coverage-study.yml's publish job permissions grant $scope (tools/release/open_bot_pr.sh's gh pr/gh workflow run calls 403 without it)"
+      fi
+    done
+  fi
 }
 
 check_scripts_exist() {

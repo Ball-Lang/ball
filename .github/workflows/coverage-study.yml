@@ -515,8 +515,18 @@ jobs:
     timeout-minutes: 15
     permissions:
       # Overrides the workflow-level `contents: read`; this is the only job in
-      # the file that writes anything back to the repository.
+      # the file that writes anything back to the repository. All three scopes
+      # are load-bearing for `tools/release/open_bot_pr.sh` below, not just the
+      # branch push: `contents: write` for `git push --force` + `gh pr merge
+      # --auto --squash`'s own merge commit, `pull-requests: write` for `gh pr
+      # list`/`create`/`edit`/`merge`, and `actions: write` for the two
+      # `gh workflow run` dispatches that get this bot PR's required checks
+      # actually running (see docs/RELEASE.md's "Release via PR" section).
+      # `contents: write` alone 403s on the first `gh pr` call — PR #881
+      # review finding 3.
       contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -15,7 +15,7 @@
 #
 # The repo's own documented workaround, already used for npm and C++, is an
 # explicit `gh workflow run <file> --ref "v<version>"` step in release.yml,
-# guarded on `steps.finish.outputs.is_release == 'true'` (issue #755's
+# guarded on `steps.finish.outputs.newly_tagged == 'true'` (issue #755's
 # release-via-PR Phase 2 — see tools/release/finish_release.sh; this guard's
 # name predates that rename but still asserts the same four-part contract),
 # pointed at a workflow that declares `workflow_dispatch:`. This guard pins
@@ -108,7 +108,13 @@ for target in $TARGETS; do
       "a push-triggered workflow cannot substitute — a release PR merge carries no [skip ci] of its own kind that would make this reachable any other way"
   fi
 
-  # (4) That dispatch is guarded on a release actually having been cut.
+  # (4) That dispatch is guarded on a release actually having been cut THIS
+  # run, not merely on HEAD being a release commit. `is_release` stays true
+  # on every idempotent re-run that sees an already-tagged HEAD (every poll
+  # tick between a release-PR merge and the next push — see
+  # tools/release/finish_release.sh and PR #881 review finding 2), so the
+  # gate must be `newly_tagged`, not `is_release`, or a scheduled poll
+  # re-dispatches every downstream publish workflow on every tick.
   # Checked by locating the dispatch line and looking back a bounded window for
   # the guard, so an unguarded step cannot borrow a neighbour's `if:`.
   line="$(grep -nF "gh workflow run $target --ref" "$RELEASE" | head -1 | cut -d: -f1)"
@@ -116,14 +122,14 @@ for target in $TARGETS; do
     start=$((line - 8))
     [ "$start" -lt 1 ] && start=1
     if sed -n "${start},${line}p" "$RELEASE" |
-      grep -qF "if: steps.finish.outputs.is_release == 'true'"; then
-      ok "the $target dispatch is guarded on is_release == 'true'"
+      grep -qF "if: steps.finish.outputs.newly_tagged == 'true'"; then
+      ok "the $target dispatch is guarded on newly_tagged == 'true'"
     else
-      no "the $target dispatch is guarded on is_release == 'true'" \
-        "an unguarded dispatch fires on every push to main, releasing or not"
+      no "the $target dispatch is guarded on newly_tagged == 'true'" \
+        "an unguarded (or is_release-guarded) dispatch re-fires on every poll of an already-tagged HEAD, releasing or not"
     fi
   else
-    no "the $target dispatch is guarded on is_release == 'true'" \
+    no "the $target dispatch is guarded on newly_tagged == 'true'" \
       "no dispatch line for $target to guard"
   fi
 done

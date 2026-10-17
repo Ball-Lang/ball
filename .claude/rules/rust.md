@@ -272,19 +272,29 @@ cargo fmt --check && cargo clippy --workspace
   if a later change breaks one: the subject binding lives **inside** the loop body, so it is
   re-evaluated every iteration; the synthetic `break` is **unlabeled**, so it exits this loop and
   not a labelled enclosing one (a source label still goes through `wrap_label` around the
-  `std.while`, so `compile_label`'s directly-nested-loop fast path still applies); and the pattern
-  binding goes through `with_pattern_binding` (#630) so it shadows a same-named enclosing local
-  for the BODY only. Everything else is shared with `encode_if_let` — `pattern_outcome_shape` +
-  `outcome_condition` over `option_result_message`'s unified Option/Result outcome shape, so
-  `Some`/`Ok` and `None`/`Err` both fall out with no extra branch and every other pattern keeps
-  its existing loud refusal (whose wording now names `while let` too). `encode_loop` needs **no**
-  counterpart: `loop` has no condition, so no `Expr::Let` can reach it. The catch-all's message is
-  now `let-chain pattern binding (only a plain `if let` / `while let` condition is supported)`,
-  describing what can still legitimately arrive there (a Rust 2024 let chain, `a && let Some(x) =
-  y`). Guards: `rust/encoder/tests/while_let.rs` — one shape assertion plus **five** encode →
-  compile → `cargo build` → run proofs, because the desugaring's whole risk is dynamic and a tree
-  assertion cannot see once-vs-per-iteration evaluation, which frame the `break` exits, or how
-  long the binding lives.
+  `std.while`, so `compile_label`'s directly-nested-loop fast path still applies); and the
+  per-iteration `let <bind> = __ball_while_let.value;` sits INSIDE the desugared then-block, so
+  ordinary Ball lexical block scoping shadows a same-named enclosing local for the BODY only and
+  restores it afterward. The encoded binding is also wrapped in
+  `Encoder::with_pattern_binding` (#630) — but that frame's own effect is narrower than
+  "shadowing": it is encode-time bookkeeping with exactly one reader
+  (`methods.rs::classify_write_destination`, the `write!`/`writeln!` destination rule) plus the
+  `&mut`-alias shadow it restores on exit, since `encode_path_expr` resolves a pattern binding and
+  a plain `let` identically either way (issue #853 — the ordinary variable-shadowing property
+  above needs no such guard at all). Everything else is shared with `encode_if_let` —
+  `pattern_outcome_shape` + `outcome_condition` over `option_result_message`'s unified
+  Option/Result outcome shape, so `Some`/`Ok` and `None`/`Err` both fall out with no extra branch
+  and every other pattern keeps its existing loud refusal (whose wording now names `while let`
+  too). `encode_loop` needs **no** counterpart: `loop` has no condition, so no `Expr::Let` can
+  reach it. The catch-all's message is now `let-chain pattern binding (only a plain `if let` /
+  `while let` condition is supported)`, describing what can still legitimately arrive there (a
+  Rust 2024 let chain, `a && let Some(x) = y`). Guards: `rust/encoder/tests/while_let.rs` — **two**
+  shape assertions (the always-true `std.while`/break-else structure, and #853's
+  `while_let_pattern_binding_write_is_a_sink_not_the_enclosing_string_local`, the one shape that
+  can tell `with_pattern_binding` apart from a no-op stub) plus **five** encode → compile →
+  `cargo build` → run proofs, because the desugaring's whole risk is dynamic and a tree assertion
+  alone cannot see once-vs-per-iteration evaluation, which frame the `break` exits, or how long
+  the binding lives.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
   variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
   encodes — see below; the guard keys on the missing BODY, not the missing receiver), a
@@ -573,10 +583,20 @@ cargo fmt --check && cargo clippy --workspace
   choke point for `=` and every compound operator — panics when a write's ROOT (through
   parens/deref/field/index, `write_root_name`) resolves to an `Opaque` alias, naming the alias, the
   place and #692. A `&mut` of a variable that is itself `Opaque` inherits the opaqueness rather
-  than becoming a modelled alias of the copy. A SHARED `&p.x` is never `Opaque`: Rust cannot write
-  through a `&T`, so there is nothing to lose. Guards:
+  than becoming a modelled alias of the copy — pinned by
+  `a_write_through_a_mut_borrow_of_an_already_opaque_alias_is_refused_too` (#736): removing that
+  inheritance arm silently re-encodes the nested borrow as a lost write instead of refusing it.
+  A SHARED `&p.x` is never `Opaque`: Rust cannot write through a `&T`, so there is nothing to
+  lose. **A `&mut` of a MULTI-SEGMENT path** (`&mut m::S`, a `static mut`/`const` reached through
+  a module qualifier) is `Opaque` too (#736) — `block.rs::borrowed`'s `syn::Expr::Path` arm used
+  to answer bare `None` the moment `path.get_ident()` failed, which this crate's own `other if
+  reference.mutability.is_some()` catch-all can never reach (a matched `syn::Expr::Path` arm owns
+  the whole match), so the alias went unrecorded and a write through it landed on a silent copy —
+  no refusal at all, worse than the single-segment case. Guards:
   `rust/encoder/tests/mut_borrow_writes.rs` — four refused write shapes and four controls (a
-  read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing).
+  read-only `&mut` borrow, a shared borrow, the modelled plain-variable alias, and shadowing),
+  plus #736's `a_write_through_a_mut_borrow_of_an_already_opaque_alias_is_refused_too` and
+  `a_write_through_a_mut_borrow_of_a_multi_segment_path_is_refused_too`.
   **And so does a MUTATING METHOD CALL through such a borrow (#775).** An assignment is not the
   only way to mutate: `let s = &mut v[0]; s.push(x);` encodes as
   `std_collections.list_push(list: <receiver>, value: x)`, `list_push` appends IN PLACE
@@ -996,14 +1016,22 @@ and its own encoder refuses caps that column no matter how good either half is o
   that records the key it was asked for), and
   `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
   `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
-  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Every
-  test in that target except the whole-corpus sweep is non-`#[ignore]`d — five of them as of
-  #790 — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here
-  may write the process environment** (`std::env::set_var` is `unsafe` for exactly that reason),
-  and the target carries `#![forbid(unsafe_code)]` so that is a BUILD ERROR rather than a rule a
-  reader has to remember — pass the value in as an argument instead. The remaining gap is named in the row's own step
-  summary with the issue tracking it, never as an "expected baseline". #692's own two buckets
-  are CLOSED — the leg moved **100 -> 109**
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected), and
+  `a_timed_out_fixture_leaves_no_orphaned_descendant_process` (#791; the kill must reach the
+  whole process TREE — `dart run` forks the Dart VM, so killing the launcher alone left one
+  orphaned VM per timed-out fixture in the runner. `run_dart` spawns into its own process group
+  and `kill_process_tree` kills the group, matching C#'s `Kill(entireProcessTree: true)`). Every
+  test in that target except the whole-corpus sweep is non-`#[ignore]`d — six of them as of #791
+  — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here may write
+  the process environment** (`std::env::set_var` is `unsafe` for exactly that reason), and the
+  target carries `#![deny(unsafe_code)]` so that is a BUILD ERROR rather than a rule a reader has
+  to remember — pass the value in as an argument instead. That lint is `deny`, not `forbid`,
+  for exactly one reason: `kill_process_tree`'s unix half needs the one real syscall no safe std
+  API exposes (`libc::kill(-pid, SIGKILL)`, to reach the whole process group) and carries its own
+  SAFETY-commented, narrowly-scoped `#[allow(unsafe_code)]` — the only unsafe this file permits;
+  `forbid` would have made that legitimate syscall impossible to express here at all. The
+  remaining gap is named in the row's own step summary with the issue tracking it, never as an
+  "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
   corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/
   `ball_spread_iter` inverses it owed, took it **109 -> 121 of 361** (run 35557346693): every

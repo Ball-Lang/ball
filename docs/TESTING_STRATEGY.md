@@ -611,25 +611,89 @@ drop is red.
    them is not cosmetic: libtest runs a target's non-`#[ignore]`d tests
    concurrently, so a self-test that SET `BALL_TIMEOUT_MS` would be writing the
    environment out from under its neighbours, and `std::env::set_var` is `unsafe`
-   for exactly that reason. That target carries `#![forbid(unsafe_code)]` so the
+   for exactly that reason. That target carries `#![deny(unsafe_code)]` so the
    ban is a build error rather than a comment a later reader has to honour —
    the SAFETY note that justified the old `set_var` (“the only
    non-`#[ignore]`d test in this target”) was false when it was written, and
-   a rule that only prose enforces rots exactly that way (#790).
+   a rule that only prose enforces rots exactly that way (#790). `deny`, not
+   `forbid`: #791's whole-process-tree kill below needs one real syscall no
+   safe std API exposes (`libc::kill(-pid, SIGKILL)` on unix), so
+   `kill_process_tree`'s unix half carries its own narrowly-scoped,
+   SAFETY-commented `#[allow(unsafe_code)]` — the only unsafe the file permits,
+   and the one thing a crate-level `forbid` would have made impossible to
+   express here at all.
 
-   **Killing the process is not the same as ending the fixture (#691).** Every
-   one of these legs sets `cmd.Stdout` to an in-memory writer, so the runtime
-   pipes the child and copies in a goroutine — and the wait does not return until
-   that copy ends, which needs EVERY holder of the pipe's write end closed, the
-   killed process's own descendants included. Go's round-trip leg killed its
-   `dart` and then blocked forever on `cmd.Wait()`, so the sweep printed no
-   `Results:` line at all and the row would have died on the job's
-   `timeout-minutes` — reporting nothing, rather than reporting a timeout. The
-   bound is `cmd.WaitDelay` (`go/engine/conformance/roundtrip.go`), and
-   `roundtrip_timeout_test.go` is its negative control: a stand-in `dart` that
-   hands its stdout to a grandchild and blocks, measured at 5.6 s with the bound
-   and 30.1 s without. It stayed latent because only 31 fixtures ever reached the
-   engine; it surfaced the moment #691 raised that to 80.
+   **Killing the process is not the same as ending the fixture.** `dart run` is
+   a LAUNCHER: it forks the Dart VM, and the VM is what executes the program and
+   holds the inherited stdout pipe. Killing only the process the leg spawned
+   therefore leaves work behind — but *which* failure that becomes depends
+   entirely on the exec API, so the four legs do not share one story. Stated per
+   leg, because stating it once for all four is what let #791 sit unnoticed:
+
+   - **Go — the WAIT used to hang too (#691), and the TREE survived until
+     #862.** `roundtrip.go` sets `cmd.Stdout` to an in-memory writer, so
+     `os/exec` pipes the child and copies in a goroutine, and `cmd.Wait` does
+     not return until that copy ends — which needs EVERY holder of the pipe's
+     write end closed, the killed process's descendants included. The leg
+     killed its `dart` and then blocked forever, so the sweep printed no
+     `Results:` line at all and the row would have died on the job's
+     `timeout-minutes` — reporting nothing, rather than reporting a timeout.
+     The bound is `cmd.WaitDelay`, and
+     `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe`
+     (`roundtrip_timeout_test.go`) is its negative control: a stand-in `dart`
+     that hands its stdout to a grandchild and blocks, measured at 5.6 s with
+     the bound and 30.1 s without. It stayed latent because only 31 fixtures
+     ever reached the engine; it surfaced the moment #691 raised that to 80.
+     **This WAS a Go-only mechanism** — the other three legs use exec APIs
+     that cannot block that way (`RoundTripLeg.cs` returns without awaiting its
+     read tasks; Rust's `run_dart` calls `child.wait()`, not
+     `wait_with_output()`; CPython's `subprocess` does not re-read the pipes on
+     the POSIX timeout path). But bounding the WAIT was never the same as
+     killing the TREE: until #862, `roundTripOne`'s timeout path called only
+     `cmd.Process.Kill()`, which reaches the immediate `dart` launcher and
+     nothing else — the elapsed-time assertion above is blind to it by
+     construction, because a harness that returns promptly and a grandchild
+     that is still running are the same observation. It now spawns the child
+     as its own process-group leader
+     (`cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`,
+     `roundtrip_unix.go`) and kills the GROUP on timeout
+     (`syscall.Kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on Windows,
+     `roundtrip_windows.go` — filename build constraints, since "unix" is not
+     a GOOS the filename convention recognizes on its own, so `roundtrip_unix.go`
+     also carries an explicit `//go:build unix`). The negative control is
+     `TestRoundTripKillEndsTheWholeProcessTree`: the SAME stand-in `dart`'s
+     grandchild now appends a heartbeat file every 50 ms, and the test asserts
+     it stops growing after the timeout fires, with a positive floor on that
+     file so a control that failed to fork anything cannot pass while proving
+     nothing — the Go sibling of the Rust/Python controls below. The group
+     kill ALSO reaches the WaitDelay control's own grandchild — the two
+     controls share the same stand-in `dart` — so left alone it would make
+     `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` pass on the
+     tree kill alone, with `cmd.WaitDelay` never engaging: the elapsed-time
+     numbers above (5.6 s / 30.1 s) would both read fast and the mutation of
+     deleting `cmd.WaitDelay` would go uncaught. That test substitutes a
+     package-level `killOnTimeout` var with a launcher-only kill for its own
+     run (restoring the pre-#862 topology, a descendant the tree kill does
+     not reach) so a prompt return can only be explained by the bound itself;
+     every other caller, production included, still gets the real tree kill.
+   - **Rust and Python — the process TREE survived until #791.** Neither
+     hangs; both used to kill only the immediate `dart`, leaving one orphaned
+     Dart VM per timed-out fixture burning a CI runner for the rest of the
+     job. Invisible to every test they had, because those assert only that
+     the HARNESS came back with a `timeout` status — which it always did.
+     Both now spawn the child as its own process-group leader
+     (`CommandExt::process_group(0)` / `start_new_session=True`) and kill the
+     GROUP on timeout (`libc::kill(-pid, SIGKILL)` / `os.killpg`;
+     `taskkill /T /F /PID` on Windows). The negative control per leg is
+     `a_timed_out_fixture_leaves_no_orphaned_descendant_process` (Rust) and
+     `python/engine/tests/test_roundtrip_process_tree.py`: a fabricated stand-in
+     `dart` that forks a grandchild inheriting its stdout and blocks, asserting
+     the GRANDCHILD is gone — observed through a heartbeat file it appends to
+     every 50 ms, with a positive floor on that file so a control that failed to
+     fork anything cannot pass while proving nothing.
+   - **C# — already correct.** `RoundTripLeg.cs` has always called
+     `process.Kill(entireProcessTree: true)`, which is the guarantee the other
+     three just acquired.
 
 Python's floor is **63** since PR #733 (run 34800144249, the PR's own row), which
 mapped every `ballrt.*` helper with an exact universal-`std` inverse — the
@@ -2119,7 +2183,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **A Python re-encode that only the REFERENCE ENGINE can refute (#785)** — the fast Python round-trip guards (`python/encoder/tests/test_ballrt_inverse.py`, `test_ballrt_namespaced.py`) run the re-encoded fixture in-process under `ballrt` and compare to the golden. Python's runtime is tolerant where the reference engine is strict — `ballrt.getfield` answers `None` for an absent key (proto3-default tolerance) while the engine raises `BallRuntimeError: Field "…" not found` — so a re-encode that reads an absent key under the eager `std.null_coalesce` prints the golden there and DIES on the engine. The whole-corpus `python-roundtrip` row does use the engine, but it is a path-filtered floor/ratchet measurement, not a per-fixture gate on the suite that certifies those fixtures | `python/encoder/tests/test_reference_engine_roundtrip.py` — for every fixture those two suites certify (the set **derived from their own lists**, so a fixture added there is covered the same day) it runs the ORIGINAL `.ball.json` *and* the RE-ENCODED program on `dart run dart/cli/bin/ball.dart run` and asserts byte-identical stdout, with the fixture's own golden as the third leg so a failure names the guilty side. A negative control encodes two compiler-shaped programs `ballrt` cannot tell apart and the engine can, so the instrument is proven rather than trusted; a positive floor on the derivation stops an empty set from reading as green. No skip: an unresolvable `dart` FAILS (the #730/#764 precedent), which is why `ci.yml`'s `python` job sets Dart up BEFORE its test steps | every PR (the `python` job, `cd python/encoder && python -m pytest`) |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
-| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the budget it is HANDED — `run_dart` takes the budget as an ARGUMENT, so the kill is proven in milliseconds with no environment write. That seam is the point: libtest runs this target's five non-`#[ignore]`d tests concurrently (the whole-corpus sweep beside them is `#[ignore]`d and runs only under `--ignored`), so a `set_var` here would be writing the environment out from under its neighbours. The env SPELLING is pinned separately, through the injectable `budget_from(lookup)` seam, by `the_per_fixture_budget_is_read_from_ball_timeout_ms`, which calls it with a fake lookup that records the key name it was asked for | every PR (the `rust` job's `cargo test --workspace`) |
+| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the budget it is HANDED — `run_dart` takes the budget as an ARGUMENT, so the kill is proven in milliseconds with no environment write. That seam is the point: libtest runs this target's six non-`#[ignore]`d tests concurrently (the whole-corpus sweep beside them is `#[ignore]`d and runs only under `--ignored`), so a `set_var` here would be writing the environment out from under its neighbours. The env SPELLING is pinned separately, through the injectable `budget_from(lookup)` seam, by `the_per_fixture_budget_is_read_from_ball_timeout_ms`, which calls it with a fake lookup that records the key name it was asked for | every PR (the `rust` job's `cargo test --workspace`) |
 | **§3a itself is enforced, not merely documented** (#705) | `tools/check_verdict_exit_status.py` — every `done < <(…)` under `tools/**/*.sh` + `cpp/test/*.sh` must be named in `tools/verdict_loop_carveouts.tsv` WITH the reason it is safe (anchored on the loop's producer, so a rewritten producer is re-justified). A stale entry, an ambiguous anchor, an empty reason, an undelimitable substitution and a scan that inspected zero loops are each an error. A reviewed LIST rather than an inference: a wrong answer in the permissive direction is the exact hole §3a exists to close. `tools/test/test_check_verdict_exit_status.py` drives 18 offline cases first — an uncarved offender, a carved one, a floored-but-uncarved one, the stale/ambiguous/empty-reason refusals, the multi-line shape, a `)` inside a multi-line quoted string (quote state must carry across lines or the producer handed back is not what runs), the undelimitable shape, the scanned scope in both directions, the zero-loops floor — and ends on the real tree as the positive control | every PR (the always-on `proto` job, stdlib-only) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs the std builders and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose — an exclusion that is ENFORCED since #774, see the next row). One truth-table row per builder — all eight, not a sample — plus `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |

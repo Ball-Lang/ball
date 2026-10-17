@@ -38,17 +38,25 @@ gh api repos/Ball-Lang/ball -q .permissions   # {"push":true,...} = maintainer; 
 ## Landing via the merge queue
 
 `main`'s `Protect main` ruleset (17056238) is moving from a plain "19 required
-checks must be green" gate to GitHub's **merge queue** (#756, owner decision
-2026-10-17) — the fix for #749, where two PRs were each green alone and broke
-`main` on their union, discovered only after both had merged. Once the
-`merge_queue` rule is enabled on that ruleset (a separate step from the PR that
-wires the workflows up for it — see `docs/TESTING_STRATEGY.md` → "Merge-queue
-readiness (#756)"), landing a PR works like this:
+checks must be green" gate to GitHub's **merge queue**
+([#756, owner decision 2026-10-17](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998))
+— the fix for #749, where two PRs were each green alone and broke `main` on
+their union, discovered only after both had merged. As of this writing the
+`merge_queue` rule is **not yet enabled** on that ruleset — #756 tracks that
+follow-up step separately from the PR that wires the workflows up for it (see
+`docs/TESTING_STRATEGY.md` → "Merge-queue readiness (#756)"); until it lands,
+landing a PR still works the old way (19 green required checks, no queue).
+Once it's enabled, landing a PR works like this:
 
 1. Get the PR's own `pull_request` checks green, same as always — queueing
    does **not** skip that.
-2. Queue it (the PR page's merge button, or `gh pr merge --queue`, once your
-   tier allows merging per the table above).
+2. Queue it (the PR page's merge button, or `gh pr merge <n>` — once a
+   branch requires a merge queue, `gh pr merge` needs no merge-strategy flag:
+   per [the `gh pr merge` manual](https://cli.github.com/manual/gh_pr_merge),
+   it adds the PR to the queue once its required checks have passed, or
+   enables auto-merge (equivalent to `--auto`) if they haven't yet — there is
+   no `--queue` flag. `--admin` bypasses the queue entirely for an
+   administrator; don't use it to dodge a legitimately red merge group.
 3. GitHub builds a **merge group**: a speculative commit of `main` plus this
    PR and anything else already ahead of it in the queue, and re-runs every
    one of the 19 required checks AGAINST THAT COMMIT via each workflow's
@@ -58,8 +66,12 @@ readiness (#756)"), landing a PR works like this:
    and you fix it and re-queue — exactly the #749 shape, caught one step
    earlier than before.
 
-`gh pr checks <n> --watch` while queued follows the merge-group run, not the
-PR's own `pull_request` run — they are separate check-run sets on the same PR.
+The merge-group run is a separate check-run set from the PR's own
+`pull_request` run, on a different ref (`gh-readonly-queue/...`) and commit;
+whether `gh pr checks <n> --watch` follows it once queued is unverified —
+confirm on the PR page once the `merge_queue` rule is actually enabled (#756
+tracks that follow-up), or watch the Actions run for the `gh-readonly-queue/`
+branch directly in the meantime.
 
 ## Build, test, verify
 

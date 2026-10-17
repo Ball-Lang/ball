@@ -1422,8 +1422,12 @@ dequeued before either one reaches `main`, one merge sooner than the #749
 failure was caught.
 
 **This issue (and this PR) only prepares the workflows for that flag; the flag
-itself is a separate, later step on ruleset 17056238 — see the issue for the
-owner's reasoning for not folding the two together.**
+itself is a separate, later step on ruleset 17056238 — see
+[the recorded decision on #756](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998)
+for the reasoning (measured cost of `strict_required_status_checks_policy`
+vs. the merge queue) and why it isn't folded into the same PR. #756 stays
+open until that follow-up step enables the `merge_queue` rule and confirms it
+via `gh api repos/Ball-Lang/ball/rulesets/17056238`.**
 
 A merge queue entry runs under GitHub's `merge_group` event, which is NOT a
 `pull_request` or a `push`: it carries no `pull_request` payload and no

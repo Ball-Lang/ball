@@ -105,6 +105,15 @@ export class BallCompiler {
   private typeDefByName: Map<string, TypeDefinition> = new Map();
 
   /**
+   * Every class's own members (methods/getters/setters/ctors), keyed by the
+   * typeDef's qualified name — the same map `emitClass`'s caller builds as
+   * `classMembers`, kept here so `emitClass`'s ancestor walk can look up an
+   * ANCESTOR's own setter/getter names (see `fieldStorage`'s doc comment on
+   * why that lookup, not just the currently-emitting class's, is needed).
+   */
+  private classMembersByTypeName: Map<string, FunctionDef[]> = new Map();
+
+  /**
    * Variable names declared (via `let`) in the current function scope.
    * Used to detect shadowing conflicts when hoisting block statements.
    */
@@ -2367,6 +2376,7 @@ function __isUnknownFnError(e: any): boolean {
         }
       }
     }
+    this.classMembersByTypeName = classMembers;
 
     // Typedefs → TsTypeAlias (from all user modules).
     for (const mod of userModules) {
@@ -2648,6 +2658,7 @@ function __isUnknownFnError(e: any): boolean {
       type: string;
       rawDartType: string;
       dartInitializer?: string;
+      accessorBacked: boolean;
     }>> = [];
     if (superclass) {
       const entryMod = this.program.modules.find(m => m.name === this.program.entryModule);
@@ -2657,22 +2668,44 @@ function __isUnknownFnError(e: any): boolean {
         if (!supTd) break;
         const supMeta: Struct = supTd.metadata ?? {};
         const supFields = Array.isArray(supMeta["fields"]) ? supMeta["fields"] as any[] : [];
+        // The ancestor's OWN accessor-backed-ness (#711): a field seeded by a
+        // SUBCLASS's named constructor must resolve against the class that
+        // DECLARES it, not the subclass currently being emitted — mirror the
+        // `setterNames`/`getterNames` computation below, but scoped to this
+        // one ancestor's own members.
+        const supMembers = this.classMembersByTypeName.get(supTd.name) ?? [];
+        const supSetterNames = new Set<string>();
+        const supGetterNames = new Set<string>();
+        for (const sfn of supMembers) {
+          const sfnMeta: Struct = sfn.metadata ?? {};
+          if ((sfnMeta as any).kind === "static_field") continue;
+          const shortName = memberShortName(sfn.name);
+          if (sfnMeta["is_getter"] === true) supGetterNames.add(shortName);
+          if (sfnMeta["is_setter"] === true) supSetterNames.add(shortName);
+        }
         const level: Array<{
           name: string;
           type: string;
           rawDartType: string;
           dartInitializer?: string;
+          accessorBacked: boolean;
         }> = [];
         for (const sf of supFields) {
           if (!sf?.name) continue;
           fieldNames.add(sf.name);
           // Statics live as module-level consts, never on the instance.
           if (sf.is_static === true) continue;
+          // Same rule as the current class's own `accessorBackedFields`
+          // below: only a FINAL field beside a same-named setter (and no
+          // matching getter) moves its storage to the backing member.
+          const accessorBacked = sf.is_final === true &&
+            supSetterNames.has(sf.name) && !supGetterNames.has(sf.name);
           level.push({
             name: sf.name,
             type: typeof sf.type === "string" ? this.dartTypeToTs(sf.type) : "any",
             rawDartType: typeof sf.type === "string" ? sf.type : "",
             dartInitializer: typeof sf.initializer === "string" ? sf.initializer : undefined,
+            accessorBacked,
           });
         }
         if (supTd.descriptor?.field) {
@@ -2684,7 +2717,7 @@ function __isUnknownFnError(e: any): boolean {
         // collected purely so the level list matches the name set.
         if (level.length === 0 && supTd.descriptor?.field) {
           for (const f of supTd.descriptor.field) {
-            level.push({ name: f.name, type: "any", rawDartType: "" });
+            level.push({ name: f.name, type: "any", rawDartType: "", accessorBacked: false });
           }
         }
         inheritedLevels.push(level);
@@ -2812,13 +2845,25 @@ function __isUnknownFnError(e: any): boolean {
           // the instance is built with `Object.create`, which runs no field
           // initializer AND no real `super()`, so the builder has to seed each
           // default along the whole superclass chain itself (#564, #581).
+          // Each entry carries its OWN `accessorBacked` flag, resolved against
+          // its DECLARING class — an inherited field from `inheritedProperties`
+          // already has it (computed per-ancestor above); an own field is
+          // resolved against the current class's `accessorBackedFields` here
+          // (#711 — `currentClassAccessorBackedFields` alone cannot see an
+          // ancestor's accessor-backed field when THIS class's own ctor seeds
+          // it, since that lookup is scoped to the class currently emitting).
           methods.push(
             this.buildNamedCtor(
               fn,
               mMeta,
               fieldNames,
               tsName,
-              [...inheritedProperties, ...properties.filter((p) => !p.isStatic)],
+              [
+                ...inheritedProperties,
+                ...properties
+                  .filter((p) => !p.isStatic)
+                  .map((p) => ({ ...p, accessorBacked: accessorBackedFields.has(p.name) })),
+              ],
             ),
           );
         }
@@ -3090,6 +3135,7 @@ function __isUnknownFnError(e: any): boolean {
       type: string;
       rawDartType: string;
       dartInitializer?: string;
+      accessorBacked?: boolean;
     }> = [],
   ) {
     const params = extractParams(fn);
@@ -3143,7 +3189,15 @@ function __isUnknownFnError(e: any): boolean {
       // #581: every field declared by an ancestor).
       for (const p of classProperties) {
         const def = dartInitializerToTs(p.dartInitializer, p.type, p.rawDartType);
-        if (def !== undefined) bodyParts.push(`__inst.${this.fieldStorage(p.name)} = ${def};`);
+        // Resolve the backing name against THIS property's own
+        // `accessorBacked` flag — set per the field's DECLARING class, not
+        // `this.fieldStorage`, which is scoped to whichever class is
+        // currently being emitted (#711: a subclass's named constructor
+        // seeding an ancestor's accessor-backed final field must still land
+        // on that ancestor's backing member, not the plain field name the
+        // ancestor's own explicit setter would otherwise intercept).
+        const storageName = p.accessorBacked ? accessorBackingName(p.name) : p.name;
+        if (def !== undefined) bodyParts.push(`__inst.${storageName} = ${def};`);
       }
       for (const a of allAssignments) bodyParts.push(a);
       // A named constructor may have an initializer list / `this.`-params, a
@@ -4997,14 +5051,38 @@ function __isUnknownFnError(e: any): boolean {
         return end ? `${v}.substring(${s}, ${this.expr(end)})` : `${v}.substring(${s})`;
       }
       case "string_interpolation": {
+        // Mirrors the Dart compiler's `_compileStringInterpolation`
+        // (#654/#810): a LITERAL `parts` list is unrolled into an explicit
+        // `.toString()` chain; a NON-literal one (a variable, a computed
+        // list — anything not a `Literal_Value.listValue`) keeps the same
+        // meaning via `map`/`join` instead of degrading to `''` (#818). The
+        // old fallback silently discarded the interpolated content for
+        // every non-literal `parts`, which is exactly the silent-degradation
+        // class of bug this repo's core invariants forbid.
         const parts = f.get("parts");
-        if (parts?.literal?.listValue) {
-          const pieces = (parts.literal.listValue.elements ?? [])
-            .map((p) => `(${this.expr(p)})`)
-            .join(" + ");
-          return `(${pieces})`;
+        if (parts !== undefined) {
+          if (parts.literal?.listValue) {
+            const elements = parts.literal.listValue.elements ?? [];
+            if (elements.length === 0) return `''`;
+            const pieces = elements
+              .map((p) => `(${this.expr(p)}).toString()`)
+              .join(" + ");
+            return `(${pieces})`;
+          }
+          // __ball_to_string is the preamble's null-safe Dart-stringify
+          // helper (what every `'$e'` interpolation in compiled code already
+          // goes through) — a bare `.toString()` would throw on `null`.
+          return `${this.expr(parts)}.map((e) => __ball_to_string(e)).join('')`;
         }
-        return `''`;
+        const value = f.get("value");
+        if (value !== undefined) return `(${this.expr(value)}).toString()`;
+        if (call.input) return `(${this.expr(call.input)}).toString()`;
+        throw new Error(
+          "std.string_interpolation: the call carries neither `parts` nor " +
+            "`value` nor an input expression, so there is nothing to " +
+            "interpolate (see dart/shared/lib/std.dart for the declared " +
+            "StringInterpolationInput).",
+        );
       }
       // Math — keep this list in sync with the Dart compiler's `_compileBaseCall`
       // math handling (dart/compiler/lib/compiler.dart). Every `math_*` base

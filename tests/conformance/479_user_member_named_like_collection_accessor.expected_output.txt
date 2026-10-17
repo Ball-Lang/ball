@@ -3,10 +3,12 @@ tail
 [7, 8]
 K
 99
+String
 31
 inner
 Z
 12
+bool
 A
 42
 22

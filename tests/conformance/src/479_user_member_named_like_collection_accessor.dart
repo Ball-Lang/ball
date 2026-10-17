@@ -35,11 +35,12 @@
 // mis-served. `Computed.values` below is the control that pins the getter half
 // against a guard that over-reaches.
 //
-// `runtimeType` appears here as a GETTER only (`Computed.runtimeType`, typed
-// `Type` because it OVERRIDES `Object.runtimeType` and Dart rejects a narrowing
-// override outright). Its FIELD shape is carved out — see #863 below. The value
-// it answers is itself a `.runtimeType` read, the very shortcut the tail of this
-// fixture pins as still working for a non-user receiver.
+// `runtimeType` appears here both as a plain FIELD (`Collected`/`Counted`) and
+// as a GETTER (`Computed.runtimeType`, typed `Type` because it OVERRIDES
+// `Object.runtimeType` and Dart rejects a narrowing override outright). The
+// FIELD shape used to be carved out here — see #863 below, now fixed — and the
+// getter's value is itself a `.runtimeType` read, the very shortcut the tail of
+// this fixture pins as still working for a non-user receiver.
 //
 // The tail is the control in the other direction: every one of the six must
 // still answer for a REAL list / map / string / int, exactly as before. A fix
@@ -57,16 +58,18 @@
 // declares the names and carries NO methods, while `Counted` carries the
 // `this.`-readers for the names that are safe.
 //
-// **#863** — a class declaring a field named `runtimeType` throws on the TS
-// engine at CONSTRUCTION, before a line runs: `ts/compiler/src/preamble.ts`
-// installs `Object.prototype.runtimeType` as a getter with no setter (unlike
-// its `defDartGetter` siblings `entries`/`keys`/`values`/`length`), so an
-// engine-internal lookup table keyed by field name cannot take that key in
-// strict mode. Only the FIELD shape is affected; the getter above is untouched.
+// **#863** (FIXED) — a class declaring a field named `runtimeType` used to
+// throw on the TS engine at CONSTRUCTION, before a line ran:
+// `ts/compiler/src/preamble.ts` installed `Object.prototype.runtimeType` as a
+// getter with no setter (unlike its `defDartGetter` siblings
+// `entries`/`keys`/`values`/`length`), so an engine-internal lookup table
+// keyed by field name could not take that key in strict mode. `runtimeType`
+// now routes through `defDartGetter` like its siblings, and `Collected` /
+// `Counted` below carry the FIELD shape this issue's repro named.
 //
-// Both issue bodies carry the removed lines verbatim; restoring them here and
-// regenerating is the whole reproduction in each case. Do not re-add them until
-// those issues land.
+// #860's issue body carries its removed lines verbatim; restoring them there
+// and regenerating is the whole reproduction. Do not re-add them until that
+// issue lands.
 
 class Collected {
   final int first;
@@ -74,8 +77,11 @@ class Collected {
   final List<int> entries;
   final String keys;
   final int values;
+  @override
+  final Type runtimeType;
 
-  Collected(this.first, this.last, this.entries, this.keys, this.values);
+  Collected(this.first, this.last, this.entries, this.keys, this.values,
+      this.runtimeType);
 }
 
 // The same members read from INSIDE the class, through `this.` — a separate
@@ -83,14 +89,16 @@ class Collected {
 // trivially provable. No `entries` field here: see #860 above.
 //
 // `Counted` and `Collected` are also the two halves of the `this.`-vs-external
-// split; neither declares `runtimeType` (#863).
+// split; both now declare `runtimeType` as a field too (#863, fixed).
 class Counted {
   final int first;
   final String last;
   final String keys;
   final int values;
+  @override
+  final Type runtimeType;
 
-  Counted(this.first, this.last, this.keys, this.values);
+  Counted(this.first, this.last, this.keys, this.values, this.runtimeType);
 
   int readFirstViaThis() => this.first;
 
@@ -99,6 +107,8 @@ class Counted {
   String readKeysViaThis() => this.keys;
 
   int readValuesViaThis() => this.values;
+
+  Type readRuntimeTypeViaThis() => this.runtimeType;
 }
 
 class Computed {
@@ -124,21 +134,23 @@ class Computed {
 
 void main() {
   // Plain data members, read through a local with an explicit type annotation.
-  Collected c = Collected(11, 'tail', <int>[7, 8], 'K', 99);
+  Collected c = Collected(11, 'tail', <int>[7, 8], 'K', 99, 'abc'.runtimeType);
   print(c.first);
   print(c.last);
   print(c.entries);
   print(c.keys);
   print(c.values);
+  print(c.runtimeType);
 
-  Counted n = Counted(31, 'inner', 'Z', 12);
+  Counted n = Counted(31, 'inner', 'Z', 12, true.runtimeType);
   print(n.readFirstViaThis());
   print(n.readLastViaThis());
   print(n.readKeysViaThis());
   print(n.readValuesViaThis());
+  print(n.readRuntimeTypeViaThis());
 
   // The instance-creation receiver, which needs no local at all.
-  print(Collected(1, 'z', <int>[0], 'A', 2).keys);
+  print(Collected(1, 'z', <int>[0], 'A', 2, 7.runtimeType).keys);
 
   // User GETTERS of the same six names.
   var g = Computed(21);

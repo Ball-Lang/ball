@@ -69,6 +69,25 @@ const json = toJson(ProgramSchema, program);
 - Post-processing via regex for OOP field binding, super chain, cascade evaluation
   (in `compile()` only — never add such a pass to `compileLibrary()`)
 - Preamble (`preamble.ts`) installs Dart-flavored polyfills on `Object.prototype`
+- **Every Dart-property-style polyfill on `Object.prototype` must go through
+  `defDartGetter` (which installs a get/set PAIR), never a bare
+  `Object.defineProperty` with a get-only descriptor (#863).**
+  `.entries`/`.keys`/`.values`/`.length` already did; `runtimeType` (plus its
+  three primitive-wrapper copies on `Number`/`String`/`Boolean.prototype`) did
+  not — and Dart permits a user class field literally named `runtimeType` (the
+  analyzer only rejects a NARROWING override), while the compiled ENGINE's own
+  internal lookup tables are populated by plain property WRITES keyed by field
+  name. In strict mode (every ESM module, including the compiled engine),
+  assigning an own property whose prototype chain carries a getter-only
+  accessor THROWS instead of shadowing it, so any program declaring that field
+  crashed at `new BallEngine(...)`, before a single line ran. `defDartGetter`
+  now takes an optional `target` parameter (default `Object.prototype`) so the
+  three wrapper-prototype copies route through it too. Guard: conformance
+  `479_user_member_named_like_collection_accessor`'s `runtimeType` FIELD (a
+  deliberate carve-out while this was open — see that fixture's own comment).
+- **A `final` field's accessor-backed storage must be resolved against the
+  field's DECLARING class when a SUBCLASS's named constructor seeds it — see
+  the `#711` bullet further down this list, beside its sibling `#664`.**
 - **A constructor's INITIALIZER LIST is separate from its body, and Dart runs
   both.** `buildCtor` must emit `this.<field> = <resolved>` for every
   `metadata.initializers` entry of `kind: "field"` (it used to emit only
@@ -156,6 +175,30 @@ const json = toJson(ProgramSchema, program);
   pre-fix output happily and silently changes the `final` field — so the guard is
   a `runCompiled()` assertion in `test/class_emission_extra.test.ts` plus
   conformance `470_setter_beside_final_field`.
+- **That same accessor-backed-ness must be resolved against the field's
+  DECLARING class, not the class currently being emitted (#711).**
+  `BallCompiler.fieldStorage` reads `currentClassAccessorBackedFields`, which
+  is scoped to whichever class `emitClass` is CURRENTLY processing. A
+  SUBCLASS's own named constructor seeds every field along the whole
+  superclass chain (the #581 seeding loop, same bullet family above) — and
+  when one of those INHERITED fields is accessor-backed on the ANCESTOR that
+  declares it, `fieldStorage` (evaluated in the subclass's own, unrelated
+  scope) missed it and emitted a plain `__inst.<name> = <default>;` own-write.
+  On the real class the ancestor's prototype already carries a getter+setter
+  PAIR for that name, and a fresh `Object.create`d instance has no OWN
+  property yet, so that plain write walks the prototype chain and invokes the
+  ancestor's explicit SETTER instead of seeding the backing field — the
+  #664/#581 bug one class boundary up. `emitClass`'s ancestor walk now also
+  resolves each ancestor LEVEL's own `setterNames`/`getterNames` (from
+  `classMembersByTypeName`, a program-wide `typeDef name → its own members`
+  map built once per compile) and records each inherited field's
+  `accessorBacked` flag on the SAME `inheritedProperties`/`classProperties`
+  entry `buildNamedCtor`'s seeding loop already walks — so that loop resolves
+  the backing name from the entry's own flag, never from `fieldStorage`/
+  `currentClassAccessorBackedFields`, for this one seeding site. Guard:
+  `test/class_emission_extra.test.ts`'s "#711" test (a `runCompiled()`
+  assertion, same reasoning as #664's guard above — a text match on the
+  emitted declaration cannot see a construction-time dispatch bug).
 - Base function dispatch in `_callBaseFunction()` switch
 - **`Box.new(7)` is a CONSTRUCTOR TEAR-OFF, not a static method (#531).** The
   Dart encoder emits it as a generic self-carrying call
@@ -182,6 +225,27 @@ const json = toJson(ProgramSchema, program);
   variable, so a user function or method with such a name got the polyfill
   instead of itself.
 
+- **`std.string_interpolation`'s `parts` field keeps its meaning even when it
+  is NOT a literal list (#818).** No encoder emits this base function directly
+  — both the Dart and TS encoders lower a real `'...${...}...'` literal to a
+  `concat`/`to_string` chain instead
+  (`dart/encoder/lib/encoder.dart`'s `_encodeStringInterpolation`) — so it is
+  only reachable from a hand-built program, the same way
+  `dart/compiler/test/base_call_dispatch_completeness_test.dart` probes the
+  Dart compiler's equivalent arm. `compileStdCall`'s case used to return a
+  bare `''` whenever `parts` was present but not a `Literal_Value.listValue`
+  (a variable, a computed list) — silently discarding the interpolated
+  content with no error, mirroring the bug `dart/compiler`'s
+  `_compileStringInterpolation` fixed for the same base function (#654/#810).
+  It now lowers a non-literal `parts` to `<parts>.map((e) =>
+  __ball_to_string(e)).join('')`, and a call carrying none of `parts`/`value`/
+  an input expression at all now throws at compile time rather than
+  degrading to `''` either. Guard: `test/std_call_dispatch.test.ts`'s
+  `stringInterpolationNonLiteralParts` case plus the dedicated "#818" describe
+  block for the all-absent throw (removed from the shared-compile table for
+  the same reason as `set_union`/the unknown-std-fn case beside it — a
+  throwing case fails the ONE combined `compile()` that table's `before()`
+  hook does for every case).
 - **`isStd` is a CLOSED SET, and a module missing from it compiles to a bare
   identifier (#606).** `std_concurrency` was absent, so `compileCall` never
   reached `compileStdCall` and every call emitted `thread_spawn(...)` — an

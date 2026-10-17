@@ -922,6 +922,172 @@ describe("compiler — buildNamedCtor (named constructors as static factories)",
     assert.doesNotMatch(ts, /return new Foo\(\);/);
     assert.equal(runCompiled(program), "7");
   });
+
+  // #711: `fieldStorage()` resolves accessor-backed status from
+  // `currentClassAccessorBackedFields`, which is scoped to whichever class is
+  // CURRENTLY being emitted. So when a SUBCLASS's own named constructor seeds
+  // a field it only INHERITS, and that field is accessor-backed on the
+  // ANCESTOR that declares it (final + a same-named setter there — #664's
+  // shape, one class boundary up), the lookup missed it: `Sub` carries no
+  // accessor-backed fields of its own, so the seeding loop emitted a plain
+  // `__inst.count = 10;` own-property write instead of the backing member's.
+  // On the real class, `Base.prototype` already carries a getter+setter PAIR
+  // for `count` (the re-exposed getter plus the explicit setter), and a fresh
+  // `Object.create`d instance has no OWN `count` property yet — so that plain
+  // assignment walks the prototype chain and invokes the inherited SETTER
+  // instead of seeding the backing field, re-introducing the #664/#581 bug.
+  test("a subclass's named constructor seeds an ancestor's accessor-backed final field through the backing member, not the inherited setter (#711)", () => {
+    const program: Program = {
+      name: "named_ctor_inherited_accessor_backed_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          typeDefs: [
+            {
+              name: "main:Base",
+              metadata: {
+                kind: "class",
+                fields: [
+                  { name: "count", type: "int", initializer: "10", is_final: true },
+                  { name: "setterCalls", type: "int", initializer: "0" },
+                ],
+              },
+            },
+            {
+              name: "main:Sub",
+              metadata: {
+                kind: "class",
+                superclass: "Base",
+                fields: [{ name: "label", type: "String" }],
+              },
+            },
+          ],
+          functions: [
+            // The setter beside `count` (#664's shape): a FINAL field
+            // contributes only a getter, so this explicit setter is the only
+            // setter for the name, and `count`'s storage moves to
+            // `__ball_field_count`. Writing `setterCalls` proves whether this
+            // setter actually ran.
+            {
+              name: "main:Base.count",
+              metadata: { kind: "method", is_setter: true, params: [{ name: "v" }] },
+              body: {
+                call: {
+                  module: "std",
+                  function: "assign",
+                  input: {
+                    messageCreation: {
+                      fields: [
+                        { name: "target", value: { reference: { name: "setterCalls" } } },
+                        { name: "value", value: { literal: { intValue: 99 } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+            {
+              name: "main:Sub.named",
+              outputType: "main:Sub",
+              metadata: { kind: "constructor", params: [{ name: "label", is_this: true }] },
+            },
+            {
+              name: "main",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      let: {
+                        name: "s",
+                        value: {
+                          call: {
+                            function: "named",
+                            input: {
+                              messageCreation: {
+                                fields: [
+                                  { name: "self", value: { reference: { name: "Sub" } } },
+                                  { name: "arg0", value: { literal: { stringValue: "hi" } } },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      expression: {
+                        call: {
+                          module: "std",
+                          function: "print",
+                          input: {
+                            messageCreation: {
+                              fields: [
+                                {
+                                  name: "message",
+                                  value: { fieldAccess: { object: { reference: { name: "s" } }, field: "count" } },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      expression: {
+                        call: {
+                          module: "std",
+                          function: "print",
+                          input: {
+                            messageCreation: {
+                              fields: [
+                                {
+                                  name: "message",
+                                  value: { fieldAccess: { object: { reference: { name: "s" } }, field: "setterCalls" } },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                  result: {
+                    call: {
+                      module: "std",
+                      function: "print",
+                      input: {
+                        messageCreation: {
+                          fields: [
+                            {
+                              name: "message",
+                              value: { fieldAccess: { object: { reference: { name: "s" } }, field: "label" } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    // The seeding write targets the ANCESTOR's backing member...
+    assert.match(ts, /__inst\.__ball_field_count = 10;/);
+    // ...never the plain field name, which would walk the prototype chain
+    // into Base's inherited setter instead of seeding the backing field.
+    assert.doesNotMatch(ts, /__inst\.count = 10;/);
+    // The executed assertion is the load-bearing one, as in #581 above:
+    // emitting the right-looking line is only evidence — `s.count === 10`
+    // AND the setter never having run (`s.setterCalls === 0`) is the
+    // contract.
+    assert.equal(runCompiled(program), "10\n0\nhi");
+  });
 });
 
 describe("compiler — filterCtorBody (self-recursive boilerplate removal)", () => {

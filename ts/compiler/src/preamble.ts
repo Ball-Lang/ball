@@ -1092,8 +1092,8 @@ const _nativeMapValues = Map.prototype.values;
   // Helper: define a getter on Object.prototype that also allows
   // own-property assignment (setter stores as a data property on the
   // instance, shadowing the prototype getter for future accesses).
-  function defDartGetter(name: string, getter: () => any) {
-    Object.defineProperty(op2, name, {
+  function defDartGetter(name: string, getter: () => any, target: any = op2) {
+    Object.defineProperty(target, name, {
       configurable: true, enumerable: false,
       get: getter,
       set(v: any) {
@@ -1152,41 +1152,48 @@ const _nativeMapValues = Map.prototype.values;
   // runtimeType — Dart's Object.runtimeType. Returns the Dart-style
   // type name for any JS value. Used by the compiled engine for type
   // checking and error messages.
-  Object.defineProperty(op2, 'runtimeType', {
-    configurable: true, enumerable: false,
-    get() {
-      if (this === null || this === undefined) return 'Null';
-      if (this instanceof BallDouble) return 'double';
-      if (typeof this === 'number' || this instanceof Number) return Number.isInteger(+this) ? 'int' : 'double';
-      if (typeof this === 'string' || this instanceof String) return 'String';
-      if (typeof this === 'boolean' || this instanceof Boolean) return 'bool';
-      if (typeof this === 'function') return 'Function';
-      if (Array.isArray(this)) return 'List';
-      if (this instanceof Set) return 'Set';
-      if (this instanceof Map) return 'Map';
-      if (this instanceof RegExp) return 'RegExp';
-      const t = this['__type__'];
-      if (typeof t === 'string' && t.length > 0) {
-        const ci = t.indexOf(':');
-        return ci >= 0 ? t.substring(ci + 1) : t;
-      }
-      return 'Map';
-    },
+  //
+  // Routed through defDartGetter (issue #863) rather than a bare
+  // Object.defineProperty with a get-only descriptor: a user class is free
+  // to declare a field literally named runtimeType (Dart permits it; the
+  // analyzer only rejects a NARROWING override), and the compiled engine's
+  // own internal lookup tables are populated by plain property WRITES keyed
+  // by field name. In strict mode (every ESM module, including the compiled
+  // engine), assigning an own property whose prototype chain carries a
+  // getter-only accessor throws a TypeError instead of shadowing it — so
+  // __inst.runtimeType = ... crashed before a single line of the user's
+  // program ran. defDartGetter's setter half shadows the getter with a
+  // normal own data property on first write, exactly like every other
+  // Dart-property-style polyfill in this file (.entries/.keys/.values/.length).
+  // NOTE: no backticks in this comment block -- this whole file is a
+  // String.raw template literal, and a backtick anywhere in it (even in a
+  // comment) terminates the template early.
+  defDartGetter('runtimeType', function (this: any) {
+    if (this === null || this === undefined) return 'Null';
+    if (this instanceof BallDouble) return 'double';
+    if (typeof this === 'number' || this instanceof Number) return Number.isInteger(+this) ? 'int' : 'double';
+    if (typeof this === 'string' || this instanceof String) return 'String';
+    if (typeof this === 'boolean' || this instanceof Boolean) return 'bool';
+    if (typeof this === 'function') return 'Function';
+    if (Array.isArray(this)) return 'List';
+    if (this instanceof Set) return 'Set';
+    if (this instanceof Map) return 'Map';
+    if (this instanceof RegExp) return 'RegExp';
+    const t = this['__type__'];
+    if (typeof t === 'string' && t.length > 0) {
+      const ci = t.indexOf(':');
+      return ci >= 0 ? t.substring(ci + 1) : t;
+    }
+    return 'Map';
   });
   // Also add to Number.prototype, String.prototype, Boolean.prototype
   // (they don't inherit from Object.prototype getters reliably for primitives).
-  Object.defineProperty(Number.prototype, 'runtimeType', {
-    configurable: true, enumerable: false,
-    get() { return Number.isInteger(+this) ? 'int' : 'double'; },
-  });
-  Object.defineProperty(String.prototype, 'runtimeType', {
-    configurable: true, enumerable: false,
-    get() { return 'String'; },
-  });
-  Object.defineProperty(Boolean.prototype, 'runtimeType', {
-    configurable: true, enumerable: false,
-    get() { return 'bool'; },
-  });
+  // Same getter-only-throws-on-write exposure as above, so these three go
+  // through defDartGetter's get/set pair too, targeting each wrapper
+  // prototype explicitly.
+  defDartGetter('runtimeType', function (this: any) { return Number.isInteger(+this) ? 'int' : 'double'; }, Number.prototype);
+  defDartGetter('runtimeType', function (this: any) { return 'String'; }, String.prototype);
+  defDartGetter('runtimeType', function (this: any) { return 'bool'; }, Boolean.prototype);
 })();
 
 // std.map_keys/std.map_values/std.map_entries (the base-function-call form,

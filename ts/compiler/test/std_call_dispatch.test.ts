@@ -82,17 +82,27 @@ const cases: Case[] = [
     body: std("integer_divide", { left: ref("a"), right: ref("b") }),
     expect: [/__ball_divide\(a, b\)/],
   },
-  // String interpolation: with parts, and with no parts field at all.
+  // String interpolation: a literal parts list unrolls into a `.toString()`
+  // chain (mirrors dart/compiler's `_compileStringInterpolation`, #654/#810).
   {
     name: "stringInterpolationWithParts",
     body: std("string_interpolation", { parts: listLit([lit("hi "), ref("name")]) }),
-    expect: [/\('hi '\) \+ \(name\)/],
+    expect: [/\('hi '\)\.toString\(\) \+ \(name\)\.toString\(\)/],
   },
+  // A NON-literal `parts` (a variable, a computed list — anything that is
+  // not a `Literal_Value.listValue`) used to compile to a bare `''`,
+  // silently discarding the interpolated content with no error (#818). It
+  // now keeps the same meaning via map/join, exactly like the Dart
+  // compiler's fix for the identical bug.
   {
-    name: "stringInterpolationNoParts",
-    body: std("string_interpolation", {}),
-    expect: [/return '';/],
+    name: "stringInterpolationNonLiteralParts",
+    body: std("string_interpolation", { parts: ref("segments") }),
+    expect: [/segments\.map\(\(e\) => __ball_to_string\(e\)\)\.join\(''\)/],
   },
+  // "stringInterpolationNoParts" (no parts/value/input field at all) used to
+  // fall through to a silent `return '';` here too; it is now a compile-time
+  // throw (#818, see the dedicated describe block below) — removed from this
+  // shared-compile table for the same reason as set_union/unknownStdFn above.
   // `is`/`is_not` without an explicit type field (bare null-check fallback).
   {
     name: "isNoType",
@@ -1192,6 +1202,32 @@ describe("compiler — compileStdCall default fallback throws at compile time (#
     assert.throws(
       () => compile(program, { includePreamble: false }),
       /std\.__totally_made_up_std_fn__ is not implemented/,
+    );
+  });
+});
+
+describe("compiler — string_interpolation fails loud when parts/value/input are ALL absent (#818)", () => {
+  test("a call carrying none of the three throws instead of silently degrading to ''", () => {
+    // No encoder ever emits std.string_interpolation directly — both the
+    // Dart and TS encoders lower a real `'...${...}...'` literal to a
+    // concat/to_string chain instead (dart/encoder/lib/encoder.dart's
+    // _encodeStringInterpolation) — so this exact shape is hand-built, the
+    // same way dart/compiler/test/base_call_dispatch_completeness_test.dart
+    // probes the Dart compiler's equivalent arm. Mirrors
+    // _compileStringInterpolation's own final `throw StateError(...)`: with
+    // nothing to interpolate, failing loud is the correct answer, not the
+    // bare `''` this compiler used to return.
+    const program: Program = {
+      name: "string_interpolation_empty_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [
+        { name: "main", body: std("string_interpolation", {}) },
+      ] }],
+    };
+    assert.throws(
+      () => compile(program, { includePreamble: false }),
+      /string_interpolation: the call carries neither `parts` nor `value`/,
     );
   });
 });

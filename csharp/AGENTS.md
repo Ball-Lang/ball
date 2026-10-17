@@ -1667,7 +1667,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   `csharp/**` change) or `infra`; also fires whenever `needs.changes.outputs.self_host` is true
   (a `dart/engine/lib/**` edit cross-compiles into `CompiledEngine.cs`, same reasoning as the
   `cpp`/`rust` jobs — see the `changes` job's `self_host` computation in `ci.yml`). Mirrors the
-  `rust` job's shape: `actions/setup-dotnet@v5` (`dotnet-version: "10.0.x"`, matching
+  `rust` job's shape: `actions/setup-dotnet@v6.0.0` (`dotnet-version: "10.0.x"`, matching
   `csharp/global.json`'s `rollForward: latestFeature` floor of `10.0.100`) → `dotnet build
   Ball.slnx` → `dotnet test Ball.slnx` → `dotnet format Ball.slnx --verify-no-changes` → the
   self-host conformance sweep: `dart-lang/setup-dart` + `dart pub get` +

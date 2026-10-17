@@ -17,7 +17,7 @@ regenerate-then-run self-hosted engine conformance sweep — and the `csharp-eng
 
 - .NET 10 SDK is **native on Windows** in this dev environment — no WSL needed (unlike
   Rust/C++'s conformance-runner build). `global.json` pins `10.0.100` (`rollForward:
-  latestFeature`); CI uses `actions/setup-dotnet@v5` with `dotnet-version: "10.0.x"`.
+  latestFeature`); CI uses `actions/setup-dotnet@v6.0.0` with `dotnet-version: "10.0.x"`.
 - The solution is `csharp/Ball.slnx` — the new XML `.slnx` format `dotnet new sln` generates by
   default on this SDK, not the classic text `.sln`. Add new projects with `dotnet sln Ball.slnx
   add <path>`; never hand-author a `.sln`.

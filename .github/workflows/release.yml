@@ -229,8 +229,8 @@ jobs:
       # The nine Dart packages release on their OWN per-package version lines
       # (`<pkg>-vX.Y.Z`), so this dispatch carries no repo version — each
       # package's semantic-release config computes its own from its own tag.
-      # It is guarded on released_version purely as a "did this push contain
-      # anything releasable" signal: the root config analyses every commit, so
+      # It is guarded on Phase 2's is_release purely as a "did this push just
+      # merge a release PR" signal: the root config analyses every commit, so
       # a feat/fix touching dart/ always cuts a repo release too, and a push
       # that cuts none has nothing for the Dart lane either.
       #

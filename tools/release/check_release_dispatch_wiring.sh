@@ -15,10 +15,12 @@
 #
 # The repo's own documented workaround, already used for npm and C++, is an
 # explicit `gh workflow run <file> --ref "v<version>"` step in release.yml,
-# guarded on `steps.semrel.outputs.released_version != ''`, pointed at a
-# workflow that declares `workflow_dispatch:`. This guard pins that four-part
-# contract for every release-reactive channel so a future one cannot be added
-# with the unreachable push trigger again.
+# guarded on `steps.finish.outputs.is_release == 'true'` (issue #755's
+# release-via-PR Phase 2 — see tools/release/finish_release.sh; this guard's
+# name predates that rename but still asserts the same four-part contract),
+# pointed at a workflow that declares `workflow_dispatch:`. This guard pins
+# that contract for every release-reactive channel so a future one cannot be
+# added with the unreachable push trigger again.
 #
 # Deliberately textual/grep-based against the DOCUMENTED pattern (same style as
 # tools/check_conformance_doc_counts.sh): it asserts the four things that make a
@@ -95,15 +97,15 @@ for target in $TARGETS; do
   fi
 
   # (3) release.yml actually dispatches it, pinned to the fresh release tag.
-  # The `--ref v<released_version>` pin is load-bearing: an unpinned dispatch
-  # runs the workflow off the default branch, which for a tag-cutting or
+  # The `--ref v<version>` pin is load-bearing: an unpinned dispatch runs the
+  # workflow off the default branch, which for a tag-cutting or
   # asset-uploading channel is a different commit than the one released.
-  if grep -qF "gh workflow run $target --ref \"v\${{ steps.semrel.outputs.released_version }}\"" "$RELEASE"; then
+  if grep -qF "gh workflow run $target --ref \"v\${{ steps.finish.outputs.version }}\"" "$RELEASE"; then
     ok "release.yml dispatches $target pinned to the fresh release tag"
   else
     no "release.yml dispatches $target pinned to the fresh release tag" \
-      "expected a step running: gh workflow run $target --ref \"v\${{ steps.semrel.outputs.released_version }}\"" \
-      "a push-triggered workflow cannot substitute — semantic-release's commit carries [skip ci], which suppresses the whole run"
+      "expected a step running: gh workflow run $target --ref \"v\${{ steps.finish.outputs.version }}\"" \
+      "a push-triggered workflow cannot substitute — a release PR merge carries no [skip ci] of its own kind that would make this reachable any other way"
   fi
 
   # (4) That dispatch is guarded on a release actually having been cut.
@@ -114,14 +116,14 @@ for target in $TARGETS; do
     start=$((line - 8))
     [ "$start" -lt 1 ] && start=1
     if sed -n "${start},${line}p" "$RELEASE" |
-      grep -qF "if: steps.semrel.outputs.released_version != ''"; then
-      ok "the $target dispatch is guarded on released_version != ''"
+      grep -qF "if: steps.finish.outputs.is_release == 'true'"; then
+      ok "the $target dispatch is guarded on is_release == 'true'"
     else
-      no "the $target dispatch is guarded on released_version != ''" \
+      no "the $target dispatch is guarded on is_release == 'true'" \
         "an unguarded dispatch fires on every push to main, releasing or not"
     fi
   else
-    no "the $target dispatch is guarded on released_version != ''" \
+    no "the $target dispatch is guarded on is_release == 'true'" \
       "no dispatch line for $target to guard"
   fi
 done

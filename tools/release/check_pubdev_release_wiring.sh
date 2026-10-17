@@ -217,14 +217,14 @@ if [ -n "$line" ]; then
   start=$((line - 8))
   [ "$start" -lt 1 ] && start=1
   if sed -n "${start},${line}p" "$RELEASE" |
-    grep -qF "if: steps.semrel.outputs.released_version != ''"; then
-    ok "the pubdev-release.yml dispatch is guarded on released_version != ''"
+    grep -qF "if: steps.finish.outputs.is_release == 'true'"; then
+    ok "the pubdev-release.yml dispatch is guarded on is_release == 'true'"
   else
-    no "the pubdev-release.yml dispatch is guarded on released_version != ''" \
+    no "the pubdev-release.yml dispatch is guarded on is_release == 'true'" \
       "an unguarded dispatch fires on every push to main, releasing or not"
   fi
 else
-  no "the pubdev-release.yml dispatch is guarded on released_version != ''" \
+  no "the pubdev-release.yml dispatch is guarded on is_release == 'true'" \
     "no dispatch line for pubdev-release.yml to guard"
 fi
 

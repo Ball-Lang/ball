@@ -981,9 +981,12 @@ jobs:
   # status quo this closes) left the gap UNMEASURED, which is worse — an
   # unmeasured gap regresses silently.
   #
-  # So: run it every time, report the honest count, fail only if the count goes
-  # DOWN. Raise CSHARP_COMPILER_FLOOR as each family lands — the job prints the
-  # exact new value when it sees an improvement.
+  # So: run it every time, report the honest count, and gate it on
+  # tools/ci/compiler_floor.sh — ratcheted in BOTH directions (#792): a DROP
+  # below CSHARP_COMPILER_FLOOR fails (a fixture that used to compile no
+  # longer does), and so does a RISE above it (an unclaimed gain is not green
+  # until CSHARP_COMPILER_FLOOR is raised to match, in the same PR). Raise it
+  # as each family lands — the job names the exact new value to write.
   #
   # Needs no Dart bootstrap and no -p:SelfHost=true: the leg compiles each
   # fixture with CSharpCompiler + Roslyn in-memory and runs it, never touching
@@ -1471,9 +1474,12 @@ jobs:
   # corpus IS fully compilable and the algorithms exist. These four are ports
   # that are not finished.
   #
-  # Gate on "the count did not go DOWN". Raise the floor in the SAME PR that
-  # closes a family, or the gain is not locked in. NEVER lower a floor to turn
-  # a red build green — preventing exactly that is what a ratchet is for.
+  # Gated via tools/ci/compiler_floor.sh, ratcheted in BOTH directions (#792):
+  # "the count did not go DOWN" (a regression) AND "the count did not go UP
+  # unclaimed" (an improvement that has not raised its floor yet). Raise the
+  # floor in the SAME PR that lands a gain, or the gate itself fails red.
+  # NEVER lower a floor to turn a red build green — preventing exactly that is
+  # what a ratchet is for.
   # ──────────────────────────────────────────────────
   rust-compiler:
     name: Rust Compiler Leg (ratcheted)
@@ -1765,9 +1771,10 @@ jobs:
           # -- Compile legs, ratcheted -------------------------------------
           # Deliberately NOT part of the parity table above: this leg does
           # not claim full parity and must never be read as if it did. It
-          # gates on "the count did not go DOWN" (see the job floor), so a
-          # PASS here means "no regression", NOT "complete". #452 tracks the
-          # open families.
+          # gates on "the count exactly matches its floor" (tools/ci/
+          # compiler_floor.sh, ratcheted both ways per #792), so a PASS here
+          # means "no regression AND no unclaimed gain", NOT "complete". #452
+          # tracks the open families.
           echo ""
           echo "Compile leg (ratcheted - not a parity claim)"
           echo ""

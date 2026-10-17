@@ -582,9 +582,11 @@ compile items so the sibling projects never double-compile each other's files.
 - The committed conformance harness (`csharp/engine/conformance/`, a standalone console app, not
   an xunit project — needs a reliable `Results:` line on stdout regardless of pass/fail) has three
   legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated by the `csharp-engine` row
-  in `conformance-matrix.yml`), `compiler` (258/335 as of #527/#528 — ratcheted by that file's
-  `csharp-compiler` row against `CSHARP_COMPILER_FLOOR`; it is the compiler's own honest scope-gap
-  count, a DROP fails, never a parity gate), `roundtrip` (a flat 0/320 until #642 — the syntactic
+  in `conformance-matrix.yml`), `compiler` (measured count as of the most recent floor raise —
+  ratcheted by that file's `csharp-compiler` row against `CSHARP_COMPILER_FLOOR`, enforced in
+  BOTH directions by `tools/ci/compiler_floor.sh` since #792: a DROP fails, and so does a RISE
+  that has not raised the floor yet; it is the compiler's own honest scope-gap count, never a
+  parity gate), `roundtrip` (a flat 0/320 until #642 — the syntactic
   Roslyn encoder refused the compiler's own output outright: the unconditional `BallOneofs` class,
   every `BallRuntime.*` base-call helper, and the `BallValue` literal factories.
   `encoder/src/RuntimeHelpers.cs` is the inverse table that closes the dominant part of that, and

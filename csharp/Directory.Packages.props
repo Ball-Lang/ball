@@ -22,7 +22,7 @@
          same commit, followed by `buf generate proto` so `csharp/shared/gen/Ball.cs`
          is regenerated against the matching plugin — never one side alone. Bump
          this only alongside a `buf.gen.yaml` plugin bump + regen, as its own PR. -->
-    <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
+    <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
 
     <!-- Roslyn C# syntax API, shared by csharp/encoder (issue #382 — official
          AST parser, CSharpSyntaxTree.ParseText, syntax-only, mirroring the
@@ -58,7 +58,7 @@
          builds, deliberately not used here). Pinned at 2.0.12 — the exact
          version the dependabot-opened bump (PR #869) applied and CI verified;
          bump to 2.0.13 separately if it is ever needed. -->
-    <PackageVersion Include="System.CommandLine" Version="2.0.12" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.13" />
 
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
          self-executing test apps bridged to `dotnet test` via the VSTest
@@ -78,7 +78,7 @@
          #486) without pulling MTP v2 and is verified compatible with
          xunit.v3 3.2.2 (`dotnet test` still passes under VSTest mode). Revisit
          the xunit.v3 pin only alongside that MTP-mode migration. -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />

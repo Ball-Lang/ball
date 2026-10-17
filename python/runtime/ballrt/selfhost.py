@@ -63,6 +63,18 @@ _BUILTIN = {
 
 _GENERIC_TYPE_RE = _re.compile(r"^(\w+)<(.+)>$")
 
+# A Dart FUNCTION TYPE (`int Function(int)`, `Function()`, `Function<T>(T)`)
+# is not a generic (no top-level `<...>` wrapping the whole string) and is not
+# a bare identifier either, so neither `_GENERIC_TYPE_RE` nor a `_BUILTIN`
+# lookup by exact name ever recognizes it -- see `is_type`'s handling below.
+_FUNCTION_TYPE_RE = _re.compile(r"(^|\s)Function\s*[(<]")
+
+
+def _is_function_type_signature(typename: str) -> bool:
+    """Whether ``typename`` is a Dart function-type signature rather than a
+    plain (possibly generic) type name."""
+    return bool(_FUNCTION_TYPE_RE.search(typename))
+
 
 def _split_type_args(s: str) -> list:
     """Top-level comma split of a generic argument list, respecting nested
@@ -117,6 +129,30 @@ def _class_name_matches(value, base_type: str) -> bool:
     return False
 
 
+# The bare runtime shapes `_BUILTIN` already maps BY NAME -- a value of one of
+# these types carries no Ball-level declared identity of its OWN beyond that
+# (a plain `int`/`str`/`list`/... is never also an instance of some OTHER,
+# differently-named compiled Ball class), so a class-name mismatch against one
+# of these is never unambiguous evidence for a name this function does not
+# otherwise recognize. See `_has_declared_identity` / `is_type`.
+_PRIMITIVE_RUNTIME_TYPES = (int, float, str, bool, list, dict, BallSet)
+
+
+def _has_declared_identity(value) -> bool:
+    """Whether ``value`` carries its OWN Ball-level type identity that a
+    class-name MISMATCH against it would be unambiguous evidence of -- a
+    ``__type__``-tagged engine-shape dict, or an instance of a genuine
+    compiled Ball class (anything that is not a bare runtime primitive:
+    ``int``/``float``/``str``/``bool``/``list``/``dict``/``BallSet``, or a
+    plain callable). See ``is_type``'s final fallback."""
+    if isinstance(value, dict):
+        tag = value.get("__type__")
+        return isinstance(tag, str) and bool(tag)
+    if callable(value):
+        return False
+    return not isinstance(value, _PRIMITIVE_RUNTIME_TYPES)
+
+
 def is_type(value, typename: str) -> bool:
     """Dart ``value is Type``.
 
@@ -159,6 +195,35 @@ def is_type(value, typename: str) -> bool:
       answering `true`; this one is a false NEGATIVE with no reification at
       all). A reified tag that disagrees with the queried argument is still
       unambiguous evidence and still answers `false`, exactly as #824 fixed.
+
+    A THIRD regression, in the same family as the two above (PR #898 review,
+    round 3): the element-wise recursion added for `List`/`Map`/`Set`/
+    `Iterable` lets through element TYPE ARGUMENTS this function has no way
+    to resolve at all -- a Dart FUNCTION TYPE (`int Function(int)`), a
+    TYPEDEF alias (`typedef Json = Map<String, dynamic>;` leaves no runtime
+    trace for `is_type` to resolve `"Json"` against -- it is erased before
+    this layer ever sees it), or an SDK structural INTERFACE a core type
+    satisfies but `_BUILTIN` does not enumerate (`Comparable`, `Pattern`,
+    ...). Before #824 none of this mattered: the generic argument was
+    stripped and ignored outright, so `fs is List<int Function(int)>`,
+    `js is List<Json>` and `[1, 2] is List<Comparable>` all answered `true`
+    on real `dart run`, matching this function's own pre-#824 answer; #824's
+    recursion instead asked the FINAL fallback below to resolve each of
+    those three names on every element and, finding none of them in
+    `_BUILTIN` and no class-name match either (every element here is a bare
+    runtime primitive -- a function, a `Map`, an `int` -- never a compiled
+    Ball class of that name), answered `false` for every one, three NEW
+    silent wrong answers against real `dart run` on THIS target. The fix
+    recognizes a function-type signature structurally (`_is_function_type_signature`,
+    checked against `callable(value)`) and, for the remaining unresolved
+    names, applies the exact same "absence of evidence" rule already used
+    two paragraphs up: a class-name MISMATCH is unambiguous evidence only
+    when `value` carries a declared Ball type identity of its own to
+    mismatch against (`_has_declared_identity`) -- a real, compiled Ball
+    class instance matched against an unrelated name (the existing
+    `is_type(value, "UnrelatedError")` contract) still answers `false`, but a
+    bare primitive matched against a name this function cannot otherwise
+    resolve answers `true`, exactly like the pre-#824 base-type-only check.
 
     ``None`` is handled FIRST, independent of whether ``typename`` is simple
     or generic: Dart's sound null safety makes ``null`` assignable to any
@@ -215,11 +280,25 @@ def is_type(value, typename: str) -> bool:
         if len(obj_type_args) == len(type_args):
             return obj_type_args == type_args
         return False
+    if _is_function_type_signature(t):
+        return callable(value)
     bt = _base_type_name(t)
     checker = _BUILTIN.get(bt)
     if checker is not None:
         return checker(value)
-    return _class_name_matches(value, bt)
+    if _class_name_matches(value, bt):
+        return True
+    # `bt` is neither a `_BUILTIN` name nor the name of `value`'s own class:
+    # unambiguous evidence of a mismatch ONLY when `value` carries a declared
+    # Ball type identity of its own to mismatch against in the first place.
+    # A bare runtime primitive (an `int`/`str`/`list`/plain `dict`/`BallSet`,
+    # or a plain callable) matched against a name this function does not
+    # otherwise model -- a typedef ALIAS (erased before this layer ever sees
+    # it; a Ball typedef has no runtime representation at all) or an SDK
+    # structural INTERFACE a core type satisfies but `_BUILTIN` does not
+    # enumerate (`Comparable`, `Pattern`, ...) -- carries no evidence either
+    # way, so it answers like the pre-#824 base-type-only check did: `True`.
+    return not _has_declared_identity(value)
 
 
 def with_type_args(value, type_args):

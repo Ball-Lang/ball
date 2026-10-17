@@ -241,6 +241,63 @@ def test_is_type_iterable_and_untagged_user_generic_match_real_dart():
     assert selfhost.is_type(reified_int, "Box<String>") is False  # #824's own fix, unchanged
 
 
+def test_is_type_element_check_defaults_to_true_for_unresolvable_type_arguments():
+    """PR #898 review, round 3: the element-wise recursion #824 added for
+    `List`/`Map`/`Set`/`Iterable` answered `false` whenever the element TYPE
+    ARGUMENT was something this function has no way to resolve at all -- a
+    Dart FUNCTION TYPE, a TYPEDEF alias (erased before this layer ever sees
+    it), or an SDK structural interface `_BUILTIN` does not enumerate. All
+    three are `true` on real `dart run` and were `true` on this function's
+    own pre-#824 answer (the generic argument was stripped and ignored
+    outright back then) -- #824's recursion was a NEW regression for exactly
+    these three shapes, the Python compiler leg's own oracle being real Dart,
+    not the reference engine (which shares this gap, tracked separately as
+    issue #916).
+
+    Dart source this pins (`dart run` prints `true` three times):
+
+        typedef Json = Map<String, dynamic>;
+        void main() {
+          final fs = <int Function(int)>[(int x) => x + 1];
+          final js = <Json>[{'a': 1}];
+          print(fs is List<int Function(int)>);
+          print(js is List<Json>);
+          print([1, 2] is List<Comparable>);
+        }
+    """
+    from ballrt import selfhost
+
+    fn = lambda x: x + 1  # noqa: E731 - stands in for the compiled closure
+    assert selfhost.is_type([fn], "List<int Function(int)>") is True
+    assert selfhost.is_type([{"a": 1}], "List<Json>") is True
+    assert selfhost.is_type([1, 2], "List<Comparable>") is True
+
+    # Not a blanket "always true": a BUILTIN element-type mismatch inside the
+    # exact same generic shape must still answer `false` (#824's own fix,
+    # unaffected -- "int"/"String" ARE in `_BUILTIN`, so they are resolved,
+    # not defaulted).
+    assert selfhost.is_type([1, "x"], "List<int>") is False
+
+    # Not a blanket "always true" for a REAL class mismatch either: a value
+    # that DOES carry its own declared Ball type identity (a `__type__`-tagged
+    # engine-shape dict, or a genuine compiled-class instance, mirroring the
+    # existing `is_type(value, "UnrelatedError")` contract) still answers
+    # `false` against an unrelated name, even when checked as a list element.
+    tagged_mismatch = {"__type__": "main:Box", "v": 1}
+    assert selfhost.is_type([tagged_mismatch], "List<Comparable>") is False
+
+    class Box:
+        def __init__(self, v):
+            self.v = v
+
+    assert selfhost.is_type([Box(1)], "List<Comparable>") is False
+
+    # A bare function-type signature is checked structurally against
+    # `callable`, not defaulted blindly -- a non-callable element still
+    # answers `false`.
+    assert selfhost.is_type([5], "List<int Function(int)>") is False
+
+
 def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
     """``ballrt.proto`` must answer ANY ``has<Field>`` the compiler emits (#570).
 

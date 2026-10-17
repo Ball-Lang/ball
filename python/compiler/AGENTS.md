@@ -153,10 +153,11 @@ compiler, and (since #823/#824) prints a dedicated
 `SILENTLY-WRONG (status=fail, N): <names>` line naming every `fail`-status
 fixture — grep that line for the live, honest roster rather than trusting this
 prose, which goes stale the moment a fixture moves. Measured, not asserted
-(and re-measured with #724, then with #824/#892):
+(and re-measured with #724, then with #824/#892, then on the merged tree with
+two more fixtures added to the corpus):
 
 ```
-Results: 276 passed, 88 failed, 364 total (4 skipped carve-outs)
+Results: 278 passed, 88 failed, 366 total (4 skipped carve-outs)
 ```
 
 The pytest cases are a curated *proof set*; this is the honest corpus number, and
@@ -188,10 +189,15 @@ ended the whole loop after the first character — every other target compiles
 entirely and matched on the bare base type alone, so `[1,2,3] is List<String>`
 and `Box<int>(...) is Box<String>` both answered `true`; `is_type` now checks
 every List/Map/Set element/entry recursively and a user object's own reified
-`__type_args__` tag, mirroring the reference engine's `_typeMatches`) — all
+`__type_args__` tag — approximating, and since 3a90e6f2 DELIBERATELY diverging
+from, the reference engine's `_typeMatches`: that function still answers
+`false` for `Iterable<T>` and an untagged generic instance where real `dart
+run` answers `true` (tracked separately as #916), and this `is_type` does not
+reproduce that gap on purpose, because the Python compiler leg is graded
+against real Dart, not against the reference engine's own answer) — all
 five are now in `tests/test_conformance.py`'s `PROVEN` list.
 
-The SAME PR that measured 276 additionally closed three more (#892's own set):
+This PR additionally closed three more (#892's own set):
 `432_shadowed_getter_setter_write` and `470_setter_beside_final_field` (a
 subclass's own PLAIN field must shadow BOTH an ancestor's explicit getter and
 setter; Python's attribute protocol always prefers a data descriptor found
@@ -205,6 +211,21 @@ sibling one-namespace collision, #695/#680's C++ precedent) and
 `"runtimeType"` shortcut fired unconditionally, even on a receiver class that
 declares its own `@override Type get runtimeType => ...`; it now defers to that
 override first — the Python runtime's own instance of #787's family).
+
+None of the above is covered by a cross-target conformance fixture, by
+design: a fixture's golden is the same `dart run` output on every row of the
+matrix, and the reference engine's `_typeMatches` shares #824's gap for
+`Iterable<T>`/untagged instances AND a THIRD gap this `is_type` also now
+closes (round 3, PR #898 review): a generic element TYPE ARGUMENT this
+function cannot resolve at all — a Dart function type (`int Function(int)`),
+a typedef alias (erased before this layer ever sees it), or an SDK structural
+interface `_BUILTIN` does not enumerate (`Comparable`, `Pattern`, ...) — used
+to answer `false` for every element once #824's recursion reached it, where
+real `dart run` (and this function's own pre-#824 answer) says `true`. A
+cross-target fixture exercising any of these three shapes fails on every
+OTHER row today, so the guard is a Python-only unit test,
+`test_is_type_element_check_defaults_to_true_for_unresolvable_type_arguments`
+in `tests/test_runtime.py`, not a corpus entry.
 
 **Two remain, named in `PYTHON_SILENTLY_WRONG_KNOWN`:** `203_closure_in_loop` /
 `229_closure_loop_var_semantics` (a C-style-`for` loop var is captured by Python's

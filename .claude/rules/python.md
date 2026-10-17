@@ -394,6 +394,28 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   fixture exercising `Iterable<T>` or an inferred generic would fail on every OTHER target today,
   which is why #916 tracks fixing `_typeMatches` itself (and adding that fixture) as separate,
   cross-cutting work out of this target's scope.
+- **An element type this function cannot RESOLVE at all is not evidence of a mismatch either
+  (#824 follow-up regression #3, PR #898 review round 3 — same #916 family, same "real `dart run`
+  is the oracle" reasoning as regression #2 above).** #824's element-wise recursion asks the FINAL
+  fallback (plain, non-generic name) to resolve every `List<T>`/`Map<K,V>`/`Set<T>`/`Iterable<T>`
+  element's type argument, and that fallback answered `False` for three shapes it has no way to
+  resolve: a Dart FUNCTION TYPE (`int Function(int)`), a TYPEDEF alias (`typedef Json = Map<String,
+  dynamic>;` leaves `is_type` nothing to resolve `"Json"` against — it is erased before this layer
+  ever sees it), and an SDK structural interface a core type satisfies but `_BUILTIN` does not
+  enumerate (`Comparable`, `Pattern`, ...). All three are `True` on real `dart run` and were `True`
+  on this function's own pre-#824 answer (the generic argument was stripped and ignored outright
+  back then), so #824's recursion was a NEW regression for exactly these shapes. `is_type` now
+  recognizes a function-type signature structurally (`_is_function_type_signature`, checked against
+  `callable(value)`) and, for any other unresolved name, answers `True` UNLESS `value` carries its
+  own declared Ball type identity to mismatch against (`_has_declared_identity` — a
+  `__type__`-tagged engine-shape dict, or a genuine compiled Ball class instance, never a bare
+  runtime primitive): a real class instance matched against an unrelated name still answers `False`
+  (the existing `is_type(value, "UnrelatedError")` contract, unchanged), but `[1, 2] is
+  List<Comparable>` and `<Json>[{'a': 1}] is List<Json>` now answer `True`. Pinned by
+  `test_is_type_element_check_defaults_to_true_for_unresolvable_type_arguments` in
+  `python/compiler/tests/test_runtime.py`; no cross-target conformance fixture can pin this for the
+  same reason regression #2's fixture gap applies — the reference engine shares the gap, tracked by
+  the same #916.
 - **Per-fixture timeout is a subprocess kill, not cooperative** (contrast Go): each fixture runs as
   its own killable `python -m ball_engine` subprocess with `subprocess.run(timeout=…)`, so a runaway
   is simply killed — a Python process is trivially killable, sidestepping the goroutine-leak problem

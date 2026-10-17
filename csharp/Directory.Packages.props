@@ -13,8 +13,16 @@
   <ItemGroup>
     <!-- Protobuf runtime consumed by csharp/shared/gen/Ball.cs (buf plugin
          buf.build/protocolbuffers/csharp:v35.1 — pin the matching Google.Protobuf
-         runtime line so generated code and runtime stay in sync). -->
-    <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
+         runtime line so generated code and runtime stay in sync).
+         Dependabot's `nuget-minor-patch` group bump (PR #869) also proposed
+         3.35.1 -> 3.36.2, but that is DELIBERATELY NOT applied here: the buf
+         gencode plugin stays pinned at `buf.build/protocolbuffers/csharp:v35.1`
+         (see "Google.Protobuf version pairing" in csharp/AGENTS.md), and this
+         repo's rule is to bump the runtime and the gencode line TOGETHER, in the
+         same commit, followed by `buf generate proto` so `csharp/shared/gen/Ball.cs`
+         is regenerated against the matching plugin — never one side alone. Bump
+         this only alongside a `buf.gen.yaml` plugin bump + regen, as its own PR. -->
+    <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
 
     <!-- Roslyn C# syntax API, shared by csharp/encoder (issue #382 — official
          AST parser, CSharpSyntaxTree.ParseText, syntax-only, mirroring the

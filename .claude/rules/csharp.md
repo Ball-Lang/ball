@@ -43,7 +43,7 @@ root. Main `.csproj`s exclude `test/**/*.cs`/`tool/**/*.cs`/`conformance/**/*.cs
 compile items so the sibling projects never double-compile each other's files.
 
 - `Ball.Shared` (`csharp/shared/`) — `gen/Ball.cs` (buf-generated protobuf bindings, pinned
-  `Google.Protobuf 3.36.2` to match the `buf.build/protocolbuffers/csharp:v35.1` gencode line —
+  `Google.Protobuf 3.35.1` to match the `buf.build/protocolbuffers/csharp:v35.1` gencode line —
   bump both together, see "Generated Files" below) + the runtime value model
   (`BallValue`/`BallList`/`BallMap`/`BallMessage`/`BallFunction`, `src/BallValue.cs` et al.) + std
   module builders (`StdModuleBuilders.cs`) + the `BallRuntime` base-op helper layer the compiler
@@ -738,10 +738,15 @@ compile items so the sibling projects never double-compile each other's files.
 
 ## Dependencies
 
-- `Google.Protobuf = "3.36.2"` — pinned to match the `buf.build/protocolbuffers/csharp:v35.1`
+- `Google.Protobuf = "3.35.1"` — pinned to match the `buf.build/protocolbuffers/csharp:v35.1`
   gencode plugin line exactly. When bumping the `csharp` plugin version in `buf.gen.yaml`, bump
   this in the same commit and rerun `shared/test/`'s binary+JSON round-trip smoke tests (a skewed
   pairing typically still *compiles* — only the smoke tests catch a meaningful skew).
+  **Deliberately held back from the dependabot-proposed 3.36.2** (`nuget-minor-patch` group, PR
+  #869): bumping the runtime alone, without bumping `buf.gen.yaml`'s `csharp:v35.1` plugin line and
+  regenerating `csharp/shared/gen/Ball.cs` in the same commit, violates the pairing rule above and
+  is exactly the gencode/runtime skew #302 burned days on for C++. Revisit only as a plugin-bump +
+  `buf generate proto` PR, never as a solo runtime bump.
 - `Microsoft.CodeAnalysis.CSharp = "5.9.0"` — Roslyn. Syntax API for the encoder's
   resolution-free entry points and the compiler test suite's in-memory compile-and-run harness;
   since #492 W12-C slice 1 also the `CSharpCompilation`/`SemanticModel` behind `EncodeProject`.

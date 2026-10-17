@@ -23,6 +23,18 @@ updates:
       - "/ts/cli"
     schedule:
       interval: "weekly"
+    ignore:
+      # TypeScript 7.0 ships no programmatic compiler API ("While TypeScript 7.0
+      # is here, it does not ship with an API. We expect TypeScript 7.1 to ship
+      # with a new (and different) API" -
+      # https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/,
+      # section "Running Side-by-Side with TypeScript 6.0").
+      # ts/encoder drives the TS Compiler API directly and ts/compiler goes
+      # through ts-morph, so a 7.0 bump cannot build. 7.1+ is NOT ignored:
+      # Dependabot offers it once the new API exists (owner decision 2026-10-17,
+      # closing #314/#315/#316).
+      - dependency-name: "typescript"
+        versions: ["7.0.x"]
     groups:
       npm-minor-patch:
         patterns: ["*"]

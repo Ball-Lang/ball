@@ -8,13 +8,30 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+  # NO `paths-ignore:` here (#756 follow-up, 2026-10-17). This workflow owns 16
+  # of the 19 required contexts of ruleset 17056238 (regression-gates.yml owns
+  # 4; `Detect changed stacks` is SHARED between them — 16 + 4 - 1 = 19), and a
+  # `pull_request:` trigger that path-filters a required-context workflow is
+  # exactly the shape GitHub's own troubleshooting docs name and warn against:
+  # "Avoid requiring workflows that can be skipped" (Handling skipped but
+  # required checks —
+  # https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks).
+  # A workflow skipped by path filtering never starts, so every context it
+  # owns stays "Pending" forever — before this change, ANY PR whose WHOLE diff
+  # matched `**.md`/`docs/**`/`LICENSE`/`.gitignore` (a docs-only PR) could
+  # never merge, because none of its 16 contexts here would ever report. Now
+  # every PR starts this workflow, and
+  # `.github/actions/detect-changed-stacks/detect.sh`'s `infra` signal carries
+  # the SAME four entries as an in-classifier carve-out, so a docs-only PR
+  # still SKIPS every heavy per-stack job below (a skipped job reports success
+  # and satisfies a required check — a workflow that never starts does not).
+  # `tools/ci/check_pr_job_fanout.sh` (always-on `proto` job) now fails the
+  # build if this trigger — or regression-gates.yml's — ever grows a `paths:`
+  # or `paths-ignore:` filter again while owning a required context.
+  # `push:` above keeps its own `paths-ignore:` unchanged: a push to `main`
+  # owns no required context, so a skipped run there is not a stuck PR.
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "LICENSE"
-      - ".gitignore"
   # Merge-queue readiness (#756, owner decision 2026-10-17: a merge queue on
   # `main` instead of `strict_required_status_checks_policy`). Every required
   # status check this workflow produces — Detect changed stacks, Proto Checks,
@@ -25,12 +42,11 @@ on:
   # never reports for that ref. `types: [checks_requested]` is the only
   # supported activity type today; naming it keeps this specific if GitHub
   # adds more (https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#merge_group).
-  # `merge_group:` supports no `paths`/`paths-ignore` filter (unlike
-  # `pull_request`/`push` above), so this workflow starts for EVERY queued
-  # entry; `paths-ignore` still applies to push/pull_request as before. The
-  # `changes` job below (and regression-gates.yml's) reads
-  # `github.event.merge_group.{base_sha,head_sha}` to diff exactly this merge
-  # group's own changes — see `.github/actions/detect-changed-stacks`.
+  # `merge_group:` supports no `paths`/`paths-ignore` filter at all (unlike
+  # `push:` above), which is moot for `pull_request:` now that it carries
+  # neither either. The `changes` job below (and regression-gates.yml's)
+  # reads `github.event.merge_group.{base_sha,head_sha}` to diff exactly this
+  # merge group's own changes — see `.github/actions/detect-changed-stacks`.
   # `tools/ci/check_merge_group_wiring.sh` (always-on `proto` job) keeps every
   # required-context workflow and this classifier wired to it.
   merge_group:

@@ -82,7 +82,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 `encoder/AGENTS.md`), and the **CLI** drives all four verbs in-process
 (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)` — Dart-identical
+`Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
@@ -112,6 +112,22 @@ used to round-trip still must. The floor only rises: **raise it in the SAME PR a
 the fix that earned it** (the job prints the exact new value). Never lower it,
 and never make a row green by weakening either side. Reads goldens and subprocess
 stdout as **bytes**, normalising only CRLF.
+
+**A timed-out fixture's whole process TREE is killed (#791).** `dart run` is a
+launcher — it forks the Dart VM, and the VM is what runs the program and holds
+the inherited stdout pipe — so `subprocess.run(timeout=…)`, which kills only the
+immediate process, left one orphaned Dart VM per timed-out fixture alive in the
+runner. `_run_dart` now spawns with `start_new_session=True` and
+`_kill_process_tree` calls `os.killpg(…, SIGKILL)` (`taskkill /T /F /PID` on
+Windows), matching `RoundTripLeg.cs`'s `Kill(entireProcessTree: true)`; the reap
+that follows is bounded and FAILS LOUD if a writer somehow survived, rather than
+blocking. The budget moved to `_fixture_timeout_s()` (still `BALL_TIMEOUT_S`, now
+read per call and fail-loud on a typo) so the kill is reachable from a test:
+`tests/test_roundtrip_process_tree.py` is the negative control — a fabricated
+stand-in `dart` that forks a grandchild inheriting its stdout, asserting the
+GRANDCHILD is gone through a heartbeat file it appends to every 50 ms, with a
+positive floor on that file so a control that failed to fork anything cannot pass
+while proving nothing.
 
 `try:` — which headed the list at 142 occurrences and was the SOLE blocker of 79
 fixtures — is done: `encoder.encode_try`/`encode_while` invert all four shapes

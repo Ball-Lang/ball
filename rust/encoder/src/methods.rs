@@ -204,6 +204,27 @@ pub(crate) const RECEIVER_READ_ONLY_METHODS: &[&str] = &[
     "unwrap_or",
 ];
 
+/// Peels `(...)`/group wrappers to see whether `expr` is, underneath, a bare
+/// string literal, returning its value — the receiver shape that makes
+/// `.to_string()` a node-level identity (issue #807), and the same literal-only
+/// test `lib.rs::is_string_constructor` already applies to this identical
+/// receiver+method pair for a different purpose (the `write!`/`writeln!` sink
+/// detection, issue #630). Deliberately narrow: a `String`/`&str` LOCAL that
+/// merely *holds* a literal's value is not recognized here, because this
+/// encoder has no semantic model to prove that — only a literal written at the
+/// call site itself is unambiguous.
+fn literal_string_value(expr: &syn::Expr) -> Option<String> {
+    match expr {
+        syn::Expr::Paren(e) => literal_string_value(&e.expr),
+        syn::Expr::Group(e) => literal_string_value(&e.expr),
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(s),
+            ..
+        }) => Some(s.value()),
+        _ => None,
+    }
+}
+
 impl Encoder {
     pub(crate) fn encode_method_call(&mut self, e: &syn::ExprMethodCall) -> Expression {
         let method = e.method.to_string();
@@ -231,7 +252,33 @@ impl Encoder {
             }
 
             // ── String / universal conversions ──
-            "to_string" if e.args.is_empty() => self.un_std("to_string", &e.receiver),
+            //
+            // A `.to_string()` call whose receiver is a bare string LITERAL
+            // (through any number of `(...)`/group wrappers) is a node-level
+            // identity, not just a value-level one (issue #807): Rust's
+            // `impl ToString for str` and Ball's own `std.to_string` (Dart's
+            // `.toString()`, which for a `String` returns its operand
+            // unchanged — `dart/shared/lib/std.dart`) both answer the exact
+            // same text as the literal itself. And `ball-lang-compiler`
+            // emits EVERY Ball string literal as exactly `"text".to_string()`
+            // (`compile_expression`'s literal arm), so without this guard
+            // every compiled string literal re-encoded as
+            // `std.to_string({value: "text"})` instead of the bare literal
+            // it started as — measured at 251 of the 368 `tests/conformance`
+            // fixtures (68%), making it the single largest node-fidelity gap
+            // in the compiler<->encoder round trip (`rust/AGENTS.md`'s
+            // "Stated gap" bullet, superseded by this one). The receiver
+            // must be a LITERAL, never merely "looks like a String" — the
+            // same literal-only receiver guard `lib.rs::is_string_constructor`
+            // already uses for this identical method, for a different
+            // purpose (the `write!`/`writeln!` sink detection, issue #630).
+            // A non-literal receiver (an arbitrary `String`/number/etc.) is
+            // still routed through `std.to_string`, because `.to_string()`
+            // is a REAL conversion there (e.g. `5.to_string()` is not `5`).
+            "to_string" if e.args.is_empty() => match literal_string_value(&e.receiver) {
+                Some(value) => string_literal(value),
+                None => self.un_std("to_string", &e.receiver),
+            },
             "len" if e.args.is_empty() => self.un_std("length", &e.receiver),
             // `.is_empty()` reuses the very same universal `std.length`
             // dispatch `.len()` routes through, so it stays correct whether

@@ -1025,21 +1025,41 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
+      # 282 after #670: `480_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member through its impl method
+      # rather than `BallRuntime.CallMethod`. Measured by this very row (PR
+      # #829, job 106251801199: `Results: 282 passed, 81 failed, 363 total`),
+      # never predicted.
+      # 283 once #670's branch merged with an EARLIER `origin/main`: the extra
+      # 1 is NOT this issue's — it is #834's `478_setter_backing_store_disambiguation`,
+      # which this compiler already emits correctly, joining the corpus on the
+      # merged tree. A floor is about the tree that merges, not about whose
+      # commit earned the gain, so leaving it at 282 would give that one back
+      # silently. Measured by this very row (PR #829, job 106311674886:
+      # `Results: 283 passed, 81 failed, 364 total (floor: 282)` plus its own
+      # `IMPROVED` notice), never predicted.
       #
-      # 282 was the #792 shape reproducing on a THIRD row: this PR's own
-      # enforcement (compiler_floor.sh) fired on this leg at its own head —
-      # `Results: 282 passed, 81 failed, 363 total (floor: 281)` on run
-      # 35606307019 (job 106358136265), one fixture of gain already on main
-      # and never claimed under the old advisory ::notice::.
+      # Independently, `origin/main`'s own #864 (closing #792) found a
+      # DIFFERENT unclaimed fixture on its own branch: `compiler_floor.sh`'s
+      # first run on this leg printed `Results: 282 passed, 81 failed, 363
+      # total (floor: 281)` on run 35606307019 (job 106358136265) — one
+      # fixture of gain already on `main`, unrelated to #834 or to #670's own
+      # fixture, never claimed under the old advisory `::notice::`. #864 then
+      # remeasured 283 after ITS OWN merge absorbed #834's fixture: `Results:
+      # 283 passed, 81 failed, 364 total (floor: 282)` on run 38998673595 (job
+      # 117296783328).
       #
-      # 283: merging main in brought the corpus to 364 fixtures (the new
-      # 479_user_member_named_like_collection_accessor), and this row happened
-      # to pass it while Go/Rust/Python's compiler legs did not — the SAME
-      # gate firing again, on the SAME PR, for the SAME reason: an earned gain
-      # is not green until it is claimed. `Results: 283 passed, 81 failed, 364
-      # total (floor: 282)` on run 38998673595 (job 117296783328). Measured by
-      # THIS row, never predicted.
-      CSHARP_COMPILER_FLOOR: "283"
+      # Both paths land on "283" by coincidence of arithmetic, not because
+      # they counted the same two gains: PR #829's own path is 281 + 1 (its
+      # own `480_extension_override_selection`) + 1 (#834's fixture);
+      # `origin/main`'s (#864's) path is 281 + 1 (the unclaimed fixture above)
+      # + 1 (the SAME #834 fixture, counted once). THIS merge's tree carries
+      # all three gains at once — #670's own fixture, #864's previously
+      # unclaimed one, and #834's. Confirmed, not predicted: this merge's own
+      # run printed `Results: 284 passed, 81 failed, 365 total (floor: 283)`
+      # plus its own `IMPROVED` error (job 117425052451), so the floor raises
+      # to 284 here, in the same PR, per this file's own rule.
+      CSHARP_COMPILER_FLOOR: "284"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1176,6 +1196,15 @@ jobs:
           # own TIMEOUT pattern for the no-fixture-may-hang gate (#693).
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note" "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)" "^ +[0-9A-Za-z_]+: TIMEOUT"
 
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836, generalized to this leg by #896): one fixture newly
+          # passing while a different one regresses leaves the count
+          # unchanged, so `passed >= floor` alone stays green through a real
+          # regression. This is a set-difference check against the committed
+          # per-fixture baseline, run AFTER the floor so a harness-health
+          # failure is diagnosed by the floor script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "C#" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/csharp_roundtrip_passing.txt"
+
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
@@ -1284,6 +1313,15 @@ jobs:
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836, generalized to this leg by #896): one fixture newly
+          # passing while a different one regresses leaves the count
+          # unchanged, so `passed >= floor` alone stays green through a real
+          # regression. This is a set-difference check against the committed
+          # per-fixture baseline, run AFTER the floor so a harness-health
+          # failure is diagnosed by the floor script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "Python" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/python_roundtrip_passing.txt"
+
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
@@ -1369,6 +1407,15 @@ jobs:
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836, generalized to this leg by #896): one fixture newly
+          # passing while a different one regresses leaves the count
+          # unchanged, so `passed >= floor` alone stays green through a real
+          # regression. This is a set-difference check against the committed
+          # per-fixture baseline, run AFTER the floor so a harness-health
+          # failure is diagnosed by the floor script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "Go" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/go_roundtrip_passing.txt"
+
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
@@ -1442,7 +1489,13 @@ jobs:
           # roundtrip_floor.sh's "first still-failing fixture" being the
           # ALPHABETICALLY first one, is how `ball_message_type_name` (23) came
           # to be published as the leader while `ball_arg_get` (63) really was.
-          histogram=$(awk '/^Failure buckets/ {on=1} on && /^Results:/ {exit} on' "$RUNNER_TEMP/roundtrip.log")
+          # Stops at the first BLANK line (or at the `Passing fixtures`/`Results:`
+          # headers, belt-and-suspenders) after the histogram starts: the sweep
+          # prints a blank line, then the `Passing fixtures (<N>, sorted):` block
+          # (#836), then another blank line, then `Results:`. Without that stop
+          # this range ran all the way to `Results:` and swallowed the whole
+          # passing-fixtures list into "Measured by this run" below.
+          histogram=$(awk '/^Failure buckets/ {on=1} on && (/^$/ || /^Passing fixtures/ || /^Results:/) {exit} on' "$RUNNER_TEMP/roundtrip.log")
 
           {
             echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
@@ -1476,6 +1529,15 @@ jobs:
             echo "::error::The Rust round-trip leg printed no \`Failure buckets\` histogram, so this row named no leaders. Re-deriving them by hand from --nocapture output is exactly what issue #790 was filed for."
             exit 1
           fi
+
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836): one fixture newly passing while a different one
+          # regresses leaves the count unchanged, so `passed >= floor` alone
+          # stays green through a real regression. This is a set-difference
+          # check against the committed per-fixture baseline, run AFTER the
+          # floor so a harness-health failure is diagnosed by the floor
+          # script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "Rust" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/rust_roundtrip_passing.txt"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1538,7 +1600,14 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "282"
+      # 283 after #670: `480_extension_override_selection` joined the corpus and
+      # `compile_module_types` stopped skipping the descriptor-less extension
+      # typeDef, so the `impl` its members live in is emitted and both the direct
+      # call and the short-name dispatcher resolve. Measured by this very row (PR
+      # #829, job 106262486121: `Results: 283 passed, 80 failed, 363 total`), never
+      # predicted — the commit before it measured 282 with the call site already
+      # right and the definition missing (E0433).
+      RUST_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1605,7 +1674,34 @@ jobs:
       # compiler case at all and were refused outright) plus that PR's
       # use-driven oneof-discriminator change and the corpus's own growth to
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
-      GO_COMPILER_FLOOR: "298"
+      # 299 after #670: `480_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member through its impl func
+      # rather than the receiver-asking `ballrt.CallMethod`. Measured by this
+      # very row (PR #829, job 106251801272: `Results: 299 passed, 64 failed,
+      # 363 total`), never predicted.
+      #
+      # origin/main separately raised 298 -> 308 by #813's getter/setter
+      # accessor-dispatch fix (memberImplName's setter suffix + the dedicated
+      # per-property ballAccessorGet_*/ballAccessorSet_* dispatch), unblocking
+      # 470_setter_beside_final_field and nine other fixtures. Measured on
+      # main at 308 on run 39008181371 (job 117325339800), against 298 on the
+      # commit it branched from.
+      #
+      # Merging the two: both gains start from the SAME ancestor value (298)
+      # and touch disjoint fixtures (480 vs. 470 + nine others), so the merged
+      # tree was predicted to measure 298 + 1 + 10 = 309 — and per this
+      # repo's own "a floor is measured, never predicted" rule, it was left at
+      # the lower, already-proven 299 until this merge's own run printed the
+      # real number. It did: `Results: 309 passed, 56 failed, 365 total`
+      # (run 39051551781, job 117452337046) — matching the prediction exactly,
+      # confirming no interaction between the two independent fixes. Raised
+      # to 309. (The one remaining new failure in that run's list,
+      # 89_tower_of_hanoi, is NOT this PR's: it already fails identically on
+      # origin/main's own green run at `ce874cf1` — job 117442337495,
+      # `Results: 308 passed, 56 failed, 364 total (floor: 308)` — a
+      # pre-existing top-level-variable compound-assignment gap this PR never
+      # touches.)
+      GO_COMPILER_FLOOR: "309"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1660,15 +1756,32 @@ jobs:
       # inside the failures — the #615 lesson repeating: a ratchet is green over
       # the regression it already tolerates. Measured before and after, locally
       # and on CI, never predicted.
+      # 266 after #670: `480_extension_override_selection` joined the corpus
+      # and this compiler reaches an extension member unbound on its class
+      # rather than through `ballrt.call_method`. Measured by this very row
+      # (PR #829, job 106251801278: `Results: 266 passed, 97 failed, 363
+      # total`), never predicted.
+      # 269 once #670's branch was merged with an EARLIER `origin/main`: the
+      # extra 3 are NOT this issue's — they come from main's own Python
+      # slices that the 266 measurement above predates. Leaving the floor at
+      # 266 would have given those back silently, which is exactly what a
+      # ratchet exists to prevent, and the row's own `IMPROVED` notice said so
+      # on two consecutive runs before anyone read it. Measured by this very
+      # row (PR #829, jobs 106269065646 and 106283796079, both `Results: 269
+      # passed, 94 failed, 363 total (floor: 266)`), never predicted.
       #
-      # 268 is the FIRST floor this repo raised because a gate made it: the
-      # enforcement half of #792 went in one commit earlier, and this row's very
-      # next run failed with `Results: 268 passed, 95 failed, 363 total (floor:
-      # 265)` — three fixtures of gain already on main, earned by other lanes
-      # and the corpus's own growth to 363, sitting unclaimed under the old
-      # advisory ::notice::. Measured by THIS row on run 35604595391 (job
-      # 106348942693), never predicted.
-      PYTHON_COMPILER_FLOOR: "268"
+      # Those same "three fixtures of gain already on main" are what #864's
+      # OWN enforcement commit (closing #792) found independently, on
+      # `origin/main`'s trunk: 265 -> 268 there directly. The enforcement half
+      # of #792 went in one commit earlier, and this row's very next run
+      # failed with `Results: 268 passed, 95 failed, 363 total (floor: 265)` —
+      # measured by THIS row on run 35604595391 (job 106348942693). That is
+      # the SAME three fixtures PR #829 already absorbed above (not a further
+      # three stacking on top of those), so the floor this merge carries
+      # forward is 269 (265 + the one shared 3-fixture gain + #670's own 1),
+      # not 265 + 3 + 3. If this merged tree's own run measures otherwise,
+      # raise it to match — a floor is measured, never predicted.
+      PYTHON_COMPILER_FLOOR: "269"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -78,6 +78,20 @@ type Compiler struct {
 	// typeDefsByShort maps a type's short name to its TypeDefinition.
 	typeDefsByShort map[string]*ballv1.TypeDefinition
 
+	// extensionMemberImpl maps the QUALIFIED Ball function name of a member of
+	// a `kind: "extension"` typeDef ("main:AlphaTag.tag") to the impl func this
+	// compiler emits for it ("AlphaTag__tag") — the extension-override
+	// representation (issue #670).
+	//
+	// An override (`Ext(receiver).member`) is encoded as a call NAMING the
+	// extension's own member and carrying the receiver in `self`, because the
+	// selection is the whole meaning of the node: two extensions can declare
+	// the same member on the same type, so the by-short-name dispatcher
+	// compileClassMembers emits (it switches on the RECEIVER's message type,
+	// and an extension receiver is an ordinary list/string/map) cannot pick
+	// between them. Calling the impl directly is the only faithful emission.
+	extensionMemberImpl map[string]string
+
 	// enumShortNames is the set of user-enum short names (e.g. "Color"). A bare
 	// reference to one resolves to the emitted `ballEnum_<short>` namespace value
 	// (mirrors the oneof-discriminator branch); compileEnumNamespace emits that var.
@@ -107,6 +121,17 @@ type Compiler struct {
 
 	// volatileByOwner caches the reassigned-field set per owner TypeDefinition.
 	volatileByOwner map[string]map[string]bool
+
+	// getterMembers / setterMembers are the short member names some class
+	// declares as an instance getter / setter (issue #813) — consulted by
+	// compileFieldAccess (a read) and emitMutation's "field" case (a write)
+	// before falling back to a plain ballrt.FieldGet/FieldSet, and by
+	// compileReference for an implicit-`this` bare-name getter read. A name
+	// may be in both (a Dart `get`/`set` pair), in just one (a setter with no
+	// getter, like 470's FixedSlice.length — or vice versa), or in neither (an
+	// ordinary field or method, unaffected). Populated by indexAccessors.
+	getterMembers map[string]bool
+	setterMembers map[string]bool
 
 	// scopes is the lexical scope stack of sanitized local names.
 	scopes []map[string]bool
@@ -151,22 +176,25 @@ func newLibrary(prog *ballv1.Program, pkgName string) *Compiler {
 
 func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compiler {
 	c := &Compiler{
-		prog:            prog,
-		libraryMode:     libraryMode,
-		pkgName:         pkgName,
-		baseModules:     map[string]bool{},
-		stubModules:     map[string]bool{},
-		userFuncs:       map[string]bool{},
-		instanceMethods: map[string]bool{},
-		topLevelVars:    map[string]bool{},
-		classMembers:    map[string][]*ballv1.FunctionDefinition{},
-		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
-		enumShortNames:  map[string]bool{},
-		usedOneofs:      map[string]bool{},
-		unnamedCtorImpl: map[string]string{},
-		ctorImpl:        map[string]string{},
-		volatileByOwner: map[string]map[string]bool{},
-		volatileFields:  map[string]bool{},
+		prog:                prog,
+		libraryMode:         libraryMode,
+		pkgName:             pkgName,
+		baseModules:         map[string]bool{},
+		stubModules:         map[string]bool{},
+		userFuncs:           map[string]bool{},
+		instanceMethods:     map[string]bool{},
+		topLevelVars:        map[string]bool{},
+		classMembers:        map[string][]*ballv1.FunctionDefinition{},
+		typeDefsByShort:     map[string]*ballv1.TypeDefinition{},
+		extensionMemberImpl: map[string]string{},
+		enumShortNames:      map[string]bool{},
+		usedOneofs:          map[string]bool{},
+		unnamedCtorImpl:     map[string]string{},
+		ctorImpl:            map[string]string{},
+		volatileByOwner:     map[string]map[string]bool{},
+		volatileFields:      map[string]bool{},
+		getterMembers:       map[string]bool{},
+		setterMembers:       map[string]bool{},
 	}
 	for _, m := range prog.GetModules() {
 		fns := m.GetFunctions()
@@ -220,7 +248,55 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		}
 	}
 	c.indexConstructors()
+	c.indexExtensionMembers()
+	c.indexAccessors()
 	return c
+}
+
+// indexExtensionMembers fills extensionMemberImpl. A separate pass over the
+// whole program, not a branch of the loop above: an extension declared in a
+// LATER module than the one whose body names it would not yet be in
+// typeDefsByShort there.
+//
+// SETTERS ARE NOT INDEXED. A Dart `get m` and its `set m(v)` share ONE
+// qualified Ball name (`main:Ext.m`) — only `metadata.is_getter`/`is_setter`
+// tells them apart — and this table is keyed by that name, so it can hold
+// only one of the two. It is the CALL table: compileCall's extension-override
+// branch is its only reader, and every call that reaches it is a READ (a
+// method call or a getter). A setter is reached only through a WRITE —
+// `std.assign` whose target is the accessor call — and resolveLValue refuses
+// that target shape loud without compiling the call at all (#865 item 2,
+// still open for Go). Indexing the setter too would let the LAST accessor
+// visited win the slot; since #813 gave the setter its own `__set` impl name,
+// that is the setter for every real extension (which declares `get` before
+// `set`), and a read `Ext(xs).m` silently compiled to `Ext__m__set(...)` —
+// the PR #829 round-2 review finding, guarded by
+// TestExtensionOverrideReadOfAGetterSetterPairCallsTheGetter. Before #813 the
+// same pair failed LOUD instead, on a duplicate Go func.
+//
+// A read naming a SETTER-ONLY member is not valid Dart; in hand-built IR it
+// misses this table and falls through to ballrt.CallMethod, which panics
+// naming the method — loud, where routing it to the setter impl would run the
+// setter with a null value. The setter impl itself is still EMITTED, by
+// compileClassMembers under memberImplName(..., true): only the dispatch
+// table skips it.
+func (c *Compiler) indexExtensionMembers() {
+	for owner, members := range c.classMembers {
+		td, ok := c.typeDefsByShort[typeShortName(owner)]
+		if !ok || metaString(td.GetMetadata(), "kind") != "extension" {
+			continue
+		}
+		for _, f := range members {
+			if metaBool(f.GetMetadata(), "is_setter") {
+				continue
+			}
+			_, member, split := splitMemberName(f.GetName())
+			if !split {
+				continue
+			}
+			c.extensionMemberImpl[f.GetName()] = memberImplName(typeShortName(owner), member, false)
+		}
+	}
 }
 
 // Compile compiles the whole Program to a runnable Go source string (program
@@ -288,6 +364,11 @@ func (c *Compiler) compile() (string, error) {
 
 	// Class members (dispatchers + impls + constructors) for every owner.
 	b.WriteString(c.compileClassMembers())
+
+	// Property (getter/setter) accessor dispatchers (issue #813) — emitted
+	// after compileClassMembers so every member impl it may call already
+	// exists in the accumulated source.
+	b.WriteString(c.compileAccessors())
 
 	// The entry point (program mode only). Compiled BEFORE the oneof namespaces
 	// are emitted, and buffered, so `usedOneofs` is complete by the time
@@ -530,6 +611,22 @@ func (c *Compiler) compileReference(r *ballv1.Reference) string {
 	if c.topLevelVars[sn] {
 		return fmt.Sprintf("%s(ballrt.Value(nil))", sn)
 	}
+	// An implicit-`this` bare reference to a name some class declares as an
+	// instance GETTER is a property READ, not a method tear-off — Dart has no
+	// syntax to tear a getter off, referencing it by name always invokes it
+	// immediately (issue #813). Dispatch through the SAME accessor mechanism
+	// compileFieldAccess uses, keyed on the RUNTIME receiver (never the
+	// declaring class alone), so a subclass that shadows the name with its own
+	// plain field — or overrides the getter — resolves exactly like an
+	// explicit `self.<name>` would. Checked before the tear-off branch below,
+	// which would otherwise wrap the getter's impl func as a callable value.
+	if c.inInstanceMethod && c.getterMembers[name] {
+		self := c.selfRecvName
+		if self == "" {
+			self = "self"
+		}
+		return fmt.Sprintf("%s(%s)", accessorGetFuncName(name), self)
+	}
 	// A bare reference to an instance method from inside an instance method body
 	// is a bound method tear-off — weave the enclosing receiver into whatever
 	// argument the value is later called with.
@@ -550,7 +647,17 @@ func (c *Compiler) compileReference(r *ballv1.Reference) string {
 
 func (c *Compiler) compileFieldAccess(fa *ballv1.FieldAccess) string {
 	obj := c.compileExpr(fa.GetObject())
-	return fmt.Sprintf("ballrt.FieldGet(%s, %q)", obj, fa.GetField())
+	field := fa.GetField()
+	// A name some class declares as an instance GETTER dispatches through the
+	// accessor mechanism instead of reading the backing map directly, so a
+	// getter that computes (or a setter-having final field, read-side) runs
+	// rather than being bypassed (issue #813). The accessor dispatcher itself
+	// falls back to ballrt.FieldGet for any receiver that resolves to no
+	// declaring class — an ordinary map/field read is unaffected.
+	if c.getterMembers[field] {
+		return fmt.Sprintf("%s(%s)", accessorGetFuncName(field), obj)
+	}
+	return fmt.Sprintf("ballrt.FieldGet(%s, %q)", obj, field)
 }
 
 func (c *Compiler) compileBlock(block *ballv1.Block) string {

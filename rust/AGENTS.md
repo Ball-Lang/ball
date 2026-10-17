@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 364 passed, 0
-failed, 364 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 365 passed, 0
+failed, 365 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -167,7 +167,8 @@ a bucket 2.7x larger. At 138 of 363 (run 35593505327, job 106313208884) the buck
 `ball_unsupported_base_call` 19, `BallValue::Function` 16, `ball_index_set` 14 and
 `ball_list_push` 13.
 The sweep itself is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never
-runs it (it runs the five self-tests beside it):
+runs it (it runs the ten self-tests beside it — count with `grep -c '^#\[test\]'` minus the one
+`#[ignore]`, never from this prose):
 
 ```bash
 cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture
@@ -177,7 +178,30 @@ Its CI home is the `rust-roundtrip` row in `.github/workflows/conformance-matrix
 **That workflow is a PR gate since #619** — it has a path-filtered `pull_request:` trigger sharing
 its `push` filter, and `rust/**` is in that filter, so the row runs on any PR touching this
 directory with no `gh workflow run` dispatch. It gates harness health, the positive floor and the
-ratchet — plus, since #693, **no fixture may HANG**.
+ratchet — plus, since #693, **no fixture may HANG**, and, since #836, **no previously-passing
+fixture may REGRESS even when the total count holds or rises**.
+
+**A pass-count floor cannot see a net-zero fixture swap (#836).** `roundtrip_floor.sh`'s ratchet
+compares one number (`passed`) against another (the floor); if fixture A starts passing in the
+same PR that a different fixture B stops passing, `passed` is unchanged and the ratchet stays
+green while B silently regressed. The sweep now also prints the per-fixture PASS SET — a
+`Passing fixtures (<N>, sorted):` block (`format_passing_block`/`print_passing_fixtures`) listing
+every fixture that round-tripped, right before the `Results:` line — and
+`tools/ci/roundtrip_passset.sh`, invoked right after `roundtrip_floor.sh` in the `rust-roundtrip`
+row, diffs that block as a SET against the committed baseline
+`tools/ci/baselines/rust_roundtrip_passing.txt` (one fixture name per line, sorted, deduplicated,
+regenerated only via `roundtrip_passset.sh ... --write`, never by hand). Any baseline-named
+fixture missing from the current block is a hard CI error naming every regressed fixture, even
+when `passed` held steady or rose; a newly-passing fixture not yet in the baseline is a
+`::notice::` naming the gain, never a failure, with the exact `--write` invocation to lock it in.
+Self-tested by `tools/test/test_roundtrip_passset.sh` (ci.yml's always-on `proto` job), which pins
+the net-zero-swap scenario itself as its primary RED case, mirroring
+`tools/test/test_roundtrip_floor.sh`'s `flat_zero_is_red`. Landed on this leg first, per the
+issue, and then **generalized to the C#/Go/Python round-trip legs too (#896)** in the same PR:
+each of those three legs now prints its own byte-identical `Passing fixtures (<N>, sorted):`
+block, `roundtrip_passset.sh` is invoked in all four `<lang>-roundtrip` rows, and
+`test_roundtrip_passset.sh` loops its scenarios over all four languages' baselines rather than
+pinning Rust alone.
 
 ### The launcher path, and the per-fixture budget — both self-tested (#692/#693)
 
@@ -217,20 +241,36 @@ would wedge the row's 90-minute job rather than report anything. That is not hyp
   arguments and never exits), drives it through the real `run_dart` path, and asserts it comes
   back as the `__timeout__` sentinel inside the budget it is HANDED: `run_dart` takes the budget
   as an ARGUMENT, so the kill is proven in milliseconds without touching the environment.
+- **The kill reaches the whole process TREE, not just `dart` (#791).** `dart run` is a launcher:
+  it forks the Dart VM, and the VM is what runs the program and holds the inherited stdout pipe.
+  Killing the launcher alone left one orphaned VM per timed-out fixture alive in the runner —
+  invisible to the self-test above, which only ever asserted the HARNESS came back. `run_dart`
+  spawns the child as its own process-group leader (`CommandExt::process_group(0)`) and
+  `kill_process_tree` kills the GROUP (`libc::kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on
+  Windows), matching `RoundTripLeg.cs`'s `Kill(entireProcessTree: true)`.
+  `a_timed_out_fixture_leaves_no_orphaned_descendant_process` is the negative control: a
+  fabricated stand-in that forks a grandchild inheriting its stdout, driven through `run_dart`
+  with its own hard-coded millisecond budget (no environment write here either), asserting the
+  GRANDCHILD is gone through a heartbeat file it appends to every 50 ms (with a positive floor on
+  that file, so a control that failed to fork anything cannot pass while proving nothing).
 - **No test in this target may write the process environment** (#790). libtest runs a target's
   non-`#[ignore]`d tests CONCURRENTLY, and `std::env::set_var` is `unsafe` precisely because
   another thread may be inside `getenv`. `roundtrip_conformance.rs` once carried one, under a
   SAFETY note reading “this is the only non-`#[ignore]`d test in this target” — a
   claim that was **already false** when it was written, and that every test added to that file
-  falsifies again: the target now has FIVE non-`#[ignore]`d tests
+  falsifies again: the target now has SIX non-`#[ignore]`d tests
   (`a_failure_is_bucketed_by_its_cause_not_by_its_fixture`,
   `the_per_fixture_budget_is_read_from_ball_timeout_ms`,
   `the_histogram_orders_by_frequency_and_accounts_for_every_failure`,
-  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` and the runaway test), beside the
-  `#[ignore]`d whole-corpus sweep. The rule is the COMPILER's, not this paragraph's: the target
-  carries `#![forbid(unsafe_code)]`, so a future test reaching for `set_var` fails to build in
-  the PR-gated `Rust` job — pass the value in as an argument instead, the way `run_dart` takes
-  its budget.
+  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path`, and the two runaway tests —
+  launcher-only and whole-tree), beside the `#[ignore]`d whole-corpus sweep. The rule is the
+  COMPILER's, not this paragraph's: the target carries `#![deny(unsafe_code)]`, so a future test
+  reaching for `set_var` fails to build in the PR-gated `Rust` job — pass the value in as an
+  argument instead, the way `run_dart` takes its budget. `deny`, not `forbid`: the whole-tree kill
+  above needs one real syscall no safe std API exposes (`libc::kill(-pid, SIGKILL)` on unix), so
+  `kill_process_tree`'s unix half carries its own narrowly-scoped, SAFETY-commented
+  `#[allow(unsafe_code)]` — the only unsafe this file permits, and the only thing a crate-level
+  `forbid` would have made impossible to express here at all.
 - A `timeout` outcome is a **hard error** in `tools/ci/roundtrip_floor.sh`, not one more increment
   of `failed`. Folded into the failure count it is indistinguishable from a golden mismatch, and
   the ratchet can only notice it once enough fixtures hang to push `passed` under the floor. All
@@ -266,6 +306,32 @@ with the native toolchain → compare" idiom `ts/compiler/test/` uses. The whole
 conformance runner is `rust/engine/tests/self_host_conformance.rs` (`--features self_host`,
 `#[ignore]` by default) — it drives every `tests/conformance/*.ball.json` through the
 self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
+
+**An earlier target's failure can mask a later target's tests from ever running at all — treat
+that the same as "never proven RED" (issue #735).** By default `cargo test --workspace` stops
+enumerating tests the moment ANY target fails — this is cross-TARGET fail-fast, not merely "the
+overall exit code is non-zero" — so a real, unrelated red elsewhere in the workspace can hide
+brand-new tests that never ran, at all, neither `ok` nor `FAILED`. That is exactly what happened
+to three new `compiler_output.rs` tests in PR #725 (CI job 103825892782, workflow run
+34794837901): `compile_reencode_roundtrip` failed first, and grepping that job's raw log for the
+new test names finds no trace of them running — the PR's own claim of a local RED run was never
+backed by anything CI could check. **A reviewer who sees "a prior, unrelated-looking target
+failed" must re-run with `--no-fail-fast` (or re-dispatch CI after the unrelated failure is fixed)
+and confirm the test they care about actually appears as `ok` before trusting it — a green
+overall exit code never proves a specific test executed, and neither does a red one prove it
+didn't.** The CI fix is two-part, both in the `rust` job of `ci.yml`: the `Test` step now runs
+`cargo test --workspace --no-fail-fast` (so one target's failure can never again keep a LATER
+target's tests from running at all) and captures the real exit code by redirecting to a file with
+`>` — never through a bare `| tee`, which would silently discard it without extra `PIPESTATUS`
+bookkeeping — and a following `Rust test floor — named tests actually ran as 'ok'` step
+(`tools/ci/rust_test_floor.sh`) asserts a POSITIVE floor: every test named there must appear in
+the captured log as `test <name> ... ok`, reported as MISSING (never ran) or FAILED (ran, but red)
+when it is not, rather than inferring coverage from `cargo test`'s own exit code alone. Grow that
+step's name list whenever a PR's own RED-first narrative depends on a specific test having run —
+the three names #735 itself was filed over are in it, alongside this lane's own new/changed tests.
+The script's own correctness is proven WITHOUT running cargo at all by
+`tools/test/test_rust_test_floor.sh` (gated in `ci.yml`'s always-on `proto` job), whose
+`masked_by_earlier_failing_target` case reproduces PR #725's exact log shape as a text fixture.
 
 ## Generated Files — NEVER Edit
 
@@ -444,8 +510,8 @@ was not an option; it carries `version.workspace = true` and sits in the publish
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 364 passed, 0 failed,
-364 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 365 passed, 0 failed,
+365 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -591,6 +657,30 @@ instructions.
   dispatcher's behavioural half is untouched and still run-proved by
   `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
   fail-loud direction.
+  **The composite property #685/#632 established and #718's fix narrowed away is restored,
+  #761.** "The compiler's REAL emitted dispatcher, taken as emitted, re-encodes" is not two
+  separate, weaker facts combined — the compiled text merely CONTAINS the right substring, or a
+  hand-written STAND-IN function (different parameter name/type, and a different syntactic
+  POSITION: a function-body STATEMENT with a PARAMETER binding, never a match-arm EXPRESSION with
+  a match-arm PATTERN binding) happens to encode correctly. Review of this PR (round 1, at head
+  `7cb5cc70`) caught exactly that mistake in an earlier version of
+  `compile_reencode_roundtrip.rs::compiled_method_dispatcher_real_fallback_arm_re_encodes`: it
+  wrapped the extracted `panic!` in `fn fallback(other: String) -> String { panic!(..); }`, which
+  exercises `block.rs`'s statement-position macro handling and a parameter binding — a different
+  code path from `control_flow.rs::encode_switch_arm`'s `syn::Pat::Ident` catch-all-binding arm the
+  real dispatcher goes through. Fixed to substitute ONLY #718's own scrutinee
+  (`ball_message_type_name(&__self).as_str()`, which has no universal-`std` inverse) inside the
+  compiler's own, otherwise byte-for-byte UNTOUCHED dispatcher text, and re-encode the whole
+  substituted function — both match arms, including the owner arm (`"main:Point" =>
+  Point::sum(input)`) and the real fallback arm (`other => panic!(..)`), read back from their
+  real match-arm positions. The owner arm resolves because every compiled method is one-input
+  (invariant #1): the compiled `impl Point { pub fn sum(input: BallValue) -> BallValue { .. } }`
+  has no `self` receiver, so `types.rs::collect_impl_method_params` registers it as a
+  receiver-less associated function exactly the way #491 slice 3 registers `Point::new(..)` — no
+  compiler or encoder production code changed, only how the test exercises what already exists.
+  The whole-dispatcher re-confirmation (still blocked by #718) also asserts the panic's own
+  MESSAGE names `ball_message_type_name` specifically, so an unrelated refusal firing first can't
+  silently pass it.
   `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
   `ThrowExpression` arm emits: on this target the two are literally one mechanism
   (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a
@@ -700,16 +790,29 @@ positional argument per input field". They have their own arms in
   so encoding it as an entry-less `map_create` would silently compute `{}` (the issue #55 class).
   Both helpers panic naming the shape instead; `a_map_create_over_a_spliced_list_fails_loud` and
   its set twin are the pins.
-- **Stated, pre-existing gap surfaced while measuring this: every compiled STRING literal
-  re-encodes wrapped in `std.to_string`.** `compile_expression` emits a Ball string literal as
-  `BallValue::String("a".to_string())`, and `.to_string()` is NOT one of `methods.rs`'s identity
-  passthroughs — in hand-written Rust, which is this encoder's actual input, it genuinely IS
-  `std.to_string`. Over a `String` that op returns its operand unchanged, so the re-encoded
-  program computes the same answer; the extra node is a node-fidelity difference, not a
-  behavioural one, and making it an identity would special-case a literal receiver on evidence
-  nobody has measured. It is ASSERTED, not normalized away, in
-  `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
-  `std.to_string({value: "a"})`), so the day it changes, a test says so.
+- **CLOSED (issue #807): a `.to_string()` call on a LITERAL receiver re-encodes as the bare
+  literal, not `std.to_string`.** `compile_expression` emits EVERY Ball string literal as exactly
+  `BallValue::String("a".to_string())`, and before #807 `.to_string()` was not one of
+  `methods.rs`'s identity passthroughs — in hand-written Rust, which is this encoder's actual
+  input, an UNGUARDED `.to_string()` genuinely IS `std.to_string`. Over a `String` that op returns
+  its operand unchanged, so the re-encoded program computed the same answer either way — the extra
+  node was a node-fidelity difference, not a behavioural one — but making it an identity was left
+  as a stated gap "on evidence nobody has measured" until #807 measured it: **251 of the 368
+  `tests/conformance` fixtures (68%) carry at least one string literal**, making this the single
+  largest node-fidelity gap in the compiler<->encoder round trip. `methods.rs::literal_string_value`
+  peels `(...)`/group wrappers to see whether a `.to_string()` call's receiver is, underneath, a
+  bare string LITERAL (the same literal-only receiver test `is_string_constructor` already applies
+  to this identical method, for the unrelated `write!`/`writeln!` sink detection, #630) and, when it
+  is, emits the literal directly. A NON-literal receiver (an `i64`, a `String` local, …) still routes
+  through `std.to_string`, because `.to_string()` is a REAL conversion there — `5.to_string()` is not
+  `5`. `a_compiled_map_literal_re_encodes_as_std_map_create` now asserts the map KEYS come back as
+  the bare literals `"a"`/`"b"`; `method_sugar.rs`'s
+  `literal_to_string_encodes_as_the_bare_literal_not_std_to_string` (encode → compile → run) and
+  `compiled_type_ops_and_literals.rs`'s `a_compiled_bare_string_literal_re_encodes_as_the_bare_literal`
+  pin the fix directly, and each has a non-literal-receiver control
+  (`non_literal_to_string_still_encodes_as_std_to_string`,
+  `a_compiled_non_literal_to_string_call_still_re_encodes_as_std_to_string`) proving the guard did
+  not widen past literal receivers.
 - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
   `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
   PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`
@@ -1182,7 +1285,9 @@ variant hierarchy — `type_emit.rs::superclass_of` exists, but nothing uses it 
 exactly two arms today (`is_option_result_pattern`, `encode_literal_switch_match`), so matching a
 user enum's variant name panics even in the *fieldless* case. Five first-blocked Tier A files, and
 per the table above the aggregate would not move either. `data_carrying_enum_variant_is_a_documented_gap`
-stays `#[should_panic]`, with this reasoning recorded in its doc comment.
+stays `#[should_panic]`, with this reasoning recorded in its doc comment, and now tracked as its
+own issue, **#887** — the ADT-representation decision is a scope of its own, not something a
+stage-1-gap sweep decides in passing.
 
 #### #767's stage-1 gaps — tuple expressions, reference `impl` self types, and two carve-outs
 
@@ -1200,8 +1305,8 @@ already stale by the time it was filed.
 | non-plain `impl` self type | 8 | 8 | **half CLOSED** — 4 reference self types; 4 non-nominal ones pinned |
 | `write!` | 7 | **0** | **already CLOSED** by #630/#698 — left the histogram entirely |
 | tuple expressions | 6 | 6 | **CLOSED** |
-| data-carrying enum variants | 5 | 5 | still open (see the section above) |
-| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open |
+| data-carrying enum variants | 5 | 5 | still open, tracked as **#887** (see the section above) |
+| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open, tracked as **#888** (5 pins, see below) |
 
 **Tuple expressions.** `lib.rs::encode_expr` had no `syn::Expr::Tuple` arm at all.
 `encode_tuple` lowers `(a, b)` to `std.record` — the universal base function
@@ -1264,6 +1369,34 @@ out of the denominator, and a path it lists that a run SCORED is a breach (#676)
 carve-out is not a test-only file: those 9 + 4 files stay scored and stay failing, which is the
 honest reading. Carve-outs live in the `methods.rs`/`types.rs` doc comments, the
 `documented_gaps.rs` pins and this section.
+
+#### Non-identifier `Some`/`Ok`/`Err` bindings are five different sub-patterns, not one (#888)
+
+The issue's sixth gap is `control_flow.rs::pattern_outcome_shape`'s refusal of anything but a
+plain identifier or `_` as the binding inside `Some`/`Ok`/`Err(...)` — re-measured at **5**, not
+the issue's stale **4** (the same kind of staleness that made `write!` a zero above). Each of the
+5 real files is a DIFFERENT nested pattern reaching that one refusal, pinned as its own
+`#[should_panic]` test in `documented_gaps.rs` rather than one shared pin, because a change that
+widens the restriction to admit one shape must not silently leave another's regression
+unobserved — the same reasoning the `impl` self-type boundary above splits on:
+
+| sub-pattern | example | why it's still open |
+|---|---|---|
+| slice | `Ok([_, _])` | needs a runtime LENGTH check `outcome_condition`'s flat `is_err` test can't express |
+| nested enum variant | `Ok(Either::Left(_))` | needs a runtime discriminant-TAG check, same reason |
+| tuple | `Ok((_, flag))` | no missing runtime check (arity is static) — needs `pattern_outcome_shape` to return a TREE of positional bindings, not one flat name |
+| nested outcome | `Some(Ok(ok))` | needs the discriminant check CHAINED (an inner `is_err` nested inside the outer's `then`), a second kind of generalization |
+| nested outcome (2nd file) | `Ok(Ok(x))` | the same gap as above, a distinct source occurrence |
+
+The first two are **not** safe to close by widening "binds nothing" (the way a bare `_` already
+is) to admit them: silently treating `Ok(Either::Left(_))` as "any Ok" would drop the very check
+a sibling `Ok(Either::Right(_))` arm in the same match depends on to differ from it — the #55
+class of bug this crate's fail-loud posture exists to prevent, not a tolerance worth widening to.
+The tuple and nested-outcome cases are genuinely closable, but need `pattern_outcome_shape`'s
+return type generalized beyond `(bool, Option<String>)`, which is real new encoder capacity, not
+a quick admit. Tracked as **#888**, with the 5 pins as its starting characterization — flip each
+one individually as its sub-case closes, and raise `baseline.json`'s Rust row as `encoded`/
+`compiledBack` climb.
 
 #### A note on "slice N" labels
 

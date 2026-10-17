@@ -165,22 +165,55 @@ internal sealed record FixtureResult(string Name, FixtureStatus Status, string? 
 /// </summary>
 internal static class Summary
 {
-    public static int Print(string legName, IReadOnlyList<FixtureResult> results, int skippedCarveouts)
+    /// <summary>
+    /// <paramref name="writer"/> defaults to <see cref="Console.Out"/> for every
+    /// production call site (<c>CompilerLeg</c>/<c>EngineLeg</c>/<c>RoundTripLeg</c>
+    /// pass none); a test supplies its own <see cref="TextWriter"/> instead of
+    /// swapping <see cref="Console.Out"/> globally, which this harness's own
+    /// <c>csharp/AGENTS.md</c> ("Captured stdout is per-execution-context — never
+    /// <c>Console.SetOut</c>", issue #611) warns is unsafe under xUnit's default
+    /// parallelization.
+    /// </summary>
+    public static int Print(string legName, IReadOnlyList<FixtureResult> results, int skippedCarveouts, TextWriter? writer = null)
     {
+        var w = writer ?? Console.Out;
         var passed = results.Count(r => r.Status == FixtureStatus.Pass);
         var total = results.Count;
         var failed = total - passed;
 
-        Console.WriteLine();
-        Console.WriteLine($"=== C# {legName} ===");
-        Console.WriteLine($"Results: {passed} passed, {failed} failed, {total} total ({skippedCarveouts} skipped carve-outs)");
+        w.WriteLine();
+        w.WriteLine($"=== C# {legName} ===");
+        w.WriteLine($"Results: {passed} passed, {failed} failed, {total} total ({skippedCarveouts} skipped carve-outs)");
 
         if (failed > 0)
         {
-            Console.WriteLine();
-            Console.WriteLine("--- failures ---");
-            foreach (var r in results.Where(r => r.Status != FixtureStatus.Pass).Take(50))
+            w.WriteLine();
+            w.WriteLine("--- failures ---");
+
+            // Every TIMEOUT must reach this log regardless of the 50-line cap on
+            // ordinary (Fail/Error) entries (issue #737): the cap used to apply to
+            // the WHOLE non-pass list in fixture order, so a timeout ranked 51st
+            // or later among non-pass results never printed at all — and
+            // tools/ci/roundtrip_floor.sh's "no fixture may hang" gate greps this
+            // exact text for a TIMEOUT line, so it could never see one past the
+            // cap. Only ordinary Fail/Error entries count against the 50-line cap;
+            // every Timeout prints unconditionally, in its original (sorted
+            // fixture-name) position.
+            var ordinaryPrinted = 0;
+            var ordinarySuppressed = 0;
+            foreach (var r in results.Where(r => r.Status != FixtureStatus.Pass))
             {
+                if (r.Status != FixtureStatus.Timeout)
+                {
+                    if (ordinaryPrinted >= 50)
+                    {
+                        ordinarySuppressed++;
+                        continue;
+                    }
+
+                    ordinaryPrinted++;
+                }
+
                 var tag = r.Status switch
                 {
                     FixtureStatus.Timeout => "TIMEOUT",
@@ -189,12 +222,12 @@ internal static class Summary
                     _ => "?",
                 };
                 var detail = r.Detail is null ? "" : $": {Truncate(r.Detail, 200)}";
-                Console.WriteLine($"  {r.Name}: {tag}{detail}");
+                w.WriteLine($"  {r.Name}: {tag}{detail}");
             }
 
-            if (results.Count(r => r.Status != FixtureStatus.Pass) > 50)
+            if (ordinarySuppressed > 0)
             {
-                Console.WriteLine($"  ... and {results.Count(r => r.Status != FixtureStatus.Pass) - 50} more");
+                w.WriteLine($"  ... and {ordinarySuppressed} more");
             }
         }
 

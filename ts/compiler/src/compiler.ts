@@ -114,6 +114,25 @@ export class BallCompiler {
   private classMembersByTypeName: Map<string, FunctionDef[]> = new Map();
 
   /**
+   * Members of `kind: "extension"` typeDefs, keyed by their QUALIFIED Ball
+   * function name (`main:AlphaTag.tag`) — the extension-override
+   * representation (issue #670).
+   *
+   * An override (`Ext(receiver).member`) is encoded as a call NAMING the
+   * extension's own member and carrying the receiver in `self`, because the
+   * selection is the whole meaning of the node: two extensions can declare the
+   * same member on the same type, and the plain `receiver.member` emission
+   * resolves by ordinary lookup — a DIFFERENT member (measured on `collection`,
+   * #670). TypeScript has no extensions, so the member is emitted as a method
+   * of the extension's class and the call must reach it on a receiver that is
+   * not an instance of that class.
+   */
+  private extensionMembers: Map<
+    string,
+    { cls: string; member: string; isGetter: boolean }
+  > = new Map();
+
+  /**
    * Variable names declared (via `let`) in the current function scope.
    * Used to detect shadowing conflicts when hoisting block statements.
    */
@@ -2353,6 +2372,44 @@ function __isUnknownFnError(e: any): boolean {
         (m.typeDefs ?? []).map((td) => [td.name, td] as [string, TypeDefinition]),
       ),
     );
+
+    // Extension members (issue #670), keyed by qualified Ball function name.
+    // Built from EVERY user module: an override may name an extension declared
+    // in another module of the program, and the call carries that module.
+    //
+    // A getter and its setter share this SAME qualified name (differing only
+    // in `metadata.is_getter`/`is_setter`) — TS emits them as one `get`/`set`
+    // accessor pair on the class, so `compileCall`'s extension-override branch
+    // (the only consumer of this table) must always resolve a READ to the
+    // GETTER entry, never whichever accessor was visited last (PR #829
+    // review — before this fix, a setter visited after its getter made every
+    // READ try to `.call()` the SETTER accessor's value instead of invoking
+    // the getter through `Reflect.get`). A setter is therefore never inserted
+    // here at all, regardless of visit order: reaching a setter through this
+    // table is exactly as broken as reaching the wrong one was, since
+    // `(Ext.prototype as any).member` for a setter-only name is `undefined`
+    // (there is no getter to invoke), not a callable value — so leaving it
+    // unclaimed (falling through to this function's other routes) is no
+    // worse than before and removes a branch no construct can legitimately
+    // reach: an override READ of a setter-only property is not valid Dart.
+    this.extensionMembers = new Map();
+    const extensionTypeNames = new Set(
+      [...this.typeDefByName.entries()]
+        .filter(([, td]) => (td.metadata ?? {})["kind"] === "extension")
+        .map(([name]) => name),
+    );
+    for (const mod of userModules) {
+      for (const fn of mod.functions ?? []) {
+        const enclosing = this.enclosingTypeName(fn.name);
+        if (enclosing === undefined || !extensionTypeNames.has(enclosing)) continue;
+        if ((fn.metadata ?? {})["is_setter"] === true) continue;
+        this.extensionMembers.set(fn.name, {
+          cls: classTsName(enclosing),
+          member: memberShortName(fn.name),
+          isGetter: (fn.metadata ?? {})["is_getter"] === true,
+        });
+      }
+    }
 
     // Group functions by their enclosing class (if any) — matches the
     // `<typeDef.name>.<member>` naming convention from the encoder.
@@ -4901,6 +4958,21 @@ function __isUnknownFnError(e: any): boolean {
           .filter((f) => f.name !== "self" && f.name !== "__type_args__")
           .map((f) => this.expr(f.value))
           .join(", ");
+        // Extension override (issue #670). A call NAMING an extension's member
+        // selected that extension explicitly, and no name-based route below may
+        // see it: `self.member(args)` resolves by ordinary lookup and can reach
+        // a DIFFERENT member. TypeScript has no extensions, so the member lives
+        // as a method of the extension's emitted class and is reached on a
+        // foreign receiver through the prototype — `Reflect.get` for a getter
+        // (it invokes the accessor with the receiver as `this`), `.call` for a
+        // method.
+        const ext = this.extensionMembers.get(call.function);
+        if (ext !== undefined) {
+          if (ext.isGetter) {
+            return `Reflect.get(${ext.cls}.prototype, '${ext.member}', ${selfStr})`;
+          }
+          return `(${ext.cls}.prototype as any).${ext.member}.call(${selfStr}${otherArgs === "" ? "" : `, ${otherArgs}`})`;
+        }
         // StringBuffer.writeCharCode(code) → self += String.fromCharCode(code)
         if (fn === "writeCharCode") {
           return `(${selfStr} += String.fromCharCode(${otherArgs}))`;

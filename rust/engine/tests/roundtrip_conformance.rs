@@ -68,6 +68,22 @@
 //! published leaders rot; the histogram is re-derived every run, and the sweep
 //! asserts it totals to `failed` so it can never be a number no run produced.
 //!
+//! ## The row names its own PASS SET too (issue #836)
+//!
+//! A pass-COUNT floor (`tools/ci/roundtrip_floor.sh`'s ratchet) cannot tell
+//! "nothing changed" from "one fixture newly passes and a different one newly
+//! regresses" — the printed `Results:` count is identical either way, so a
+//! real regression could land invisibly as long as some unrelated fixture
+//! happened to start passing in the same PR. The sweep prints a second block,
+//! `Passing fixtures (<N>, sorted):` ([`format_passing_block`]), naming every
+//! fixture that round-tripped, and `tools/ci/roundtrip_passset.sh` diffs it
+//! against a committed baseline (`tools/ci/baselines/rust_roundtrip_passing.txt`)
+//! as a SET, not a count — a baseline-named fixture missing from the current
+//! block is a hard CI error even when `passed` held steady or rose. Issue #896
+//! generalized the same mechanism to the C#/Go/Python round-trip legs, each
+//! printing its own byte-identical `Passing fixtures (<N>, sorted):` block and
+//! diffing it against its own committed baseline.
+//!
 //! ## The harness must not be able to hang
 //!
 //! A re-encoded program that never terminates is the #55 class: it type-checks,
@@ -83,19 +99,29 @@
 //!
 //! ## No test in this target may write the process environment
 //!
-//! `#![forbid(unsafe_code)]` below is not decoration. libtest runs a target's
+//! `#![deny(unsafe_code)]` below is not decoration. libtest runs a target's
 //! non-`#[ignore]`d tests CONCURRENTLY, and `std::env::set_var` is `unsafe`
 //! precisely because another thread may be inside `getenv` — so a self-test
 //! that SET `BALL_TIMEOUT_MS` could only be justified by "nothing else runs in
 //! this process". This file once carried exactly that justification, and it was
 //! **already false** when it was written; every test added here falsifies it
-//! again (there are five non-`#[ignore]`d tests now, beside the `#[ignore]`d
-//! sweep). Prose saying "do not re-add it" rots the same way that SAFETY note
+//! again (there are ten non-`#[ignore]`d tests now, beside the `#[ignore]`d
+//! sweep — count with `grep -c '^#\[test\]'` minus the one `#[ignore]`, never
+//! from this prose). Prose saying "do not re-add it" rots the same way that SAFETY note
 //! did, so the ban is the compiler's: the budget reaches [`run_dart`] as an
 //! ARGUMENT and the spelling is read through the injected lookup
 //! [`budget_from`] takes, and any future test reaching for `set_var` fails to
 //! COMPILE in the PR-gated `Rust` job rather than being caught by a reader.
-#![forbid(unsafe_code)]
+//!
+//! **`deny`, not `forbid`, for exactly one narrow reason (#791/#862).** Ending
+//! a timed-out fixture's WHOLE process tree — not just the `dart` launcher we
+//! spawned — needs one real syscall on unix, `libc::kill(-pid, SIGKILL)`, that
+//! no safe std API exposes. [`kill_process_tree`]'s unix half carries a
+//! `#[cfg(unix)]`-gated, SAFETY-commented `#[allow(unsafe_code)]` on exactly
+//! that one function — the only unsafe this file permits. `deny` still rejects
+//! anything else, including a `set_var` reaching back in; `forbid` would have
+//! made that single legitimate syscall impossible to express here at all.
+#![deny(unsafe_code)]
 
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -134,8 +160,10 @@ const BALL_TIMEOUT_MS_VAR: &str = "BALL_TIMEOUT_MS";
 /// (`the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` is a second
 /// non-`#[ignore]`d test) and that every test added to this file falsifies
 /// again. Parsing through a seam costs nothing and keeps the proof honest —
-/// and the crate-level `#![forbid(unsafe_code)]` makes that a build error
-/// rather than a rule a later reader has to remember.
+/// and the file-level `#![deny(unsafe_code)]` makes that a build error rather
+/// than a rule a later reader has to remember (the one narrow exception,
+/// [`kill_process_tree`]'s unix syscall, is `#[allow]`-listed by name, not by
+/// a downgrade of this lint — see the module doc comment).
 ///
 /// **This function alone does NOT prove which env var name reaches the
 /// sweep** — it never sees a variable name, only the string [`budget_from`]
@@ -332,6 +360,48 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
+/// Kill the timed-out fixture's WHOLE process tree, not just the `dart` we
+/// spawned (#791).
+///
+/// `dart run` is a launcher: it forks the Dart VM, and the VM is what executes
+/// the program and holds the inherited stdout pipe. Killing only the immediate
+/// process leaves that VM running, orphaned, for the rest of the job —
+/// invisible to a caller that only sees a `timeout` status come back.
+/// `csharp/engine/conformance/RoundTripLeg.cs` has always used
+/// `Kill(entireProcessTree: true)`; this is the same guarantee, spelled per
+/// platform. `a_timed_out_fixture_leaves_no_orphaned_descendant_process` is the
+/// negative control.
+// The one legitimate unsafe this file permits — see the module doc comment's
+// "No test in this target may write the process environment" section.
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    // The child leads its own process group (`process_group(0)` below), and a
+    // fork inherits its parent's group, so the whole tree is addressable as the
+    // negated pid. `kill` reports a failure only when the group is already gone,
+    // which is exactly the case the backstop below covers anyway.
+    let pid = child.id() as i32;
+    // SAFETY: `libc::kill` is a plain syscall wrapper; `-pid` is a valid group
+    // selector because the child was spawned as its own group leader.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+    let _ = child.kill();
+}
+
+/// Windows has no process groups with these semantics; `taskkill /T` walks the
+/// parent-pid chain the OS records and is the documented way to end a tree.
+#[cfg(windows)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
 fn run_dart(
     dart: &str,
     ball_json: &Path,
@@ -345,7 +415,8 @@ fn run_dart(
     // self-test can shorten it to milliseconds without writing the environment
     // out from under the other tests sharing this process (see
     // [`budget_from`]).
-    let mut child = Command::new(dart)
+    let mut command = Command::new(dart);
+    command
         .arg("run")
         .arg(root.join("dart/cli/bin/ball.dart"))
         .arg("run")
@@ -353,7 +424,18 @@ fn run_dart(
         .current_dir(root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    // Make the child its own process-group leader so `kill_process_tree` can
+    // reach the Dart VM it forks. Doing this at SPAWN time is the only way:
+    // a group cannot be imposed on a process that is already running.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("could not spawn `{dart}`: {e}"))?;
 
@@ -363,7 +445,7 @@ fn run_dart(
             Some(_) => break,
             None => {
                 if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
+                    kill_process_tree(&mut child);
                     let _ = child.wait();
                     return Err("__timeout__".to_string());
                 }
@@ -536,6 +618,104 @@ fn failure_histogram(failures: &[(String, String)]) -> Vec<(String, usize)> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// The row naming the per-fixture PASS SET, not just its count (issue #836)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Render the exact `Passing fixtures (<N>, sorted):` block the sweep prints —
+/// pure and therefore testable without capturing stdout, mirroring
+/// [`failure_histogram`]. `tools/ci/roundtrip_passset.sh` parses exactly this
+/// text: the header line (the count, then the literal `, sorted):` suffix)
+/// followed by one TWO-SPACE-indented fixture name per line, up to the next
+/// blank line. `passing` must already be sorted (`roundtrip_conformance`'s
+/// loop appends in the SAME order it iterates the already-sorted `paths`, so
+/// this function never re-sorts) — not because the shell side depends on
+/// it (`roundtrip_passset.sh` sorts its own parsed set before comparing, so
+/// sort order cannot hide a set-difference regression either way), but
+/// because the header's own text claims `, sorted):` and an unsorted body
+/// under that claim would be a lie to anyone reading the raw CI log. Checked
+/// with a `debug_assert!` rather than trusted; see
+/// [`format_passing_block_panics_in_debug_builds_on_an_unsorted_list`].
+fn format_passing_block(passing: &[String]) -> String {
+    debug_assert!(
+        passing.is_sorted(),
+        "format_passing_block's caller must hand it an already-sorted list — \
+         the printed header claims `, sorted):` and an unsorted body would misstate it \
+         (tools/ci/roundtrip_passset.sh sorts its own parsed copy before comparing, so this \
+         assertion is about output honesty, not the gate's correctness)"
+    );
+    let mut out = format!("Passing fixtures ({}, sorted):\n", passing.len());
+    for name in passing {
+        out.push_str("  ");
+        out.push_str(name);
+        out.push('\n');
+    }
+    out
+}
+
+fn print_passing_fixtures(passing: &[String]) {
+    print!("{}", format_passing_block(passing));
+}
+
+/// A pass-count FLOOR cannot see a net-zero fixture swap — the issue #836
+/// scenario: fixture A starts passing while fixture B (previously passing)
+/// regresses, and the total stays at 138 either way. The printed block is what
+/// lets a set-difference check (`tools/ci/roundtrip_passset.sh`) see B's
+/// disappearance even though the count alone reads as unchanged.
+#[test]
+fn a_net_zero_fixture_swap_changes_the_printed_set_even_though_the_count_is_unchanged() {
+    let before = vec![
+        "100_a".to_string(),
+        "101_b".to_string(),
+        "102_c".to_string(),
+    ];
+    // Same CARDINALITY (3), different membership: "101_b" regressed, "103_d"
+    // newly passes. A bare count could never distinguish these two blocks.
+    let after = vec![
+        "100_a".to_string(),
+        "102_c".to_string(),
+        "103_d".to_string(),
+    ];
+
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "the scenario is a net-zero swap by construction"
+    );
+    assert_ne!(
+        format_passing_block(&before),
+        format_passing_block(&after),
+        "two passing sets of equal size but different membership must print different blocks"
+    );
+}
+
+#[test]
+fn the_passing_block_header_names_the_count_and_lists_every_fixture_two_space_indented() {
+    let passing = vec!["100_a".to_string(), "101_b".to_string()];
+    let block = format_passing_block(&passing);
+
+    assert_eq!(block, "Passing fixtures (2, sorted):\n  100_a\n  101_b\n");
+}
+
+#[test]
+fn an_empty_passing_set_still_prints_a_well_formed_header() {
+    assert_eq!(format_passing_block(&[]), "Passing fixtures (0, sorted):\n");
+}
+
+/// The printed header's own text claims `, sorted):` — `roundtrip_passset.sh`
+/// actually re-sorts its own parsed copy before comparing (sort order cannot
+/// hide a set-difference regression either way, since the gate compares
+/// SETS), so this is not about that script's correctness. It is about the
+/// printed claim staying true for a human reading the raw CI log, should
+/// `roundtrip_conformance` ever stop appending `passing` in sorted order.
+/// `debug_assert!` makes that break loud at the one place it could happen
+/// silently, in every debug build (which is what `cargo test` runs).
+#[test]
+#[should_panic(expected = "already-sorted list")]
+fn format_passing_block_panics_in_debug_builds_on_an_unsorted_list() {
+    let _ = format_passing_block(&["101_b".to_string(), "100_a".to_string()]);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // The harness's own correctness: the launcher path, and the per-fixture budget
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -589,15 +769,85 @@ fn the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path() {
 const RUNAWAY_SOURCE: &str =
     "fn main() { loop { std::thread::sleep(std::time::Duration::from_secs(3600)); } }";
 
+/// A fabricated runaway that also forks a GRANDCHILD, the shape `dart run`
+/// actually has: the launcher process spawns the Dart VM and the VM is what
+/// holds the work (and the inherited stdout pipe). Killing only the immediate
+/// process leaves that grandchild running.
+///
+/// Both roles live in one binary, selected by an argument the production
+/// command line never contains, so the control needs no environment plumbing
+/// (`run_dart` hands the child THIS process's environment, so an env-carried
+/// role would have to be written into the test process itself).
+///
+/// The grandchild's liveness is observable from the outside: it appends to a
+/// heartbeat file beside its own executable every 50 ms. A file that stops
+/// growing is a process that is gone — portable, and unlike a pid probe it
+/// cannot be confused by pid reuse (and `os.kill(pid, 0)` has no portable
+/// spelling on Windows, where signal 0 terminates rather than probes).
+const TREE_RUNAWAY_SOURCE: &str = r#"
+use std::io::Write;
+use std::time::Duration;
+
+/// Beside the executable, so the parent test can find it without being told.
+fn heartbeat_path() -> std::path::PathBuf {
+    std::env::current_exe()
+        .expect("the runaway must know its own path")
+        .with_extension("heartbeat")
+}
+
+/// The grandchild: it inherited the harness's stdout pipe. Outlive any sane
+/// assertion window, but never forever — a control that leaks a process for an
+/// hour on every RED run is its own defect.
+fn hold() -> ! {
+    let path = heartbeat_path();
+    for _ in 0..600 {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .expect("the grandchild must be able to write its heartbeat");
+        file.write_all(b".").expect("heartbeat write");
+        file.flush().expect("heartbeat flush");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::process::exit(0)
+}
+
+fn main() {
+    if std::env::args().any(|arg| arg == "--ball-hold") {
+        hold();
+    }
+    // The stand-in `dart`: hand our stdout to a grandchild that outlives us,
+    // then block.
+    let exe = std::env::current_exe().expect("the runaway must know its own path");
+    std::process::Command::new(exe)
+        .arg("--ball-hold")
+        .spawn()
+        .expect("the stand-in must be able to fork its grandchild");
+    std::thread::sleep(Duration::from_secs(3600));
+}
+"#;
+
 /// Build [`RUNAWAY_SOURCE`] and return the executable's path.
 fn build_runaway_launcher(dir: &Path) -> PathBuf {
+    build_runaway(dir, RUNAWAY_SOURCE, "ball_runaway")
+}
+
+/// Build [`TREE_RUNAWAY_SOURCE`] and return the executable's path. Its
+/// heartbeat file is the same path with the `heartbeat` extension.
+fn build_tree_runaway_launcher(dir: &Path) -> PathBuf {
+    build_runaway(dir, TREE_RUNAWAY_SOURCE, "ball_runaway_tree")
+}
+
+/// Compile one fabricated runaway with `rustc` and return the executable's path.
+fn build_runaway(dir: &Path, program: &str, stem: &str) -> PathBuf {
     std::fs::create_dir_all(dir).expect("failed to create the runaway scratch directory");
-    let source = dir.join("runaway.rs");
-    std::fs::write(&source, RUNAWAY_SOURCE).expect("failed to write the runaway source");
+    let source = dir.join(format!("{stem}.rs"));
+    std::fs::write(&source, program).expect("failed to write the runaway source");
     let exe = dir.join(if cfg!(windows) {
-        "ball_runaway.exe"
+        format!("{stem}.exe")
     } else {
-        "ball_runaway"
+        stem.to_string()
     });
     let status = Command::new("rustc")
         .arg("--edition")
@@ -841,6 +1091,84 @@ fn the_histogram_orders_by_frequency_and_accounts_for_every_failure() {
     );
 }
 
+/// The size of the grandchild's heartbeat file, or 0 while it does not exist.
+fn heartbeat_len(path: &Path) -> u64 {
+    std::fs::metadata(path).map_or(0, |meta| meta.len())
+}
+
+/// **Killing the launcher is not the same as ending the fixture (#791).**
+///
+/// `dart run` is a launcher: it forks the Dart VM, and the VM is what actually
+/// executes the re-encoded program and holds the inherited stdout pipe. A
+/// timeout that kills only the immediate `dart` therefore leaves that VM
+/// running — orphaned, still burning a CI runner's CPU, invisible to a test
+/// that checks only that the harness came back with a `timeout` status. That
+/// was live here until the kill was widened to the whole process group;
+/// `csharp/engine/conformance/RoundTripLeg.cs` has always used
+/// `Kill(entireProcessTree: true)` for exactly this reason.
+///
+/// The negative control is the real shape, not a mock: a fabricated stand-in
+/// `dart` that forks a grandchild inheriting its stdout and then blocks. The
+/// assertion is about the GRANDCHILD, not about the harness — the harness
+/// returned promptly before this fix too.
+#[test]
+fn a_timed_out_fixture_leaves_no_orphaned_descendant_process() {
+    let root = repo_root();
+    // Any real fixture path: the fabricated launcher never reads its arguments.
+    let ball_json = conformance_dir().join("28_fibonacci.ball.json");
+    assert!(
+        ball_json.is_file(),
+        "the self-test needs a real fixture path to hand the launcher: {}",
+        ball_json.display()
+    );
+
+    let scratch = std::env::temp_dir().join(format!("ball_runaway_tree_{}", std::process::id()));
+    let runaway = build_tree_runaway_launcher(&scratch);
+    let heartbeat = runaway.with_extension("heartbeat");
+    // Stale from a previous run of this same binary — never from a concurrent
+    // test, since nothing else in this target shares this executable's path.
+    let _ = std::fs::remove_file(&heartbeat);
+
+    // Milliseconds, handed straight to `run_dart`: no environment write, and
+    // nothing hard-coded inside the poll loop (mirrors
+    // `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout`).
+    let budget = Duration::from_millis(1500);
+    let result = run_dart(&runaway.to_string_lossy(), &ball_json, &root, budget);
+
+    assert_eq!(
+        result.as_ref().err().map(String::as_str),
+        Some("__timeout__"),
+        "the fabricated runaway must come back as the `__timeout__` sentinel: {result:?}"
+    );
+
+    // Let any write that was already in flight when the kill landed settle.
+    std::thread::sleep(Duration::from_millis(750));
+    let first = heartbeat_len(&heartbeat);
+    // POSITIVE FLOOR. Without it a control that never managed to fork a
+    // grandchild — a rustc quirk, a sandbox that forbids the spawn — would
+    // report a frozen heartbeat and pass while proving nothing at all.
+    assert!(
+        first > 0,
+        "the stand-in never wrote a heartbeat ({}), so this run fabricated no live \
+         grandchild and proves nothing about the kill",
+        heartbeat.display()
+    );
+
+    // A live grandchild appends every 50 ms, so ~30 more bytes land in this
+    // window. A heartbeat that has not moved is a process that is gone.
+    std::thread::sleep(Duration::from_millis(1500));
+    let second = heartbeat_len(&heartbeat);
+    assert!(
+        first == second,
+        "the timed-out fixture's GRANDCHILD is still running: its heartbeat grew from {first} \
+         to {second} bytes 1.5 s after the harness reported the timeout. The kill reached only \
+         the immediate `dart` process, so a real sweep leaks one orphaned Dart VM per timed-out \
+         fixture (issue #791)"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 #[test]
 #[ignore = "whole-corpus round-trip sweep — run explicitly with --ignored (needs the Dart CLI)"]
 fn roundtrip_conformance() {
@@ -861,6 +1189,15 @@ fn roundtrip_conformance() {
 
     let (mut passed, mut failed, mut skipped) = (0usize, 0usize, 0usize);
     let mut failures: Vec<(String, String)> = Vec::new();
+    // The per-fixture PASS set (#836): a pass-count floor cannot tell "nothing
+    // changed" from "one fixture newly passes and a different one newly
+    // regresses" — the count is identical either way, so a real regression can
+    // land invisibly as long as some unrelated fixture happens to start passing
+    // in the same PR. `paths` is sorted (above), so appending in iteration
+    // order keeps this sorted too — never re-sorted here, which is exactly
+    // what `format_passing_block`'s own `debug_assert!` would catch if this
+    // invariant ever broke.
+    let mut passing: Vec<String> = Vec::new();
     for path in &paths {
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
         let name = file_name.trim_end_matches(".ball.json").to_string();
@@ -876,6 +1213,7 @@ fn roundtrip_conformance() {
         let outcome = round_trip_one(&name, path, &golden, &dart, &root, &workdir);
         if outcome.status == "pass" {
             passed += 1;
+            passing.push(name);
         } else {
             failed += 1;
             failures.push((outcome.status.to_string(), outcome.detail.clone()));
@@ -897,6 +1235,8 @@ fn roundtrip_conformance() {
     for (bucket, count) in &histogram {
         println!("  {count:>4}  {bucket}");
     }
+    println!();
+    print_passing_fixtures(&passing);
     println!();
     println!(
         "Results: {passed} passed, {failed} failed, {total} total ({skipped} skipped carve-outs)"

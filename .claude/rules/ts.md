@@ -270,6 +270,42 @@ const json = toJson(ProgramSchema, program);
   loudly — `this.x` is a valid property read, so a method-local silently
   answered with the MEMBER's value (#501 family).
 
+- **An EXTENSION-OVERRIDE call reaches the member on the class PROTOTYPE, never
+  a member NAME on the receiver (#670).** `Ext(receiver).member` is encoded as a
+  call NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  receiver in `self`, because the selection is the whole meaning of the node —
+  two extensions can declare the SAME member on the SAME type. TypeScript has no
+  extensions, so the member is emitted as a method of the extension's class;
+  `compileCall` used to sanitize the qualified name into a MEMBER name and emit
+  `xs.AlphaTag_tag()`, a method no array has, so the program threw at the first
+  override. `BallCompiler.extensionMembers` (built alongside `typeDefByName`
+  from every user module, so an extension declared in another module resolves
+  too) routes it to `(Ext.prototype as any).member.call(recv, …)`, and to
+  `Reflect.get(Ext.prototype, 'member', recv)` for a getter — `Reflect.get`
+  invokes the accessor with the receiver as `this`, which a plain property read
+  cannot. Guards: `tests/conformance/480_extension_override_selection`
+  (cross-target, incl. the `TS Compiled (Direct)` row) and
+  `ts/compiler/test/extension_override.test.ts`, which compiles the fixture and
+  RUNS it against the golden.
+  **A setter is NEVER inserted into `extensionMembers` at all (PR #829
+  review).** The getter and setter share one qualified Ball function name,
+  differing only in `metadata.is_getter`/`is_setter`. Before this fix the
+  collection loop stored whichever accessor was visited LAST — always the
+  setter, since `get` syntactically precedes `set` — so a plain READ
+  compiled to `(Ext.prototype as any).member.call(recv)`, invoking the
+  SETTER accessor's value (not a function) instead of routing the getter
+  through `Reflect.get`. A held-back-setter design (apply it only when no
+  getter claims the name) was tried and reverted: a setter-only entry
+  reached through this table is just as broken as the wrong one was
+  (`(Ext.prototype as any).member` is `undefined` with no getter to
+  invoke), and every real call site here is a READ — an override read of a
+  setter-only property is not valid Dart — so the branch was both unsound
+  if ever reached and unreachable by anything that compiles, which the
+  100%-line-coverage gate on `ts/compiler`'s test step caught outright.
+  The new test "a read through an override with both a getter and a setter
+  dispatches the getter" is hand-built IR, not a fixture — 480 deliberately
+  carries no setter arm.
+
 ### Engine
 
 - `compiled_engine.ts` — auto-generated, NEVER edit

@@ -496,15 +496,20 @@ func MapFromEntries(entries Value) Value {
 	out := NewMap()
 	for _, e := range Iterate(entries) {
 		em := asMap(e)
+		// Dart's `eMap['key'] ?? eMap['arg0']` falls back to arg0 whenever
+		// `key` is null — present-but-nil or altogether absent, both read as
+		// null to `??`. Checking `hasKey` alone (without also checking `k ==
+		// nil`) would skip the fallback for a present-but-nil `key`, dropping
+		// the entry outright (issue #715).
 		k, hasKey := em.Get("key")
-		if !hasKey {
+		if !hasKey || k == nil {
 			k, hasKey = em.Get("arg0")
 		}
 		if !hasKey || k == nil {
 			continue
 		}
 		v, hasValue := em.Get("value")
-		if !hasValue {
+		if !hasValue || v == nil {
 			v, _ = em.Get("arg1")
 		}
 		out.Set(ToStr(k), v)

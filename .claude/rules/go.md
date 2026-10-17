@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 364 passed,
-0 failed, 364 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 365 passed,
+0 failed, 365 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -210,6 +210,20 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `Map.fromEntries` (`ballrt.MapFromEntries`) landed with it — 121's next blocker once it compiled.
   `go/compiler/list_foreach_test.go` compiles all three fixtures AND runs them against the goldens.
 
+- **`ballrt.MapFromEntries`'s key/value fallback treats a PRESENT-BUT-NULL field the same as an
+  ABSENT one, matching Dart's `??` exactly (#715).** The Dart reference engine's
+  `eMap['key'] ?? eMap['arg0']` (`engine_std.dart`) falls through to `arg0` whenever `key` reads
+  null — whether that is because the key is missing from the entry message or because it is
+  PRESENT and explicitly `null`. The Go runtime's `hasKey`-only check only did the former: a
+  present-but-nil `key` read `hasKey == true`, skipped the `arg0` fallback, and then the
+  `k == nil` guard silently DROPPED the whole entry — not reachable from any shape the Go
+  compiler/encoder currently emit, but a real cross-target divergence a future encoder/compiler
+  change (or a hand-authored `.ball.json`) could trigger silently. Fixed by checking `k == nil`
+  (not just `!hasKey`) before each fallback, mirrored for `value`/`arg1`.
+  `go/runtime/map_from_entries_test.go` is the guard — the shape is not producible from Go
+  source, so no conformance fixture can express it (same reason #740's `self`-keyed single-param
+  bag gap has no fixture either).
+
 - **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
   `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
   `dart/shared/lib/std_collections.dart` says ("Find first:
@@ -327,6 +341,95 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   setter. Guard: `go/compiler/final_field_setter_test.go`, over fixture
   `472_initializer_list_field_with_setter`.
 
+- **An EXTENSION-OVERRIDE call reaches the member's impl func, never the
+  short-name dispatcher (#670).** `Ext(receiver).member` is encoded as a call
+  NAMING the extension's own member (`<module>:<Ext>.<member>`) with the
+  receiver in `self`, because the selection is the whole meaning of the node —
+  two extensions can declare the SAME member on the SAME type. The dispatcher
+  `compileClassMembers` emits switches on the RECEIVER's message type, and an
+  extension receiver is an ordinary list/string/map, so it can never pick
+  between them; the qualified name also sanitizes to no Go identifier the
+  program declares, so the call used to fall through to
+  `ballrt.CallMethod("main:AlphaTag.tag", …)` — the Dart-SDK method dispatcher,
+  which knows no such method. `extensionMemberImpl` (filled by
+  `indexExtensionMembers`, a SEPARATE pass over the whole program, because an
+  extension declared in a later module is not yet in `typeDefsByShort` inside
+  the collection loop) maps the qualified name to `Ext__member`, and
+  `compileCall` calls it with the call's own input message. Guards:
+  `tests/conformance/480_extension_override_selection` (cross-target) and
+  `go/compiler/extension_override_test.go`, which compiles the fixture and RUNS
+  it against the golden.
+  **`indexExtensionMembers` SKIPS setters — the table is the CALL table, and
+  every call that reaches it is a READ (PR #829 round-2 review).** A getter and
+  its same-named setter share ONE qualified Ball name (`main:AlphaTag.label`),
+  and the table is keyed by it, so it can hold only one of them. Since #813
+  (below) gave the setter its own `__set` impl, indexing both let the accessor
+  visited LAST win — the setter, for every real extension, since `get` precedes
+  `set` — and a read `AlphaTag(xs).label` silently compiled to
+  `AlphaTag__label__set(...)` and printed the setter's answer (before #813 the
+  same pair failed LOUD, on a duplicate Go func). A setter is reached only by a
+  WRITE, which `resolveLValue` refuses loud without compiling the target call
+  (#865 item 2, still open for Go), so leaving it out of the table costs
+  nothing; a read naming a SETTER-ONLY member (not valid Dart, hand-built IR
+  only) falls through to `ballrt.CallMethod`'s loud unknown-method panic
+  instead of running the setter with a null value. The setter impl is still
+  EMITTED (`compileClassMembers`, `memberImplName(..., true)`) — only the
+  dispatch table skips it. This deliberately differs from C#/Python/TS, which
+  keep a setter-only entry as a fallback. Guards:
+  `TestExtensionOverrideReadOfAGetterSetterPairCallsTheGetter` (splices a
+  setter beside each of 480's `label` getters, in BOTH declaration orders,
+  and RUNS it against 480's golden) and
+  `TestExtensionOverrideReadOfASetterOnlyMemberNeverCallsTheSetter`, both in
+  `go/compiler/extension_override_test.go`. The corpus still has no setter arm
+  and no compiler but Dart emits an override WRITE — that is #865.
+- **A getter and its same-named setter get DISTINCT impl identifiers, and a property dispatches
+  through a dedicated per-NAME accessor mechanism — never the general per-short-name method
+  dispatcher (#813, fixture `470_setter_beside_final_field`).** A Dart `get celsius` and its
+  `set celsius(value)` carry the SAME Ball function name
+  (`main:Temperature.celsius`) — only `metadata.is_getter`/`is_setter` tells them apart — and Go
+  flattens every class member to one top-level func, so the pair used to collide on one
+  identifier: `memberImplName` had no setter-vs-getter suffix, so both compiled to
+  `Owner__member`, a DUPLICATE Go declaration caught only at `go build`/`go run` (never by
+  `gofmt`/`go/format`, since a duplicate top-level func is a type-check error, not a syntax one —
+  the compiled source *looked* fine). `memberImplName` now takes an `isSetter bool` and appends
+  `__set` for the setter — the Go sibling of C#'s `MemberImplName`'s `__set` suffix
+  (`csharp/compiler/src/Constructors.cs`), since C# hits the identical one-name-one-method
+  constraint. Two further silent-wrong-answer defects shared the same root and are fixed
+  together: the general dispatcher (`compileDispatcher`) used to receive a branch for BOTH the
+  getter and the setter under the same owner, so one was permanently dead code (an unreachable
+  duplicate `if __t == ... { return ... }`, whichever was added second); and `compileFieldAccess`
+  (a property READ) and `emitMutation`'s `"field"` case (a property WRITE) always lowered
+  straight to `ballrt.FieldGet`/`ballrt.FieldSet`, bypassing a class's own declared getter/setter
+  entirely — so a setter that validates or throws (470's does, over a `final` field) never ran.
+  Getters/setters are now EXCLUDED from the general dispatcher's `dispatch[short]` map entirely
+  (they are never reached that way — Dart has no `obj.property()` call syntax) and instead get a
+  dedicated per-property pair, `ballAccessorGet_<name>`/`ballAccessorSet_<name>`
+  (`compileAccessors` in `library.go`), resolved through the SAME `metadata.superclass` walk every
+  other class-hierarchy lookup here uses (`resolveAccessorImpl`/`accessorTargets`) — stopping the
+  moment a class declares its OWN plain field of that name, an ordinary Dart/OOP override
+  (470's `Plain extends Scaler` has its own `amount` field, so it must bypass Scaler's `*10`
+  setter entirely) — and falling back to a plain `ballrt.FieldGet`/`FieldSet` for any receiver
+  that resolves to neither. That fallback is exactly what every call site already emitted before
+  this existed, so routing a name some class exposes as a property is a strict superset — never a
+  silent change for any other receiver. The Go sibling of C#'s `csharp/compiler/src/Accessors.cs`
+  (including its own #461 "own field shadows inherited accessor" fix). `compileReference` also
+  routes an implicit-`this` BARE reference to a getter name through the same
+  `ballAccessorGet_<name>` dispatcher (checked before the existing method-tear-off branch) rather
+  than wrapping the getter's impl func as a callable value — Dart has no syntax to tear a getter
+  off, referencing it by name always invokes it immediately, and the receiver must still be
+  resolved DYNAMICALLY (a method inherited from an ancestor that reads an implicit-`this` property
+  by bare name must see a subclass's own shadowing field, exactly like an explicit `self.<name>`
+  would). Guards: `go/compiler/getter_setter_dispatch_test.go` (the build-level duplicate-symbol
+  pin, a full run of 470 against its golden, and a hand-built two-unrelated-classes-share-a-name
+  fixture proving the dispatcher branches by the ACTUAL receiver type rather than always taking
+  the first/only branch). **A separate, pre-existing, unrelated defect surfaced while writing
+  470's regression coverage and is NOT fixed by this change**: the general per-short-name method
+  dispatcher has no superclass fallback at all, so a plain (non-getter/setter) INHERITED method
+  call panics `no method '<name>' for <subclass>` even with zero accessors involved — reproduces
+  identically on a two-class, no-getter/no-setter fixture. Filed as **#890**; it is why
+  conformance fixture `432_shadowed_getter_setter_write` (which also calls an inherited method)
+  still cannot pass the Go compiler leg even after this fix.
+
 ### Encoder
 
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks declarations → statements →
@@ -357,7 +460,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 364 passed, 0 failed, 364 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 365 passed, 0 failed, 365 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the
@@ -503,6 +606,62 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   stand-in `dart` (a COPY of the test binary, so nothing the framework cleans up
   is locked while it runs) that hands its stdout to a grandchild and blocks.
   Measured: 5.6 s with the bound, 30.1 s without.
+- **The kill reaches the WHOLE process tree, not just the immediate `dart`
+  (#862 — the Go leg's own half of #791, which was scoped to Rust/Python
+  only).** Bounding the WAIT above is a different guarantee from killing the
+  TREE: before #862, `roundTripOne`'s timeout path called only
+  `cmd.Process.Kill()`, which reaches the `dart` launcher alone and leaves the
+  Dart VM it forks running, orphaned, in the CI runner — invisible to the
+  WaitDelay control above, because a harness that returns promptly and a
+  grandchild that is still running are the same observation.
+  `go/engine/conformance/roundtrip_unix.go` / `roundtrip_windows.go` carry the
+  fix as **filename** build constraints (not `-tags`; note `_unix` is NOT a
+  GOOS the filename convention recognizes on its own — unlike `_windows` —
+  so `roundtrip_unix.go` also needs an explicit `//go:build unix` comment):
+  the child is spawned as its own process-group leader
+  (`cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`) and the timeout
+  path kills the GROUP (`syscall.Kill(-pid, syscall.SIGKILL)`, with
+  `cmd.Process.Kill()` as an unconditional backstop); Windows has no
+  process-group equivalent, so `taskkill /T /F /PID` walks the OS-recorded
+  parent-pid chain instead — the same spelling the Rust/Python legs' #791 fix
+  uses on that platform, and the guarantee
+  `csharp/engine/conformance/RoundTripLeg.cs` always had via
+  `Kill(entireProcessTree: true)`. `TestRoundTripKillEndsTheWholeProcessTree`
+  is the negative control: the WaitDelay test's stand-in `dart` grows a
+  heartbeat file in its grandchild (appended every 50 ms, mirroring the
+  Rust/Python #791 controls), and the test asserts it stops growing after the
+  timeout fires — with a positive floor on that file (it must be non-empty
+  before the stillness check) so a control that never forked a live
+  grandchild cannot pass while proving nothing.
+- **The group kill shares its stand-in `dart` with the WaitDelay control above, so
+  left unmodified it defeats that control.** The SAME grandchild the WaitDelay
+  control's elapsed-time assertion depends on surviving is also what the group
+  kill now reaches — so without a seam,
+  `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` would pass on the
+  tree kill alone, `cmd.WaitDelay` would never engage, and the 5.6 s / 30.1 s
+  numbers above would both read fast (a prompt return either way), silently
+  losing the ability to catch a deleted `cmd.WaitDelay`. `roundTripOne`'s
+  timeout path calls a package-level `killOnTimeout` var (defaulting to
+  `killProcessTree`) instead of `killProcessTree` directly for exactly this
+  reason: `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` substitutes
+  a launcher-only kill (`cmd.Process.Kill()` alone) for the duration of its own
+  run, reproducing the pre-#862 topology — a descendant the tree kill does not
+  reach — so a prompt return can only be explained by the bound itself.
+  `TestRoundTripKillEndsTheWholeProcessTree` leaves `killOnTimeout` untouched,
+  so it still proves the real, unmodified tree kill. Every other caller,
+  production included, always gets the real tree kill.
+- **The leg also names its own PASS SET (issue #896, generalizing #836's Rust fix to C#/Go/
+  Python).** A pass-COUNT floor (`GO_ROUNDTRIP_FLOOR`'s ratchet) cannot tell "nothing changed"
+  from "one fixture newly passes and a different one newly regresses" — the printed `Results:`
+  count is identical either way — so `FormatPassingBlock` (`go/engine/conformance/support.go`)
+  renders a second block, `Passing fixtures (<N>, sorted):`, byte-identical to Rust's own
+  `format_passing_block` (same header shape, same two-space indent per name), and
+  `roundtrip_test.go` prints it before the `Results:` line. `tools/ci/roundtrip_passset.sh`,
+  invoked right after `roundtrip_floor.sh` in the `go-roundtrip` row, diffs it against the
+  committed baseline (`tools/ci/baselines/go_roundtrip_passing.txt`) as a SET, not a count — a
+  baseline-named fixture missing from the current block is a hard CI error even when `passed`
+  held steady or rose. Guard: `go/engine/conformance/support_test.go`'s
+  `TestFormatPassingBlock`.
 - **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
   compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
   construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture

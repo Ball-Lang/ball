@@ -106,24 +106,6 @@ fn both_int(left: &BallValue, right: &BallValue) -> Option<(i64, i64)> {
     }
 }
 
-/// Human-readable type name for panic messages (mirrors the reference
-/// engines' runtime-error text closely enough to be actionable, without
-/// trying to byte-match any one engine's exact wording).
-fn ball_type_name(value: &BallValue) -> &'static str {
-    match value {
-        BallValue::Null => "Null",
-        BallValue::Bool(_) => "bool",
-        BallValue::Int(_) => "int",
-        BallValue::Double(_) => "double",
-        BallValue::String(_) => "String",
-        BallValue::Bytes(_) => "bytes",
-        BallValue::List(_) => "List",
-        BallValue::Map(_) => "Map",
-        BallValue::Function(_) => "Function",
-        BallValue::Message(_) => "Message",
-    }
-}
-
 // ════════════════════════════════════════════════════════════
 // Truthiness / clean fallback for unimplemented base functions
 // ════════════════════════════════════════════════════════════
@@ -1086,8 +1068,8 @@ pub fn ball_type_of(value: BallValue) -> BallValue {
 
 /// [`ball_type_of`]'s answer as a plain `String`, for the places that need the
 /// name inside a message rather than as a Ball value (issue #641's cast-failure
-/// text). Deliberately NOT [`ball_type_name`], which is the cruder internal
-/// spelling (`bytes`, `Message`) and does not agree with `std.type_of`.
+/// text). Deliberately not the cruder internal spelling a panic message might
+/// reach for (`bytes`, `Message`) — this one agrees with `std.type_of`.
 pub(crate) fn ball_runtime_type_name(value: &BallValue) -> String {
     match value {
         BallValue::Null => "Null".to_string(),
@@ -1148,17 +1130,32 @@ pub fn ball_is_not(value: BallValue, type_name: &str) -> BallValue {
     BallValue::Bool(!ball_is_type(&value, type_name))
 }
 
-/// Dart's `as` is a strict cast (not a numeric coercion): it throws unless
-/// the value already has the target type (or the target is `num` and the
-/// value is `int`/`double`, or the target is `Object`/`dynamic`).
-pub fn ball_as(value: BallValue, type_name: &str) -> BallValue {
-    if ball_is_type(&value, type_name) {
-        return value;
-    }
-    panic!(
-        "ball-lang-compiler runtime: type '{}' is not a subtype of type '{type_name}' in type cast",
-        ball_type_name(&value)
-    );
+/// `std.as` (the `value as T` EXPRESSION, as opposed to the cast PATTERN
+/// `ball_cast_assert` above handles) is an UNCHECKED identity on every
+/// target's reference implementation — the Dart reference engine's
+/// `'as': _extractUnaryArg` (`dart/engine/lib/engine_std.dart`), Python's
+/// `ballrt.selfhost.as_type`, Go's `ballrt.AsType`, C#'s `BallStd.AsType`,
+/// TypeScript's `case "as": return this.expr(...)` and C++'s
+/// `fn == "as"` all just return the operand unchanged, never inspecting
+/// `type_name` at all. This used to panic on a mismatch instead, unlike
+/// every sibling target's identity, which returns the value unconditionally
+/// with no exception of any kind. The panic was *catchable* by an enclosing
+/// Ball `try` (`catch_unwind` recovers any panic, typed or not) but only as
+/// an untyped payload, never a typed `TypeError` a `try` could selectively
+/// dispatch on (the failed cast *pattern*'s own contract); with no enclosing
+/// `try` — the ordinary case, since every sibling target needs none — it
+/// unwound straight out of the compiled `fn main()` and crashed the whole
+/// process, on Rust alone. That was a real cross-target behavioral
+/// divergence, not a stricter but equally valid contract (issue #707). A
+/// CHECKED `as` would need a nullable-type-name model (`as String?`) the
+/// self-hosted engine's own source leans on extensively; that is out of
+/// scope for the identity contract chosen here and would be its own
+/// follow-up if ever wanted.
+/// `type_name` is accepted but intentionally unused, matching every sibling
+/// target's identity implementation and keeping the single-positional
+/// calling convention this helper's call site already uses.
+pub fn ball_as(value: BallValue, _type_name: &str) -> BallValue {
+    value
 }
 
 // ════════════════════════════════════════════════════════════

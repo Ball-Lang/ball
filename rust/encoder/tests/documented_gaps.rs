@@ -700,6 +700,65 @@ fn compiled_method_dispatcher_scrutinee_is_a_documented_gap() {
     let _ = ball_lang_encoder::encode_library(&compiled);
 }
 
+/// A library with one struct overriding `toString` — the smallest source that
+/// makes `type_emit.rs::compile_method_dispatchers` take its SEPARATE
+/// `if short == "toString"` branch (added for issue #39/#300 bucket 2, so
+/// `Object.toString` never panics on a non-message receiver) instead of the
+/// general `match ball_message_type_name(&__self).as_str()` dispatcher
+/// `CLASS_WITH_METHOD_SOURCE` above exercises.
+const CLASS_WITH_TOSTRING_OVERRIDE_SOURCE: &str = r#"
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+impl Point {
+    fn toString(&self) -> String {
+        "Point".to_string()
+    }
+}
+"#;
+
+/// **OPEN**, issue #728 — a stage-3 gap #718 does not pin.
+///
+/// `type_emit.rs`'s `toString` branch emits a **different** unsupported-
+/// construct shape than #718's: it reads the receiver's type tag through an
+/// `if let BallValue::Message(__m) = &__self { match __m.type_name.as_str()
+/// { ... } }` guard, not through the `ball_message_type_name(&__self)`
+/// helper call #718 pins. `rust/encoder/src/control_flow.rs`'s
+/// `pattern_outcome_shape` — the function `encode_if_let` uses to decide
+/// whether an `if let` is Ball-encodable — accepts only the
+/// `Some`/`Ok`/`Err`/`None` tuple-struct/path shapes, so this `if let`'s
+/// `BallValue::Message(__m)` pattern fails `pattern_outcome_shape`'s own
+/// `match` on a DIFFERENT code path (its generic
+/// `syn::Pat::TupleStruct { .. }` arm, not `encode_runtime_helper_call`'s
+/// unmapped-helper table) and with a DIFFERENT panic message — one naming
+/// the pattern `Message(...)`, never `ball_message_type_name`.
+///
+/// `compile_reencode_roundtrip.rs`'s `compiled_method_dispatcher_re_encodes`/
+/// `dispatcher_fallback_throws_the_target_neutral_message` compile a struct
+/// with an ordinary, non-overriding instance method
+/// (`CLASS_WITH_METHOD_SOURCE`'s `Point::sum`) and never a class overriding
+/// `toString`, so this branch was unreachable from any existing re-encode
+/// test. Whichever closes it — teaching `pattern_outcome_shape` (or a
+/// purpose-built helper) this shape, or changing what the dispatcher emits —
+/// must flip this pin to a positive assertion in the same PR, and give
+/// `compile_reencode_roundtrip.rs` a case for a `toString`-overriding class
+/// (today it only covers a non-overriding method).
+#[test]
+#[should_panic(expected = "unsupported if-let/while-let/match pattern `Message(...)`")]
+fn compiled_tostring_override_dispatcher_scrutinee_is_a_documented_gap() {
+    let program = ball_lang_encoder::encode_library(CLASS_WITH_TOSTRING_OVERRIDE_SOURCE);
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("if let BallValue::Message(__m) = &__self {"),
+        "this pin is only meaningful while the toString dispatcher still reads the receiver's \
+         type through this if-let guard — if that changed, re-measure #728 and update this \
+         test:\n{compiled}"
+    );
+    let _ = ball_lang_encoder::encode_library(&compiled);
+}
+
 // ── control_flow.rs: nested patterns inside Some/Ok/Err(...) ────────────────
 
 /// Issue #767's sixth gap, measured at **5** real Tier A occurrences (the

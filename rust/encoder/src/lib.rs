@@ -2025,13 +2025,19 @@ impl Encoder {
         //
         // When the body can exit early, the faithful Ball is therefore a
         // `lambda` invoked through `std.invoke` — a Ball `return` inside a
-        // `lambda` returns from the lambda, and `rust/compiler` compiles that
-        // lambda back to `BallValue::Function(BallFunction::new(…, move |input|
-        // { … }))`, whose `return` leaves the closure again. It is also the
-        // shape `dart/encoder/lib/encoder.dart` emits for the same construct
-        // (its `FunctionExpressionInvocation` arm: `std.invoke` with a `callee`
-        // field). A closure that takes parameters is left alone either way — it
-        // is a real call with arguments to bind.
+        // `lambda` returns from the lambda. Since issue #734, `rust/compiler`
+        // no longer compiles this exact shape (a literal, zero-argument
+        // `lambda` passed straight as `callee`, with no other field — the only
+        // shape this arm ever emits) back through `compile_lambda`'s
+        // `BallValue::Function`/`move`-closure path at all:
+        // `base_call.rs::compile_invoke` intercepts it first and routes it
+        // through `compile_inline_lambda_invoke`, which inlines the body into a
+        // bare, non-`move` closure called exactly once right there — a
+        // `return` inside it still only leaves that closure, same as before.
+        // It is also the shape `dart/encoder/lib/encoder.dart` emits for the
+        // same construct (its `FunctionExpressionInvocation` arm: `std.invoke`
+        // with a `callee` field). A closure that takes parameters is left
+        // alone either way — it is a real call with arguments to bind.
         if let Some(closure) = as_zero_arg_closure(e.func.as_ref()) {
             if e.args.is_empty() {
                 if closure_body_exits_early(&closure.body) {

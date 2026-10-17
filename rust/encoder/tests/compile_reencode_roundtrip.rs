@@ -193,6 +193,80 @@ fn main() {
 /// string `go/compiler/library.go` and `csharp/compiler/src/TypeEmit.cs` throw.
 const DISPATCHER_EXPECTED_STDOUT: &str = "7\nno method 'sum' for main:Stranger\n";
 
+/// A library with one struct OVERRIDING `toString` — the sibling of
+/// `CLASS_WITH_METHOD_SOURCE` that makes `compile_method_dispatchers` take its
+/// separate `if short == "toString"` branch instead of the general
+/// `ball_message_type_name` dispatcher the fixture above exercises (issue
+/// #728: that branch is a DIFFERENT stage-3 re-encode gap than #718's, pinned
+/// in `rust/encoder/tests/documented_gaps.rs`'s
+/// `compiled_tostring_override_dispatcher_scrutinee_is_a_documented_gap`).
+const CLASS_OVERRIDING_TOSTRING_SOURCE: &str = r#"
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+impl Point {
+    fn toString(&self) -> String {
+        "Point".to_string()
+    }
+}
+"#;
+
+/// Drives the `toString` dispatcher twice: once with a real `Point` receiver
+/// (dispatches to the user's override, "Point") and once with a receiver NO
+/// class declares an override for — a bare primitive, so the `if let
+/// BallValue::Message(..)` guard itself fails — which must fall through to
+/// the built-in `ball_to_string` stringification, NEVER panic:
+/// `Object.toString` never fails in Dart (issue #39/#300 bucket 2, the
+/// comment directly above `type_emit.rs`'s `if short == "toString"` branch).
+const TOSTRING_DISPATCHER_DRIVER_MAIN: &str = r#"
+fn main() {
+    let fields = BallMap::new();
+    let mut input = BallMap::new();
+    input.insert(
+        "self".to_string(),
+        BallValue::Message(BallMessage::new("main:Point", fields)),
+    );
+    println!("{}", ball_to_string(toString(BallValue::Map(input))));
+
+    let mut primitive_input = BallMap::new();
+    primitive_input.insert("self".to_string(), BallValue::Int(42));
+    println!("{}", ball_to_string(toString(BallValue::Map(primitive_input))));
+}
+"#;
+
+/// The user's override for a real `Point`, then the built-in stringification
+/// for a receiver with no override at all — never a panic/throw.
+const TOSTRING_DISPATCHER_EXPECTED_STDOUT: &str = "Point\n42\n";
+
+/// The `toString` dispatcher branch's BEHAVIOURAL half, run end to end — the
+/// `toString`-overriding sibling of `dispatcher_fallback_throws_the_target_neutral_message`
+/// above. The compiled dispatcher is correct: it is only the RE-ENCODE of this
+/// construct that is the open gap (#728), characterized separately in
+/// `documented_gaps.rs` so this round-trip corpus carries a case for a class
+/// overriding `toString` either way.
+#[test]
+fn tostring_dispatcher_falls_back_to_builtin_stringify_without_panicking() {
+    let program = ball_lang_encoder::encode_library(CLASS_OVERRIDING_TOSTRING_SOURCE);
+    let compiled = Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("if let BallValue::Message(__m) = &__self {"),
+        "this test is only meaningful while the toString dispatcher still reads the receiver's \
+         type through this if-let guard — if that changed, re-measure #728 and update this \
+         test:\n{compiled}"
+    );
+    let stdout = compile_and_run(
+        "tostring_dispatcher",
+        &format!("{compiled}\n{TOSTRING_DISPATCHER_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, TOSTRING_DISPATCHER_EXPECTED_STDOUT,
+        "a real receiver must dispatch to its override, and a receiver with none must fall back \
+         to ball_to_string rather than panicking"
+    );
+}
+
 /// Ordinary user code whose only interesting construct is a formatted `panic!`.
 const PANICKING_LIBRARY_SOURCE: &str = r#"
 fn boom(code: i64) -> i64 {

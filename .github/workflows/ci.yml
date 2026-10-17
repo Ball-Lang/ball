@@ -262,6 +262,26 @@ jobs:
       - name: Dart-error rendering tables are closed (#641)
         run: python tools/check_error_rendering_tables.py
 
+      # `value as T` (the cast EXPRESSION) is an unchecked identity on every
+      # target but one: Rust's compiled `ball_as` used to PANIC on a mismatch,
+      # which no sibling target does at all (every one just returns the value,
+      # unconditionally) — catchable by an enclosing Ball `try` as an untyped
+      # payload, but with no enclosing `try` it unwound straight out of
+      # `fn main()` and crashed the whole process, on Rust alone (#707). This
+      # is the sibling closed-set check #641's own rendering-table gate was
+      # asked to spawn — structural, not observable (conformance fixture
+      # 481_as_expression_identity is the observable half, on every
+      # engine/compiler row; the Rust-only no-`try` case is pinned by
+      # rust/compiler/tests/as_expression_identity.rs's
+      # as_on_a_mismatched_type_never_panics_with_no_enclosing_try, part of the
+      # `rust` job's `cargo test --workspace`). Self-test first, same
+      # discipline as #641's.
+      - name: std.as contract self-test (#707)
+        run: python tools/test/test_check_std_as_contract.py
+
+      - name: std.as is an unchecked identity on every target (#707)
+        run: python tools/check_std_as_contract.py
+
       # ball.schema.json is the hand-maintained JSON-Schema mirror of ball.proto
       # for JSON-only implementers, and docs/BALL_JSON_SPEC.md points machine
       # outputs at it by $defs ref. Every $defs object sets
@@ -3021,7 +3041,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)" — the
+      # "Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -3216,7 +3236,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)" — the 4
+      # "Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3388,7 +3408,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)" — the 4
+      # "Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

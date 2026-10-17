@@ -1486,6 +1486,81 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// Compile `lambda`'s own body under its own scope — binding `input`,
+    /// applying [`param_alias_prologue`], and popping the scope again —
+    /// shared by [`Compiler::compile_lambda`] (wraps the result in a `move`
+    /// closure with pre-cloned captures, for a function *value* that may be
+    /// stored and invoked more than once) and
+    /// [`Compiler::compile_inline_lambda_invoke`] (issue #734 — wraps the
+    /// identical result in a non-`move` closure called exactly once, right
+    /// where it is built, so neither needs its own copy of this scope
+    /// bookkeeping).
+    fn compile_lambda_body(&self, lambda: &FunctionDefinition) -> String {
+        self.push_scope();
+        // Record where this lambda's own bindings begin, so instance-field
+        // references inside the body resolve late-bound through `__self_recv`
+        // unless a lambda-local shadows them (see `late_bound_field`).
+        self.lambda_scope_floors
+            .borrow_mut()
+            .push(self.local_scopes.borrow().len() - 1);
+        self.bind_local("input");
+        let prologue = self.param_alias_prologue(lambda);
+        let body = match &lambda.body {
+            Some(body) => self.compile_expression(body),
+            None => "BallValue::Null".to_string(),
+        };
+        self.lambda_scope_floors.borrow_mut().pop();
+        self.pop_scope();
+        format!("{prologue}{body}")
+    }
+
+    /// Compile `std.invoke(lambda{callee: <literal, zero-argument lambda>})`
+    /// — the shape `rust/encoder`'s `as_zero_arg_closure` +
+    /// `closure_body_exits_early` (issues #687/#725) lower an early-exiting
+    /// Rust IIFE into — by inlining `lambda`'s body into a closure called
+    /// exactly **once**, right here, instead of routing it through
+    /// [`Compiler::compile_lambda`]. See `base_call.rs`'s
+    /// `immediately_invoked_literal_lambda` for the shape this is only ever
+    /// reached from.
+    ///
+    /// [`Compiler::compile_lambda`] pre-clones every captured local into the
+    /// `move` closure's own copy, so a function *value* that might be stored
+    /// and invoked more than once never hits `error[E0382]` ("use of moved
+    /// value") when the same local is captured by two closures — correct for
+    /// that case, but it means a captured local the body *mutates* only ever
+    /// mutates that private copy: the caller's original binding never
+    /// observes the write (issue #734, newly reachable from user-authored
+    /// Rust via #725's IIFE lowering). This call site's lambda is never
+    /// stored anywhere — the Ball tree constructs it and invokes it in the
+    /// same expression, and the `BallValue::Function` wrapper is never built
+    /// at all — so nothing else could ever alias or re-invoke it, and a
+    /// plain (non-`move`) closure invoked immediately captures each local by
+    /// the weakest borrow its body needs: a read borrows `&name`, a mutation
+    /// borrows `&mut name` for the call's duration, and either way it is the
+    /// SAME binding, not a clone — the mutation is visible to the caller the
+    /// moment the call returns, matching the Dart reference engine's
+    /// shared-scope lambda semantics (`_evalLambda` evaluates the body in a
+    /// child of the SAME captured `Scope` object, so a write to an enclosing
+    /// local mutates that scope's own binding directly). `return` inside the
+    /// closure still only exits the closure — ordinary Rust semantics,
+    /// independent of `move` — so `try`/`break`/`continue`'s existing
+    /// flow-signal handling ([`FlowScope`]) is untouched.
+    fn compile_inline_lambda_invoke(&self, lambda: &FunctionDefinition) -> String {
+        let body = self.compile_lambda_body(lambda);
+        // A bare, unbound closure literal called immediately — NOT
+        // `let __ball_iife = |..| {..}; __ball_iife(..)`. Binding it to a
+        // name would need `let mut` the moment the body mutates a capture
+        // (calling a closure that only implements `FnMut` needs a mutable
+        // BINDING to call through, same as any other method taking
+        // `&mut self`), and this one's mutability is exactly as data-dependent
+        // as the `move` path's `let`/`let mut` split a few lines up — the
+        // compiler would have to re-derive it here too. An unbound temporary
+        // has no such restriction (there is no named place requiring `mut`),
+        // and its NLL borrow region ends at the call, its only use — the
+        // ordinary immediately-invoked-closure idiom, not an edge case.
+        format!("(|input: BallValue| -> BallValue {{\n{body}\n}})(BallValue::Null)")
+    }
+
     /// `lambda` — an anonymous [`FunctionDefinition`] (`name` empty) whose
     /// `body` is compiled exactly like any other function's, but as a Rust
     /// **closure** (`move |input: BallValue| -> BallValue { ... }`) rather
@@ -1499,6 +1574,12 @@ impl<'a> Compiler<'a> {
     /// [`param_alias_prologue`] as a named function, so a lambda with a
     /// single named parameter in its metadata gets the same alias
     /// prologue).
+    ///
+    /// **Not every `lambda` reaches this function** — an immediately-invoked,
+    /// zero-argument literal (`std.invoke(lambda{callee: ...})`, with no other
+    /// field) is intercepted earlier, in `base_call.rs`'s `compile_invoke`,
+    /// and compiled through [`Compiler::compile_inline_lambda_invoke`]
+    /// instead (issue #734).
     fn compile_lambda(&self, lambda: &FunctionDefinition) -> String {
         // Free variables the lambda captures from the enclosing scope: names
         // referenced in the body that are enclosing locals (computed *before*
@@ -1522,21 +1603,7 @@ impl<'a> Compiler<'a> {
             .collect();
         captured.sort();
 
-        self.push_scope();
-        // Record where this lambda's own bindings begin, so instance-field
-        // references inside the body resolve late-bound through `__self_recv`
-        // unless a lambda-local shadows them (see `late_bound_field`).
-        self.lambda_scope_floors
-            .borrow_mut()
-            .push(self.local_scopes.borrow().len() - 1);
-        self.bind_local("input");
-        let prologue = self.param_alias_prologue(lambda);
-        let body = match &lambda.body {
-            Some(body) => self.compile_expression(body),
-            None => "BallValue::Null".to_string(),
-        };
-        self.lambda_scope_floors.borrow_mut().pop();
-        self.pop_scope();
+        let body = self.compile_lambda_body(lambda);
 
         // A lambda is a first-class function *value*: wrap the compiled `move`
         // closure in a `BallValue::Function` so it can be stored in a
@@ -1567,7 +1634,7 @@ impl<'a> Compiler<'a> {
         };
         let name = &lambda.name;
         let closure = format!(
-            "BallValue::Function({ctor}({name:?}, move |input: BallValue| -> BallValue {{\n{prologue}{body}\n}}))"
+            "BallValue::Function({ctor}({name:?}, move |input: BallValue| -> BallValue {{\n{body}\n}}))"
         );
         if captured.is_empty() {
             closure

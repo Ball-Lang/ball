@@ -75,7 +75,7 @@ use ball_lang_shared::extract_fields;
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_lang_shared::proto::ball::v1::{
-    Expression, FieldValuePair, FunctionCall, ListLiteral, MessageCreation,
+    Expression, FieldValuePair, FunctionCall, FunctionDefinition, ListLiteral, MessageCreation,
 };
 
 use crate::pattern::{PatternMatch, binding_decls};
@@ -1026,14 +1026,83 @@ impl Compiler<'_> {
     /// input message (carrying `callee` + arguments) is handed to the
     /// `ball_invoke` runtime helper, which unpacks the callee and applies the
     /// single-`input` calling convention (see its doc comment).
+    ///
+    /// **Exception, issue #734:** when `call`'s input is the narrow
+    /// `immediately_invoked_literal_lambda` shape — a literal, zero-argument
+    /// `lambda` passed straight as `callee`, with no other field — the
+    /// `BallValue::Function`/`ball_invoke` machinery is skipped entirely in
+    /// favor of [`Compiler::compile_inline_lambda_invoke`], which captures
+    /// the enclosing scope by reference instead of by pre-cloned value. That
+    /// is the *only* shape `rust/encoder`'s `as_zero_arg_closure` +
+    /// `closure_body_exits_early` (#687/#725) ever lowers an early-exiting
+    /// Rust IIFE into, and the only one safe to inline — a lambda that might
+    /// be stored, passed around, or invoked more than once still goes
+    /// through [`Compiler::compile_lambda`]'s `move`+pre-clone path.
     fn compile_invoke(&self, call: &FunctionCall) -> String {
+        if let Some(lambda) = immediately_invoked_literal_lambda(call) {
+            return self.compile_inline_lambda_invoke(lambda);
+        }
         let input = match call.input.as_deref() {
             Some(input) => self.compile_expression(input),
             None => "BallValue::Null".to_string(),
         };
         format!("ball_invoke({input})")
     }
+}
 
+/// Does `call`'s input match `std.invoke`'s "immediately-invoked
+/// zero-argument literal lambda" shape (issue #734) — a `MessageCreation`
+/// with **exactly one** field, named `callee`, whose value is itself a
+/// literal `lambda` declaring no parameters? Borrows straight from `call`
+/// rather than going through `ball_lang_shared::extract_fields` (which
+/// clones every field value into a fresh, short-lived map) so the returned
+/// `&FunctionDefinition` can outlive this function.
+///
+/// This is deliberately narrow: `rust/encoder`'s `as_zero_arg_closure` +
+/// `closure_body_exits_early` (#687/#725) emit `std.invoke` over a `lambda`
+/// *only* for a zero-argument Rust closure invoked on the spot, and never
+/// add any other field to that call's input — so matching on "exactly one
+/// field, `callee`, a parameter-less lambda" is matching the one shape that
+/// construct actually produces, not guessing at a wider one. Any other
+/// `invoke` shape (a stored callback, a multi-argument call, a lambda that
+/// declares parameters) falls through to the ordinary
+/// `ball_invoke`/`BallValue::Function` path, unaffected.
+fn immediately_invoked_literal_lambda(call: &FunctionCall) -> Option<&FunctionDefinition> {
+    let input = call.input.as_deref()?;
+    let Some(Expr::MessageCreation(mc)) = &input.expr else {
+        return None;
+    };
+    if !mc.type_name.is_empty() || mc.fields.len() != 1 {
+        return None;
+    }
+    let field = &mc.fields[0];
+    if field.name != "callee" {
+        return None;
+    }
+    let value = field.value.as_ref()?;
+    let Some(Expr::Lambda(lambda)) = &value.expr else {
+        return None;
+    };
+    if lambda_declares_params(lambda) {
+        return None;
+    }
+    Some(lambda.as_ref())
+}
+
+/// Does `lambda` declare at least one parameter in `metadata.params`? A
+/// zero-argument lambda has either no `metadata` at all or an empty/absent
+/// `params` list — the shape every receiver-less, argument-less closure
+/// carries (see `type_emit::params_binding_prologue`'s doc comment for the
+/// full convention this reads the same key from).
+fn lambda_declares_params(lambda: &FunctionDefinition) -> bool {
+    lambda
+        .metadata
+        .as_ref()
+        .and_then(|meta| crate::type_emit::meta_list_value(meta, "params"))
+        .is_some_and(|params| !params.is_empty())
+}
+
+impl<'a> Compiler<'a> {
     // ════════════════════════════════════════════════════════════
     // print / to_string
     // ════════════════════════════════════════════════════════════

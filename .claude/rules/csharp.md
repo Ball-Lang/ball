@@ -242,6 +242,19 @@ compile items so the sibling projects never double-compile each other's files.
   `tests/conformance/480_extension_override_selection` (cross-target) and
   `csharp/compiler/test/ExtensionOverrideTests.cs`, which compiles the fixture
   and RUNS it against the golden.
+  **A getter always wins the `_extensionMemberImpl` slot over a same-named
+  setter (PR #829 review).** A property's getter and setter share one
+  qualified Ball function name, differing only in
+  `metadata.is_setter`/`is_getter`; `IndexExtensionMembers` holds a setter's
+  impl back in a side list and applies it to the main dictionary only once
+  the whole program is scanned, and only for a name no getter already
+  claimed. Before this fix the loop stored whichever accessor it visited
+  LAST — always the setter, since `get` syntactically precedes `set` — so
+  every READ of such a property (`CompileCall`'s extension-override branch
+  only ever sees a read; the WRITE compiler half is #865's own open item)
+  silently called the setter and printed/stored `null`. `ExtensionOverrideTests.cs`'s
+  `ExtensionOverrideRead_WithBothGetterAndSetter_DispatchesTheGetter` is
+  hand-built IR, not a fixture — 480 deliberately carries no setter arm.
 
 ### Encoder
 

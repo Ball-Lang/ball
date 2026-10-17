@@ -259,6 +259,17 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   Guards: ``tests/conformance/480_extension_override_selection``
   (cross-target) and ``python/compiler/tests/test_extension_override.py``,
   which compiles the fixture and RUNS it against the golden.
+  **A getter always wins the ``extension_members`` slot over a same-named
+  setter (PR #829 review).** The getter and setter share one qualified Ball
+  function name, differing only in ``metadata.is_getter``/``is_setter``;
+  the collection loop holds a setter's entry back in a side dict and
+  applies it only for a name no getter already claimed. Before this fix
+  the dict stored whichever accessor was visited LAST — always the setter,
+  since ``get`` syntactically precedes ``set`` — so a plain READ compiled
+  to ``Ext.member(recv)`` (a method call on the ``@property`` object
+  itself) and raised ``TypeError: 'property' object is not callable``.
+  ``test_extension_override_read_with_both_getter_and_setter_dispatches_the_getter``
+  is hand-built IR, not a fixture — 480 deliberately carries no setter arm.
 
 ### Encoder
 

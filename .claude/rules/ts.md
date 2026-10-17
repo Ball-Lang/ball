@@ -223,6 +223,18 @@ const json = toJson(ProgramSchema, program);
   (cross-target, incl. the `TS Compiled (Direct)` row) and
   `ts/compiler/test/extension_override.test.ts`, which compiles the fixture and
   RUNS it against the golden.
+  **A getter always wins the `extensionMembers` slot over a same-named
+  setter (PR #829 review).** The getter and setter share one qualified Ball
+  function name, differing only in `metadata.is_getter`/`is_setter`; the
+  collection loop holds a setter's entry back in a side map and applies it
+  only for a name no getter already claimed. Before this fix the map
+  stored whichever accessor was visited LAST — always the setter, since
+  `get` syntactically precedes `set` — so a plain READ compiled to
+  `(Ext.prototype as any).member.call(recv)`, invoking the SETTER
+  accessor's value (not a function) instead of routing the getter through
+  `Reflect.get`. The new test "a read through an override with both a
+  getter and a setter dispatches the getter" is hand-built IR, not a
+  fixture — 480 deliberately carries no setter arm.
 
 ### Engine
 

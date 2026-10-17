@@ -1469,7 +1469,13 @@ jobs:
           # roundtrip_floor.sh's "first still-failing fixture" being the
           # ALPHABETICALLY first one, is how `ball_message_type_name` (23) came
           # to be published as the leader while `ball_arg_get` (63) really was.
-          histogram=$(awk '/^Failure buckets/ {on=1} on && /^Results:/ {exit} on' "$RUNNER_TEMP/roundtrip.log")
+          # Stops at the first BLANK line (or at the `Passing fixtures`/`Results:`
+          # headers, belt-and-suspenders) after the histogram starts: the sweep
+          # prints a blank line, then the `Passing fixtures (<N>, sorted):` block
+          # (#836), then another blank line, then `Results:`. Without that stop
+          # this range ran all the way to `Results:` and swallowed the whole
+          # passing-fixtures list into "Measured by this run" below.
+          histogram=$(awk '/^Failure buckets/ {on=1} on && (/^$/ || /^Passing fixtures/ || /^Results:/) {exit} on' "$RUNNER_TEMP/roundtrip.log")
 
           {
             echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"

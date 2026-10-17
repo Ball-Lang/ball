@@ -223,11 +223,13 @@ jobs:
       # is identical either way, so a real regression can land invisibly as
       # long as some unrelated fixture happens to start passing in the same
       # PR (#836). tools/ci/roundtrip_passset.sh is the set-difference gate
-      # that closes that for the Rust round-trip leg; this proves the gate
-      # itself (the net-zero swap scenario must be RED, an identical or
-      # superset pass set must be GREEN, a missing/empty/unsorted/duplicated
-      # baseline must be a hard error) AND asserts the wiring into
-      # conformance-matrix.yml's rust-roundtrip row.
+      # that closes that; generalized from the Rust round-trip leg to all four
+      # of Rust/C#/Go/Python (#896), this proves the gate itself (the
+      # net-zero swap scenario must be RED, an identical or superset pass set
+      # must be GREEN, a missing/empty/unsorted/duplicated baseline must be a
+      # hard error) AND asserts the wiring into conformance-matrix.yml's
+      # rust-roundtrip/csharp-roundtrip/go-roundtrip/python-roundtrip rows —
+      # test_roundtrip_passset.sh loops every scenario over all four languages.
       - name: Round-trip leg pass-set regression test (#836)
         run: bash tools/test/test_roundtrip_passset.sh
 

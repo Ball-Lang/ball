@@ -167,7 +167,7 @@ a bucket 2.7x larger. At 138 of 363 (run 35593505327, job 106313208884) the buck
 `ball_unsupported_base_call` 19, `BallValue::Function` 16, `ball_index_set` 14 and
 `ball_list_push` 13.
 The sweep itself is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never
-runs it (it runs the nine self-tests beside it — count with `grep -c '^#\[test\]'` minus the one
+runs it (it runs the ten self-tests beside it — count with `grep -c '^#\[test\]'` minus the one
 `#[ignore]`, never from this prose):
 
 ```bash
@@ -196,9 +196,12 @@ when `passed` held steady or rose; a newly-passing fixture not yet in the baseli
 `::notice::` naming the gain, never a failure, with the exact `--write` invocation to lock it in.
 Self-tested by `tools/test/test_roundtrip_passset.sh` (ci.yml's always-on `proto` job), which pins
 the net-zero-swap scenario itself as its primary RED case, mirroring
-`tools/test/test_roundtrip_floor.sh`'s `flat_zero_is_red`. Scoped to this leg first, per the
-issue — the same gap likely applies to the C#/Go/Python round-trip legs too (tracked for
-follow-up, not fixed here).
+`tools/test/test_roundtrip_floor.sh`'s `flat_zero_is_red`. Landed on this leg first, per the
+issue, and then **generalized to the C#/Go/Python round-trip legs too (#896)** in the same PR:
+each of those three legs now prints its own byte-identical `Passing fixtures (<N>, sorted):`
+block, `roundtrip_passset.sh` is invoked in all four `<lang>-roundtrip` rows, and
+`test_roundtrip_passset.sh` loops its scenarios over all four languages' baselines rather than
+pinning Rust alone.
 
 ### The launcher path, and the per-fixture budget — both self-tested (#692/#693)
 

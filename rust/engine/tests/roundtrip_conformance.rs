@@ -628,15 +628,20 @@ fn failure_histogram(failures: &[(String, String)]) -> Vec<(String, usize)> {
 /// followed by one TWO-SPACE-indented fixture name per line, up to the next
 /// blank line. `passing` must already be sorted (`roundtrip_conformance`'s
 /// loop appends in the SAME order it iterates the already-sorted `paths`, so
-/// this function never re-sorts) — `tools/ci/roundtrip_passset.sh` assumes
-/// the printed block is sorted and never re-sorts it either, so sortedness is
-/// asserted here with a `debug_assert!` rather than trusted; see
+/// this function never re-sorts) — not because the shell side depends on
+/// it (`roundtrip_passset.sh` sorts its own parsed set before comparing, so
+/// sort order cannot hide a set-difference regression either way), but
+/// because the header's own text claims `, sorted):` and an unsorted body
+/// under that claim would be a lie to anyone reading the raw CI log. Checked
+/// with a `debug_assert!` rather than trusted; see
 /// [`format_passing_block_panics_in_debug_builds_on_an_unsorted_list`].
 fn format_passing_block(passing: &[String]) -> String {
     debug_assert!(
         passing.is_sorted(),
         "format_passing_block's caller must hand it an already-sorted list — \
-         tools/ci/roundtrip_passset.sh assumes the printed block is sorted and never re-sorts it"
+         the printed header claims `, sorted):` and an unsorted body would misstate it \
+         (tools/ci/roundtrip_passset.sh sorts its own parsed copy before comparing, so this \
+         assertion is about output honesty, not the gate's correctness)"
     );
     let mut out = format!("Passing fixtures ({}, sorted):\n", passing.len());
     for name in passing {
@@ -696,12 +701,14 @@ fn an_empty_passing_set_still_prints_a_well_formed_header() {
     assert_eq!(format_passing_block(&[]), "Passing fixtures (0, sorted):\n");
 }
 
-/// `tools/ci/roundtrip_passset.sh` assumes the printed block is already
-/// sorted — it never re-sorts it, because an on-the-fly sort by the BASH side
-/// would mask the exact bug this gate exists to catch if `roundtrip_conformance`
-/// ever stopped appending `passing` in sorted order. `debug_assert!` makes
-/// that assumption loud at the one place it could silently break, in every
-/// debug build (which is what `cargo test` runs).
+/// The printed header's own text claims `, sorted):` — `roundtrip_passset.sh`
+/// actually re-sorts its own parsed copy before comparing (sort order cannot
+/// hide a set-difference regression either way, since the gate compares
+/// SETS), so this is not about that script's correctness. It is about the
+/// printed claim staying true for a human reading the raw CI log, should
+/// `roundtrip_conformance` ever stop appending `passing` in sorted order.
+/// `debug_assert!` makes that break loud at the one place it could happen
+/// silently, in every debug build (which is what `cargo test` runs).
 #[test]
 #[should_panic(expected = "already-sorted list")]
 fn format_passing_block_panics_in_debug_builds_on_an_unsorted_list() {

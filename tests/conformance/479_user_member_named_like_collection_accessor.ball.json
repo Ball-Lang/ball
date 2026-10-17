@@ -1,0 +1,1859 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "negate",
+          "isBase": true
+        },
+        {
+          "name": "typed_list",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "map_create",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:Collected.new",
+          "outputType": "main:Collected",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "first",
+                "is_this": true
+              },
+              {
+                "name": "last",
+                "is_this": true
+              },
+              {
+                "name": "entries",
+                "is_this": true
+              },
+              {
+                "name": "keys",
+                "is_this": true
+              },
+              {
+                "name": "values",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Counted.new",
+          "outputType": "main:Counted",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "first",
+                "is_this": true
+              },
+              {
+                "name": "last",
+                "is_this": true
+              },
+              {
+                "name": "keys",
+                "is_this": true
+              },
+              {
+                "name": "values",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Counted.readFirstViaThis",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "first"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Counted.readLastViaThis",
+          "outputType": "String",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "last"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Counted.readKeysViaThis",
+          "outputType": "String",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "keys"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Counted.readValuesViaThis",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "self"
+                }
+              },
+              "field": "values"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Computed.new",
+          "outputType": "main:Computed",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "stored",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Computed.first",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "stored"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "2"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Computed.last",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "stored"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "1"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Computed.runtimeType",
+          "outputType": "Type",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "stored"
+                }
+              },
+              "field": "runtimeType"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true,
+            "annotations": [
+              "override"
+            ]
+          }
+        },
+        {
+          "name": "main:Computed.entries",
+          "outputType": "List<int>",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "typed_list",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "type_args",
+                      "value": {
+                        "literal": {
+                          "stringValue": "<int>"
+                        }
+                      }
+                    },
+                    {
+                      "name": "elements",
+                      "value": {
+                        "literal": {
+                          "listValue": {
+                            "elements": [
+                              {
+                                "reference": {
+                                  "name": "stored"
+                                }
+                              },
+                              {
+                                "call": {
+                                  "module": "std",
+                                  "function": "negate",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "stored"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Computed.keys",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "literal": {
+                          "stringValue": "k"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "stored"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Computed.values",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "stored"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "3"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "c",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Collected",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "11"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "stringValue": "tail"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg2",
+                            "value": {
+                              "call": {
+                                "module": "std",
+                                "function": "typed_list",
+                                "input": {
+                                  "messageCreation": {
+                                    "typeName": "",
+                                    "fields": [
+                                      {
+                                        "name": "type_args",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "<int>"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "elements",
+                                        "value": {
+                                          "literal": {
+                                            "listValue": {
+                                              "elements": [
+                                                {
+                                                  "literal": {
+                                                    "intValue": "7"
+                                                  }
+                                                },
+                                                {
+                                                  "literal": {
+                                                    "intValue": "8"
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg3",
+                            "value": {
+                              "literal": {
+                                "stringValue": "K"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg4",
+                            "value": {
+                              "literal": {
+                                "intValue": "99"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Collected"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "first"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "last"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "entries"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "keys"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "values"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "n",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Counted",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "31"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "stringValue": "inner"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg2",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Z"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg3",
+                            "value": {
+                              "literal": {
+                                "intValue": "12"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Counted"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readFirstViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "n"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readLastViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "n"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readKeysViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "n"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readValuesViaThis",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "n"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "messageCreation": {
+                                      "typeName": "main:Collected",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "1"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "z"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg2",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "typed_list",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "type_args",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "<int>"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "elements",
+                                                      "value": {
+                                                        "literal": {
+                                                          "listValue": {
+                                                            "elements": [
+                                                              {
+                                                                "literal": {
+                                                                  "intValue": "0"
+                                                                }
+                                                              }
+                                                            ]
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg3",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "A"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg4",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "2"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "field": "keys"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "g",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Computed",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "21"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  },
+                                  "field": "first"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  },
+                                  "field": "last"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  },
+                                  "field": "runtimeType"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  },
+                                  "field": "entries"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  },
+                                  "field": "keys"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  },
+                                  "field": "values"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "xs",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "typed_list",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "<int>"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "elements",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {
+                                      "elements": [
+                                        {
+                                          "literal": {
+                                            "intValue": "5"
+                                          }
+                                        },
+                                        {
+                                          "literal": {
+                                            "intValue": "6"
+                                          }
+                                        },
+                                        {
+                                          "literal": {
+                                            "intValue": "7"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "xs"
+                                    }
+                                  },
+                                  "field": "first"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "xs"
+                                    }
+                                  },
+                                  "field": "last"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "m",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "map_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "entry",
+                                "value": {
+                                  "messageCreation": {
+                                    "fields": [
+                                      {
+                                        "name": "key",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "a"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "value",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "1"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "name": "entry",
+                                "value": {
+                                  "messageCreation": {
+                                    "fields": [
+                                      {
+                                        "name": "key",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "b"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "value",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "2"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Map<String, int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_to_list",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "reference": {
+                                                  "name": "m"
+                                                }
+                                              },
+                                              "field": "keys"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_to_list",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "reference": {
+                                                  "name": "m"
+                                                }
+                                              },
+                                              "field": "values"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "fieldAccess": {
+                                      "object": {
+                                        "reference": {
+                                          "name": "m"
+                                        }
+                                      },
+                                      "field": "values"
+                                    }
+                                  },
+                                  "field": "first"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "fieldAccess": {
+                                      "object": {
+                                        "reference": {
+                                          "name": "m"
+                                        }
+                                      },
+                                      "field": "values"
+                                    }
+                                  },
+                                  "field": "last"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "fieldAccess": {
+                                      "object": {
+                                        "reference": {
+                                          "name": "m"
+                                        }
+                                      },
+                                      "field": "entries"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "literal": {
+                                      "stringValue": "abc"
+                                    }
+                                  },
+                                  "field": "runtimeType"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "literal": {
+                                      "intValue": "7"
+                                    }
+                                  },
+                                  "field": "runtimeType"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "literal": {
+                                      "doubleValue": 2.5
+                                    }
+                                  },
+                                  "field": "runtimeType"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Collected",
+          "descriptor": {
+            "name": "main:Collected",
+            "field": [
+              {
+                "name": "first",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "last",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "entries",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              },
+              {
+                "name": "keys",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "values",
+                "number": 5,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Collected",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "first",
+                "type": "int",
+                "is_final": true
+              },
+              {
+                "name": "last",
+                "type": "String",
+                "is_final": true
+              },
+              {
+                "name": "entries",
+                "type": "List<int>",
+                "is_final": true
+              },
+              {
+                "name": "keys",
+                "type": "String",
+                "is_final": true
+              },
+              {
+                "name": "values",
+                "type": "int",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Counted",
+          "descriptor": {
+            "name": "main:Counted",
+            "field": [
+              {
+                "name": "first",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "last",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "keys",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "values",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Counted",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "first",
+                "type": "int",
+                "is_final": true
+              },
+              {
+                "name": "last",
+                "type": "String",
+                "is_final": true
+              },
+              {
+                "name": "keys",
+                "type": "String",
+                "is_final": true
+              },
+              {
+                "name": "values",
+                "type": "int",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Computed",
+          "descriptor": {
+            "name": "main:Computed",
+            "field": [
+              {
+                "name": "stored",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Computed",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "stored",
+                "type": "int",
+                "is_final": true
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

@@ -4,8 +4,14 @@
 // `'as': _extractUnaryArg`), Python's `ballrt.selfhost.as_type`, Go's
 // `ballrt.AsType`, C#'s `BallStd.AsType` and TypeScript's/C++'s identity arms
 // all just hand the value back unchanged, never inspecting the runtime type —
-// but Rust's compiled `ball_as` used to PANIC on a mismatch, an UNCATCHABLE
-// process abort no other target produces (issue #707).
+// but Rust's compiled `ball_as` used to PANIC on a mismatch instead, which no
+// other target does at all (issue #707). That panic was catchable by an
+// enclosing `try` (as an untyped payload), which is exactly why THIS fixture —
+// wrapping the cast in a `try`/`catch` below — cannot by itself distinguish
+// the pre-fix panic from the fix: with no enclosing `try` the panic had
+// nothing to catch it and crashed the whole process instead, which is pinned
+// separately by `rust/compiler/tests/as_expression_identity.rs`'s
+// `as_on_a_mismatched_type_never_panics_with_no_enclosing_try`.
 //
 // The real Dart SDK's `as` genuinely IS a checked runtime cast, so a bare
 // mismatched `5 as String` would crash the golden-generation step; `describeAs`

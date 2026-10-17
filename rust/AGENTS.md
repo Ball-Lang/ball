@@ -607,6 +607,23 @@ instructions.
   dispatcher's behavioural half is untouched and still run-proved by
   `dispatcher_fallback_throws_the_target_neutral_message`. Whatever closes it must keep #646's
   fail-loud direction.
+  The invariant's **third** open instance is a DIFFERENT compiled dispatcher's scrutinee, **#728**:
+  a class **overriding `toString`** makes `compile_method_dispatchers` take its separate
+  `if short == "toString"` branch (added for #39/#300 bucket 2, so `Object.toString` never panics
+  on a non-message receiver) instead of the general `ball_message_type_name` dispatcher #718 pins
+  above — that branch reads the receiver's type tag through
+  `if let BallValue::Message(__m) = &__self { .. }`, a DIFFERENT code path in
+  `encoder/src/control_flow.rs::pattern_outcome_shape` (its generic `Pat::TupleStruct` arm, not
+  the unmapped-helper table #718 hits), with its own panic message. #718's own pin only exercises
+  a class with a non-overriding method, so this branch was unreachable from any existing
+  re-encode test until #728 added
+  `compiled_tostring_override_dispatcher_scrutinee_is_a_documented_gap`. The dispatcher's
+  behaviour is already correct here too — proven end to end by
+  `compile_reencode_roundtrip.rs::tostring_dispatcher_falls_back_to_builtin_stringify_without_panicking`,
+  which drives a real `toString`-overriding receiver (dispatches to the override) and a receiver
+  with none (falls back to `ball_to_string` rather than panicking) — only its RE-ENCODE is open,
+  resolved the same way as #718: pin it as a documented gap rather than teaching
+  `pattern_outcome_shape` a new scrutinee shape or changing what the dispatcher emits.
   `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
   `ThrowExpression` arm emits: on this target the two are literally one mechanism
   (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a
@@ -777,9 +794,15 @@ output (`compile_reencode_roundtrip.rs::an_immediately_invoked_closures_return_s
 against what `rustc` prints for the same source, not by any assertion on the encoded shape.
 
 When the body *can* exit early the faithful Ball is **`std.invoke` over a `lambda`** — the shape
-`dart/encoder/lib/encoder.dart` emits for a `FunctionExpressionInvocation`, and the one
-`compile_lambda` turns back into `BallValue::Function(BallFunction::new(…, move |input| { … }))`,
-whose `return` leaves the closure again.
+`dart/encoder/lib/encoder.dart` emits for a `FunctionExpressionInvocation`. **Since issue #734,
+that shape no longer compiles back through `compile_lambda`'s `BallValue::Function`/`move`-closure
+path at all**: `base_call.rs::compile_invoke` detects the narrow
+`immediately_invoked_literal_lambda` shape (a literal, zero-argument `lambda` passed straight as
+`callee`, with no other field — exactly what this encoder ever emits) and routes it through
+[`Compiler::compile_inline_lambda_invoke`] instead, which inlines the body into a bare, non-`move`
+closure called exactly once right there (`(|input: BallValue| -> BallValue { … })(BallValue::Null)`).
+A `return` inside that closure still only leaves the closure — ordinary Rust semantics, independent
+of `move` — so the property this paragraph relies on is unchanged; only the compiled shape is.
 
 The early-exit set is **derived from what this encoder emits a `std.return` for**, never guessed
 from syntax: `return` (`encode_return`) and `?` (`encode_try_operator`, which propagates by
@@ -790,6 +813,48 @@ frame that owns its own `return`: a nested closure, a nested item, an `async` bl
 Over-firing would be its own regression — every compiled program that builds a callback contains a
 nested closure with a `return` — and `compiler_output.rs::a_return_inside_a_nested_closure_does_not_block_inlining`
 is the negative control on it.
+
+### `compile_lambda`'s captured-local pre-clone silently dropped a mutation on early exit (issue #734)
+
+`compile_lambda` wraps every lambda body in a `move` closure and **pre-clones** each captured
+local into a fresh binding that closure owns — correct for a function *value* that might be
+stored and invoked more than once (it dodges `error[E0382]`, "use of moved value", when the same
+local is captured by two closures), but it means a captured local the body *mutates* only ever
+mutates that private copy: the caller's original binding never observes the write. That gap
+predated #687/#725's IIFE-to-`std.invoke`-over-`lambda` lowering (the previous section) and was
+purely theoretical until that lowering made it directly reachable from ordinary, hand-authored
+Rust — the early-exit idiom `let mut total = 0; (|| { for x in xs { if x < 0 { return; }
+total += x; } })();` now round-trips through exactly this path, and `total`'s accumulated writes
+used to vanish the moment the closure returned.
+
+The fix is **not** a write-back pass over `compile_lambda`'s output — it is the same
+`compile_invoke`/`compile_inline_lambda_invoke` split #734 introduced for #707's sibling fix (see
+the previous section): `std.invoke(lambda{callee: <literal, zero-argument lambda>})` is
+intercepted by `base_call.rs::immediately_invoked_literal_lambda` and routed through
+`compile_inline_lambda_invoke`, which emits a bare, **non-`move`** closure invoked exactly once,
+right where it is built. A non-`move` closure captures each local by the weakest borrow its body
+needs — a read borrows `&name`, a mutation borrows `&mut name` for the call's duration — and
+either way it is the SAME binding, not a clone, so the mutation is visible to the caller the
+moment the call returns: this matches the Dart reference engine's shared-scope `_evalLambda`
+semantics (the body runs in a child of the *same* captured `Scope` object, so a write to an
+enclosing local mutates that scope's own binding directly), which `move`+pre-clone never did.
+`return` inside the non-`move` closure still only exits the closure — ordinary Rust semantics,
+independent of `move` — so `try`/`break`/`continue`'s existing flow-signal handling
+(`FlowScope`) is untouched by this change.
+
+This is deliberately narrow, not a general fix to `compile_lambda`'s capture strategy: a lambda
+that might be stored, passed around, or invoked more than once still goes through
+`compile_lambda`'s `move`+pre-clone path, because THAT shape genuinely can be aliased by two
+closures and needs its own copy. The guard is purely structural
+(`immediately_invoked_literal_lambda`: exactly one field, named `callee`, whose value is a
+literal, zero-parameter `lambda`) — it is the one shape `rust/encoder`'s `as_zero_arg_closure` +
+`closure_body_exits_early` ever lower an early-exiting Rust IIFE into, so matching it is matching
+what that construct actually produces, not guessing at a wider one.
+
+RED-first proof: `rust/compiler/tests/captured_local_mutation_in_invoke.rs` compiles and RUNS a
+Ball lambda that mutates a captured local across loop iterations before exiting early, and asserts
+the mutation is visible to the caller — the test name and its own doc comment record that this
+failed (printed the pre-mutation value) before #734's fix landed.
 
 ### Real-code coverage study (issue #491)
 

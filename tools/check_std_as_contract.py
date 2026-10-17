@@ -13,21 +13,33 @@ argument-returning `_extractUnaryArg` helper `spread`/`null_spread`/`await`/
 C++'s compiler `"as"` dispatch all do the same: return the operand, full
 stop.
 
-Rust's compiled `ball_as` used to PANIC on a mismatch instead — an
-UNCATCHABLE process abort no sibling target produces, so a Ball program that
-does `x as SomeType` on a mismatched value was silently accepted on every
-other target and crashed the whole process on Rust. That is a real
-cross-target behavioral divergence (a "wrong answer" class, not cosmetic),
-and this script is the sibling CLOSED-SET check #641 asked for: for every
-target it extracts the source that implements `std.as` and asserts it
-contains none of a FORBIDDEN set of throw/panic/raise tokens — the plain,
-structural proof that the value flows through unchanged on every path,
-whatever the runtime type.
+Rust's compiled `ball_as` used to PANIC on a mismatch instead, which no
+sibling target does at all — every one of them just returns the value,
+unconditionally, with no exception of any kind. The panic was *catchable* by
+an enclosing Ball `try` (Rust's `catch_unwind` recovers any panic, typed or
+not) but only as an untyped payload, never a typed `TypeError`; with no
+enclosing `try` — the ordinary case, since every sibling target needs
+none — it unwound straight out of the compiled `fn main()` and crashed the
+whole process, on Rust alone, while a Ball program doing the identical cast
+was silently accepted everywhere else. That is a real cross-target
+behavioral divergence (a "wrong answer" class, not cosmetic), and this script
+is the sibling CLOSED-SET check #641 asked for: for every target it extracts
+the source that implements `std.as` and asserts it contains none of a
+FORBIDDEN set of throw/panic/raise tokens — the plain, structural proof that
+the value flows through unchanged on every path, whatever the runtime type.
 
-Conformance fixture `481_as_expression_identity` is the OBSERVABLE half,
-running on every engine/compiler in the matrix; this script is the
-structural one, the same division `check_error_rendering_tables.py` draws
-for the cast PATTERN's rendering tables.
+Conformance fixture `481_as_expression_identity` is one OBSERVABLE half,
+running on every engine/compiler in the matrix, but it wraps the cast in a
+`try`/`catch` (real Dart's own `as` is a checked cast, so the golden needs
+one) whose `catch` arm prints the SAME text the `try` arm would have on
+success — so it cannot by itself tell a panic `catch_unwind` recovered apart
+from the fix, only the value identity once caught by either means. The
+Rust-only `rust/compiler/tests/as_expression_identity.rs`'s
+`as_on_a_mismatched_type_never_panics_with_no_enclosing_try` is the other
+observable half, built with no `try` anywhere so a pre-fix panic has nothing
+to catch; this script is the structural one, the same division
+`check_error_rendering_tables.py` draws for the cast PATTERN's rendering
+tables.
 
 Usage:
     python tools/check_std_as_contract.py [--root <repo root>] [--quiet]

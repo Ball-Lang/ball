@@ -1137,14 +1137,20 @@ pub fn ball_is_not(value: BallValue, type_name: &str) -> BallValue {
 /// `ballrt.selfhost.as_type`, Go's `ballrt.AsType`, C#'s `BallStd.AsType`,
 /// TypeScript's `case "as": return this.expr(...)` and C++'s
 /// `fn == "as"` all just return the operand unchanged, never inspecting
-/// `type_name` at all. This used to panic on a mismatch instead — an
-/// UNCATCHABLE process abort unlike every sibling target's identity (or, for
-/// a failed cast *pattern*, a typed `TypeError` a Ball `try` can catch) —
-/// which was a real cross-target behavioral divergence, not a stricter but
-/// equally valid contract (issue #707). A CHECKED `as` would need a
-/// nullable-type-name model (`as String?`) the self-hosted engine's own
-/// source leans on extensively; that is out of scope for the identity
-/// contract chosen here and would be its own follow-up if ever wanted.
+/// `type_name` at all. This used to panic on a mismatch instead, unlike
+/// every sibling target's identity, which returns the value unconditionally
+/// with no exception of any kind. The panic was *catchable* by an enclosing
+/// Ball `try` (`catch_unwind` recovers any panic, typed or not) but only as
+/// an untyped payload, never a typed `TypeError` a `try` could selectively
+/// dispatch on (the failed cast *pattern*'s own contract); with no enclosing
+/// `try` — the ordinary case, since every sibling target needs none — it
+/// unwound straight out of the compiled `fn main()` and crashed the whole
+/// process, on Rust alone. That was a real cross-target behavioral
+/// divergence, not a stricter but equally valid contract (issue #707). A
+/// CHECKED `as` would need a nullable-type-name model (`as String?`) the
+/// self-hosted engine's own source leans on extensively; that is out of
+/// scope for the identity contract chosen here and would be its own
+/// follow-up if ever wanted.
 /// `type_name` is accepted but intentionally unused, matching every sibling
 /// target's identity implementation and keeping the single-positional
 /// calling convention this helper's call site already uses.

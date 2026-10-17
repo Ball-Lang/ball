@@ -1697,7 +1697,13 @@ jobs:
       # exact number (gate 6 below is strict both ways, so a wrong guess here
       # fails loud either direction); correct it from that run's printed
       # `Results:` line in the same PR.
-      PYTHON_COMPILER_FLOOR: "276"
+      #
+      # Raised 276 -> 277 (run 39060177999, job 117476694777) for fixture
+      # `480_continue_inside_switch_in_loop`, the only fixture that changed
+      # status (confirmed by this row's own PRINTED "SILENTLY-WRONG
+      # (status=fail, 2): 203_closure_in_loop, 229_closure_loop_var_semantics"
+      # line below staying exactly the same two names).
+      PYTHON_COMPILER_FLOOR: "277"
       # The CLOSED SET of fixtures the compiler currently compiles to a
       # program that exits 0 and prints the WRONG answer (status `fail`,
       # never `compile-error`/`error`) — issue #823/#824's priority, the

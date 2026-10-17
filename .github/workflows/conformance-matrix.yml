@@ -1635,13 +1635,12 @@ jobs:
       #
       # Merged here from two branches that each raised the floor off the same
       # 298 baseline for disjoint reasons (two new corpus fixtures vs. ten
-      # newly-unblocked existing ones) — kept at the LOWER, already-measured
-      # 308 rather than predicting the union (310) unmeasured on the merged
-      # tree. 308 remains a safe floor either way: adding fixtures can only
-      # raise the achievable count, never lower it below what #813 alone
-      # already measured. Re-measure and raise further once this merge's own
-      # CI run prints the combined total.
-      GO_COMPILER_FLOOR: "308"
+      # newly-unblocked existing ones). Now MEASURED on the merged tree, not
+      # predicted: `Results: 310 passed, 56 failed, 366 total (floor: 308)`
+      # on run 39052965972 (job 117455299500) — exactly the union 308 + 2,
+      # confirming the two new corpus fixtures and #813's ten both still
+      # pass together. Raised 308 -> 310 to lock the improvement in.
+      GO_COMPILER_FLOOR: "310"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

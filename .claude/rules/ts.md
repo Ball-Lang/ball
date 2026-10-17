@@ -223,18 +223,24 @@ const json = toJson(ProgramSchema, program);
   (cross-target, incl. the `TS Compiled (Direct)` row) and
   `ts/compiler/test/extension_override.test.ts`, which compiles the fixture and
   RUNS it against the golden.
-  **A getter always wins the `extensionMembers` slot over a same-named
-  setter (PR #829 review).** The getter and setter share one qualified Ball
-  function name, differing only in `metadata.is_getter`/`is_setter`; the
-  collection loop holds a setter's entry back in a side map and applies it
-  only for a name no getter already claimed. Before this fix the map
-  stored whichever accessor was visited LAST — always the setter, since
-  `get` syntactically precedes `set` — so a plain READ compiled to
-  `(Ext.prototype as any).member.call(recv)`, invoking the SETTER
-  accessor's value (not a function) instead of routing the getter through
-  `Reflect.get`. The new test "a read through an override with both a
-  getter and a setter dispatches the getter" is hand-built IR, not a
-  fixture — 480 deliberately carries no setter arm.
+  **A setter is NEVER inserted into `extensionMembers` at all (PR #829
+  review).** The getter and setter share one qualified Ball function name,
+  differing only in `metadata.is_getter`/`is_setter`. Before this fix the
+  collection loop stored whichever accessor was visited LAST — always the
+  setter, since `get` syntactically precedes `set` — so a plain READ
+  compiled to `(Ext.prototype as any).member.call(recv)`, invoking the
+  SETTER accessor's value (not a function) instead of routing the getter
+  through `Reflect.get`. A held-back-setter design (apply it only when no
+  getter claims the name) was tried and reverted: a setter-only entry
+  reached through this table is just as broken as the wrong one was
+  (`(Ext.prototype as any).member` is `undefined` with no getter to
+  invoke), and every real call site here is a READ — an override read of a
+  setter-only property is not valid Dart — so the branch was both unsound
+  if ever reached and unreachable by anything that compiles, which the
+  100%-line-coverage gate on `ts/compiler`'s test step caught outright.
+  The new test "a read through an override with both a getter and a setter
+  dispatches the getter" is hand-built IR, not a fixture — 480 deliberately
+  carries no setter arm.
 
 ### Engine
 

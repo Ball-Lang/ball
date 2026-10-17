@@ -92,9 +92,9 @@
 //! again (there are five non-`#[ignore]`d tests now, beside the `#[ignore]`d
 //! sweep). Prose saying "do not re-add it" rots the same way that SAFETY note
 //! did, so the ban is the compiler's: the budget reaches [`run_dart`] as an
-//! ARGUMENT and the spelling is parsed by the pure [`parse_timeout`], and any
-//! future test reaching for `set_var` fails to COMPILE in the PR-gated `Rust`
-//! job rather than being caught by a reader.
+//! ARGUMENT and the spelling is read through the injected lookup
+//! [`budget_from`] takes, and any future test reaching for `set_var` fails to
+//! COMPILE in the PR-gated `Rust` job rather than being caught by a reader.
 #![forbid(unsafe_code)]
 
 use std::panic::{self, AssertUnwindSafe};
@@ -116,12 +116,19 @@ use prost_reflect::{DynamicMessage, SerializeOptions};
 /// fixtures are what that budget is for.
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 
+/// The env var name the per-fixture budget is read from — spelled ONCE, so
+/// both the production reader ([`fixture_timeout`]) and the self-test that
+/// pins the spelling ([`the_per_fixture_budget_is_read_from_ball_timeout_ms`])
+/// share the literal rather than each quoting it separately. The same
+/// spelling `go/engine/conformance/roundtrip.go` uses.
+const BALL_TIMEOUT_MS_VAR: &str = "BALL_TIMEOUT_MS";
+
 /// One `BALL_TIMEOUT_MS` spelling -> a budget; `None` (unset) is
 /// [`DEFAULT_TIMEOUT_MS`].
 ///
-/// Deliberately PURE, so the budget's rules are provable without writing the
-/// environment. `std::env::set_var` is `unsafe` precisely because another
-/// thread may be inside `getenv`, and libtest runs a target's tests
+/// Deliberately PURE, so the budget's parsing rules are provable without
+/// writing the environment. `std::env::set_var` is `unsafe` precisely because
+/// another thread may be inside `getenv`, and libtest runs a target's tests
 /// concurrently — so a self-test that SET the variable could only be justified
 /// by "nothing else runs in this process", a claim that was already false here
 /// (`the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` is a second
@@ -129,6 +136,10 @@ const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 /// again. Parsing through a seam costs nothing and keeps the proof honest —
 /// and the crate-level `#![forbid(unsafe_code)]` makes that a build error
 /// rather than a rule a later reader has to remember.
+///
+/// **This function alone does NOT prove which env var name reaches the
+/// sweep** — it never sees a variable name, only the string [`budget_from`]
+/// hands it. [`budget_from`] is the seam that does.
 fn parse_timeout(raw: Option<&str>) -> Duration {
     match raw {
         Some(raw) => {
@@ -147,17 +158,31 @@ fn parse_timeout(raw: Option<&str>) -> Duration {
     }
 }
 
+/// Resolves the budget through an INJECTED lookup rather than calling
+/// `std::env::var` directly, so the one thing [`parse_timeout`] alone cannot
+/// prove — that [`BALL_TIMEOUT_MS_VAR`] is the exact key name reaching the
+/// sweep — is provable by a test with a fake lookup, no environment write
+/// required. [`fixture_timeout`] is the only production caller, with the real
+/// `std::env::var` as the lookup; `the_per_fixture_budget_is_read_from_ball_timeout_ms`
+/// is the only test caller, with a lookup that records the key it was asked
+/// for. A typo'd [`BALL_TIMEOUT_MS_VAR`] at either call site changes what key
+/// the test's fake lookup is asked for and fails that assertion.
+fn budget_from(mut lookup: impl FnMut(&str) -> Option<String>) -> Duration {
+    parse_timeout(lookup(BALL_TIMEOUT_MS_VAR).as_deref())
+}
+
 /// The per-fixture budget, overridable through `BALL_TIMEOUT_MS` — the same
 /// spelling `go/engine/conformance/roundtrip.go` uses.
 ///
 /// An operator needs it to shorten a sweep on a slow machine. A budget that
 /// cannot be reached from a test is a budget nobody has measured, so it is
-/// reached in two halves that are each pinned below: [`parse_timeout`] owns the
-/// spelling, and [`run_dart`] takes the budget as an ARGUMENT so the runaway
-/// self-test can prove the kill in milliseconds without touching the
+/// reached in three halves that are each pinned below: [`budget_from`] owns
+/// the spelling (provable with a fake lookup), [`parse_timeout`] owns the
+/// parsing rules, and [`run_dart`] takes the budget as an ARGUMENT so the
+/// runaway self-test can prove the kill in milliseconds without touching the
 /// environment.
 fn fixture_timeout() -> Duration {
-    parse_timeout(std::env::var("BALL_TIMEOUT_MS").ok().as_deref())
+    budget_from(|name| std::env::var(name).ok())
 }
 
 fn repo_root() -> PathBuf {
@@ -319,7 +344,7 @@ fn run_dart(
     // is a PARAMETER rather than a read of `fixture_timeout()` so the runaway
     // self-test can shorten it to milliseconds without writing the environment
     // out from under the other tests sharing this process (see
-    // [`parse_timeout`]).
+    // [`budget_from`]).
     let mut child = Command::new(dart)
         .arg("run")
         .arg(root.join("dart/cli/bin/ball.dart"))
@@ -595,15 +620,33 @@ fn build_runaway_launcher(dir: &Path) -> PathBuf {
 /// one, and an operator shortening a sweep on a slow machine has nothing else
 /// to reach for. Since [`run_dart`] now takes the budget as an argument — so
 /// the runaway self-test below never writes the environment out from under a
-/// concurrently-running test — this pure parse is the half that proves the
-/// spelling still reaches the sweep, and that a TYPO is loud rather than a
-/// silent fall back to the production 60 s.
+/// concurrently-running test — the spelling itself is proven here through
+/// [`budget_from`]'s injected lookup: a fake lookup that RECORDS the key name
+/// it was asked for, so a typo'd [`BALL_TIMEOUT_MS_VAR`] (e.g.
+/// `"BALL_TIMEOUT_MSX"`) fails this assertion even though no real environment
+/// variable is ever written. Testing [`parse_timeout`] alone — this test's
+/// shape before #857's review round 1 — cannot see that: it never receives a
+/// variable NAME, only the string already extracted from one, so a typo'd
+/// [`BALL_TIMEOUT_MS_VAR`] would pass every assertion that only calls
+/// `parse_timeout` directly, even though [`fixture_timeout`] (the production
+/// caller) would then silently read the wrong variable.
 #[test]
 fn the_per_fixture_budget_is_read_from_ball_timeout_ms() {
-    assert_eq!(parse_timeout(Some("300")), Duration::from_millis(300));
-    assert_eq!(parse_timeout(Some("  1500  ")), Duration::from_millis(1500));
+    let mut queried_name = None;
+    let budget = budget_from(|name| {
+        queried_name = Some(name.to_string());
+        Some("300".to_string())
+    });
     assert_eq!(
-        parse_timeout(None),
+        queried_name.as_deref(),
+        Some("BALL_TIMEOUT_MS"),
+        "the per-fixture budget must be looked up by the name BALL_TIMEOUT_MS"
+    );
+    assert_eq!(budget, Duration::from_millis(300));
+
+    assert_eq!(budget_from(|_| Some("  1500  ".to_string())), Duration::from_millis(1500));
+    assert_eq!(
+        budget_from(|_| None),
         Duration::from_millis(DEFAULT_TIMEOUT_MS),
         "an unset BALL_TIMEOUT_MS must be the production budget"
     );
@@ -612,8 +655,9 @@ fn the_per_fixture_budget_is_read_from_ball_timeout_ms() {
     // the spellings an operator actually types, and each one silently meaning
     // 60 000 ms would make a sweep's timings a fiction.
     for typo in ["", "60s", "1.5", "-1", "0"] {
+        let typo = typo.to_string();
         assert!(
-            catch_panic_message(|| parse_timeout(Some(typo))).is_err(),
+            catch_panic_message(|| budget_from(|_| Some(typo.clone()))).is_err(),
             "`BALL_TIMEOUT_MS={typo}` must fail loud, never fall back to {DEFAULT_TIMEOUT_MS}ms"
         );
     }

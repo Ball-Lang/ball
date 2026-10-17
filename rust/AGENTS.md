@@ -205,9 +205,12 @@ would wedge the row's 90-minute job rather than report anything. That is not hyp
 - The budget is `BALL_TIMEOUT_MS` (default 60 000) — the same spelling
   `go/engine/conformance/roundtrip.go` uses. A non-integer value is a hard error, never a silent
   fallback. It is configurable *so that it is testable*: a hard-coded constant is a budget nobody
-  has measured. It is read in exactly one place (`fixture_timeout`) and parsed by the PURE
-  `parse_timeout`, which `the_per_fixture_budget_is_read_from_ball_timeout_ms` pins — the
-  spelling, the unset default, and the loud rejection of `60s`/`1.5`/`-1`/`0` — without
+  has measured. It is read in exactly one place (`fixture_timeout`), which delegates to the
+  injectable `budget_from(lookup)` — the seam that makes the SPELLING itself provable without an
+  environment write, since `parse_timeout` alone never sees a variable name, only the string
+  already extracted from one. `the_per_fixture_budget_is_read_from_ball_timeout_ms` calls
+  `budget_from` with a fake lookup that records the key it was asked for and pins all three:
+  the spelling, the unset default, and the loud rejection of `60s`/`1.5`/`-1`/`0` — without
   writing the environment.
 - `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` is the self-test for the
   KILL. It builds a **fabricated runaway** with `rustc` at test time (a program that ignores its

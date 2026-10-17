@@ -978,8 +978,9 @@ and its own encoder refuses caps that column no matter how good either half is o
   row passes its own `  <name>: TIMEOUT` pattern). The kill itself is self-tested on a fabricated
   runaway — `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` (the budget
   reaches `run_dart` as an ARGUMENT, so the kill is proven in milliseconds with no environment
-  write; the env SPELLING is pinned separately by the pure
-  `the_per_fixture_budget_is_read_from_ball_timeout_ms`), and
+  write; the env SPELLING is pinned separately, through the injectable `budget_from(lookup)`,
+  by `the_per_fixture_budget_is_read_from_ball_timeout_ms`, which calls it with a fake lookup
+  that records the key it was asked for), and
   `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
   `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
   run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Every

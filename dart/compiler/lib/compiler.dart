@@ -1931,9 +1931,41 @@ class DartCompiler {
       // When the constructor uses Ball's single-input convention (one param
       // named "input") and the class has fields, replace with `this.fieldName`
       // initializing formals. This handles the common encoding pattern where
-      // `MyClass(this.name)` becomes `params: [{name: 'input', type: 'String'}]`.
+      // `MyClass(this.name)` becomes `params: [{name: 'input', type: 'String'}]`
+      // — a BODILESS constructor some non-Dart encoder (lacking per-field
+      // `this.`-formal introspection) emits with no other way to say "this
+      // single opaque input fans out to every field in order".
+      //
+      // That shape is ambiguous with an ordinary constructor's, though: a
+      // plain, non-colliding positional parameter also gets renamed to
+      // literally `input` by [_addParameters] above (an UNRELATED
+      // convention, aliasing the Ball calling convention's one parameter
+      // inside the body) whenever the original name isn't already `input` —
+      // and once a constructor like `Foo(int x) { print(x); }` is compiled
+      // to `Foo(int input) { final x = input; print(x); }` and RE-ENCODED,
+      // the encoder reads `input` right off the Dart source, so the second
+      // compile sees `params: [{name: 'input'}]` too, indistinguishable from
+      // the legitimate shape by the params list alone. A constructor with a
+      // real BODY is exactly the case that's never produced by the
+      // bodiless-fan-out convention this override models, and is always
+      // produced by the rename — so gating on "no real body" (no body at
+      // all, matching Dart's own `MyClass(this.a, this.b);` sugar, OR a body
+      // that is nothing but the bare `input` reference itself — a no-op
+      // pass-through that conveys no behaviour of its own) is what actually
+      // distinguishes them. Without it, `Foo(int x) { print(x); }`'s plain
+      // parameter `x` — merely sharing a field's name — became a disguised
+      // `this.x` on round-trip, clobbering field writes that never happened
+      // in the source and reading `input` out of a parameter list that no
+      // longer declared one (#539's sibling, surfaced by
+      // `453_ctor_param_shadows_field`/`454_inline_instance_argument_name_
+      // collision`/`455_ctor_field_writes_that_survive`).
       final params = meta['params'];
+      final hasRealBody =
+          func.hasBody() &&
+          !(func.body.whichExpr() == Expression_Expr.reference &&
+              func.body.reference.name == 'input');
       final isSingleInput =
+          !hasRealBody &&
           params is List &&
           params.length == 1 &&
           params[0] is Map &&
@@ -3365,13 +3397,29 @@ class DartCompiler {
         !universalObjectMembers.contains(fa.field_2)) {
       return _raw("${_emit(obj)}['${fa.field_2}']");
     }
+    var inner = _emit(obj);
+    // A receiver proven non-null in the current branch — the `else` arm of a
+    // lowered `X == null ? null : X.…` null-aware guard — is a field, getter
+    // or top-level reference the (syntactic, unresolved) encoder could not
+    // prove PROMOTABLE (`_nullAwareNeedsTemp`), so Dart's flow analysis never
+    // narrows its static type here. Assert it explicitly so the member
+    // access still type-checks: `X!.field` rather than the rejected `X.field`
+    // (#471's `node?.leaf.value`, where `node` is a mutable field). Mirrors
+    // the `X!.member()` assertion [_compileCall] makes for a self-carrying
+    // call whose receiver is a bare reference — this is the sibling for a
+    // *plain field access* chain, which never reaches that call-site switch.
+    if (fa.object.whichExpr() == Expression_Expr.reference &&
+        _nonNullRefs.contains(fa.object.reference.name)) {
+      inner = '$inner!';
+    }
     // Parenthesize an operator receiver so `.field` binds to it, not the
     // operand: `(-2.5).isNegative`, not `-2.5.isNegative` (= `-(2.5.isNegative)`).
-    final inner = _emit(obj);
     if (_needsParensAsReceiver(fa.object, inner)) {
       return _raw('($inner).${fa.field_2}');
     }
-    return obj.property(fa.field_2);
+    return inner == _emit(obj)
+        ? obj.property(fa.field_2)
+        : _raw('$inner.${fa.field_2}');
   }
 
   /// If [condition] is an `is`-check that promotes a catch-bound variable to a
@@ -3542,14 +3590,25 @@ class DartCompiler {
               : '${call.function}$typeArgs(${_compileArgs(remaining)})';
         }
         // When the receiver was proven non-null in this branch (the `else`
-        // arm of a lowered `X?.call()` guard), assert it so invoking it
-        // type-checks: `X!.call()`. Dart promotes nullable *locals* in the
-        // guard's else arm but never *fields*; `.call()` (the `invoke` base
-        // function) is the construct that surfaces this — a field holding a
-        // nullable function. Restricting to `call` avoids redundant `!` on
-        // already-promoted locals (e.g. `local?.toString()`).
-        if (call.function == 'call' &&
-            selfField.value.whichExpr() == Expression_Expr.reference &&
+        // arm of a lowered `X == null ? null : X.…` null-aware guard), assert
+        // it so invoking a member on it type-checks: `X!.member()`. Dart
+        // promotes nullable *locals* in the guard's else arm but never
+        // *fields* — and the syntactic (unresolved) encoder path that
+        // generates every conformance fixture can never tell a field from a
+        // local (`_nullAwareNeedsTemp` needs a resolved `element`, which
+        // `parseString` never produces), so the IR gives the compiler no way
+        // to know either. This used to be restricted to `call.function ==
+        // 'call'` (the narrower `X?.call()` — a field holding a nullable
+        // function) to avoid a redundant `!` on an already-promoted local;
+        // that left every OTHER member invoked directly on a non-null-proven
+        // *bare-reference* self — a chain's hoisted `__nac_N.twice()` in
+        // `471_null_aware_chain_scope` — compiling to rejected Dart. See the
+        // sibling fix in [_compileFieldAccess] for the `X.field` shape (no
+        // call at all) this one does not cover. A redundant `!` on an
+        // already-promoted local is merely a lint, never a compile error, so
+        // asserting unconditionally trades that cosmetic cost for
+        // correctness on every receiver shape.
+        if (selfField.value.whichExpr() == Expression_Expr.reference &&
             _nonNullRefs.contains(selfField.value.reference.name)) {
           selfStr = '$selfStr!';
         }

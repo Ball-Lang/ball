@@ -592,6 +592,54 @@ pub fn empties(cap: i64) -> String {
     }
 }
 
+/// Issue #854: `String::with_capacity(side_effect())` feeding a `write!`
+/// sink — the one shape that exercises BOTH #777's capacity-argument block
+/// wrapper AND #630's pre-existing local-`String` write-destination
+/// classification on the SAME binding. `record_local` (`lib.rs`) classifies
+/// a `let`-bound local by matching `is_string_constructor` against the
+/// **unmodified `syn::Expr`** — `String::with_capacity(..)`, regardless of
+/// what its argument is — so this proves #777's block wrapper around a
+/// side-effecting capacity argument cannot defeat that syntactic match: `s`
+/// must still be a re-assigned local `String`, never `std.sink_write`, AND
+/// the capacity argument's side effect must still run. Neither sibling test
+/// above exercises both halves on one binding:
+/// `with_capacity_still_evaluates_an_argument_that_has_a_side_effect` never
+/// writes into `s`, and the write-sink tests never give their local a
+/// side-effecting `with_capacity`.
+///
+/// RED against the pre-#844 encoder: before that fix `with_capacity`'s
+/// argument was dropped WHOLE — unevaluated — so `side_effect()` never ran
+/// and the first printed line here would be missing.
+#[test]
+fn with_capacity_of_a_side_effect_still_classifies_as_a_local_string_sink() {
+    const SOURCE: &str = r#"
+fn side_effect() -> i64 {
+    println!("side effect ran");
+    16
+}
+
+fn main() {
+    let mut s = String::with_capacity(side_effect());
+    write!(&mut s, "a").unwrap();
+    write!(&mut s, "{}", 7).unwrap();
+    println!("[{}]", s);
+}
+"#;
+    let program = encode(SOURCE);
+    let rust_source = Compiler::new(&program).compile();
+    assert!(
+        !rust_source.contains("ball_sink_write"),
+        "a provably-local `String` must stay the re-assignment arm, even when its \
+         `with_capacity` argument is wrapped in a block for its side effect:\n{rust_source}"
+    );
+    assert_eq!(
+        harness::compile_and_run("with_capacity_write_sink", &rust_source),
+        "side effect ran\n[a7]\n",
+        "the capacity argument's side effect must still run AND `s` must still be a \
+         local String sink, not an opaque sink"
+    );
+}
+
 #[test]
 fn a_closure_parameter_shadows_an_enclosing_local_string() {
     // The shadowing trap: an enclosing local `String` named `f` must not make

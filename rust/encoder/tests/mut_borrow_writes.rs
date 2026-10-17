@@ -135,6 +135,55 @@ fn a_write_to_a_field_of_a_mut_borrow_is_refused_too() {
     assert_names_the_place(&message, "s", "p . field");
 }
 
+/// Issue #736, part 1: `let a = &mut p.field; let b = &mut a; *b = …;` — a
+/// `&mut` of a variable that is ITSELF an unmodellable (`Opaque`) alias.
+/// `block.rs::encode_local`'s `Borrow::Variable(target)` arm looks `target`
+/// up in `ref_aliases` and, when it finds an `AliasTarget::Opaque`, makes
+/// the NEW binding (`b`) INHERIT that opaqueness rather than becoming a
+/// modelled alias of the copy `a` already is. Flipping that arm to
+/// `Variable`/`None` reintroduces exactly the #693 silent lost write, one
+/// level removed: the write would land on `a` (itself only a copy of
+/// `p.field`) or on `b` directly, never on `p.field`, and with NO refusal
+/// at all — this test's own `refusal_message` helper turns that silent
+/// success into the failure it is.
+#[test]
+fn a_write_through_a_mut_borrow_of_an_already_opaque_alias_is_refused_too() {
+    let message = refusal_message(
+        "fn main() { let mut p = make(); let a = &mut p.field; let b = &mut a; \
+         *b = BallValue::Int(5i64); println!(\"{}\", p); } \
+         fn make() -> i64 { 1 }",
+    );
+    assert_names_the_place(&message, "b", "p . field");
+}
+
+/// Issue #736, part 2: `&mut <multi-segment path>` (e.g. a `static mut`/
+/// `const` reached through a module qualifier, or — as pinned here, so the
+/// encoder never needs to panic just to build the fixture — an enum
+/// variant's own qualified path, `Color::Red`) used to be classified as
+/// NEITHER `Variable` NOR `Opaque`. `block.rs::borrowed`'s
+/// `syn::Expr::Path` arm matches the WHOLE path first, so its own `None`
+/// (from `path.get_ident()` failing on a multi-segment path) answered the
+/// entire match directly — the `other if reference.mutability.is_some() =>
+/// Opaque` catch-all one arm below can never run once a `syn::Expr::Path`
+/// has already matched. So NO alias was ever recorded for the binding, and
+/// a write through it landed on a silent copy with no refusal at all — the
+/// same #693 class the field/index shapes above are refused for, slipping
+/// past it on a different kind of place.
+#[test]
+fn a_write_through_a_mut_borrow_of_a_multi_segment_path_is_refused_too() {
+    let message = refusal_message(
+        "enum Color { Red, Blue } \
+         fn main() { let s = &mut Color::Red; *s = Color::Blue; println!(\"done\"); }",
+    );
+    for needle in ["s", "Color", "Red", "#692"] {
+        assert!(
+            message.contains(needle),
+            "the refusal must mention `{needle}` — naming the alias and the \
+             multi-segment place it borrows — got: {message}"
+        );
+    }
+}
+
 // ── The controls: the refusal must stay NARROW ──────────────────────────────
 
 /// A READ through an unmodellable `&mut` borrow is still encoded. A read of a

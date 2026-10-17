@@ -343,10 +343,27 @@ fn borrowed(expr: &syn::Expr) -> Option<Borrow> {
         syn::Expr::Paren(paren) => borrowed(&paren.expr),
         syn::Expr::Group(group) => borrowed(&group.expr),
         syn::Expr::Reference(reference) => match strip_parens(&reference.expr) {
-            syn::Expr::Path(path) => path
-                .path
-                .get_ident()
-                .map(|ident| Borrow::Variable(ident.to_string())),
+            // A single-segment path (`&mut i`) is the one place this encoder
+            // can MODEL — `Borrow::Variable`. A MULTI-segment path (`&mut
+            // m::S`, a `static mut` or a const item reached through a module
+            // qualifier) is a place too, just not one `get_ident()` can name:
+            // falling through this arm's `None` to the catch-all below would
+            // never happen (a `syn::Expr::Path` arm, once matched, owns the
+            // whole match — issue #736), so a `&mut` of one used to answer
+            // `None` from THIS arm directly, meaning "not a borrow at all".
+            // That is the one silent-lost-write class #693 exists to refuse,
+            // slipping past it: `encode_local` recorded no alias, so a later
+            // write landed on an ordinary copy with no refusal at all.
+            // Multi-segment `&mut` now falls into the SAME `Opaque` bucket a
+            // field/index borrow does — refused loudly at the write site,
+            // never silently dropped.
+            syn::Expr::Path(path) => match path.path.get_ident() {
+                Some(ident) => Some(Borrow::Variable(ident.to_string())),
+                None if reference.mutability.is_some() => {
+                    Some(Borrow::Opaque(quote::quote!(#path).to_string()))
+                }
+                None => None,
+            },
             other if reference.mutability.is_some() => {
                 Some(Borrow::Opaque(quote::quote!(#other).to_string()))
             }

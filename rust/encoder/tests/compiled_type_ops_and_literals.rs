@@ -477,15 +477,16 @@ fn main() {
 /// `map_create` node: one repeated `entry` field per pair, each an anonymous
 /// `{key, value}` message-creation.
 ///
-/// The `std.to_string({value: "a"})` around each string KEY is expected, and is
-/// asserted rather than normalized away. `compile_expression` emits a Ball
-/// string literal as `BallValue::String("a".to_string())`, and `.to_string()`
-/// is NOT one of `methods.rs`'s identity passthroughs — in hand-written Rust,
-/// which is this encoder's actual input, it genuinely IS `std.to_string`. Over
-/// a `String` that op returns its operand unchanged, so the re-encoded program
-/// computes the same map; the extra node is a node-fidelity difference, not a
-/// behavioural one. It applies to EVERY compiled string literal, predates this
-/// slice, and is out of #692's scope — see `rust/AGENTS.md`.
+/// Each string KEY comes back as the bare literal it started as, `"a"`/`"b"`
+/// — NOT wrapped in `std.to_string({value: "a"})`. That extra wrapper used to
+/// be asserted here deliberately (issue #807's pre-fix state, before the
+/// literal-receiver guard in `methods.rs::literal_string_value` existed): a
+/// compiled string literal is `BallValue::String("a".to_string())`
+/// (`compile_expression`'s literal arm), and an UNGUARDED `.to_string()`
+/// method call lowers to `std.to_string`, same as it does in hand-written
+/// Rust. Issue #807 closed that gap once it was measured (251 of 368
+/// `tests/conformance` fixtures carry at least one string literal) — see the
+/// dedicated test below and `rust/AGENTS.md`.
 #[test]
 fn a_compiled_map_literal_re_encodes_as_std_map_create() {
     let program = program_printing(
@@ -516,15 +517,111 @@ fn a_compiled_map_literal_re_encodes_as_std_map_create() {
     assert_eq!(
         first_std_call(&stage3, "map_create"),
         vec![
-            (
-                "entry".to_string(),
-                "{key: std.to_string({value: \"a\"}), value: 1}".to_string(),
-            ),
-            (
-                "entry".to_string(),
-                "{key: std.to_string({value: \"b\"}), value: 2}".to_string(),
-            ),
+            ("entry".to_string(), "{key: \"a\", value: 1}".to_string()),
+            ("entry".to_string(), "{key: \"b\", value: 2}".to_string()),
         ],
+    );
+}
+
+// ════════════════════════════════════════════════════════════
+// 3. Issue #807 — a compiled string literal's `.to_string()` wrapper
+// ════════════════════════════════════════════════════════════
+
+/// A `Program` whose `main` body IS `body` directly — unlike
+/// [`program_printing`], no `std.print` wrapper. `println!`'s own `{}`
+/// placeholder ALWAYS re-wraps its argument in a fresh `std.to_string` call
+/// (`methods.rs::build_format_args`'s `FormatPart::Placeholder` arm, which
+/// wraps unconditionally — it has nothing to do with issue #807's
+/// *method-call* arm), so printing the literal under test would hide
+/// whether the literal itself round-trips bare underneath that wrapper.
+fn program_with_body(body: Expression, base_functions: &[&str]) -> Program {
+    let std_functions: Vec<FunctionDefinition> = base_functions
+        .iter()
+        .map(|name| FunctionDefinition {
+            name: (*name).to_string(),
+            is_base: true,
+            ..Default::default()
+        })
+        .collect();
+    Program {
+        name: "encoded".to_string(),
+        version: "1.0.0".to_string(),
+        entry_module: "main".to_string(),
+        entry_function: "main".to_string(),
+        modules: vec![
+            Module {
+                name: "std".to_string(),
+                functions: std_functions,
+                ..Default::default()
+            },
+            Module {
+                name: "main".to_string(),
+                functions: vec![FunctionDefinition {
+                    name: "main".to_string(),
+                    output_type: "void".to_string(),
+                    body: Some(Box::new(body)),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+/// A BARE string literal — not inside any `std.to_string` call in the
+/// original program — compiles to `BallValue::String("hello".to_string())`
+/// (`compile_expression`'s literal arm), exactly like every other Ball string
+/// literal, including the map-literal KEYS above. Before issue #807's fix,
+/// re-encoding that compiled Rust wrapped it in
+/// `std.to_string({value: "hello"})` — a node-fidelity regression that, by
+/// construction, touches every compiled string literal: measured at 251 of
+/// the 368 `tests/conformance` fixtures (68%), the single largest node-shape
+/// gap in the compiler<->encoder round trip. The re-encoded program must
+/// carry the bare literal it started as, with no `std.to_string` call
+/// anywhere.
+#[test]
+fn a_compiled_bare_string_literal_re_encodes_as_the_bare_literal() {
+    let program = program_with_body(string_literal("hello"), &[]);
+    let compiled = compile_emitting(&program, "\"hello\".to_string()");
+
+    let stage3 = ball_lang_encoder::encode(&compiled);
+    assert!(
+        std_calls(&stage3).is_empty(),
+        "a bare compiled string literal must not re-encode through any `std.*` call — \
+         specifically not `std.to_string`: {:?}",
+        std_calls(&stage3)
+    );
+    assert!(
+        all_expressions(&stage3).iter().any(|expr| matches!(
+            &expr.expr,
+            Some(Expr::Literal(literal))
+                if literal.value == Some(LiteralValue::StringValue("hello".to_string()))
+        )),
+        "the re-encoded program must still carry the bare string literal \"hello\""
+    );
+}
+
+/// The control: `std.to_string` over a NON-literal value — the compiler's
+/// FUNCTION-CALL route (`ball_to_string(...)`, resolved through the
+/// `runtime_helpers.rs` table) — is a completely different code path from
+/// `methods.rs`'s `.to_string()` METHOD-CALL arm issue #807 touches (the
+/// compiler never emits a `.method()` call for `std.to_string` — only for a
+/// compiled string LITERAL, as above), and must still round-trip unaffected:
+/// `.to_string()` is a REAL conversion on a non-literal value (an `Int`'s
+/// `.to_string()` is not the int itself).
+#[test]
+fn a_compiled_non_literal_to_string_call_still_re_encodes_as_std_to_string() {
+    let program = program_with_body(
+        std_call("to_string", vec![("value", int_literal(7))]),
+        &["to_string"],
+    );
+    let compiled = compile_emitting(&program, "ball_to_string(");
+
+    let stage3 = ball_lang_encoder::encode(&compiled);
+    assert_eq!(
+        first_std_call(&stage3, "to_string"),
+        vec![("value".to_string(), "7".to_string())],
     );
 }
 

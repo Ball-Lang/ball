@@ -700,6 +700,76 @@ fn compiled_method_dispatcher_scrutinee_is_a_documented_gap() {
     let _ = ball_lang_encoder::encode_library(&compiled);
 }
 
+// ── control_flow.rs: nested patterns inside Some/Ok/Err(...) ────────────────
+
+/// Issue #767's sixth gap, measured at **5** real Tier A occurrences (the
+/// issue's own list said 4 — stale, like its `write!` row). All five are the
+/// SAME refusal in `control_flow.rs::pattern_outcome_shape` — "only a simple
+/// identifier or `_` binding is supported inside Some/Ok/Err(...)" — reached
+/// through a DIFFERENT nested pattern shape each time, and nothing in CI ever
+/// observed any of them before this slice (issue #767's own complaint: a
+/// measured-but-untracked panic is exactly what these five pins fix). They
+/// are five SEPARATE tests, not one, because a change that widens the
+/// restriction to admit one shape must not silently leave another's
+/// regression unobserved — the same reasoning
+/// `impl_for_a_non_named_self_type_is_a_documented_gap` /
+/// `impl_for_an_array_self_type_is_a_documented_gap` split on above.
+///
+/// A SLICE pattern as the inner binding encodes a runtime LENGTH check
+/// `outcome_condition`'s flat `is_err` test cannot express — treating it as
+/// "binds nothing, matches any Ok" (the way a bare `_` already does) would
+/// silently drop that check, the #55 class of bug this crate's fail-loud
+/// posture exists to prevent.
+#[test]
+#[should_panic(expected = "only a simple identifier or `_` binding is supported inside")]
+fn nested_slice_pattern_inside_outcome_is_a_documented_gap() {
+    encode("fn main() { let r = Ok(1); if let Ok([_, _]) = r { println!(\"{}\", 1); } }");
+}
+
+/// A nested user ENUM-VARIANT pattern as the inner binding — the same
+/// missing-runtime-check reasoning as the slice pattern above, over a
+/// variant's discriminant TAG instead of a length: silently treating
+/// `Ok(Either::Left(_))` as "any Ok" would drop the tag check a second
+/// `Ok(Either::Right(_))` arm in the same match relies on to differ from it.
+#[test]
+#[should_panic(expected = "only a simple identifier or `_` binding is supported inside")]
+fn nested_enum_variant_pattern_inside_outcome_is_a_documented_gap() {
+    encode("fn main() { let r = Ok(1); if let Ok(Either::Left(_)) = r { println!(\"{}\", 1); } }");
+}
+
+/// A TUPLE pattern as the inner binding (`(_, flag)`) — a different reason
+/// from the two above: a tuple's arity is fixed by its static type, so there
+/// is no missing RUNTIME check here, only a missing ability to bind a name
+/// from INSIDE a nested shape, since `pattern_outcome_shape` returns one flat
+/// `Option<String>`, never a tree of positional bindings.
+#[test]
+#[should_panic(expected = "only a simple identifier or `_` binding is supported inside")]
+fn nested_tuple_pattern_inside_outcome_is_a_documented_gap() {
+    encode("fn main() { let r = Ok(1); if let Ok((_, flag)) = r { println!(\"{}\", flag); } }");
+}
+
+/// A nested OUTCOME pattern with its own real binding (`Some(Ok(ok))`) — a
+/// third, distinct reason: closing this needs the discriminant check
+/// **chained** (an inner `is_err` test nested inside the outer's `then`
+/// branch), which `pattern_outcome_shape`'s single `(bool, Option<String>)`
+/// return cannot express either.
+#[test]
+#[should_panic(expected = "only a simple identifier or `_` binding is supported inside")]
+fn nested_outcome_pattern_with_binding_inside_some_is_a_documented_gap() {
+    encode("fn main() { let r = Some(1); if let Some(Ok(ok)) = r { println!(\"{}\", ok); } }");
+}
+
+/// A second, distinct source occurrence of the same nested-outcome shape
+/// above (`Ok(Ok(x))` rather than `Some(Ok(ok))`) — `rust/AGENTS.md`'s count
+/// for this gap is 5, not 4, because of exactly this second file, kept as
+/// its own pin for the same "do not let one admitted shape hide another's
+/// regression" reason the other four are split.
+#[test]
+#[should_panic(expected = "only a simple identifier or `_` binding is supported inside")]
+fn nested_outcome_pattern_with_binding_inside_ok_is_a_documented_gap() {
+    encode("fn main() { let r = Ok(1); if let Ok(Ok(x)) = r { println!(\"{}\", x); } }");
+}
+
 /// A one-function library whose body is `[...?input]` — the smallest program
 /// that makes `compile_collection_element` emit the null-spread guard.
 fn null_spread_program() -> Program {

@@ -362,8 +362,40 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   process's DESCENDANTS included. Killing alone therefore does not end the
   fixture: one surviving grandchild wedges the sweep, it never prints a
   `Results:` line, and the row dies on `timeout-minutes` instead of reporting a
-  timeout. `roundtrip_timeout_test.go` is the negative control (5.6 s with the
-  bound, 30.1 s without).
+  timeout. `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe`
+  (`roundtrip_timeout_test.go`) is the negative control (5.6 s with the bound,
+  30.1 s without).
+- **The kill reaches the WHOLE process tree, not just the immediate `dart`
+  (#862 — the Go leg's half of #791).** `dart run` is a launcher: it forks the
+  Dart VM, and the VM is what actually executes the re-encoded program.
+  Bounding the WAIT above is not the same as killing the TREE — before #862,
+  `roundTripOne`'s timeout path called only `cmd.Process.Kill()`, which reaches
+  the launcher alone and leaves that VM running, orphaned, in the CI runner for
+  the rest of the job. `roundtrip_unix.go` / `roundtrip_windows.go` (filename
+  build constraints — "unix" is not a GOOS the filename convention recognizes
+  on its own, so the unix file also carries an explicit `//go:build unix`)
+  spawn the child as its own process-group leader
+  (`cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`) and kill the GROUP
+  on timeout (`syscall.Kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on Windows),
+  matching `csharp/engine/conformance/RoundTripLeg.cs`'s
+  `Kill(entireProcessTree: true)` and the Rust/Python legs' #791 fix.
+  `TestRoundTripKillEndsTheWholeProcessTree` is the negative control: the same
+  stand-in `dart`'s grandchild now appends a heartbeat file every 50 ms, and
+  the test asserts it stops growing after the timeout — with a positive floor
+  on that file so a control that failed to fork anything cannot pass while
+  proving nothing.
+- **The group kill would otherwise defeat the WaitDelay control above, because
+  both share the same stand-in `dart`.** Left unmodified, the group kill ends
+  that control's grandchild too, so it would pass on the tree kill alone with
+  `cmd.WaitDelay` never engaging — the 5.6 s / 30.1 s numbers above would both
+  read fast and deleting `cmd.WaitDelay` would go uncaught.
+  `roundTripOne`'s timeout path therefore calls a package-level `killOnTimeout`
+  var (defaulting to `killProcessTree`) rather than `killProcessTree` directly,
+  and `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe` substitutes a
+  launcher-only kill for the duration of its own run — the pre-#862 topology,
+  a descendant the tree kill does not reach — so a prompt return can only be
+  explained by `cmd.WaitDelay` itself. Every other caller, production
+  included, still gets the real tree kill.
 - CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
   **That workflow is a PR gate since #619** — it has a path-filtered
   `pull_request:` trigger sharing its `push` filter, and `go/**` is in that

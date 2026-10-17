@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ball_lang_compiler::Compiler;
 use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_lang_shared::proto::ball::v1::statement::Stmt;
 
 const METHOD_SUGAR_SOURCE: &str = r#"
@@ -206,4 +207,108 @@ fn user_declared_is_empty_wins_over_the_builtin_arm() {
         input.fields.iter().any(|f| f.name == "self"),
         "an instance-method call packs its receiver under `self`"
     );
+}
+
+// ════════════════════════════════════════════════════════════
+// Issue #807 — `.to_string()` on a LITERAL receiver is a node-level identity
+// ════════════════════════════════════════════════════════════
+
+/// Returns the value expression of `main`'s `statement_index`-th statement,
+/// which must be a `let` binding.
+fn nth_let_value(
+    program: &ball_lang_shared::proto::ball::v1::Program,
+    statement_index: usize,
+) -> Expr {
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("the encoded program must carry a `main` module");
+    let main_fn = main_module
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .expect("`fn main` must encode");
+    let Some(Expr::Block(block)) = main_fn.body.as_ref().and_then(|b| b.expr.as_ref()) else {
+        panic!("`main`'s body is a block");
+    };
+    let Some(Stmt::Let(binding)) = &block.statements[statement_index].stmt else {
+        panic!("statement {statement_index} is not a `let` binding");
+    };
+    binding
+        .value
+        .as_ref()
+        .and_then(|v| v.expr.clone())
+        .unwrap_or_else(|| panic!("the let binding at index {statement_index} carries no value"))
+}
+
+/// A `.to_string()` call whose receiver is a bare string LITERAL is a
+/// node-level identity (issue #807): `ball-lang-compiler` emits EVERY Ball
+/// string literal as exactly `"text".to_string()`
+/// (`compiler/src/lib.rs::compile_literal`), so without a literal-receiver
+/// guard every compiled string literal re-encoded wrapped in
+/// `std.to_string({value: "text"})` — measured at 251 of the 368
+/// `tests/conformance` fixtures (68%), the single largest node-fidelity gap
+/// in the compiler<->encoder round trip (see `rust/AGENTS.md`). This test
+/// drives the encoder directly on HAND-WRITTEN Rust (the encoder's real
+/// input), asserting the `let` binding's value is the bare literal itself —
+/// no `std.to_string` call anywhere — and then proves it behaviourally by
+/// compiling and running the result.
+#[test]
+fn literal_to_string_encodes_as_the_bare_literal_not_std_to_string() {
+    let source = r#"
+fn main() {
+    let greeting = "hello".to_string();
+    println!("{}", greeting);
+}
+"#;
+    let program = ball_lang_encoder::encode(source);
+    let value = nth_let_value(&program, 0);
+    match value {
+        Expr::Literal(literal) => {
+            assert_eq!(
+                literal.value,
+                Some(LiteralValue::StringValue("hello".to_string())),
+                "`\"hello\".to_string()` must encode as the bare string literal"
+            );
+        }
+        other => panic!(
+            "`\"hello\".to_string()` must encode as a bare literal, not {other:?} — a \
+             `std.to_string` wrapper is exactly the issue #807 node-fidelity regression"
+        ),
+    }
+
+    let compiled = Compiler::new(&program).compile();
+    let stdout = compile_and_run("literal_to_string", &compiled);
+    assert_eq!(stdout.trim(), "hello");
+}
+
+/// The control: a `.to_string()` call whose receiver is NOT a literal still
+/// routes through `std.to_string`, exactly as before issue #807. `.to_string()`
+/// is a REAL conversion on a non-literal receiver (an `i64`'s `.to_string()`
+/// is not the integer itself), so the literal-only guard added for #807 must
+/// not widen past literal receivers.
+#[test]
+fn non_literal_to_string_still_encodes_as_std_to_string() {
+    let source = r#"
+fn main() {
+    let n: i64 = 7;
+    let s = n.to_string();
+    println!("{}", s);
+}
+"#;
+    let program = ball_lang_encoder::encode(source);
+    let value = nth_let_value(&program, 1);
+    let Expr::Call(call) = &value else {
+        panic!("`n.to_string()` must encode as a call, not {value:?}");
+    };
+    assert_eq!(
+        (call.module.as_str(), call.function.as_str()),
+        ("std", "to_string"),
+        "a `.to_string()` call on a non-literal receiver must still encode as `std.to_string`"
+    );
+
+    let compiled = Compiler::new(&program).compile();
+    let stdout = compile_and_run("non_literal_to_string", &compiled);
+    assert_eq!(stdout.trim(), "7");
 }

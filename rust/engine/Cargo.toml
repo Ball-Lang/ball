@@ -55,3 +55,11 @@ serde_json = "1"
 [dev-dependencies]
 ball-lang-compiler = { workspace = true }
 ball-lang-encoder = { workspace = true }
+
+# Test-only, unix-only: killing a timed-out fixture's whole process GROUP
+# (issue #791) needs `kill(-pgid, SIGKILL)`, which std does not expose —
+# `Child::kill` reaches the immediate process only, so a timed-out `dart run`
+# used to leave its forked Dart VM orphaned in the CI runner. Windows uses
+# `taskkill /T` and needs no crate.
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"

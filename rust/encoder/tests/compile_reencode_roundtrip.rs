@@ -70,6 +70,45 @@
 //!   prefixes it with `internal error: entered unreachable code: `, so an
 //!   encode-only assertion would pass on a throw that silently dropped the
 //!   prefix a `catch` actually binds.
+//! - `compiled_method_dispatcher_real_fallback_arm_re_encodes` restores the
+//!   composite property #685/#632 established and #718's fix narrowed away
+//!   (issue **#761**): the dispatcher's REAL fallback arm, extracted from the
+//!   compiler's own output — never retyped by hand — is what re-encodes, not
+//!   a synthetic stand-in. See its own doc comment for why the WHOLE
+//!   dispatcher (scrutinee included) still cannot be the thing re-encoded
+//!   while #718 stays open.
+//!
+//! ## RED-first against REAL rustc, not this crate's own belief about it
+//! (issues #754/#717)
+//!
+//! `a_bare_panic_encodes_the_message_rust_itself_prints` and
+//! `a_bare_unreachable_encodes_the_message_rust_itself_prints` used to assert
+//! only that the ENCODED Ball tree contained a hard-coded literal
+//! (`"explicit panic"`, `"internal error: entered unreachable code"`) —
+//! strings this crate itself believes real Rust prints, copied by hand from
+//! `library/core/src/panic.rs`'s doc comments rather than observed. A future
+//! Rust edition that reworded either message would leave this suite green
+//! while `Ball catch` quietly started binding a message real `panic!()`/
+//! `unreachable!()` no longer produces. Both tests — and
+//! `an_unreachable_throws_rusts_own_internal_error_message`'s own
+//! ARGUMENT-carrying case — now run a REAL, un-encoded Rust program (no Ball
+//! involved at all, via [`panic_message_from_real_rust`]) to capture what
+//! `panic!()`/`unreachable!()` print on THIS toolchain today, and diff that
+//! against the Ball round trip's own compiled-and-run output — so a wording
+//! change on either side is what makes the comparison fail, not a hard-coded
+//! assumption on only one of them.
+//!
+//! `compile_assert_without_a_message_round_trips_through_its_own_panic` and
+//! `compile_assert_with_a_message_round_trips_through_its_own_panic` give
+//! `base_call.rs::compile_assert` the dedicated round-trip case
+//! `methods.rs`'s own module doc names it as owed: every other case in this
+//! file reaches `encode_macro`'s `"panic"` arm only incidentally, through
+//! the DISPATCHER's or a hand-written function's `panic!`, never through
+//! `std.assert` — the only base function `compile_assert` exists to compile.
+//! Its two emission shapes are both NEW relative to every other case here:
+//! a bare `panic!("Assertion failed");` with no `{}` placeholder and no
+//! interpolation at all, and `panic!("{}", <expr>);` whose format string
+//! IS the placeholder, with no literal text before it.
 //!
 //! ## Enumerate what the compiler emits — do not assume it is one construct
 //!
@@ -201,13 +240,40 @@ fn main() {
 }
 "#;
 
-/// What Rust itself panics with for `unreachable!("bad state {}", 9)`:
-/// `library/core/src/panic.rs`'s `unreachable_2021` expands to
-/// `panic!("internal error: entered unreachable code: {}", format_args!(..))`.
-/// The PREFIX is the part an encode-only assertion cannot see — a throw
-/// carrying just `bad state 9` would look like a clean round trip and would
-/// have changed what a `catch` binds.
-const UNREACHABLE_EXPECTED_STDOUT: &str = "internal error: entered unreachable code: bad state 9\n";
+/// Calls the compiled, argument-less `boom` and prints the value a Ball
+/// `catch` would bind — the Ball-side half of the comparison
+/// `a_bare_panic_encodes_the_message_rust_itself_prints` runs against
+/// [`panic_message_from_real_rust`]'s LIVE reference (issues #754/#717).
+/// `boom` takes zero Ball-level parameters, so it is called with
+/// `BallValue::Null` — every compiled function still takes exactly one
+/// `input: BallValue` (`type_emit.rs::compile_function`'s fixed signature).
+const BARE_PANIC_BALL_DRIVER_MAIN: &str = r#"
+fn main() {
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        boom(BallValue::Null)
+    }));
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("a bare `panic!()` must still throw after the round trip");
+    println!("{}", ball_to_string(ball_catch_payload(payload)));
+}
+"#;
+
+/// Calls the compiled, argument-less `stop` and prints the value a Ball
+/// `catch` would bind — the Ball-side half of
+/// `an_unreachable_throws_rusts_own_internal_error_message`'s LIVE reference
+/// comparison (issue #717).
+const BARE_UNREACHABLE_BALL_DRIVER_MAIN: &str = r#"
+fn main() {
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        stop(BallValue::Null)
+    }));
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("a bare `unreachable!()` must still throw after the round trip");
+    println!("{}", ball_to_string(ball_catch_payload(payload)));
+}
+"#;
 
 static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -299,6 +365,44 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     }
 
     String::from_utf8(output.stdout).expect("fixture stdout must be valid UTF-8")
+}
+
+/// What REAL, un-encoded Rust — no Ball involved at all — prints for
+/// `trigger` (a bare statement such as `panic!();` or
+/// `unreachable!("bad state {}", 9);`), captured by actually compiling and
+/// running it through [`compile_and_run`]. Issues #754/#717: every other
+/// constant in this file that names Rust's own fixed panic wording
+/// (`"explicit panic"`, the `unreachable!` prefix) is a string this crate
+/// COPIED from `library/core/src/panic.rs`'s doc comments; this instead asks
+/// the toolchain that will actually run CI what it prints TODAY, so a wording
+/// change on either side of a comparison — this function's side or the Ball
+/// round trip's — is what makes a test fail, never an assumption baked into
+/// only one of them.
+///
+/// The returned string is the fixture's full stdout, including the trailing
+/// newline `println!` adds — compare it directly against another
+/// [`compile_and_run`] call's return value, never against a hand-written
+/// literal.
+fn panic_message_from_real_rust(fixture_name: &str, trigger: &str) -> String {
+    let main = format!(
+        r#"
+fn main() {{
+    std::panic::set_hook(Box::new(|_| {{}}));
+    let outcome = std::panic::catch_unwind(|| {{
+        {trigger}
+    }});
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("the trigger must panic");
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .expect("a `panic!`/`unreachable!` payload here must be a string");
+    println!("{{message}}");
+}}
+"#
+    );
+    compile_and_run(fixture_name, &main)
 }
 
 /// Every `std.<function>` called anywhere in `program`'s user modules.
@@ -419,6 +523,78 @@ fn compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro() {
     );
 }
 
+/// Restores the composite property #685/#632 established and #718's fix
+/// narrowed away (issue **#761**): "the compiler's REAL emitted dispatcher,
+/// taken as emitted, re-encodes" — not two separate, weaker facts combined
+/// (the compiled text merely CONTAINS the right substring; a hand-written
+/// STAND-IN function, with a different parameter name and type, happens to
+/// encode correctly). Neither of those alone proves the compiler's actual
+/// output round-trips; `compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro`
+/// keeps both — this test adds the composite one, never replacing them.
+///
+/// The WHOLE dispatcher function still cannot be the thing re-encoded here:
+/// its scrutinee, `match ball_message_type_name(&__self).as_str() { .. }`,
+/// has no universal-`std` inverse — #718's OWN, separately tracked, still-open
+/// gap
+/// (`documented_gaps.rs::compiled_method_dispatcher_scrutinee_is_a_documented_gap`).
+/// Folding that gap into this assertion would make this test fail for #718's
+/// reason while claiming to gate #632's — exactly the conflation #718 exists
+/// to keep apart. So this test first RE-CONFIRMS that the whole dispatcher is
+/// still blocked there (if #718 ever closes, the `catch_unwind` below stops
+/// erroring and this assertion fails loud, naming the issue to re-measure
+/// rather than silently passing on a property it no longer checks), and only
+/// then extracts the REAL fallback arm — `other => panic!("no method 'sum'
+/// for {}", other),`, a byte-for-byte substring of the compiler's own output,
+/// never retyped by hand — and re-encodes exactly that.
+#[test]
+fn compiled_method_dispatcher_real_fallback_arm_re_encodes() {
+    let program = ball_lang_encoder::encode_library(CLASS_WITH_METHOD_SOURCE);
+    let compiled = Compiler::new(&program).compile_library();
+
+    let real_arm = "other => panic!(\"no method 'sum' for {}\", other),";
+    assert!(
+        compiled.contains(real_arm),
+        "the compiler must still emit the fallback arm exactly as `{real_arm}` — if this \
+         spelling changed, update the extraction below:\n{compiled}"
+    );
+
+    // The WHOLE dispatcher (scrutinee included) is still blocked by #718,
+    // separately — re-confirmed here so this test cannot silently start
+    // asserting nothing once that interaction shifts.
+    let whole_dispatcher_result =
+        std::panic::catch_unwind(|| ball_lang_encoder::encode_library(&compiled));
+    assert!(
+        whole_dispatcher_result.is_err(),
+        "the WHOLE compiled dispatcher now re-encodes cleanly — #718 has been closed. Update \
+         this test (and documented_gaps.rs's compiled_method_dispatcher_scrutinee_is_a_documented_gap) \
+         to assert the composite success directly instead of extracting the fallback arm alone."
+    );
+
+    // Extract the REAL arm's `panic!` invocation — not retyped — and wrap it
+    // in a minimal function so the encoder can read it in isolation, the way
+    // #718's own refusal keeps this test from reading it as part of the whole
+    // dispatcher.
+    let panic_stmt = real_arm
+        .strip_prefix("other => ")
+        .and_then(|s| s.strip_suffix(','))
+        .expect("the known arm text must have exactly this shape");
+    let wrapper = format!("fn fallback(other: String) -> String {{ {panic_stmt} }}");
+
+    let reencoded = ball_lang_encoder::encode_library(&wrapper);
+    let calls = std_calls(&reencoded);
+    assert!(
+        calls.iter().any(|name| name == "throw"),
+        "the REAL fallback arm, extracted from the compiler's own output, must survive \
+         re-encoding as a `std.throw`. std calls found: {calls:?}"
+    );
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("no method 'sum' for "),
+        "…carrying the dispatcher's own message byte-for-byte — never a hand-retyped stand-in: \
+         {rendered}"
+    );
+}
+
 /// The compiler half of the agreement, proven by running it: the fallback arm's
 /// message is the value a `catch` binds, and it must be spelled the way every
 /// other target spells it — `go/compiler/library.go`'s
@@ -474,37 +650,61 @@ fn a_formatted_panic_throws_the_message_rust_itself_would_print() {
     );
 }
 
-/// `panic!()` with no arguments. Rust's own message for it is `explicit panic`
-/// (`core`'s `panic!()` expands to a `panic("explicit panic")` call), so the
-/// encoded throw carries exactly that, never an empty string that would lose
-/// the failure's identity.
+/// `panic!()` with no arguments, proven end to end against REAL rustc
+/// (issues #754/#717). This used to assert only that the ENCODED Ball tree
+/// contained the literal `"explicit panic"` — a string this crate itself
+/// believes real Rust prints, copied by hand from
+/// `library/core/src/panic.rs`'s doc comments, never observed. That is
+/// self-referential: a future Rust edition that reworded the bare-`panic!()`
+/// message would leave this assertion green while `Ball catch` quietly
+/// started binding a message real `panic!()` no longer produces. Now both
+/// sides are run: [`panic_message_from_real_rust`] compiles and runs a plain
+/// Rust program (no Ball at all) that calls the real, unmodified `panic!()`
+/// and captures what THIS toolchain prints for it today, and the Ball side is
+/// compiled and run the same way — so a wording change on either side is
+/// what fails the comparison, never an assumption baked into only one of
+/// them.
 #[test]
 fn a_bare_panic_encodes_the_message_rust_itself_prints() {
+    let reference_stdout = panic_message_from_real_rust("bare_panic_reference", "panic!();");
+
     let program = ball_lang_encoder::encode_library("fn boom() { panic!(); }");
-    let boom = program
-        .modules
-        .iter()
-        .find(|m| m.name == "main")
-        .expect("encoded program must carry a `main` module")
-        .functions
-        .iter()
-        .find(|f| f.name == "boom")
-        .expect("encoded program must carry `boom`")
-        .clone();
-    let rendered = format!("{:?}", boom.body);
+    let calls = std_calls(&program);
     assert!(
-        rendered.contains("explicit panic"),
-        "a bare `panic!()` must carry Rust's own `explicit panic` message: {rendered}"
+        calls.iter().any(|name| name == "throw"),
+        "a bare `panic!()` must encode as `std.throw`. std calls found: {calls:?}"
+    );
+
+    let compiled = Compiler::new(&program).compile_library();
+    let stdout = compile_and_run(
+        "bare_panic_ball",
+        &format!("{compiled}\n{BARE_PANIC_BALL_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, reference_stdout,
+        "a bare `panic!()` must carry exactly what REAL, un-encoded Rust prints for it today — \
+         never a hard-coded assumption about the wording"
     );
 }
 
-/// `unreachable!` — the compiler's OTHER emitted macro — proven end to end, for
-/// the same reason its `panic!` sibling is: the message must survive, and here
-/// the message is not simply the argument. Rust prefixes it with
-/// `internal error: entered unreachable code: `, and that whole string is what
-/// `ball_catch_payload` hands a Ball `catch`.
+/// `unreachable!` — the compiler's OTHER emitted macro — proven end to end
+/// against REAL rustc (issue #717). This used to assert only that the
+/// Ball-compiled-and-run program's stdout equalled a literal
+/// (`UNREACHABLE_EXPECTED_STDOUT`) copy-derived from this crate's OWN
+/// `methods.rs::UNREACHABLE_MESSAGE` constant — checking "does the compiled
+/// program print what the encoder THINKS `unreachable!()` prints", not "does
+/// it print what `rustc`'s real `unreachable!()` prints". Now the reference
+/// side is a plain, un-encoded Rust program that calls the real
+/// `unreachable!("bad state {}", 9)` directly (no Ball involved), so a wording
+/// change in a future Rust edition fails this comparison on BOTH an encoder
+/// drift and a real toolchain drift, not only the former.
 #[test]
 fn an_unreachable_throws_rusts_own_internal_error_message() {
+    let reference_stdout = panic_message_from_real_rust(
+        "unreachable_reference",
+        r#"unreachable!("bad state {}", 9);"#,
+    );
+
     let program = ball_lang_encoder::encode_library(UNREACHABLE_LIBRARY_SOURCE);
 
     let calls = std_calls(&program);
@@ -524,36 +724,218 @@ fn an_unreachable_throws_rusts_own_internal_error_message() {
         &format!("{compiled}\n{UNREACHABLE_DRIVER_MAIN}"),
     );
     assert_eq!(
-        stdout, UNREACHABLE_EXPECTED_STDOUT,
-        "the caught value must read exactly what Rust's own `unreachable!` prints, prefix included"
+        stdout, reference_stdout,
+        "the caught value must read exactly what REAL, un-encoded Rust's own `unreachable!` \
+         prints TODAY, prefix included — never a literal copied from this crate's own belief \
+         about it"
     );
 }
 
-/// `unreachable!()` with no arguments carries Rust's fixed message and nothing
-/// else — no stray `": "` separator, which a naive prefix-plus-format encoding
-/// would leave behind.
+/// `unreachable!()` with no arguments, proven end to end against REAL rustc
+/// (issues #754/#717) — the bare-macro sibling of
+/// `a_bare_panic_encodes_the_message_rust_itself_prints`. Also pins the `": "`
+/// separator's absence: with no arguments there is nothing to append, so a
+/// naive prefix-plus-format encoding that always appended `": "` would show
+/// up as an extra two characters real `unreachable!()` never prints.
 #[test]
 fn a_bare_unreachable_encodes_the_message_rust_itself_prints() {
-    let program = ball_lang_encoder::encode_library("fn stop() { unreachable!(); }");
-    let stop = program
-        .modules
-        .iter()
-        .find(|m| m.name == "main")
-        .expect("encoded program must carry a `main` module")
-        .functions
-        .iter()
-        .find(|f| f.name == "stop")
-        .expect("encoded program must carry `stop`")
-        .clone();
-    let rendered = format!("{:?}", stop.body);
+    let reference_stdout =
+        panic_message_from_real_rust("bare_unreachable_reference", "unreachable!();");
     assert!(
-        rendered.contains("internal error: entered unreachable code"),
-        "a bare `unreachable!()` must carry Rust's own message: {rendered}"
+        !reference_stdout.contains("entered unreachable code: "),
+        "this reference program's own trailing separator check is meaningless if real Rust's \
+         bare `unreachable!()` ever starts carrying one: {reference_stdout:?}"
     );
+
+    let program = ball_lang_encoder::encode_library("fn stop() { unreachable!(); }");
+    let calls = std_calls(&program);
     assert!(
-        !rendered.contains("entered unreachable code: "),
-        "with no arguments there is nothing to append, so the `: ` separator must not appear: \
-         {rendered}"
+        calls.iter().any(|name| name == "throw"),
+        "a bare `unreachable!()` must encode as `std.throw`. std calls found: {calls:?}"
+    );
+
+    let compiled = Compiler::new(&program).compile_library();
+    let stdout = compile_and_run(
+        "bare_unreachable_ball",
+        &format!("{compiled}\n{BARE_UNREACHABLE_BALL_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, reference_stdout,
+        "a bare `unreachable!()` must carry exactly what REAL, un-encoded Rust prints for it \
+         today — never a hard-coded assumption about the wording"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// `std.assert` — a DEDICATED round trip for `compile_assert` (issues #754/#717)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Every `panic!` case above reaches `encoder/src/methods.rs::encode_macro`'s
+// `"panic"` arm only incidentally — through the dispatcher's own fallback, or
+// through a hand-written Rust function. `base_call.rs::compile_assert` is a
+// DIFFERENT compiler emission site for the same macro, and until now nothing
+// exercised it directly: it is enumerated as an emission site in
+// `methods.rs`'s own module doc comment, and it is reachable only by
+// compiling a Ball program that calls `std.assert` — no Rust source the
+// ENCODER produces ever calls it, so a hand-written `.rs` fixture cannot
+// reach it. These two tests build that Ball program directly, via the proto
+// types, the same way `documented_gaps.rs`'s `null_spread_program`/
+// `map_comprehension_program` reach a shape no Rust source maps to either.
+//
+// `compile_assert` emits `panic!` TWO ways, and both are new relative to
+// every macro case above: `panic!("Assertion failed");` with no `{}`
+// placeholder and no interpolation at all (every other case here has either
+// one placeholder with one argument, or none with no text either), and
+// `panic!("{}", <expr>);` for a supplied message — the format string IS the
+// placeholder, with no literal text before it (every other formatted case
+// has literal text before its first placeholder). `build_format_args`
+// handles an empty leading literal segment by just not pushing it, so this
+// also exercises that path for real for the first time in this file.
+
+/// Build the one-function library `check(input)` whose body is a raw
+/// `std.assert(condition, message?)` call — `compile_assert`'s own direct
+/// test subject. `condition` is read from `Reference("input")`
+/// (`compile_reference` renders that as `input.clone()`), so calling the
+/// compiled `check` with `BallValue::Bool(false)` always takes the panicking
+/// branch.
+fn assert_library(message: Option<Expression>) -> Program {
+    let mut fields = vec![FieldValuePair {
+        name: "condition".to_string(),
+        value: Some(reference("input")),
+    }];
+    if let Some(message) = message {
+        fields.push(FieldValuePair {
+            name: "message".to_string(),
+            value: Some(message),
+        });
+    }
+    let body = Expression {
+        expr: Some(Expr::Call(Box::new(FunctionCall {
+            module: "std".to_string(),
+            function: "assert".to_string(),
+            input: Some(Box::new(Expression {
+                expr: Some(Expr::MessageCreation(MessageCreation {
+                    type_name: String::new(),
+                    fields,
+                    metadata: None,
+                })),
+            })),
+            type_args: vec![],
+        }))),
+    };
+    Program {
+        name: "assert_fixture".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_lang_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![FunctionDefinition {
+                    name: "check".to_string(),
+                    input_type: String::new(),
+                    output_type: String::new(),
+                    body: Some(Box::new(body)),
+                    description: String::new(),
+                    is_base: false,
+                    metadata: None,
+                }],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: String::new(),
+        metadata: None,
+    }
+}
+
+/// Calls the compiled `check` with a failing condition and prints the value
+/// a Ball `catch` would bind.
+const ASSERT_BALL_DRIVER_MAIN: &str = r#"
+fn main() {
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        check(BallValue::Bool(false))
+    }));
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("a failing `std.assert` must still panic");
+    println!("{}", ball_to_string(ball_catch_payload(payload)));
+}
+"#;
+
+/// `std.assert(condition)` with NO message: `compile_assert`'s `None` arm,
+/// `panic!("Assertion failed");` — the one macro case in this whole file with
+/// no `{}` placeholder and no interpolation at all.
+#[test]
+fn compile_assert_without_a_message_round_trips_through_its_own_panic() {
+    let program = assert_library(None);
+    let compiled = Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("panic!(\"Assertion failed\");"),
+        "compile_assert's no-message arm must still emit the bare literal `panic!` with no \
+         interpolation — the shape this test exists to cover:\n{compiled}"
+    );
+
+    let reencoded = ball_lang_encoder::encode_library(&compiled);
+    let calls = std_calls(&reencoded);
+    assert!(
+        calls.iter().any(|name| name == "throw"),
+        "compile_assert's own `panic!(\"Assertion failed\")` must survive re-encoding as a \
+         `std.throw`. std calls found: {calls:?}"
+    );
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("Assertion failed"),
+        "…carrying the exact message: {rendered}"
+    );
+
+    let stdout = compile_and_run(
+        "assert_no_message",
+        &format!("{compiled}\n{ASSERT_BALL_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, "Assertion failed\n",
+        "a failing `std.assert` with no message must still print Dart's/every other target's \
+         fixed `Assertion failed` text"
+    );
+}
+
+/// `std.assert(condition, message)`: `compile_assert`'s `Some` arm,
+/// `panic!("{}", <expr>);` — the format string IS the one `{}` placeholder,
+/// with no literal text before it.
+#[test]
+fn compile_assert_with_a_message_round_trips_through_its_own_panic() {
+    let program = assert_library(Some(string_literal("boom")));
+    let compiled = Compiler::new(&program).compile_library();
+    assert!(
+        compiled.contains("panic!(\"{}\", BallValue::String(\"boom\".to_string()));"),
+        "compile_assert's message arm must still emit a bare `panic!(\"{{}}\", <expr>)` with no \
+         literal prefix before the placeholder:\n{compiled}"
+    );
+
+    let reencoded = ball_lang_encoder::encode_library(&compiled);
+    let calls = std_calls(&reencoded);
+    assert!(
+        calls.iter().any(|name| name == "throw"),
+        "compile_assert's own message-carrying `panic!` must survive re-encoding as a \
+         `std.throw`. std calls found: {calls:?}"
+    );
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("boom"),
+        "…carrying the exact supplied message: {rendered}"
+    );
+
+    let stdout = compile_and_run(
+        "assert_with_message",
+        &format!("{compiled}\n{ASSERT_BALL_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, "boom\n",
+        "a failing `std.assert` must print exactly its own supplied message"
     );
 }
 

@@ -1012,6 +1012,14 @@ and its own encoder refuses caps that column no matter how good either half is o
   `ball_index_set` 14 and `ball_list_push` 13. The
   method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A, not this
   leg.
+- **A pass-count floor cannot see a net-zero fixture swap (#836).** The sweep now also prints a
+  `Passing fixtures (<N>, sorted):` block naming every fixture that round-tripped
+  (`format_passing_block`), and `tools/ci/roundtrip_passset.sh` — invoked right after
+  `roundtrip_floor.sh` in the `rust-roundtrip` row — diffs it as a SET against the committed
+  `tools/ci/baselines/rust_roundtrip_passing.txt` (regenerate only via that script's `--write`,
+  never by hand). A baseline-named fixture missing from the current set is a hard error even when
+  `passed` held steady or rose; a new pass is a `::notice::`, not a failure. Self-test:
+  `tools/test/test_roundtrip_passset.sh`.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

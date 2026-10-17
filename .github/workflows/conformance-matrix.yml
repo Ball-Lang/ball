@@ -1507,6 +1507,15 @@ jobs:
             exit 1
           fi
 
+          # A pass-COUNT floor (just above) cannot see a NET-ZERO fixture swap
+          # (issue #836): one fixture newly passing while a different one
+          # regresses leaves the count unchanged, so `passed >= floor` alone
+          # stays green through a real regression. This is a set-difference
+          # check against the committed per-fixture baseline, run AFTER the
+          # floor so a harness-health failure is diagnosed by the floor
+          # script first.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_passset.sh" "Rust" "$RUNNER_TEMP/roundtrip.log" "$GITHUB_WORKSPACE/tools/ci/baselines/rust_roundtrip_passing.txt"
+
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}

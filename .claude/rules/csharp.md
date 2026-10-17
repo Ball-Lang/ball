@@ -703,6 +703,13 @@ compile items so the sibling projects never double-compile each other's files.
   the `engine` leg is what CI gates on; quote its `Results:` line, not a hand-maintained count.
   Its mismatch reporting goes through `Fixtures.DescribeMismatch` (first **differing** line, never
   line 0) and is pinned by `engine/test/MismatchDescriptionTests.cs`.
+- **`Summary.Print`'s 50-line failure cap never applies to a TIMEOUT (#737).** The cap (a real
+  bound, kept for ordinary `Fail`/`Error` entries) used to apply to the WHOLE non-pass list in
+  fixture-name order, so a `Timeout` ranked 51st or later among non-pass results never reached the
+  log — invisible to `roundtrip_floor.sh`'s "no fixture may hang" gate (#693), which greps this
+  exact text. `Summary.Print(legName, results, skippedCarveouts, writer: null)` takes an optional
+  `TextWriter` (default `Console.Out`) so `engine/test/TimeoutReportingTests.cs` can assert on the
+  exact text without `Console.SetOut`.
 - **The round-trip leg launches the Dart reference CLI ONCE per sweep, never once per fixture
   (#784).** `DartCli.Prepare` AOT-compiles `dart/cli/bin/ball.dart` into the leg's temp directory
   and `DartCli.PlanFor` then names that executable plus `["run", <ball.json>]` — no shell, no

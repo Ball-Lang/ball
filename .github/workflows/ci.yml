@@ -202,6 +202,19 @@ jobs:
       - name: Round-trip leg floor + ratchet test (#642)
         run: bash tools/test/test_roundtrip_floor.sh
 
+      # A pass-count floor (above) cannot tell "nothing changed" from "one
+      # fixture newly passes and a different one newly regresses" — the count
+      # is identical either way, so a real regression can land invisibly as
+      # long as some unrelated fixture happens to start passing in the same
+      # PR (#836). tools/ci/roundtrip_passset.sh is the set-difference gate
+      # that closes that for the Rust round-trip leg; this proves the gate
+      # itself (the net-zero swap scenario must be RED, an identical or
+      # superset pass set must be GREEN, a missing/empty/unsorted/duplicated
+      # baseline must be a hard error) AND asserts the wiring into
+      # conformance-matrix.yml's rust-roundtrip row.
+      - name: Round-trip leg pass-set regression test (#836)
+        run: bash tools/test/test_roundtrip_passset.sh
+
       # Every runtime raises a handful of built-in Dart errors, and each target
       # then has to answer what a CAUGHT one prints as. Four of them answer from
       # an explicit `name -> prefix` table, and those tables were only "closed"

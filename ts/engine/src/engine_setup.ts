@@ -1067,7 +1067,14 @@ export function createEngineSetup(mod: EngineModule) {
     _r('string_code_unit_at', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').charCodeAt(Number(m['index'] ?? 0)); });
     _r('string_char_code_at', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').charCodeAt(Number(m['index'] ?? m['arg0'] ?? 0)); });
     _r('string_from_char_code', (i: any) => { const m = _m(i); return String.fromCharCode(Number(m['value'] ?? m['code'] ?? m['arg0'] ?? 0)); });
-    _r('string_from_char_codes', (i: any) => { const m = _m(i); const codes = m['codes'] ?? m['list'] ?? []; return Array.isArray(codes) ? String.fromCharCode(...codes.map(Number)) : ''; });
+    // NOTE: no 'string_from_char_codes' (plural) here (issue #817) — no builder
+    // declares it, no encoder in the repo emits it, and the Dart reference
+    // engine never dispatches it. `String.fromCharCode(n)` and
+    // `StringBuffer.writeCharCode(n)` both encode to the SINGULAR
+    // `string_from_char_code` above; the Dart-SDK static `String.fromCharCodes`
+    // is a different surface entirely (served per-target, not a std base
+    // function). #743 deleted the identical phantom arm in the Python
+    // compiler for the same reason.
     _r('string_replace', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').replace(String(m['from'] ?? m['pattern'] ?? ''), String(m['to'] ?? m['replacement'] ?? '')); });
     _r('string_replace_all', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').split(String(m['from'] ?? m['pattern'] ?? '')).join(String(m['to'] ?? m['replacement'] ?? '')); });
     _r('string_repeat', (i: any) => { const m = _m(i); return String(m['value'] ?? '').repeat(Number(m['count'] ?? m['times'] ?? 0)); });

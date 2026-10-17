@@ -1,8 +1,82 @@
 name: Release
 
+# ─────────────────────────────────────────────────────────────────────────────
+# RELEASE VIA PR (issue #755). The `Protect main` ruleset (17056238) started
+# requiring 19 status checks on every push to `main` itself on 2026-09-13, and
+# the old shape — `npx semantic-release` pushing its version-bump commit and
+# tag straight to `main` — hits that rejection (GH013) unconditionally, every
+# time: see docs/RELEASE.md's "Release via PR" section for the full design and
+# the GitHub-docs citations behind it.
+#
+# Two INDEPENDENT jobs, not two steps of one job (PR #881 review finding 1):
+#   Phase 1 (the `release` job, tools/release/open_release_pr.sh) computes the
+#     next version via a semantic-release DRY RUN (no push, no tag — see that
+#     script's header), and if there is one, opens-or-refreshes an
+#     auto-merging PR carrying the version-bump commit on a `release/next`
+#     branch. Gated behind the `test` job (several minutes).
+#   Phase 2 (the `finish-release` job, tools/release/finish_release.sh)
+#     scans every commit since the last `vX.Y.Z` tag for the oldest
+#     release-PR merge (`chore(release): X.Y.Z`, with or without the
+#     ` (#N)` the merge queue appends), and ONLY when it finds one tags THAT
+#     commit, creates the GitHub Release, and dispatches the four downstream
+#     publish workflows. A scan, not a HEAD check, because another merge can
+#     land between the release merge and the next poll tick (PR #881 review
+#     round 2). No `test` dependency — it is cheap (git + gh only) and runs in
+#     seconds.
+#
+# WHY A JOB SPLIT, NOT JUST A STEP REORDER: the original shape ran Phase 1
+# BEFORE Phase 2 as two steps of one job. On the one push whose HEAD actually
+# is a release-PR merge, Phase 1's dry run ran before the tag existed, so
+# `semantic-release` still saw every original feat/fix commit as unreleased
+# and recomputed the SAME version — opening a second, duplicate
+# `chore(release): X` PR with a duplicated CHANGELOG.md entry, and (via
+# finish_release.sh's "tag already exists" idempotent path, see below)
+# re-dispatching every downstream publish workflow a second time. Simply
+# swapping the step order helps the common case but still races a Phase 1 run
+# that is mid-flight when Phase 2 tags: with Phase 1 behind the `test` job and
+# Phase 2 needing nothing, Phase 2 has already pushed the tag by the time
+# Phase 1 even checks out the repo, so its dry run correctly sees the tag and
+# computes nothing to release for the lone "chore" commit (not releasable to
+# commit-analyzer on its own — this is what actually keeps the loop from
+# running away, not anything about the commit's own content).
+#
+# WHY `schedule` EXISTS (PR #881 review finding 2): `finish-release` also
+# needs to run for the ONE push `push: branches:[main]` structurally cannot
+# be trusted to see. `tools/release/open_bot_pr.sh` arms the release PR's merge
+# with `gh pr merge --auto`, authenticated with this workflow's own
+# `GITHUB_TOKEN`. GitHub's documented recursion guard ("events triggered by
+# the GITHUB_TOKEN ... will not create a new workflow run") is not limited to
+# actions a workflow performs synchronously — it also covers what GitHub does
+# later on behalf of an auto-merge ARMED with GITHUB_TOKEN (see
+# docs/RELEASE.md's "Release via PR" section for citations): the merge-queue
+# entry it creates (whose `merge_group` event starts no run, so
+# bot-merge-queue.yml dispatches that entry's required checks instead — PR
+# #881 review round 3) and the merge that lands it. So the push that actually
+# lands the release merge cannot be relied on to trigger an `on: push` run.
+# The `schedule` trigger below is the real mechanism `finish-release` depends
+# on; `push` stays wired as a cheap fallback for a human-merged `main`.
+#
+# `workflow_dispatch`'s `dry_run` input rehearses Phase 1's computation on ANY
+# branch with zero side effects (no branch push, no PR, no tag, no release,
+# no dispatch) — the same shape go-release.yml/pubdev-release.yml already
+# use. It does NOT rehearse `finish-release`: that job only reads `main`'s own
+# history, and its decision logic is pinned by
+# tools/release/test/finish_release_test.sh (ci.yml's Proto Checks job)
+# against throwaway repos carrying both subject shapes.
 on:
   push:
     branches: [main]
+  schedule:
+    # Every 15 minutes: the recovery poll for `finish-release` — see above.
+    # Cheap (git + gh only, no toolchain install), so a tight interval is
+    # affordable; `concurrency:` on that job serialises overlapping ticks.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only (no branch push, no PR, no tag, no release, no publish dispatch). Leave ON unless rehearsing a change to this workflow against a branch about to become main."
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -19,6 +93,10 @@ jobs:
   # ──────────────────────────────────────────────────
   test:
     name: Pre-release Tests
+    # The `schedule` poll exists only to run `finish-release` below — nothing
+    # here participates in it, and this job is the most expensive one in the
+    # file (full Dart + TS suites).
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -77,43 +155,126 @@ jobs:
         run: cd ts/engine && npm test
 
   # ──────────────────────────────────────────────────
-  # Semantic Release
+  # Semantic Release, Phase 1 — via PR (issue #755, see this file's header).
+  # Opens/refreshes the version-bump PR only; tagging + publishing happen in
+  # the independent `finish-release` job below once that PR has merged.
   # ──────────────────────────────────────────────────
   release:
     name: Semantic Release
     needs: test
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # Credentials ARE persisted (the default) here, unlike the old
+          # single-phase flow: tools/release/open_release_pr.sh and
+          # finish_release.sh push a branch and a tag with plain `git push`,
+          # not through a plugin that manages its own auth.
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: tools/release/package-lock.json
 
-      - name: Install semantic-release plugins
-        run: >
-          npm install -g
-          semantic-release
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/github
-          @semantic-release/git
+      - name: Install release toolchain
+        run: cd tools/release && npm ci
 
-      # semantic-release creates the GitHub release + changelog and bumps the
-      # four npm package.json versions in lockstep (see .releaserc.json). The
-      # exec plugin's successCmd writes `released_version` to this step's
-      # outputs — set ONLY when a release was actually published.
-      - name: Run semantic-release
-        id: semrel
-        run: npx semantic-release
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # A push to main always runs for real. A workflow_dispatch defaults to
+      # a side-effect-free rehearsal (dry_run input defaults true) and must be
+      # told `-f dry_run=false` to act — the same opt-in shape
+      # go-release.yml/pubdev-release.yml already use.
+      - name: Decide dry-run vs real
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rehearsal — show what Phase 1 would compute (dry run only)
+        if: steps.cfg.outputs.dry_run != 'false'
+        run: node tools/release/compute_next_release.mjs
+
+      # Compute the next version (semantic-release dry run) and open/refresh
+      # an auto-merging PR carrying the version bump. No tag, no GitHub
+      # Release, no publish dispatch here — see the script's header. Tagging
+      # + publishing happen in the independent `finish-release` job below,
+      # once this PR has actually merged (PR #881 review finding 1).
+      - name: Phase 1 — open/refresh the auto-merging release PR
+        if: steps.cfg.outputs.dry_run == 'false'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/release/open_release_pr.sh
+
+  # ──────────────────────────────────────────────────
+  # Semantic Release, Phase 2 — via PR (issue #755, see this file's header).
+  # Independent of `test`/`release` above by design: it must run even when
+  # the `schedule` recovery poll is the only thing that triggered this
+  # workflow (PR #881 review finding 2), and it must be cheap enough to poll
+  # every 15 minutes forever. Finds the oldest untagged release-PR merge since
+  # the last `vX.Y.Z` tag (anywhere in that range, not just at HEAD), and ONLY
+  # then tags it, creates the GitHub Release, and dispatches the four
+  # downstream publish workflows.
+  # ──────────────────────────────────────────────────
+  finish-release:
+    name: Finish a merged release PR
+    # `inputs.dry_run` is a declared `type: boolean` input, which the `inputs.*`
+    # context exposes as a real boolean (NOT the string "true"/"false" that
+    # `github.event.inputs.*` always carries regardless of declared type) — so
+    # the third OR term below MUST compare against the boolean literal, never
+    # a quoted string: GitHub Actions' `==` converts a boolean to a number
+    # (false -> 0) and a non-numeric string to NaN before comparing, so
+    # `inputs.dry_run == 'false'` is ALWAYS false regardless of the input's
+    # actual value — confirmed by dispatching the Go-release sibling of this
+    # exact job with `-f dry_run=true` and observing both of its conditional
+    # steps report `skipped` (PR #881 review). This term only ever matters for
+    # a manual `workflow_dispatch -f dry_run=false` (the push/schedule terms
+    # already cover every real trigger), so the bug was silent until exercised.
+    if: |
+      github.event_name == 'push' || github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Serialises overlapping attempts (a `push` run racing a `schedule` tick,
+    # or two ticks if one runs long) instead of letting two of them tag or
+    # release concurrently; never cancels one mid-tag.
+    concurrency:
+      group: release-finish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # Credentials ARE persisted (the default): finish_release.sh pushes
+          # a tag with plain `git push`, not through a plugin that manages
+          # its own auth.
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Find the oldest untagged release-PR merge since the last `vX.Y.Z` tag,
+      # and if there is one, tag it + create the GitHub Release. `newly_tagged`
+      # — NOT `is_release`, which stays true on every idempotent poll after
+      # that release is finished — drives the four downstream dispatches
+      # below, so a recovery poll ticking on an already-finished release does
+      # not re-dispatch every publish workflow again.
+      - name: Phase 2 — finish a release PR that just merged
+        id: finish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/release/finish_release.sh
 
       # npm publishing runs in publish-npm.yml (OIDC trusted publishing, no
       # token). Its `release: published` trigger never fires for releases
@@ -123,21 +284,21 @@ jobs:
       # pinned to the fresh release tag (same proven pattern as
       # release-tag.yml → release-publish.yml).
       - name: Dispatch npm publish for the new release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.newly_tagged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run publish-npm.yml --ref "v${{ steps.semrel.outputs.released_version }}"
+        run: gh workflow run publish-npm.yml --ref "v${{ steps.finish.outputs.version }}"
 
-      # Same recursion-protection issue as npm publish above: semantic-release's
-      # @semantic-release/github plugin already created the GitHub Release +
-      # `vX.Y.Z` tag using this step's GITHUB_TOKEN, so release-cpp.yml's
-      # `release: published` trigger will never fire for it. Dispatch it
-      # explicitly, pinned to the fresh tag (issue #368).
+      # Same recursion-protection issue as npm publish above: Phase 2 already
+      # created the GitHub Release + `vX.Y.Z` tag using this step's
+      # GITHUB_TOKEN, so release-cpp.yml's `release: published` trigger will
+      # never fire for it. Dispatch it explicitly, pinned to the fresh tag
+      # (issue #368).
       - name: Dispatch C++ binary release for the new release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.newly_tagged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release-cpp.yml --ref "v${{ steps.semrel.outputs.released_version }}"
+        run: gh workflow run release-cpp.yml --ref "v${{ steps.finish.outputs.version }}"
 
       # Go modules are consumed straight from the module proxy — a
       # `go/<module>/vX.Y.Z` tag IS the release, and that tag's VERSION is its
@@ -150,18 +311,20 @@ jobs:
       # `bump_go_modules.sh` in a `chore(go):` PR, every release re-ran it and it
       # idempotently reported "all six tags already exist, nothing to do" — a
       # pass, indistinguishable from a healthy lane, while `go install …@latest`
-      # stayed on v0.1.0. go-release.yml now computes that version with
-      # semantic-release from `go/`-path commits and dispatches the tagger
-      # itself, from `.github/release/go.releaserc.json`'s publishCmd (#361).
+      # stayed on v0.1.0. go-release.yml now computes that version itself, with
+      # a semantic-release DRY RUN over `go/`-path commits (#361), and lands it
+      # the same way this file lands the root version (#879): this dispatch
+      # starts go-release.yml's Phase 1 (`open-release-pr`, dry_run defaults
+      # false), which opens an auto-merging `chore(release): go vX.Y.Z` PR;
+      # go-release.yml's own `finish-release` job — on its own schedule, not
+      # this one — tags `go-modules/vX.Y.Z` once that PR has merged and then
+      # dispatches-and-awaits tag-go-modules.yml for the six module tags.
       #
-      # `--ref main`, not the vX.Y.Z tag the three dispatches above use, and for
-      # the same reason as the pub.dev dispatch below: those build a released
-      # tree, this one RUNS semantic-release, whose @semantic-release/git step
-      # pushes commits and tags to a BRANCH. It runs after this job's own push
-      # has landed, and shares a concurrency group with pubdev-release.yml so
-      # the two never push to main at once.
+      # `--ref main`, not the vX.Y.Z tag the three dispatches above use: those
+      # build a released tree, while Phase 1 computes the next Go version from
+      # main's whole tag history and forks its release branch from main.
       - name: Dispatch the Go module release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.newly_tagged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run go-release.yml --ref main
@@ -169,21 +332,22 @@ jobs:
       # The nine Dart packages release on their OWN per-package version lines
       # (`<pkg>-vX.Y.Z`), so this dispatch carries no repo version — each
       # package's semantic-release config computes its own from its own tag.
-      # It is guarded on released_version purely as a "did this push contain
-      # anything releasable" signal: the root config analyses every commit, so
-      # a feat/fix touching dart/ always cuts a repo release too, and a push
-      # that cuts none has nothing for the Dart lane either.
+      # It is guarded on Phase 2's newly_tagged purely as a "did this run just
+      # finish a release-PR merge" signal: the root config analyses every
+      # commit, so a feat/fix touching dart/ always cuts a repo release too,
+      # and a push that cuts none has nothing for the Dart lane either.
       #
       # `--ref main`, not the vX.Y.Z tag the three dispatches above use: those
       # build a released tree, this one RUNS semantic-release, whose
-      # @semantic-release/git step pushes commits and tags to a BRANCH. It runs
-      # after this step so it never races this job's own push to main.
+      # @semantic-release/git step pushes commits and tags to a BRANCH (still
+      # straight to main — the pub.dev half of #879, not fixed here). This job
+      # itself pushes only the `vX.Y.Z` tag, never a commit to main.
       #
       # This replaced the Melos rolling-release-PR lane, whose one human step
       # (squash-merging that PR) stopped happening for two months while every
       # automated part of it stayed green (#551).
       - name: Dispatch the pub.dev per-package release
-        if: steps.semrel.outputs.released_version != ''
+        if: steps.finish.outputs.newly_tagged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run pubdev-release.yml --ref main

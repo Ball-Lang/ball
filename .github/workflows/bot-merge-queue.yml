@@ -1,0 +1,79 @@
+name: Bot merge-queue checks
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dispatch the required checks for merge-queue entries the GitHub Actions bot
+# enqueued (PR #881 review round 3, finding 1 — issues #755/#879).
+#
+# `main` requires a merge queue (ruleset 17056238, #756). The bot PRs that
+# tools/release/open_bot_pr.sh opens (release.yml's release PR, go-release.yml's
+# Go release PR, coverage-study.yml's table PR) arm auto-merge with
+# `GITHUB_TOKEN`, so GitHub enqueues them on behalf of `github-actions` — and a
+# merge group created that way starts NO `merge_group` workflow run (the
+# GITHUB_TOKEN recursion guard). Without this workflow such an entry never
+# reports its 19 required contexts, sits at AWAITING_CHECKS until the queue's
+# 90-minute check timeout evicts it, and blocks every entry behind it the whole
+# time. tools/release/service_bot_merge_queue.sh dispatches ci.yml and
+# regression-gates.yml onto the entry's own gh-readonly-queue branch instead
+# (`workflow_dispatch` is exempt from the recursion guard); its header carries
+# the evidence and the full reasoning, docs/RELEASE.md the end-to-end flow.
+#
+# Every 5 minutes (GitHub's shortest schedule interval): a dispatched run must
+# START and FINISH inside the 90-minute timeout, and a fail-open full run takes
+# up to ~55 minutes, so the poll has to be tight. Free on this public repo, and
+# a tick with nothing to service exits in seconds.
+#
+# The `pull_request` trigger is the rehearsal: it runs the script's self-test
+# and then the REAL script in `--dry-run` against the live merge queue under
+# this job's own GITHUB_TOKEN — proving the token can read the queue, which no
+# stub can (the scheduled run only exists once this file is on `main`).
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/bot-merge-queue.yml"
+      - "tools/release/service_bot_merge_queue.sh"
+      - "tools/release/test/service_bot_merge_queue_test.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    name: Dispatch required checks for bot-enqueued merge groups
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Read the merge queue and its entries' pull requests (GraphQL).
+      pull-requests: read
+      # gh workflow run ci.yml / regression-gates.yml on the queue branch.
+      actions: write
+    # One live servicer at a time, never cancelled mid-dispatch; a PR
+    # rehearsal gets its own group so it can never hold up the live one.
+    concurrency:
+      group: bot-merge-queue-${{ github.event_name == 'pull_request' && github.ref || 'live' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Servicer self-test (rehearsal only)
+        if: github.event_name == 'pull_request'
+        run: bash tools/release/test/service_bot_merge_queue_test.sh
+
+      - name: Service the merge queue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            bash tools/release/service_bot_merge_queue.sh --dry-run
+          else
+            bash tools/release/service_bot_merge_queue.sh
+          fi

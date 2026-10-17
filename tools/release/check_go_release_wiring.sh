@@ -17,17 +17,31 @@
 # already exist, nothing to do" is indistinguishable from "this lane is
 # healthy". A human step that stops happening is invisible.
 #
-# So this guard pins the post-fix contract: the Go module VERSION is computed by
-# semantic-release from `go/`-path conventional commits, and every part of the
-# lane from that decision to the six tags is machine-driven.
+# SECOND FIX, same shape, one level up (issue #879). #623 made the Go module
+# VERSION itself a semantic-release line, whose `@semantic-release/git` step
+# pushed the version-bump commit straight to `main` — which the `Protect main`
+# ruleset (17056238, 19 required status checks on every push to `main` itself
+# since 2026-09-13) rejects outright (GH013), the exact defect issue #755 fixed
+# for the root npm line. This file now pins THAT fix too: the lane computes its
+# version via a semantic-release DRY RUN (never a real, pushing run), applies
+# the bump to a `release/go-next` branch, and opens an auto-merging PR — the
+# release.yml/open_release_pr.sh/finish_release.sh shape, see
+# tools/release/open_go_release_pr.sh and tools/release/finish_go_release.sh.
+#
+# So this guard pins BOTH post-fix contracts:
 #
 #   1. the lane has exactly one semantic-release config, and it is internally
-#      consistent (tag line / path filter / bump / commit / dispatch all agree);
-#   2. the config commits EVERY file the bump script rewrites — a version left
-#      behind in one file is a half-landed bump, which is either an "unknown
-#      revision" for consumers or a silent fall-through to the public proxy;
-#   3. exactly one workflow drives that config, it is reachable automatically
-#      from a release, and it can be rehearsed with dry_run on its own branch;
+#      consistent (tag line / path filter / version-check all agree) — AND it
+#      is DRY-RUN ONLY: nothing in the lane may run semantic-release for real
+#      (prepare/publish/git/github), which is the #879 fix;
+#   2. the release-PR branch carries EVERY file the bump script rewrites — a
+#      version left behind in one file is a half-landed bump, which is either
+#      an "unknown revision" for consumers or a silent fall-through to the
+#      public proxy;
+#   3. exactly two independent jobs drive the lane (Phase 1 opens the PR,
+#      Phase 2 tags a merged one and dispatches the tagger), both reachable
+#      automatically, and Phase 1 can be rehearsed with dry_run on its own
+#      branch;
 #   4. `tag_go_modules.sh` remains the SINGLE tagging path — nothing else may
 #      create a `go/<module>/vX.Y.Z` tag, because the all-or-nothing / half-
 #      tagged refusal only holds if every tag goes through it;
@@ -43,9 +57,12 @@
 #
 # Usage:
 #   bash tools/release/check_go_release_wiring.sh              # gate the repo
-#   bash tools/release/check_go_release_wiring.sh --self-test  # the go-freshness
-#                                                              # paths leg's own
-#                                                              # negative controls
+#   bash tools/release/check_go_release_wiring.sh --self-test  # the negative
+#                                                              # controls for the
+#                                                              # go-freshness paths,
+#                                                              # tagger-header and
+#                                                              # awaited-dispatch
+#                                                              # checkers
 
 set -uo pipefail
 
@@ -60,6 +77,9 @@ CI="$WORKFLOWS/ci.yml"
 CFG="$CONFIGS/go.releaserc.json"
 BUMP="$ROOT/tools/go-module-proxy/bump_go_modules.sh"
 TAGSH="$ROOT/tools/go-module-proxy/tag_go_modules.sh"
+BOOTSTRAP="$ROOT/tools/go-module-proxy/bootstrap_channel_tag.sh"
+OPEN_PR_SH="$ROOT/tools/release/open_go_release_pr.sh"
+FINISH_SH="$ROOT/tools/release/finish_go_release.sh"
 
 pass=0
 fail=0
@@ -226,10 +246,149 @@ freshness_paths_findings() {
   esac
 }
 
-# ── The negative controls for the checker above. ──────────────────────────
+# ── The tagger's header must describe the lane as it IS (#627, #879). ─────
+# tag-go-modules.yml is the file an operator lands on when a tag cut goes wrong,
+# and its header is the only explanation of the lane it carries. It has outlived
+# that lane twice. After #623 it still said a human PR moved the version and
+# that release.yml dispatched it, and #627 added this check. After #879 it still
+# said go.releaserc.json's publishCmd dispatched it, that a prepareCmd ran the
+# bump and that @semantic-release/git pushed the result. #879 deleted all three
+# hooks, and leg 2 asserts they stay deleted. This check still PASSED that
+# header, because it required the words "go.releaserc.json" and "publishCmd" to
+# appear, so correcting the header would have turned it red (PR #881 review
+# round 4). Stale prose in a release file is not cosmetic: it is the
+# instruction a human follows at 2am.
+#
+# So the positive half is DERIVED, never spelled. The header must name every
+# file leg 5 found dispatching this workflow (passed in as arguments). The next
+# time the dispatcher moves, a header that still names the old one goes red.
+# The negative half refuses every lifecycle hook leg 2 forbids in
+# go.releaserc.json. The header describes the lane as it is; how the dispatch
+# used to work is history, and it lives in docs/RELEASE.md's "Go modules lane".
+#
+# tagger_header_problems <tag-go-modules.yml> [dispatcher-basename …]
+# Prints one problem per line. Exit 0 = clean (prints nothing), 1 = problems.
+TAGGER_DEAD_HOOKS=('@semantic-release/git' '@semantic-release/github' 'prepareCmd' 'publishCmd')
+tagger_header_problems() {
+  local file="$1"
+  shift
+  if [ ! -f "$file" ]; then
+    echo "$file does not exist"
+    return 1
+  fi
+  local header lines flat probs=0 dead d
+  header="$(sed -n '1,/^on:/p' "$file" | grep -E '^[[:space:]]*#')"
+  lines="$(printf '%s\n' "$header" | grep -c .)"
+  case "$lines" in
+  '' | *[!0-9]*) lines=0 ;;
+  esac
+  if [ "$lines" -lt 10 ]; then
+    # A vanished header would make every forbidden-phrase check below vacuously
+    # true, which is the shape this guard refuses everywhere else.
+    echo "found $lines comment lines before 'on:', expected >= 10: with no header there is" \
+      "nothing to keep honest, and every prose assertion below would pass by being empty"
+    return 1
+  fi
+  # One line, comment markers stripped, whitespace collapsed: a phrase that wraps
+  # across two comment lines is still the same phrase.
+  flat="$(printf '%s\n' "$header" | sed -E 's/^[[:space:]]*#[[:space:]]?//' | tr '\n\r\t' '   ' | tr -s ' ')"
+
+  if grep -qE '(^|[^-[:alnum:]_])release\.yml`?[[:space:]]+dispatches[[:space:]]+(this|it|`?tag-go-modules)' <<<"$flat"; then
+    echo "says \"release.yml dispatches\" this workflow. It does not (it dispatches go-release.yml), and leg 4" \
+      "of this guard fails if it ever does again"
+    probs=1
+  fi
+  if grep -qF 'cuts the tags on the next release' <<<"$flat"; then
+    echo "still describes the bump as a human PR that this workflow tags \"on the next release\"; the" \
+      "bump is open_go_release_pr.sh's release PR, and the release that merges it is the one tagged"
+    probs=1
+  fi
+  if grep -qF 'one-time backfill' <<<"$flat"; then
+    echo "still offers the one-time backfill hand-dispatch; that backfill happened in #618"
+    probs=1
+  fi
+  for dead in "${TAGGER_DEAD_HOOKS[@]}"; do
+    if grep -qF -- "$dead" <<<"$flat"; then
+      echo "names '$dead', a go.releaserc.json lifecycle hook #879 removed (leg 2 fails if it comes" \
+        "back). Describe the lane as it is; the history belongs in docs/RELEASE.md's \"Go modules lane\""
+      probs=1
+    fi
+  done
+  if [ "$#" -eq 0 ]; then
+    echo "was given no dispatcher to check against: leg 5 found nothing dispatching tag-go-modules.yml," \
+      "so there is no truth for this header to tell"
+    probs=1
+  fi
+  for d in "$@"; do
+    if ! grep -qF -- "$d" <<<"$flat"; then
+      echo "never names $d, which is what actually dispatches this workflow (leg 5 found it)"
+      probs=1
+    fi
+  done
+  if ! grep -qF 'go-release.yml' <<<"$flat"; then
+    echo "never names go-release.yml, the workflow whose finish-release job runs the dispatch"
+    probs=1
+  fi
+  if ! grep -qF 'await_workflow_run.py' <<<"$flat"; then
+    echo "never names tools/release/await_workflow_run.py, the poller that makes the dispatch AWAITED" \
+      "rather than fire-and-forget (#627)"
+    probs=1
+  fi
+  return "$probs"
+}
+
+# ── The sole dispatcher's dispatch is AWAITED (#627, #879). ───────────────
+# Until #879, leg 2 pinned this on go.releaserc.json's publishCmd. #879 moved the
+# dispatch into tools/release/finish_go_release.sh, deleted publishCmd, and the
+# pin went with it. Leg 5 only asks WHO dispatches, and it accepts the bare
+# `gh workflow run` spelling as readily as the awaited one (it has to, because
+# it hunts stray dispatchers in either spelling). So nothing static would have
+# noticed the awaited call turning back into a bare `gh workflow run`. That
+# command returns the moment GitHub accepts the request, which leaves the
+# finish-release job green over a tag cut that failed.
+# tools/release/test/finish_go_release_test.sh pins the same contract
+# behaviourally (leg 10 asserts ci.yml runs it); this is the static half.
+#
+# finish_dispatch_problems <finish_go_release.sh>
+# Prints one problem per line. Exit 0 = clean (prints nothing), 1 = problems.
+finish_dispatch_problems() {
+  local file="$1" joined probs=0
+  if [ ! -f "$file" ]; then
+    echo "$file does not exist"
+    return 1
+  fi
+  # Comments stripped and backslash-continued lines joined, because the awaited
+  # call spans two physical lines.
+  joined="$(awk '
+    /^[[:space:]]*#/ { next }
+    { sub(/[[:space:]]+#.*$/, "") }
+    /\\$/ { sub(/\\$/, ""); buf = buf $0 " "; next }
+    { print buf $0; buf = "" }
+  ' "$file")"
+  if ! grep -qE 'await_workflow_run\.py"?[[:space:]]+--dispatch[[:space:]]+--workflow[[:space:]]+tag-go-modules\.yml[[:space:]]+--ref[[:space:]]+"?\$TAG"?([[:space:]]|$)' <<<"$joined"; then
+    echo "expected the dispatch: python3 \"\$HERE/await_workflow_run.py\" --dispatch --workflow tag-go-modules.yml --ref \"\$TAG\"" \
+      "(a bare 'gh workflow run' returns as soon as GitHub accepts the request, so a tagger run that" \
+      "fails, is cancelled or never starts would leave the finish-release job green, #627)"
+    probs=1
+  fi
+  if ! grep -qE '^[[:space:]]*TAG="go-modules/v\$VERSION"' <<<"$joined"; then
+    echo "expected TAG=\"go-modules/v\$VERSION\": the dispatch must be pinned to the channel tag whose" \
+      "commit carries the bumped go.mod files, which is where tag-go-modules.yml reads the version from"
+    probs=1
+  fi
+  if grep -qE 'gh[[:space:]]+workflow[[:space:]]+run[[:space:]]+tag-go-modules\.yml' <<<"$joined"; then
+    echo "found a bare 'gh workflow run tag-go-modules.yml': a fire-and-forget dispatch beside, or" \
+      "instead of, the awaited one"
+    probs=1
+  fi
+  return "$probs"
+}
+
+# ── The negative controls for the checkers above. ─────────────────────────
 # A guard whose own failure path is never exercised is decoration: the leg would
-# pass identically if `freshness_paths_problems` stopped looking at the list.
-# Driven from ci.yml's always-on `Proto Checks` job.
+# pass identically if `freshness_paths_problems` stopped looking at the list, or
+# if `tagger_header_problems` / `finish_dispatch_problems` stopped reading their
+# file. Driven from ci.yml's always-on `Proto Checks` job.
 SCRATCH=""
 cleanup() {
   [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
@@ -363,6 +522,139 @@ YML
   expect "unparseable YAML is refused, never read as agreement" 1 "$SCRATCH/broken.yml" "not parseable YAML"
   expect "the shipped .github/workflows/go-freshness.yml satisfies it" 0 "$WORKFLOWS/go-freshness.yml"
 
+  # ── The tagger-header and awaited-dispatch checkers. ────────────────────
+  # expect_cmd <name> <want-exit> <needles, '|'-separated, or ''> <command> [args …]
+  # A clean verdict must also be SILENT: a checker that exits 0 while printing
+  # a problem has started disagreeing with itself.
+  expect_cmd() {
+    local name="$1" want="$2" needles="$3"
+    shift 3
+    local out rc=0 good=1 needle
+    local -a wanted=()
+    out="$("$@" 2>&1)" || rc=$?
+    [ "$rc" -eq "$want" ] || good=0
+    [ "$want" -ne 0 ] || [ -z "$out" ] || good=0
+    [ -n "$needles" ] && IFS='|' read -r -a wanted <<<"$needles"
+    for needle in ${wanted[@]+"${wanted[@]}"}; do
+      case "$out" in
+      *"$needle"*) ;;
+      *) good=0 ;;
+      esac
+    done
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (exit $rc, wanted $want)"
+      printf '%s\n' "$out" | sed 's/^/    | /'
+    fi
+  }
+
+  # The header this PR's previous head shipped, abridged but verbatim: it named
+  # three hooks #879 had already deleted as the live mechanism, and the leg-11
+  # check of that head PASSED it (PR #881 review round 4).
+  write stale_header.yml <<'YML'
+name: Tag Go modules
+#
+# WHO DISPATCHES THIS, AND WHEN. Exactly one thing does:
+# `.github/release/go.releaserc.json`'s **publishCmd**, at the end of a
+# `go-release.yml` semantic-release run, pinned to that run's own
+# `go-modules/vX.Y.Z` channel tag. Since #623 the Go module version is its own
+# semantic-release line computed from `go/`-path commits: the same config's
+# prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh`, @semantic-release/git
+# pushes the bump as `chore(release): go vX.Y.Z [skip ci]`, semantic-release
+# creates the channel tag ON that commit (it tags after prepare and before
+# publish), and publishCmd then dispatches this workflow at it.
+#
+# The dispatch is AWAITED (#627). `gh workflow run` returns the moment GitHub
+# accepts the request, so publishCmd goes through
+# `tools/release/await_workflow_run.py`, which polls this run to completion.
+on:
+  workflow_dispatch:
+YML
+
+  write good_header.yml <<'YML'
+name: Tag Go modules
+# Cuts the six go/<module>/vX.Y.Z tags on one commit, in one push.
+#
+# WHO DISPATCHES THIS: tools/release/finish_go_release.sh, Phase 2 of
+# go-release.yml, pinned to the go-modules/vX.Y.Z channel tag it just created.
+#
+# The dispatch is AWAITED: finish_go_release.sh dispatches through
+# tools/release/await_workflow_run.py, which polls this run to completion and
+# fails the finish-release job on any non-success conclusion.
+#
+# Idempotent: all six tags already present is a clean no-op.
+on:
+  workflow_dispatch:
+YML
+  sed 's#tools/release/finish_go_release\.sh#a release script#; s#finish_go_release\.sh dispatches#it dispatches#' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/no_dispatcher_header.yml"
+  sed 's#tools/release/await_workflow_run\.py#a poller#' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/no_poller_header.yml"
+  sed 's@^# Idempotent.*@&\n# release.yml dispatches this explicitly on every release.@' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/release_yml_header.yml"
+  sed "s@^# Idempotent.*@&\n# (Before #879 the dispatch was go.releaserc.json's publishCmd.)@" \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/history_header.yml"
+  sed 's@^# Idempotent.*@&\n# A human PR bumps the version, and this workflow cuts the tags on the next\n# release.@' \
+    "$SCRATCH/good_header.yml" >"$SCRATCH/wrapped_header.yml"
+  write short_header.yml <<'YML'
+name: Tag Go modules
+# Dispatched by tools/release/finish_go_release.sh (go-release.yml), awaited
+# through tools/release/await_workflow_run.py.
+on:
+  workflow_dispatch:
+YML
+
+  expect_cmd "a header naming the real dispatcher, its driver and the poller is accepted" 0 "" \
+    tagger_header_problems "$SCRATCH/good_header.yml" finish_go_release.sh
+  expect_cmd "the shipped .github/workflows/tag-go-modules.yml header is accepted" 0 "" \
+    tagger_header_problems "$TAGGER" finish_go_release.sh
+  expect_cmd "the pre-fix header (dispatched by publishCmd) is refused" 1 \
+    "'publishCmd'|'prepareCmd'|'@semantic-release/git'|never names finish_go_release.sh" \
+    tagger_header_problems "$SCRATCH/stale_header.yml" finish_go_release.sh
+  expect_cmd "a header that never names the dispatcher leg 5 found is refused" 1 \
+    "never names finish_go_release.sh" \
+    tagger_header_problems "$SCRATCH/no_dispatcher_header.yml" finish_go_release.sh
+  expect_cmd "a header that never names the poller is refused" 1 "await_workflow_run.py" \
+    tagger_header_problems "$SCRATCH/no_poller_header.yml" finish_go_release.sh
+  expect_cmd "a header claiming release.yml dispatches the tagger is refused" 1 "release.yml dispatches" \
+    tagger_header_problems "$SCRATCH/release_yml_header.yml" finish_go_release.sh
+  expect_cmd "a header naming a removed hook even as history is refused" 1 "'publishCmd'" \
+    tagger_header_problems "$SCRATCH/history_header.yml" finish_go_release.sh
+  expect_cmd "a stale phrase wrapped across two comment lines is still refused" 1 "on the next release" \
+    tagger_header_problems "$SCRATCH/wrapped_header.yml" finish_go_release.sh
+  expect_cmd "a vanished header (< 10 comment lines) is refused, never vacuously clean" 1 "comment lines" \
+    tagger_header_problems "$SCRATCH/short_header.yml" finish_go_release.sh
+  expect_cmd "a header checked against no dispatcher at all is refused" 1 "no dispatcher" \
+    tagger_header_problems "$SCRATCH/good_header.yml"
+
+  write finish_bare.sh <<'SH'
+TAG="go-modules/v$VERSION"
+gh workflow run tag-go-modules.yml --ref "$TAG"
+SH
+  write finish_wrong_ref.sh <<'SH'
+TAG="go-modules/v$VERSION"
+python3 "$HERE/await_workflow_run.py" --dispatch \
+  --workflow tag-go-modules.yml --ref main
+SH
+  write finish_commented.sh <<'SH'
+TAG="go-modules/v$VERSION"
+# python3 "$HERE/await_workflow_run.py" --dispatch \
+#   --workflow tag-go-modules.yml --ref "$TAG"
+SH
+
+  expect_cmd "the shipped finish_go_release.sh dispatches through the poller, at the channel tag" 0 "" \
+    finish_dispatch_problems "$FINISH_SH"
+  expect_cmd "a bare 'gh workflow run' in place of the awaited dispatch is refused" 1 \
+    "await_workflow_run.py|bare 'gh workflow run tag-go-modules.yml'" \
+    finish_dispatch_problems "$SCRATCH/finish_bare.sh"
+  expect_cmd "an awaited dispatch pinned to the wrong ref is refused" 1 "--ref \"\$TAG\"" \
+    finish_dispatch_problems "$SCRATCH/finish_wrong_ref.sh"
+  expect_cmd "a commented-out awaited dispatch is refused" 1 "await_workflow_run.py" \
+    finish_dispatch_problems "$SCRATCH/finish_commented.sh"
+
   # ── The LEG, not the checker (#694). ────────────────────────────────────
   # Everything above proves what `freshness_paths_problems` ANSWERS. None of it
   # can see what the leg that consumes that answer does when the checker cannot
@@ -430,15 +722,15 @@ STUB
     FAIL "$SCRATCH/nopy"
 
   local total=$((pass + fail))
-  local MIN=11
+  local MIN=25
   case "$pass$fail$total" in
   *[!0-9]*)
-    echo "::error::go-freshness paths self-test produced a non-numeric tally"
+    echo "::error::check_go_release_wiring.sh --self-test produced a non-numeric tally"
     return 1
     ;;
   esac
   if [ "$total" -lt "$MIN" ]; then
-    echo "::error::go-freshness paths self-test ran $total cases, expected at least $MIN — the sweep itself is broken"
+    echo "::error::check_go_release_wiring.sh --self-test ran $total cases, expected at least $MIN — the sweep itself is broken"
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"
@@ -464,10 +756,18 @@ else
     "and the tagging workflow keeps reporting 'already tagged, nothing to do' forever (#361)"
 fi
 
-# ── 2. Per-config internal consistency. ───────────────────────────────────
+# ── 2. Per-config internal consistency, AND dry-run-only (#879). ──────────
 # Every field that names the lane must name the SAME lane: a config whose
-# tagFormat says go-modules while its prepareCmd bumps something else publishes
-# one tree under another tree's tag, and both halves look plausible in review.
+# tagFormat says go-modules while its verifyReleaseCmd checks something else
+# publishes one tree under another tree's tag, and both halves look plausible
+# in review. Since #879 this config is NEVER run for real — it is staged only
+# for tools/release/compute_next_release.mjs's hardcoded `dryRun: true` call —
+# so it must carry NO prepare/publish-lifecycle plugin: `@semantic-release/git`
+# (commit+push+tag) and `@semantic-release/github` (GitHub Release) are
+# EXACTLY the two plugins whose job was pushing straight to `main`, the #879
+# defect. Keeping either around, even unreachable today, is the one-line
+# change away from resurrecting it; asserting their absence is cheaper than
+# trusting every future diff to notice they are structurally dead.
 if [ -f "$CFG" ]; then
   probs=()
   grep -qF '"branches": ["main"]' "$CFG" ||
@@ -475,7 +775,7 @@ if [ -f "$CFG" ]; then
   grep -qF '"tagFormat": "go-modules/v${version}"' "$CFG" ||
     probs+=(
       "expected \"tagFormat\": \"go-modules/v\${version}\""
-      "the channel tag must NOT be one of the six go/<module>/vX.Y.Z tags: semantic-release"
+      "the channel tag must NOT be one of the six go/<module>/vX.Y.Z tags: finish_go_release.sh"
       "creates its own tag, and a collision would leave tag_go_modules.sh staring at a"
       "half-tagged set it is required to refuse"
     )
@@ -488,40 +788,38 @@ if [ -f "$CFG" ]; then
       "verifyRelease is one of the four steps semantic-release also runs under --dry-run, so this"
       "is what makes a rehearsal prove the computed version instead of guessing at it"
     )
-  grep -qF 'bump_go_modules.sh v${nextRelease.version}' "$CFG" ||
-    probs+=("expected a prepareCmd running: bash tools/go-module-proxy/bump_go_modules.sh v\${nextRelease.version}")
-  grep -qF 'await_workflow_run.py --dispatch --workflow tag-go-modules.yml --ref go-modules/v${nextRelease.version}' "$CFG" ||
-    probs+=(
-      "expected publishCmd: python3 tools/release/await_workflow_run.py --dispatch \\"
-      "  --workflow tag-go-modules.yml --ref go-modules/v\${nextRelease.version}"
-      "a bare \`gh workflow run\` returns the moment GitHub ACCEPTS the dispatch, so the release run"
-      "reports success whether the tagger then cut six tags, refused a half-tagged set, or never"
-      "started at all — the lane's only signal would once again be 'the automation ran' (#627)."
-      "The poller waits for the dispatched run and fails the publish step on any non-success."
-      "semantic-release creates its tag AFTER prepare and BEFORE publish, on the commit"
-      "@semantic-release/git just pushed, so that tag is the ref carrying the bumped go.mod files"
-    )
-  grep -qF 'chore(release): go v${nextRelease.version} [skip ci]' "$CFG" ||
-    probs+=("expected the @semantic-release/git message: chore(release): go v\${nextRelease.version} [skip ci]")
+  for dead in '@semantic-release/git' '@semantic-release/github' 'prepareCmd' 'publishCmd'; do
+    if grep -qF "$dead" "$CFG"; then
+      probs+=(
+        "found '$dead' in go.releaserc.json — since #879 this config is NEVER run for real"
+        "(compute_next_release.mjs always passes dryRun: true, and nothing else invokes it), so a"
+        "prepare/publish-lifecycle entry is dead weight that looks load-bearing. The real version"
+        "bump + commit + branch + PR live in tools/release/open_go_release_pr.sh instead; re-adding"
+        "a real semantic-release run here is how issue #879's direct-push-to-main defect comes back"
+      )
+    fi
+  done
   if [ "${#probs[@]}" -eq 0 ]; then
-    ok "go.releaserc.json is internally consistent (branches, tag line, paths, check, bump, dispatch, message)"
+    ok "go.releaserc.json is internally consistent (branches, tag line, paths, check) and dry-run-only"
   else
-    no "go.releaserc.json is internally consistent (branches, tag line, paths, check, bump, dispatch, message)" \
+    no "go.releaserc.json is internally consistent (branches, tag line, paths, check) and dry-run-only" \
       "${probs[@]}"
   fi
 fi
 
-# ── 3. The commit carries EVERY file the bump rewrites. ───────────────────
+# ── 3. The release-PR branch carries EVERY file the bump rewrites (#879). ─
 # The bump is a cross-file number — six go/*/go.mod requires, go/go.work's
 # versioned replace pins, go/cli/version.go's fallback constant and the internal
-# tools/coverage-study/go consumer. @semantic-release/git commits only what its
-# `assets` globs match, so a file the bump rewrote and the assets do not cover
-# is rewritten on the runner, tagged, and then thrown away — leaving main and
-# the tag disagreeing about the module line. Computed from the tree, never a
-# hardcoded list, so a seventh module or a new internal consumer is covered the
-# day it lands.
-if [ -f "$CFG" ]; then
-  assets="$(sed -n '/"assets"/,/]/p' "$CFG")"
+# tools/coverage-study/go consumer. tools/release/open_go_release_pr.sh commits
+# only what its own `git add` line names, so a file the bump rewrote and that
+# line does not cover is rewritten on the runner, tagged, and then thrown away
+# — leaving main and the tag disagreeing about the module line. The rewrite
+# set is computed from the tree, never a hardcoded list, so a seventh module
+# or a new internal consumer is covered the day it lands; the `git add` line
+# itself IS read literally (not a glob), because open_go_release_pr.sh commits
+# an explicit file list, not a pattern.
+if [ -f "$OPEN_PR_SH" ]; then
+  add_line="$(grep -E '^git add ' "$OPEN_PR_SH" | head -1)"
   rewritten=()
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -534,32 +832,50 @@ if [ -f "$CFG" ]; then
     } | sort -u
   )
   rewritten+=("go/cli/version.go") # the ninth site: `ball version`'s fallback
+  rewritten+=("go/CHANGELOG.md")   # the @semantic-release/changelog prepare-phase edit, done by apply_changelog_bump.mjs
   uncovered=()
   for f in "${rewritten[@]}"; do
-    covered=0
-    # Match each asset glob against the path the same way a shell glob would.
-    while IFS= read -r glob; do
-      [ -n "$glob" ] || continue
-      # shellcheck disable=SC2254  # the glob is the pattern, deliberately
+    # go/*/go.mod is the one entry that is itself a shell glob in the `git add`
+    # line (bump_go_modules.sh discovers every TRACKED go.mod, so a literal
+    # per-module list would silently miss a seventh one); every other path is
+    # matched literally.
+    glob_covered=0
+    case "$add_line" in
+    *"go/*/go.mod"*)
       case "$f" in
-      $glob) covered=1 ;;
+      go/*/go.mod) glob_covered=1 ;;
       esac
-    done < <(printf '%s\n' "$assets" | grep -oE '"[^"]*"' | tr -d '"' | grep -v '^assets$')
-    [ "$covered" -eq 1 ] || uncovered+=("$f")
+      ;;
+    esac
+    if [ "$glob_covered" -eq 1 ]; then
+      continue
+    fi
+    case "$add_line" in
+    *" $f "* | *" $f") ;;
+    *) uncovered+=("$f") ;;
+    esac
   done
-  if [ "${#rewritten[@]}" -lt 7 ]; then
+  if [ -z "$add_line" ]; then
+    no "open_go_release_pr.sh commits every file the bump rewrites" \
+      "found no 'git add ' line at all in tools/release/open_go_release_pr.sh"
+  elif [ "${#rewritten[@]}" -lt 7 ]; then
     no "the bump's rewrite set was discovered (>= 7 files carry the module version)" \
       "found only ${#rewritten[@]} — the discovery sweep is broken, so the coverage check below is vacuous"
   elif [ "${#uncovered[@]}" -eq 0 ]; then
-    ok "go.releaserc.json commits every one of the ${#rewritten[@]} files the bump rewrites"
+    ok "open_go_release_pr.sh commits every one of the ${#rewritten[@]} files the bump rewrites"
   else
-    no "go.releaserc.json commits every one of the ${#rewritten[@]} files the bump rewrites" \
-      "not matched by any @semantic-release/git asset glob: ${uncovered[*]}" \
+    no "open_go_release_pr.sh commits every one of the ${#rewritten[@]} files the bump rewrites" \
+      "not named on its 'git add' line: ${uncovered[*]}" \
       "a rewritten-but-uncommitted file leaves main and the go/<module> tags disagreeing about the version"
   fi
+else
+  no "tools/release/open_go_release_pr.sh exists" \
+    "the Go module line has nothing to apply its computed version bump to a release-PR branch with"
 fi
 
-# ── 4. A driver workflow exists, and it is reachable without a human. ─────
+# ── 4. A driver workflow exists, and both its Phase 1/2 jobs are reachable
+# without a human (#879: release via PR, the release.yml/go-release.yml
+# sibling shape). ───────────────────────────────────────────────────────
 if [ -f "$DRIVER" ]; then
   ok "go-release.yml exists"
 
@@ -574,47 +890,49 @@ if [ -f "$DRIVER" ]; then
   grep -qF "inputs.dry_run && github.ref || 'main'" "$DRIVER" ||
     probs+=(
       "expected the checkout ref: \${{ inputs.dry_run && github.ref || 'main' }}"
-      "a real run must check out main (that is what makes @semantic-release/git's push a"
-      "fast-forward); a dry run must check out the ref it was dispatched for"
-    )
-  grep -qF -- '--branches ${GITHUB_REF_NAME}' "$DRIVER" ||
-    probs+=(
-      "expected the dry-run flag to carry --branches \${GITHUB_REF_NAME}"
-      "the config declares branches: [\"main\"] and semantic-release reads the current branch from"
-      "GITHUB_REF, so a rehearsal on any other branch computes nothing at all"
+      "a real run must check out main (that is what makes open_go_release_pr.sh's push a"
+      "fast-forward branch creation); a dry run must check out the ref it was dispatched for"
     )
   grep -qF 'go.releaserc.json' "$DRIVER" ||
-    probs+=("expected the driver to stage .github/release/go.releaserc.json as the discovered config")
+    probs+=("expected the driver to stage .github/release/go.releaserc.json as the discovered config (its dry-run rehearsal step)")
   grep -qF 'cd tools/release && npm ci' "$DRIVER" ||
     probs+=(
       "expected 'cd tools/release && npm ci': only-package-commits.mjs resolves its"
       "@semantic-release/commit-analyzer import from that node_modules, so -g does not work"
     )
-  grep -qF 'build_local_proxy.py --print-version' "$DRIVER" ||
+  grep -qF 'bootstrap_channel_tag.sh' "$DRIVER" ||
     probs+=(
-      "expected the channel-tag bootstrap to derive the current line from"
-      "build_local_proxy.py --print-version — semantic-release starts a tag line it cannot find at"
-      "1.0.0 (lib/get-next-version.js), which would jump the Go modules from 0.2.x and put the"
-      "very next breaking change over the v2 module-path cliff"
+      "expected the dry-run rehearsal to run tools/go-module-proxy/bootstrap_channel_tag.sh first —"
+      "without it, a rehearsal dispatched directly on main before the lane's first real release"
+      "computes 1.0.0 instead of the real next version (see that script's header)"
     )
+  grep -qF 'tools/release/open_go_release_pr.sh' "$DRIVER" ||
+    probs+=("expected the real (non-dry-run) path to call tools/release/open_go_release_pr.sh (Phase 1)")
+  grep -qF 'tools/release/finish_go_release.sh' "$DRIVER" ||
+    probs+=("expected the finish-release job to call tools/release/finish_go_release.sh (Phase 2)")
+  if grep -qE 'node[[:space:]].*semantic-release(\.js|/bin)|npx semantic-release' "$DRIVER"; then
+    probs+=(
+      "found a direct semantic-release CLI/binary invocation in go-release.yml — since #879 the ONLY"
+      "path into semantic-release is compute_next_release.mjs's JS API call with a hardcoded"
+      "dryRun: true; a CLI invocation here can run for real and push straight to main again"
+    )
+  fi
   if [ "${#probs[@]}" -eq 0 ]; then
-    ok "go-release.yml is dispatchable, rehearsable, and runs the config the way the lane requires"
+    ok "go-release.yml's open-release-pr job is dispatchable, rehearsable, and dry-run-only"
   else
-    no "go-release.yml is dispatchable, rehearsable, and runs the config the way the lane requires" \
+    no "go-release.yml's open-release-pr job is dispatchable, rehearsable, and dry-run-only" \
       "${probs[@]}"
   fi
 
-  # Both lanes that run semantic-release push commits to main. Concurrent
-  # pushes race into non-fast-forward rejections, so they must serialise.
-  go_group="$(grep -A2 -E '^concurrency:' "$DRIVER" | grep -E '^[[:space:]]*group:' | head -1 | awk '{print $2}')"
-  pd_group="$(grep -A2 -E '^concurrency:' "$WORKFLOWS/pubdev-release.yml" 2>/dev/null | grep -E '^[[:space:]]*group:' | head -1 | awk '{print $2}')"
-  if [ -n "$go_group" ] && [ "$go_group" = "$pd_group" ]; then
-    ok "go-release.yml shares pubdev-release.yml's concurrency group ($go_group) so the two never push to main at once"
+  # Phase 2 polls on a schedule (the gh-pr-merge-auto-suppresses-its-own-push
+  # mechanic release.yml's header documents, identical here). Two overlapping
+  # ticks (or a push racing a tick) must serialise rather than both tag.
+  if grep -A2 -E '^[[:space:]]*concurrency:' "$DRIVER" | grep -qE '^[[:space:]]*group:'; then
+    ok "go-release.yml's finish-release job declares its own concurrency group (serialises overlapping polls)"
   else
-    no "go-release.yml shares pubdev-release.yml's concurrency group so the two never push to main at once" \
-      "go-release.yml: '${go_group:-<none>}', pubdev-release.yml: '${pd_group:-<none>}'" \
-      "release.yml dispatches both within a second of each other and each runs semantic-release," \
-      "whose @semantic-release/git step pushes a commit to main"
+    no "go-release.yml's finish-release job declares its own concurrency group" \
+      "without one, a push racing a schedule tick (or two ticks if one runs long) can tag the same" \
+      "release-PR-merge commit twice"
   fi
 else
   no "go-release.yml exists" \
@@ -624,15 +942,17 @@ fi
 
 # release.yml must dispatch it, guarded on a release actually having been cut.
 # `--ref main`, NOT the vX.Y.Z tag the npm/C++ channels use: those build a
-# released tree, this one RUNS semantic-release, whose @semantic-release/git
-# step pushes commits and tags to a BRANCH.
+# released tree, while this one computes the next version from main's history
+# (a semantic-release dry run, whose branch detection only releases from main)
+# and branches release/go-next off origin/main. A detached tag ref gives it
+# neither.
 if grep -qF 'gh workflow run go-release.yml --ref main' "$RELEASE"; then
-  ok "release.yml dispatches go-release.yml (--ref main, the branch semantic-release releases from)"
+  ok "release.yml dispatches go-release.yml (--ref main, the branch the dry run computes from)"
 else
-  no "release.yml dispatches go-release.yml (--ref main, the branch semantic-release releases from)" \
+  no "release.yml dispatches go-release.yml (--ref main, the branch the dry run computes from)" \
     "expected a step running: gh workflow run go-release.yml --ref main" \
-    "a push-triggered driver cannot substitute: release.yml's own semantic-release commit carries" \
-    "[skip ci], which suppresses the whole workflow run (#361)"
+    "a push trigger cannot substitute: the root release merges through an auto-merge armed with" \
+    "GITHUB_TOKEN, and events that token causes start no workflow run (#361, #755)"
 fi
 
 line="$(grep -nF 'gh workflow run go-release.yml --ref' "$RELEASE" | head -1 | cut -d: -f1)"
@@ -640,14 +960,14 @@ if [ -n "$line" ]; then
   start=$((line - 8))
   [ "$start" -lt 1 ] && start=1
   if sed -n "${start},${line}p" "$RELEASE" |
-    grep -qF "if: steps.semrel.outputs.released_version != ''"; then
-    ok "the go-release.yml dispatch is guarded on released_version != ''"
+    grep -qF "if: steps.finish.outputs.newly_tagged == 'true'"; then
+    ok "the go-release.yml dispatch is guarded on newly_tagged == 'true'"
   else
-    no "the go-release.yml dispatch is guarded on released_version != ''" \
+    no "the go-release.yml dispatch is guarded on newly_tagged == 'true'" \
       "an unguarded dispatch fires on every push to main, releasing or not"
   fi
 else
-  no "the go-release.yml dispatch is guarded on released_version != ''" \
+  no "the go-release.yml dispatch is guarded on newly_tagged == 'true'" \
     "no dispatch line for go-release.yml to guard"
 fi
 
@@ -657,25 +977,30 @@ fi
 # the state that reads green while shipping nothing.
 if sed 's/#.*$//' "$RELEASE" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml'; then
   no "release.yml no longer dispatches tag-go-modules.yml directly" \
-    "the tagger is now dispatched by go.releaserc.json's publishCmd, pinned to the channel tag" \
-    "whose commit carries the bumped go.mod files; a second, version-less dispatch from release.yml" \
-    "re-runs it at the OLD version on every release and reports success for doing nothing"
+    "the tagger is now dispatched (and awaited) by tools/release/finish_go_release.sh, pinned to the" \
+    "channel tag whose commit carries the bumped go.mod files; a second, version-less dispatch from" \
+    "release.yml re-runs it at the OLD version on every release and reports success for doing nothing"
 else
   ok "release.yml no longer dispatches tag-go-modules.yml directly"
 fi
 
-# ── 5. Exactly one dispatcher for the tagging workflow. ───────────────────
+# ── 5. Exactly one dispatcher for the tagging workflow (#879: it is now a
+# SCRIPT, tools/release/finish_go_release.sh, not go.releaserc.json's
+# publishCmd — leg 2 above asserts that field no longer exists at all). ───
 dispatchers=()
-for f in "$WORKFLOWS"/*.yml "$CONFIGS"/*.json; do
+for f in "$WORKFLOWS"/*.yml "$CONFIGS"/*.json "$ROOT/tools/release"/*.sh; do
   [ -f "$f" ] || continue
   [ "$(basename "$f")" = "tag-go-modules.yml" ] && continue
+  # This guard dispatches nothing. Its self-test fixtures and its own patterns
+  # spell both dispatch shapes on purpose (the same exclusion leg 6 makes).
+  [ "$(basename "$f")" = "check_go_release_wiring.sh" ] && continue
   sed 's/#.*$//' "$f" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml' &&
     dispatchers+=("$(basename "$f")")
 done
-if [ "${#dispatchers[@]}" -eq 1 ] && [ "${dispatchers[0]}" = "go.releaserc.json" ]; then
-  ok "exactly one place dispatches tag-go-modules.yml, and it is go.releaserc.json's publishCmd"
+if [ "${#dispatchers[@]}" -eq 1 ] && [ "${dispatchers[0]}" = "finish_go_release.sh" ]; then
+  ok "exactly one place dispatches tag-go-modules.yml, and it is tools/release/finish_go_release.sh"
 else
-  no "exactly one place dispatches tag-go-modules.yml, and it is go.releaserc.json's publishCmd" \
+  no "exactly one place dispatches tag-go-modules.yml, and it is tools/release/finish_go_release.sh" \
     "found: ${dispatchers[*]:-<none>}" \
     "two dispatchers cut the same tags twice (the second is a no-op that reports success); none" \
     "means the tags are never cut at all"
@@ -723,7 +1048,7 @@ if [ -f "$BUMP" ]; then
   grep -qF -- '--check-next' "$BUMP" ||
     v2probs+=(
       "expected a --check-next mode: the refusal must be reachable from verifyRelease (which runs"
-      "under --dry-run) and not only from the prepare-time rewrite, or a rehearsal cannot see it"
+      "under --dry-run) and not only from open_go_release_pr.sh's rewrite, or a rehearsal cannot see it"
     )
   if [ "${#v2probs[@]}" -eq 0 ]; then
     ok "bump_go_modules.sh refuses a major >= 2 and exposes that refusal to verifyRelease"
@@ -744,8 +1069,9 @@ if [ -f "$TAGGER" ]; then
   fi
   if grep -qE '^[[:space:]]*push:' "$TAGGER"; then
     no "tag-go-modules.yml is not push-triggered" \
-      "semantic-release's commit carries [skip ci], which suppresses the ENTIRE workflow run for a" \
-      "push trigger — no run row is even created, so the dead channel reads as 'nothing red' (#361)"
+      "the release commit it would wait for lands through an auto-merge armed with GITHUB_TOKEN," \
+      "whose events start no workflow run (and before #755 it carried [skip ci], which suppresses" \
+      "the whole run too). No run row is even created, so the dead channel reads as 'nothing red' (#361)"
   else
     ok "tag-go-modules.yml is not push-triggered"
   fi
@@ -791,60 +1117,60 @@ else
     "live run with 'fatal: too many arguments' (run 33939440446)"
 fi
 
-# ── 11. The tagger's header tells the post-#623 truth. ────────────────────
-# tag-go-modules.yml is the file an operator lands on when a tag cut goes wrong,
-# and its header is the only explanation of the lane it carries. It described a
-# world that stopped existing when #623 landed: "Bumping the Go modules is
-# therefore a normal PR that runs bump_go_modules.sh; this workflow then cuts
-# the tags on the next release" (the bump is a prepareCmd now), "release.yml
-# dispatches this explicitly" (leg 4 above asserts it does NOT), and an offer to
-# hand-dispatch for "the one-time backfill" (done in #618). Stale prose in a
-# release file is not cosmetic — it is the instruction a human follows at 2am,
-# and nothing else in this guard reads comments. So this one does (#627).
+if grep -qF 'tools/release/test/finish_go_release_test.sh' "$CI"; then
+  ok "ci.yml runs finish_go_release.sh's behavioural test (the awaited tagger dispatch)"
+else
+  no "ci.yml runs finish_go_release.sh's behavioural test (the awaited tagger dispatch)" \
+    "Phase 2 only runs once a release PR has merged, and it is the one place the tagger is" \
+    "dispatched; without a PR-time test, which commit it tags and whether its dispatch is awaited" \
+    "would first be exercised by a real release (#879)"
+fi
+
+# ── 11. The tagger's header tells the truth about today's lane. ──────────
+# See tagger_header_problems above for the history and the rules. The
+# dispatcher list it checks the header against is leg 5's DISCOVERED one, so
+# the header has to follow the dispatcher wherever it moves next.
 if [ -f "$TAGGER" ]; then
-  header="$(sed -n '1,/^on:/p' "$TAGGER" | grep -E '^[[:space:]]*#')"
-  header_lines="$(printf '%s\n' "$header" | grep -c .)"
-  case "$header_lines" in
-  *[!0-9]*) header_lines=0 ;;
-  esac
-  if [ "$header_lines" -lt 10 ]; then
-    # A vanished header would make every forbidden-phrase check below vacuously
-    # true, which is the shape this guard refuses everywhere else.
-    no "tag-go-modules.yml carries an explanatory header (>= 10 comment lines before 'on:')" \
-      "found $header_lines — with no header there is nothing to keep honest, and the prose" \
-      "assertions below would pass by being empty"
+  hrc=0
+  hout="$(tagger_header_problems "$TAGGER" ${dispatchers[@]+"${dispatchers[@]}"})" || hrc=$?
+  hprobs=()
+  while IFS= read -r hline; do
+    [ -n "$hline" ] && hprobs+=("$hline")
+  done <<EOF
+$hout
+EOF
+  if [ "$hrc" -eq 0 ] && [ "${#hprobs[@]}" -eq 0 ]; then
+    ok "tag-go-modules.yml's header names its real dispatcher (${dispatchers[*]:-<none>}) and no removed hook"
   else
-    hprobs=()
-    printf '%s\n' "$header" | grep -qE 'release\.yml dispatches' &&
-      hprobs+=(
-        "says \"release.yml dispatches\" — it does not, and leg 4 of this guard fails if it ever"
-        "does again. Since #623 the only dispatcher is .github/release/go.releaserc.json's"
-        "publishCmd, pinned to the go-modules/vX.Y.Z channel tag."
-      )
-    printf '%s\n' "$header" | grep -qE 'cuts the tags on the next release' &&
-      hprobs+=(
-        "still describes the bump as a human PR that this workflow tags \"on the next release\";"
-        "since #623 the bump is go.releaserc.json's prepareCmd and the tags are cut by the"
-        "publishCmd of the same release that made it"
-      )
-    printf '%s\n' "$header" | grep -qE 'one-time backfill' &&
-      hprobs+=("still offers the one-time backfill hand-dispatch; that backfill happened in #618")
-    printf '%s\n' "$header" | grep -qF 'go.releaserc.json' ||
-      hprobs+=("never names .github/release/go.releaserc.json, which is what actually dispatches it")
-    printf '%s\n' "$header" | grep -qF 'publishCmd' ||
-      hprobs+=("never names the publishCmd that dispatches it")
-    if [ "${#hprobs[@]}" -eq 0 ]; then
-      ok "tag-go-modules.yml's header describes the post-#623 lane ($header_lines comment lines)"
-    else
-      no "tag-go-modules.yml's header describes the post-#623 lane" "${hprobs[@]}"
-    fi
+    [ "${#hprobs[@]}" -eq 0 ] &&
+      hprobs=("the header checker failed with exit status $hrc and said nothing")
+    no "tag-go-modules.yml's header names its real dispatcher and no removed hook" "${hprobs[@]}"
   fi
 fi
 
 # ── 12. The dispatch is AWAITED, by a poller with a bounded budget. ───────
-# Leg 2 pins that publishCmd calls the poller. This pins that the poller is a
-# poller: a script that shells out to `gh workflow run` and returns would
-# satisfy that grep and change nothing.
+# Two halves. finish_dispatch_problems (above) pins that the sole dispatcher leg
+# 5 found, tools/release/finish_go_release.sh, dispatches THROUGH the poller and
+# at the channel tag. The checks after it pin that the poller is a poller: a
+# script that shells out to `gh workflow run` and returns would satisfy the
+# first half and change nothing.
+drc=0
+dout="$(finish_dispatch_problems "$FINISH_SH")" || drc=$?
+dprobs=()
+while IFS= read -r dline; do
+  [ -n "$dline" ] && dprobs+=("$dline")
+done <<EOF
+$dout
+EOF
+if [ "$drc" -eq 0 ] && [ "${#dprobs[@]}" -eq 0 ]; then
+  ok "finish_go_release.sh dispatches tag-go-modules.yml through await_workflow_run.py, at the channel tag"
+else
+  [ "${#dprobs[@]}" -eq 0 ] &&
+    dprobs=("the dispatch checker failed with exit status $drc and said nothing")
+  no "finish_go_release.sh dispatches tag-go-modules.yml through await_workflow_run.py, at the channel tag" \
+    "${dprobs[@]}"
+fi
+
 AWAIT="$ROOT/tools/release/await_workflow_run.py"
 if [ -f "$AWAIT" ]; then
   aprobs=()
@@ -879,9 +1205,9 @@ if [ -f "$AWAIT" ]; then
   fi
 else
   no "tools/release/await_workflow_run.py exists (the awaited dispatch, #627)" \
-    "publishCmd's dispatch is fire-and-forget without it: 'gh workflow run' returns as soon as" \
-    "GitHub accepts the request, so a tagger run that fails, is cancelled, or never starts leaves" \
-    "the go-release run green"
+    "finish_go_release.sh's dispatch is fire-and-forget without it: 'gh workflow run' returns as" \
+    "soon as GitHub accepts the request, so a tagger run that fails, is cancelled, or never starts" \
+    "leaves the go-release.yml finish-release job green"
 fi
 
 # ── 13. The Go lane has an OUTCOME alarm, not just wiring guards. ─────────
@@ -996,18 +1322,18 @@ else
 fi
 
 if grep -qF 'tools/release/check_go_release_wiring.sh --self-test' "$CI"; then
-  ok "ci.yml runs this guard's own paths-scoping negative controls"
+  ok "ci.yml runs this guard's own negative controls (--self-test)"
 else
-  no "ci.yml runs this guard's own paths-scoping negative controls" \
-    "the go-freshness paths leg above is the one leg here that parses YAML rather than grepping," \
-    "and a leg whose failure path is never exercised would pass identically if it stopped looking" \
-    "at the list: bash tools/release/check_go_release_wiring.sh --self-test (#656)"
+  no "ci.yml runs this guard's own negative controls (--self-test)" \
+    "the go-freshness paths, tagger-header and awaited-dispatch legs each consume a checker, and a" \
+    "leg whose failure path is never exercised would pass identically if its checker stopped" \
+    "looking: bash tools/release/check_go_release_wiring.sh --self-test (#656, #879)"
 fi
 
 total=$((pass + fail))
 # Positive floor (#439/#444): an exit code plus a zero failure count cannot tell
 # "all passed" from "nothing ran".
-MIN=22
+MIN=24
 case "$pass$fail$total" in
 *[!0-9]*)
   echo "::error::Go release wiring guard produced a non-numeric tally"

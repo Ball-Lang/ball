@@ -106,8 +106,12 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   path-filtered to `go/`) driven by `.github/workflows/go-release.yml`, which `release.yml`
   dispatches on every release (`--ref main`). Its `verifyReleaseCmd` is
   `bump_go_modules.sh --check-next` (legal semver, major < 2, and exactly `semver.inc` of the line
-  in the tree — this runs under `--dry-run` too), its `prepareCmd` is the bump itself, and its
-  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag **and waits for that run**
+  in the tree — this runs under `--dry-run` too). semantic-release only COMPUTES the version (a dry
+  run); since #879 the bump lands through an auto-merged PR, never a push to `main`:
+  `tools/release/open_go_release_pr.sh` runs the bump on `release/go-next` and opens
+  `chore(release): go vX.Y.Z`, and after it merges (the merge queue appends ` (#N)`)
+  `tools/release/finish_go_release.sh` tags the channel tag and dispatches `tag-go-modules.yml`
+  at it **and waits for that run**
   (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget — #627; a bare
   `gh workflow run` returns on acceptance, so a failed tag cut used to leave the release green).
   It waits for a run **strictly newer** than the newest one on that ref before the dispatch

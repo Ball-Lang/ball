@@ -332,6 +332,54 @@ jobs:
       - name: Release dispatch wiring guard (#361)
         run: bash tools/release/check_release_dispatch_wiring.sh
 
+      # Issue #755: pins that release.yml/coverage-study.yml never go back to
+      # pushing a bot commit straight to `main` (the pattern the `Protect
+      # main` ruleset's required-status-checks rule rejects outright, GH013),
+      # and that both are wired to the shared release-via-PR helper scripts.
+      - name: Release-via-PR wiring guard (#755)
+        run: bash tools/release/check_release_pr_wiring.sh
+
+      # The negative controls for the sweep above's own regex: a COMMENT that
+      # merely documents this defect's history (as this very fix does) must
+      # never trip it, and both real historical spellings of the direct push
+      # must.
+      - name: Release-via-PR wiring guard negative controls (#755)
+        run: bash tools/release/check_release_pr_wiring.sh --self-test
+
+      # The release-via-PR scripts' own unit/integration self-tests — pure
+      # file-mutation logic (changelog/package.json edits) plus the shared
+      # PR-opening and release-finishing helpers, exercised against throwaway
+      # local git repos and a stub `gh` (zero network, zero real
+      # credentials). `compute_next_release.mjs` itself (the one script that
+      # needs the real `semantic-release` package) is NOT exercised here, and
+      # — PR #881 review finding 4 — contrary to what this comment used to
+      # claim, it is also NOT meaningfully exercised by release.yml's own
+      # dry-run rehearsal or by release-freshness.yml's `pull_request`
+      # trigger: `semantic-release` unconditionally refuses to compute a real
+      # answer off its configured release branch or for a `pull_request`
+      # event (confirmed from this repo's own CI logs — see
+      # docs/RELEASE.md), so both rehearsals always see `{"release":false}`
+      # and could never fail regardless of what this script does. The
+      # `check_release_freshness_live_test.sh` run below is the test that
+      # DOES exercise everything downstream of that verdict — the
+      # LAST_TAG/RANGE/OLDEST_ISO git-state computation, the classifier fed
+      # from it, the `gh pr list` lookup, and the alert text — via a
+      # `BALL_FORCE_RELEASE_DUE` override meant only for this test.
+      - name: Release-via-PR script self-tests (#755)
+        run: |
+          node --test tools/release/test/release_pr_lib_test.mjs tools/release/test/apply_version_bump_test.mjs tools/release/test/apply_changelog_bump_test.mjs
+          bash tools/release/test/open_bot_pr_test.sh
+          bash tools/release/test/finish_release_test.sh
+          bash tools/release/check_release_freshness.sh --self-test
+          bash tools/release/test/check_release_freshness_live_test.sh
+          # The Go module lane's own Phase 2 (issue #879) -- the
+          # finish_release.sh sibling adapted to go-modules/vX.Y.Z.
+          bash tools/release/test/finish_go_release_test.sh
+          # The merge-queue servicer (PR #881 review round 3, finding 1):
+          # a GITHUB_TOKEN-enqueued bot PR gets no merge_group runs, so
+          # bot-merge-queue.yml dispatches its required checks instead.
+          bash tools/release/test/service_bot_merge_queue_test.sh
+
       # The guard above pins that a release channel CAN fire. It cannot see the
       # failure #551 reported: the pub.dev lane's trigger chain was reachable
       # and green the whole time, and shipped nothing for two months, because
@@ -351,23 +399,29 @@ jobs:
       # deciding the VERSION those tags carry was a human running
       # bump_go_modules.sh, and while nobody did, every release re-dispatched the
       # tagger and it passed doing nothing. This pins the lane's shape: the Go
-      # module version is a semantic-release line, its commit carries every file
-      # the bump rewrites, tag_go_modules.sh stays the single tagging path, and
-      # a computed v2 stops the release instead of publishing six unimportable
-      # module paths.
+      # module version is a semantic-release line computed by a dry run, its
+      # release-PR commit carries every file the bump rewrites,
+      # finish_go_release.sh is the one (awaited) dispatcher of the tagger,
+      # tag_go_modules.sh stays the single tagging path, and a computed v2 stops
+      # the release instead of publishing six unimportable module paths.
       - name: Go module release lane wiring guard (#361)
         run: bash tools/release/check_go_release_wiring.sh
 
-      # #656: the negative controls for the one leg of that guard that parses
-      # YAML instead of grepping — go-freshness.yml's `pull_request.paths`.
-      # go-freshness.yml is the only freshness alarm here with a PR trigger, and
-      # its header's argument for why that is not a per-PR dependency on
-      # proxy.golang.org rests entirely on the filter naming the alarm's own two
-      # files. A `grep -qF` for those two lines passes just as happily with a
-      # third one under them, so the leg parses the list and compares it as a
-      # SET — and these fixtures (widened, narrowed, unfiltered, paths-ignore,
-      # no PR trigger, unparseable) are what prove it still refuses.
-      - name: go-freshness.yml paths-scoping negative controls (#656)
+      # The negative controls for that guard's three checker-backed legs.
+      # #656: go-freshness.yml's `pull_request.paths`, the one leg that parses
+      # YAML instead of grepping. go-freshness.yml is the only freshness alarm
+      # here with a PR trigger, and its header's argument for why that is not a
+      # per-PR dependency on proxy.golang.org rests entirely on the filter
+      # naming the alarm's own two files. A `grep -qF` for those two lines
+      # passes just as happily with a third one under them, so the leg parses
+      # the list and compares it as a SET — and these fixtures (widened,
+      # narrowed, unfiltered, paths-ignore, no PR trigger, unparseable) are what
+      # prove it still refuses. #879 (PR #881 review round 4): tag-go-modules.yml's
+      # header must name the dispatcher the guard DISCOVERS and none of the
+      # hooks #879 removed, and finish_go_release.sh's dispatch must go through
+      # await_workflow_run.py at the channel tag. The previous leg-11 check
+      # passed a header describing the removed publishCmd mechanism.
+      - name: "Go release wiring guard negative controls (#656, #879)"
         run: bash tools/release/check_go_release_wiring.sh --self-test
 
       # #627: the two halves the guard above can only assert the EXISTENCE of.
@@ -384,7 +438,7 @@ jobs:
       - name: Go module freshness classifier self-test (#627)
         run: bash tools/release/check_go_freshness.sh --self-test
 
-      # The poller is what makes go.releaserc.json's publishCmd AWAIT the
+      # The poller is what makes tools/release/finish_go_release.sh AWAIT the
       # tag-go-modules.yml run it dispatches instead of firing and forgetting.
       # It only ever executes inside a real release, so without a self-test its
       # budget loop and its conclusion classification would first be exercised
@@ -2704,6 +2758,27 @@ jobs:
       # Coverage-gated (issue #62).
       - name: Test @ball-lang/encoder (coverage-gated)
         run: cd ts/encoder && npm run coverage
+
+      # TS engine std-override drift guards (#817, #732). engine_setup.ts's
+      # registerExtraStdFunctions registers hand-written std-function
+      # overrides by hardcoded name, and until now nothing compared that
+      # registry against the canonical dart/shared/lib/std*.dart declarations
+      # (a phantom 'string_from_char_codes' arm sat there unreachable — #817,
+      # the TS sibling of #505/#607/#743) or against the
+      # dart/engine/lib/engine_std.dart dispatch entries it SHADOWS (#732,
+      # generalizing the one-override-family check_error_rendering_tables.py
+      # already does). Both checkers are pure python3 (stdlib only, no
+      # toolchain) — see each script's own docstring for what each does and
+      # does not catch. Self-test first: a gate nobody has watched fail is not
+      # a gate.
+      - name: "TS engine std overrides are declared, or a frozen known gap (#817)"
+        run: |
+          python3 tools/check_ts_engine_setup_declared.py --self-test
+          python3 tools/check_ts_engine_setup_declared.py
+      - name: "TS engine std overrides stay in sync with dart/engine's dispatch (#732)"
+        run: |
+          python3 tools/check_ts_engine_overrides_sync.py --self-test
+          python3 tools/check_ts_engine_overrides_sync.py
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness

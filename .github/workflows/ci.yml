@@ -217,6 +217,19 @@ jobs:
       - name: Dart-error rendering tables are closed (#641)
         run: python tools/check_error_rendering_tables.py
 
+      # `value as T` (the cast EXPRESSION) is an unchecked identity on every
+      # target but one: Rust's compiled `ball_as` used to PANIC on a mismatch,
+      # an uncatchable process abort no sibling target produces (#707). This is
+      # the sibling closed-set check #641's own rendering-table gate was asked
+      # to spawn — structural, not observable (conformance fixture
+      # 481_as_expression_identity is the observable half, on every
+      # engine/compiler row). Self-test first, same discipline as #641's.
+      - name: std.as contract self-test (#707)
+        run: python tools/test/test_check_std_as_contract.py
+
+      - name: std.as is an unchecked identity on every target (#707)
+        run: python tools/check_std_as_contract.py
+
       # ball.schema.json is the hand-maintained JSON-Schema mirror of ball.proto
       # for JSON-only implementers, and docs/BALL_JSON_SPEC.md points machine
       # outputs at it by $defs ref. Every $defs object sets

@@ -5125,30 +5125,41 @@ function __isUnknownFnError(e: any): boolean {
       case "string_interpolation": {
         // Mirrors the Dart compiler's `_compileStringInterpolation`
         // (#654/#810): a LITERAL `parts` list is unrolled into an explicit
-        // `.toString()` chain; a NON-literal one (a variable, a computed
+        // stringify chain; a NON-literal one (a variable, a computed
         // list — anything not a `Literal_Value.listValue`) keeps the same
         // meaning via `map`/`join` instead of degrading to `''` (#818). The
         // old fallback silently discarded the interpolated content for
         // every non-literal `parts`, which is exactly the silent-degradation
         // class of bug this repo's core invariants forbid.
+        //
+        // Every arm stringifies through `__ball_to_string`, never a bare
+        // `.toString()` (PR #900 review): the Dart COMPILER's identical
+        // `.toString()` chain is safe only because it compiles to literal
+        // Dart, where `Null`/`List`/`Map` all define a `toString()` that
+        // already matches Dart's own semantics (`null.toString()` answers
+        // `'null'`; `[1, 2].toString()` answers `'[1, 2]'`). JS has none of
+        // that — `null.toString()` THROWS, `[1, 2].toString()` answers the
+        // comma-joined `'1,2'`, and a `Map`'s answers `'[object Map]'` — so a
+        // bare `.toString()` here diverges from the reference engine on a
+        // null part and on every collection part. `__ball_to_string` is the
+        // preamble's null-safe, Dart-formatting stringify helper (what every
+        // `'$e'` interpolation in compiled code already goes through), and it
+        // is what the non-literal `parts` arm below already used.
         const parts = f.get("parts");
         if (parts !== undefined) {
           if (parts.literal?.listValue) {
             const elements = parts.literal.listValue.elements ?? [];
             if (elements.length === 0) return `''`;
             const pieces = elements
-              .map((p) => `(${this.expr(p)}).toString()`)
+              .map((p) => `__ball_to_string(${this.expr(p)})`)
               .join(" + ");
             return `(${pieces})`;
           }
-          // __ball_to_string is the preamble's null-safe Dart-stringify
-          // helper (what every `'$e'` interpolation in compiled code already
-          // goes through) — a bare `.toString()` would throw on `null`.
           return `${this.expr(parts)}.map((e) => __ball_to_string(e)).join('')`;
         }
         const value = f.get("value");
-        if (value !== undefined) return `(${this.expr(value)}).toString()`;
-        if (call.input) return `(${this.expr(call.input)}).toString()`;
+        if (value !== undefined) return `__ball_to_string(${this.expr(value)})`;
+        if (call.input) return `__ball_to_string(${this.expr(call.input)})`;
         throw new Error(
           "std.string_interpolation: the call carries neither `parts` nor " +
             "`value` nor an input expression, so there is nothing to " +

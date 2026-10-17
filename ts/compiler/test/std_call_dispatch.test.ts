@@ -82,12 +82,15 @@ const cases: Case[] = [
     body: std("integer_divide", { left: ref("a"), right: ref("b") }),
     expect: [/__ball_divide\(a, b\)/],
   },
-  // String interpolation: a literal parts list unrolls into a `.toString()`
-  // chain (mirrors dart/compiler's `_compileStringInterpolation`, #654/#810).
+  // String interpolation: a literal parts list unrolls into an explicit
+  // __ball_to_string chain (mirrors dart/compiler's
+  // `_compileStringInterpolation`, #654/#810) — never a bare `.toString()`
+  // (PR #900 review): that throws on a null part and formats a list/map the
+  // JS way instead of Dart's, see the behavioural describe block below.
   {
     name: "stringInterpolationWithParts",
     body: std("string_interpolation", { parts: listLit([lit("hi "), ref("name")]) }),
-    expect: [/\('hi '\)\.toString\(\) \+ \(name\)\.toString\(\)/],
+    expect: [/__ball_to_string\('hi '\) \+ __ball_to_string\(name\)/],
   },
   // A NON-literal `parts` (a variable, a computed list — anything that is
   // not a `Literal_Value.listValue`) used to compile to a bare `''`,
@@ -1229,6 +1232,69 @@ describe("compiler — string_interpolation fails loud when parts/value/input ar
       () => compile(program, { includePreamble: false }),
       /string_interpolation: the call carries neither `parts` nor `value`/,
     );
+  });
+});
+
+describe("compiler — string_interpolation stringifies through __ball_to_string on every arm, never a bare .toString() (PR #900 review)", () => {
+  // The Dart COMPILER's identical `.toString()` chain (dart/compiler/lib/
+  // compiler.dart's `_compileStringInterpolation`) is safe only because it
+  // compiles to literal Dart, where `Null`/`List`/`Map` already define a
+  // `toString()` that matches Dart's own semantics: `null.toString()`
+  // answers `'null'`, `[1, 2].toString()` answers `'[1, 2]'`. JS has none of
+  // that: `null.toString()` THROWS, `[1, 2].toString()` answers the
+  // comma-joined `'1,2'`, and a `Map`'s answers `'[object Map]'`. A regex
+  // against the emitted TEXT cannot see this — the pre-fix code compiled
+  // fine and only diverged from the reference engine at RUN time — so these
+  // cases compile WITH the real preamble and RUN the result.
+  function runPrint(message: Expression): string {
+    const program: Program = {
+      name: "string_interpolation_stringify_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [
+        { name: "main", body: block([{ expression: std("print", { message }) }]) },
+      ] }],
+    };
+    const tmpPath = join(
+      tmpdir(),
+      `ball_string_interp_stringify_${process.pid}_${Math.random().toString(36).slice(2)}.ts`,
+    );
+    writeFileSync(tmpPath, compile(program));
+    try {
+      return execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  }
+
+  const nullLit = (): Expression => ({ literal: {} });
+
+  test("a LITERAL parts list stringifies a null part as 'null' instead of throwing", () => {
+    const out = runPrint(std("string_interpolation", { parts: listLit([lit("a="), nullLit()]) }));
+    assert.equal(out, "a=null");
+  });
+
+  test("a LITERAL parts list stringifies a list part Dart-style ('[1, 2]'), not JS-style ('1,2')", () => {
+    const out = runPrint(
+      std("string_interpolation", { parts: listLit([lit("xs="), listLit([lit(1), lit(2)])]) }),
+    );
+    assert.equal(out, "xs=[1, 2]");
+  });
+
+  test("the bare `value` field stringifies null as 'null' instead of throwing", () => {
+    const out = runPrint(std("string_interpolation", { value: nullLit() }));
+    assert.equal(out, "null");
+  });
+
+  test("the bare input-expression arm stringifies a list Dart-style, not via a raw .toString()", () => {
+    // `call.input` set directly to a non-messageCreation expression (never
+    // produced by `std(...)`, which always wraps fields in a
+    // `messageCreation`) is the only way to reach the third arm — the same
+    // shape `call.hasInput()` tests on the Dart compiler side.
+    const out = runPrint({
+      call: { module: "std", function: "string_interpolation", input: listLit([lit(1), lit(2)]) },
+    });
+    assert.equal(out, "[1, 2]");
   });
 });
 

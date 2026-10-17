@@ -246,6 +246,20 @@ const json = toJson(ProgramSchema, program);
   the same reason as `set_union`/the unknown-std-fn case beside it — a
   throwing case fails the ONE combined `compile()` that table's `before()`
   hook does for every case).
+  **The LITERAL-parts and bare `value`/input-expression arms must ALSO go
+  through `__ball_to_string`, never a bare `.toString()` (PR #900 review).**
+  The first cut of this fix left those two arms unrolling a raw `.toString()`
+  chain, copied from the Dart compiler's `_compileStringInterpolation` — but
+  that is safe only on the DART side, where it compiles to literal Dart and
+  `Null`/`List`/`Map` already define a `toString()` matching Dart's own
+  semantics (`null.toString()` answers `'null'`). JS has none of that:
+  `null.toString()` THROWS (so an interpolated `null` crashed where the
+  pre-#818 code answered `'a=null'`), and `[1, 2].toString()`/a `Map`'s answer
+  the JS forms (`'1,2'`, `'[object Map]'`) instead of Dart's (`'[1, 2]'`,
+  `'{...}'`). A regex against the emitted TEXT cannot see this — the broken
+  code compiled fine and only diverged at RUN time — so the guard for this
+  half is a `runPrint()`-and-RUN describe block in the same test file,
+  exercising a `null` part and a `List` part on every one of the three arms.
 - **`isStd` is a CLOSED SET, and a module missing from it compiles to a bare
   identifier (#606).** `std_concurrency` was absent, so `compileCall` never
   reached `compileStdCall` and every call emitted `thread_spawn(...)` — an

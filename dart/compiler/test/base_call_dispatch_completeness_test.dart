@@ -311,8 +311,10 @@ void main() {
     test(
       'std.string_interpolation keeps a NON-literal parts list portable',
       () {
-        // The TypeScript compiler answers `''` here — a silently EMPTY string
-        // where the program asked for its parts. This target keeps the meaning.
+        // Until #818 the TypeScript compiler answered `''` here — a silently
+        // EMPTY string where the program asked for its parts. Both targets
+        // now keep the meaning via an equivalent map/join lowering
+        // (ts/compiler/src/compiler.ts's `string_interpolation` case).
         final out = _compileProbe('std', 'string_interpolation', [
           _field('parts', _ref('parts')),
         ]);

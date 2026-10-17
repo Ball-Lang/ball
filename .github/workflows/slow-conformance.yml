@@ -6,20 +6,35 @@ name: Slow Conformance (subprocess round-trip)
 # REAL subprocesses — `dart run` (engine + recompiled Dart + the
 # encoder-in-the-loop round-trip) and `node` (the TS compiler) — rather than
 # the in-process legs the normal CI suites use. ci.yml, regression-gates.yml,
-# and release.yml all pass `--exclude-tags slow` for speed, which means this
-# leg never runs anywhere unless something explicitly opts back in. This
-# workflow is that opt-in: a scheduled + manually-triggerable run so the real
-# subprocess round-trip still gets exercised regularly, without slowing down
-# every PR.
+# and release.yml all pass `--exclude-tags slow` for speed, so none of them
+# ever exercise the real subprocess legs.
 #
-# KNOWN RED (as of re-enabling this leg): while the leg was dark, six fixtures
-# rotted on the dart-compiled + dart-roundtrip legs — five are tracked in #305
-# and 229_closure_loop_var_semantics in #303. The harness has no
-# tolerated-failure baseline (by design), so this workflow stays red until
-# those compiler bugs are fixed. Do not add a baseline here; fix the bugs.
+# HISTORY: while this leg ran ONLY on the weekly schedule (no PR trigger), it
+# went red TWICE with no PR to point at: #305 (closed) rotted five fixtures on
+# the dart-compiled/dart-roundtrip legs, and a second, independent recurrence
+# — four DIFFERENT fixtures (#880, closed) — went undetected from at least
+# 2026-09-07 through every weekly run after, because nothing ran these exact
+# legs on the PRs that introduced the regressions. `pull_request` below closes
+# that gap going forward: a PR touching the Dart compiler or encoder — the
+# only two packages whose output these subprocess legs can move — now runs
+# this exact suite before merge, not up to a week later. (A change to
+# dart/engine or dart/shared can also move the `engine`/`ts-compiled` legs,
+# but conformance-matrix.yml's in-process `engine` row and its own `*-compiled`
+# rows already gate those paths on every PR; it is specifically the Dart
+# COMPILER and ENCODER — the two components the real `dart run` subprocess legs
+# exercise and the in-process matrix does not — that had no PR gate at all.)
 on:
   schedule:
     - cron: "0 7 * * 1" # Weekly on Monday at 07:00 UTC (after conformance-matrix.yml's 06:00 run)
+  pull_request:
+    paths:
+      - "dart/compiler/**"
+      - "dart/encoder/**"
+      # The gate must cover changes to ITSELF too (mirrors
+      # conformance-matrix.yml's "the matrix must gate changes to ITSELF",
+      # #642) — a PR that only edits this workflow's own test-invocation step
+      # would otherwise get no run of the suite it just changed.
+      - ".github/workflows/slow-conformance.yml"
   workflow_dispatch:
 
 # Least-privilege: read-only token (this workflow only builds + runs tests).

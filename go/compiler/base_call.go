@@ -945,7 +945,20 @@ func (c *Compiler) emitMutation(lv lvalue, op, value string) string {
 	case "var":
 		return fmt.Sprintf("func() ballrt.Value { __v := %s; %s = __v; return __v }()", combineOp(op, lv.a, value), lv.a)
 	case "field":
+		// A name some class declares as an instance getter/setter dispatches
+		// through the accessor mechanism (compileAccessors) rather than
+		// touching the backing map directly, so a setter that validates or
+		// throws actually runs (issue #813). Each half is independent: a
+		// setter-only name (470's FixedSlice.length) still reads the plain
+		// field for `cur`, and a getter-only name (declared but never
+		// assigned anywhere) still falls through to a plain FieldSet.
 		cur := fmt.Sprintf("ballrt.FieldGet(%s, %q)", lv.a, lv.b)
+		if c.getterMembers[lv.b] {
+			cur = fmt.Sprintf("%s(%s)", accessorGetFuncName(lv.b), lv.a)
+		}
+		if c.setterMembers[lv.b] {
+			return fmt.Sprintf("%s(%s, %s)", accessorSetFuncName(lv.b), lv.a, combineOp(op, cur, value))
+		}
 		return fmt.Sprintf("ballrt.FieldSet(%s, %q, %s)", lv.a, lv.b, combineOp(op, cur, value))
 	case "index":
 		cur := fmt.Sprintf("ballrt.IndexGet(%s, %s)", lv.a, lv.b)

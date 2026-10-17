@@ -361,11 +361,31 @@ func (c *Compiler) compileDispatcher(short string, targets []struct{ owner, impl
 // emission, so compileFieldAccess/emitMutation/compileReference can consult
 // it while compiling bodies that run EARLIER in program order than the class
 // that declares the accessor.
+//
+// An EXTENSION typeDef's getter/setter is deliberately excluded (merge
+// interaction between #670 and #813, caught compiling
+// 480_extension_override_selection after this PR absorbed #813): an
+// extension carries no `descriptor` (the same reason compileClassMembers'
+// C++ sibling skips its struct emission entirely — see the extension-override
+// bullet above), so accessorTargets' `td.GetDescriptor_() == nil` guard can
+// never find a target for an extension's property, no matter how
+// indexAccessors classifies it. Marking it a getter/setter anyway made
+// compileAccessors emit a dispatcher whose only statement is an unused
+// `__t := ballrt.ToStr(...)` followed by an unconditional fallback — a Go
+// compile error (`declared and not used: __t`) on ANY program with an
+// extension declaring a getter or setter, extension-override test program
+// included. An extension's accessor is reached exclusively through the
+// override CALL mechanism (compileCall + extensionMemberImpl) — Dart has no
+// `obj.property` syntax that resolves to an extension on an unrelated
+// receiver type — so it was never reachable through
+// compileFieldAccess/emitMutation/compileReference's redirect in the first
+// place; excluding it here loses nothing.
 func (c *Compiler) indexAccessors() {
 	for _, owner := range c.classMemberOrder {
 		// A member whose owner has no TypeDefinition gets no impl emitted (see
 		// compileClassMembers), so it can never be dispatched to.
-		if _, ok := c.typeDefsByShort[typeShortName(owner)]; !ok {
+		td, ok := c.typeDefsByShort[typeShortName(owner)]
+		if !ok || metaString(td.GetMetadata(), "kind") == "extension" {
 			continue
 		}
 		for _, member := range c.classMembers[owner] {

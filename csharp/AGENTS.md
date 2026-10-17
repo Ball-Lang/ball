@@ -184,6 +184,18 @@ constant instead; `cli`'s test additionally asserts its `CliInfo.Banner` referen
 sibling packages, proving the whole project-reference graph resolves (the C# analog of Rust's
 Phase 1a "five member crates wired together via path dependencies").
 
+**`xunit.v3` is pinned at `3.2.2` deliberately and must not be bumped to 4.x without a separate
+migration PR.** xUnit v4 pulls in `Microsoft.Testing.Platform(.MSBuild)` v2.x, and MTP v2 removes
+the legacy VSTest-mode bridge `dotnet test` relies on under the .NET 10 SDK — bumping `xunit.v3`
+alone (dependabot PR #748, 3.2.2 -> 4.0.1) makes every `dotnet test` invocation in this repo fail
+with `Testing with VSTest target is no longer supported by Microsoft.Testing.Platform on .NET 10
+SDK and later` (https://aka.ms/dotnet-test-mtp-error). The real fix is migrating the whole repo's
+`dotnet test` invocation to MTP mode (a `test.runner` entry in `csharp/global.json`, plus every
+documented filtered `dotnet test` invocation across this file, `.claude/rules/csharp.md` and
+`CLAUDE.md` changing CLI shape) — deliberately out of scope for a routine dependency bump.
+`xunit.runner.visualstudio`/`Microsoft.NET.Test.Sdk`/`coverlet.collector` bump independently of
+`xunit.v3` without pulling MTP v2 and stay verified compatible with `xunit.v3 3.2.2`.
+
 ## Proto bindings (issue #379, epic #377 Wave B Phase 2)
 
 `shared/gen/Ball.cs` is buf-generated (`buf.build/protocolbuffers/csharp:v35.1`, see root
@@ -602,7 +614,7 @@ concurrent again.
 
 `csharp/encoder/` encodes C# source into a Ball `Program` via **Roslyn**
 (`Microsoft.CodeAnalysis.CSharp`, pinned in `Directory.Packages.props` — verified latest stable
-on nuget.org at lane time: `5.6.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line).
+on nuget.org at lane time: `5.9.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line).
 
 **Two entry-point families, and the distinction is load-bearing.** `Encode(string)` /
 `EncodeLibrary(string)` are **syntax-only** — the rest of this section describes them, and they are
@@ -1192,7 +1204,7 @@ The resolution-free path is untouched: the same text through `Encode(string)` st
 answer, and `ProjectEncodingTests` asserts both halves.
 
 **Reference assemblies are hermetic and version-pinned** —
-`Basic.Reference.Assemblies.Net100 1.8.11` (MIT, netstandard2.0, references as embedded resources),
+`Basic.Reference.Assemblies.Net100 1.8.12` (MIT, netstandard2.0, references as embedded resources),
 in `Directory.Packages.props`. Deliberately NOT the SDK ref pack under
 `$DOTNET_ROOT/packs/Microsoft.NETCore.App.Ref/<ver>/ref/net10.0`: CI pins `dotnet-version:
 "10.0.x"`, so `<ver>` floats with the runner's patch and the encoder's binding answers would drift
@@ -1528,10 +1540,11 @@ debugging a regression.
 The `ball` binary: `run`/`compile`/`encode`/`check` over `shared`/`compiler`/`encoder`/`engine`,
 plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` (epic #361 pattern,
 mirroring `rust/cli` — see `rust/cli/AGENTS.md` — and `ts/cli`). This is the binary #369 ships to
-NuGet. Argument parsing is **`System.CommandLine` 2.0.9** — verified the current stable release
-on nuget.org 2026-07-11 (`api.nuget.org/v3-flatcontainer/system.commandline/index.json` lists 51
-versions; highest non-preview is `2.0.9`, the newest overall is a `3.0.0-preview.*` deliberately
-not used here). It went GA (stable `2.0.0`) 2025-11-11 after years of beta/RC — the "`Option<T>`
+NuGet. Argument parsing is **`System.CommandLine` 2.0.12** — verified on nuget.org 2026-10-17
+(`api.nuget.org/v3-flatcontainer/system.commandline/index.json` lists 58 versions; highest
+non-preview is `2.0.13`, the newest overall is a `3.0.0` preview/rc build deliberately not used
+here; `2.0.12` is the exact version the dependabot-opened bump (PR #869) applied and CI verified).
+It went GA (stable `2.0.0`) 2025-11-11 after years of beta/RC — the "`Option<T>`
 + `Argument<T>` + `Command.SetAction(ParseResult -> int)` + `rootCommand.Parse(args).Invoke()`"
 shape (not the older `SetHandler`/`InvocationContext` API from pre-beta5 docs).
 
@@ -1905,7 +1918,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   compiler-emitted `BallRuntime.*` shapes; see "Conformance harness" above). The `cli` package is
   now complete (Phase 8, see below).
   **Phase 8 (#385) added the `ball` CLI**: `run`/`compile`/`encode`/`check` (via
-  `System.CommandLine` 2.0.9, verified GA-stable on nuget.org) plus the self-hosted cli-core verbs
+  `System.CommandLine`, pinned at `2.0.12` as of 2026-10-17 — verified GA-stable on nuget.org, see
+  "CLI" above) plus the self-hosted cli-core verbs
   `info`/`validate`/`tree`/`version` (epic #361 pattern — `CompiledCli.cs` compiled clean on the
   first regen attempt, 0 errors), both input formats (`.ball.json`/`.ball.bin`, the latter
   `Any`-wrapped per the Dart-canonical shape — see "CLI" above for why this deliberately diverges

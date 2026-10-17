@@ -559,7 +559,13 @@ Python **41**, Go **31** of 352. Those were the floors; Go's moved to **79** on
 PR #738's matrix (run 35549906393 — `Results: 79 passed, 281 failed, 360
 total`), when `go/encoder` gained the
 `std_collections` inverses and the four shapes `go/compiler` emits for every
-program (#691). Those are the floors. None of the four is a parity gate — most of
+program (#691), and to **80** on PR #866's matrix (run 35606234552 —
+`Results: 80 passed, 283 failed, 363 total`), when the std half of that inverse
+table gained a derivation guard of its own and the nine `std` helpers it found
+un-inverted were mapped (#793). That +1 is attributable rather than corpus
+drift: the same row on the commit this branched from (run 35603702521, main at
+`ea8724bb`) measured `79 passed, 284 failed, 363 total` — same corpus, one more
+fixture. Those are the floors. None of the four is a parity gate — most of
 the corpus still does not round-trip anywhere — but a flat zero is red, and a
 drop is red.
 
@@ -580,11 +586,23 @@ drop is red.
    one is not the same as knowing it works: Rust's was a hard-coded `const`
    inside an `#[ignore]`d test, reachable from nothing and therefore measured by
    nothing. It reads `BALL_TIMEOUT_MS` now (the spelling Go's leg already used;
-   Python's is `BALL_TIMEOUT_S`), fails loud on a non-integer value, and
+   Python's is `BALL_TIMEOUT_S`) and fails loud on a non-integer value, and the
+   two halves are pinned SEPARATELY, both on every PR: `the_per_fixture_budget_is_read_from_ball_timeout_ms`
+   owns the env spelling, the unset default and the loud typo rejection — through the
+   injectable `budget_from(lookup)` seam, calling it with a fake lookup that records the
+   key name it was asked for, since the pure parse alone never sees a variable name — while
    `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` proves
    the kill against a **fabricated runaway** — a program built with `rustc` at
    test time that ignores its arguments and never exits — driven through the real
-   production path, on every PR.
+   production path with the budget handed to `run_dart` as an ARGUMENT. Splitting
+   them is not cosmetic: libtest runs a target's non-`#[ignore]`d tests
+   concurrently, so a self-test that SET `BALL_TIMEOUT_MS` would be writing the
+   environment out from under its neighbours, and `std::env::set_var` is `unsafe`
+   for exactly that reason. That target carries `#![forbid(unsafe_code)]` so the
+   ban is a build error rather than a comment a later reader has to honour —
+   the SAFETY note that justified the old `set_var` (“the only
+   non-`#[ignore]`d test in this target”) was false when it was written, and
+   a rule that only prose enforces rots exactly that way (#790).
 
    **Killing the process is not the same as ending the fixture (#691).** Every
    one of these legs sets `cmd.Stdout` to an in-memory writer, so the runtime
@@ -634,6 +652,33 @@ promised a custom format string that no engine, compiler or runtime in the
 repository has ever implemented) and nineteen alias spellings the Dart engine
 accepts that `std.json` never mentioned, so no other target could implement them
 and no encoder knew they were safe to emit.
+
+**A derived closed set covers the dispatcher it PARSES, and nothing else
+(#793).** `go/encoder/ballrt_table_test.go` was written for #691 and got the
+method right — it parses `go/compiler/base_call.go` and compares every emission
+against the encoder's inverse table, with negative controls proving it catches
+each way the two files can part. It parsed exactly ONE function,
+`compileCollectionsCall`, and checked exactly one of the two tables. The sibling
+`stdHelpers` (~80 entries, the other half of the same map) was covered only by
+`TestHelperTablesAreDisjoint`, a cross-table property that never reads the
+compiler at all, so the very drift the guard was written to close could still
+happen one `std` helper at a time — and had: the generalized guard's first run
+named NINE `std` base functions the compiler emits with no inverse
+(`sink_create`/`sink_write`/`sink_to_string`, `string_from_char_code`, the four
+`*_to_double`, and `throw`). Two rules follow. **Parameterize the guard over
+(source-of-truth function, table) pairs rather than hard-coding one**, so adding
+a dispatcher is a spec entry instead of a second copy of the instrument; the
+`go` guard is now one `inverseSpec` per pair driving the same parse and the same
+comparison. And **an emission the parser cannot read must be RECORDED, not
+skipped**: the std switch has shapes the collections one does not (a `%q` verb,
+a `c.typeName(f)` operand, the `ballrt.Value(nil)` placeholder for an omitted
+optional argument, a bare `"ballrt.Rethrow()"` literal), and a parser that
+quietly ignores what it cannot line up lets the table assert a shape no test
+checks — the same vacuous-pass shape a missing positive floor produces. Those
+are recorded as opaque and must carry a documented exclusion with a reason.
+The negative controls take a floor of their own here: with the live table
+already failing, a battery that accepts any non-empty report passes vacuously,
+so each mutation is judged on the problems it ADDS.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
@@ -1961,7 +2006,7 @@ already running at. The script itself is PCRE-free (`sed -E`, never
 | **A Python re-encode that only the REFERENCE ENGINE can refute (#785)** — the fast Python round-trip guards (`python/encoder/tests/test_ballrt_inverse.py`, `test_ballrt_namespaced.py`) run the re-encoded fixture in-process under `ballrt` and compare to the golden. Python's runtime is tolerant where the reference engine is strict — `ballrt.getfield` answers `None` for an absent key (proto3-default tolerance) while the engine raises `BallRuntimeError: Field "…" not found` — so a re-encode that reads an absent key under the eager `std.null_coalesce` prints the golden there and DIES on the engine. The whole-corpus `python-roundtrip` row does use the engine, but it is a path-filtered floor/ratchet measurement, not a per-fixture gate on the suite that certifies those fixtures | `python/encoder/tests/test_reference_engine_roundtrip.py` — for every fixture those two suites certify (the set **derived from their own lists**, so a fixture added there is covered the same day) it runs the ORIGINAL `.ball.json` *and* the RE-ENCODED program on `dart run dart/cli/bin/ball.dart run` and asserts byte-identical stdout, with the fixture's own golden as the third leg so a failure names the guilty side. A negative control encodes two compiler-shaped programs `ballrt` cannot tell apart and the engine can, so the instrument is proven rather than trusted; a positive floor on the derivation stops an empty set from reading as green. No skip: an unresolvable `dart` FAILS (the #730/#764 precedent), which is why `ci.yml`'s `python` job sets Dart up BEFORE its test steps | every PR (the `python` job, `cd python/encoder && python -m pytest`) |
 | **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | **No round-trip fixture may HANG** (#693) | `tools/ci/roundtrip_floor.sh`'s timeout gate — any per-fixture timeout line reds the row, even one otherwise at or above its ratchet, because a program that does not terminate is the #55 class and a failure COUNT cannot tell it from a golden mismatch. Pinned by `tools/test/test_roundtrip_floor.sh` (a timeout is red; red even while the leg is IMPROVING; red under C#'s own `  <name>: TIMEOUT` pattern; and a fixture merely NAMED `196_timeout` is NOT a hang), plus the wiring assertion that a row overriding the fail pattern overrides the timeout pattern too — otherwise its gate would be switched off while the job stayed green | every PR (the always-on `proto` job, no toolchain) |
-| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the `BALL_TIMEOUT_MS` budget. The only non-`#[ignore]`d test in that target, so the whole-corpus sweep beside it never shares its process | every PR (the `rust` job's `cargo test --workspace`) |
+| **The per-fixture kill actually kills** (#693) | `rust/engine/tests/roundtrip_conformance.rs`'s `a_runaway_fixture_is_killed_at_the_budget_and_reported_as_a_timeout` — builds a fabricated runaway with `rustc` at test time (ignores its arguments, never exits), drives it through the real `run_dart` path, and asserts the `__timeout__` sentinel comes back inside the budget it is HANDED — `run_dart` takes the budget as an ARGUMENT, so the kill is proven in milliseconds with no environment write. That seam is the point: libtest runs this target's five non-`#[ignore]`d tests concurrently (the whole-corpus sweep beside them is `#[ignore]`d and runs only under `--ignored`), so a `set_var` here would be writing the environment out from under its neighbours. The env SPELLING is pinned separately, through the injectable `budget_from(lookup)` seam, by `the_per_fixture_budget_is_read_from_ball_timeout_ms`, which calls it with a fake lookup that records the key name it was asked for | every PR (the `rust` job's `cargo test --workspace`) |
 | **§3a itself is enforced, not merely documented** (#705) | `tools/check_verdict_exit_status.py` — every `done < <(…)` under `tools/**/*.sh` + `cpp/test/*.sh` must be named in `tools/verdict_loop_carveouts.tsv` WITH the reason it is safe (anchored on the loop's producer, so a rewritten producer is re-justified). A stale entry, an ambiguous anchor, an empty reason, an undelimitable substitution and a scan that inspected zero loops are each an error. A reviewed LIST rather than an inference: a wrong answer in the permissive direction is the exact hole §3a exists to close. `tools/test/test_check_verdict_exit_status.py` drives 18 offline cases first — an uncarved offender, a carved one, a floored-but-uncarved one, the stale/ambiguous/empty-reason refusals, the multi-line shape, a `)` inside a multi-line quoted string (quote state must carry across lines or the producer handed back is not what runs), the undelimitable shape, the scanned scope in both directions, the zero-loops floor — and ends on the real tree as the positive control | every PR (the always-on `proto` job, stdlib-only) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The canonical std INVENTORY is a cross-stack input, and its consumers' gates must RUN on it** — `rust/shared/src/std_dart_parity.rs`, `csharp/shared/test/StdModuleBuilderTests.cs` and `python/encoder/tests/test_ballrt_inverse.py` each read `dart/shared/lib/std*.dart` / `dart/shared/std.json` off disk as their source of truth, and each exists to notice the DART side moving (#505, #545/#557). Mapped by top-level dir alone those paths set `dart` only, so the one commit that moves the inventory was the one commit on which those three jobs skipped — the drift then surfaces later on an unrelated PR in one of those stacks, misattributed. `detect-changed-stacks`' `std_inventory` signal ORs the std builders and `dart/shared/std.{json,bin}` into `rust`/`csharp`/`python`, the sibling of `ball_protobuf_src` above and just as narrow (ts/go/cpp reference these files only in prose — an exclusion that is ENFORCED since #774, see the next row). One truth-table row per builder — all eight, not a sample — plus `ball_proto` negative controls so it cannot widen into `^dart/shared/` | `.github/actions/detect-changed-stacks/test/truth_table.sh` | every PR (the always-on `proto` job, no toolchain) |

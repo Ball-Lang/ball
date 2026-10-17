@@ -286,17 +286,38 @@ class Compiler:
         # them. Python has no extensions either, so the member is emitted as a
         # method of the extension's class and must be reached UNBOUND, with the
         # receiver passed as ``self``.
+        #
+        # A getter and its setter share this SAME qualified name and differ
+        # only in `metadata.is_getter`/`is_setter` — `emit_class` wraps both
+        # under one `@property` object. Every call reaching this table today is
+        # a READ (an assignment TARGET is #865's unimplemented compiler half),
+        # so a setter visited after its getter must never win the slot: before
+        # this fix, a property declaring both always recorded the SETTER (the
+        # one visited last) with `is_getter=False`, so a plain read fell to the
+        # 0-arg call branch below and tried to CALL the property object itself
+        # (`TypeError: 'property' object is not callable`, PR #829 review).
+        # Setter entries are held back in `setter_only` and applied after the
+        # whole program has been scanned, only for a name no getter claimed.
         self.extension_members: dict[str, dict] = {}
+        setter_only: dict[str, dict] = {}
         for owner, members in self.class_members.items():
             td = self.type_defs.get(owner)
             if not td or (td.get("metadata", {}) or {}).get("kind") != "extension":
                 continue
             for mem in members:
-                self.extension_members[mem.get("name", "")] = {
+                name = mem.get("name", "")
+                meta = mem.get("metadata", {}) or {}
+                entry = {
                     "cls": sanitize(owner),
-                    "member": sanitize(_member_short(mem.get("name", ""))),
-                    "is_getter": bool((mem.get("metadata", {}) or {}).get("is_getter")),
+                    "member": sanitize(_member_short(name)),
+                    "is_getter": bool(meta.get("is_getter")),
                 }
+                if meta.get("is_setter"):
+                    setter_only[name] = entry
+                    continue
+                self.extension_members[name] = entry
+        for name, entry in setter_only.items():
+            self.extension_members.setdefault(name, entry)
 
     # ── Emission helpers ─────────────────────────────────────────────────────
 

@@ -256,9 +256,23 @@ public sealed partial class CSharpCompiler
     /// program, not a branch of the collection loop above: an extension declared
     /// in a LATER module than the one whose body names it would not yet be in
     /// <see cref="_typeDefsByShortName"/> there.
+    ///
+    /// <para>A getter and its setter share one Ball function name
+    /// (<c>member.Name</c>) and differ only in <c>metadata.is_setter</c>
+    /// (<see cref="MemberImplName"/>). <see cref="CompileCall"/>'s
+    /// extension-override branch has no read/write split — an assignment
+    /// TARGET is #865's unimplemented compiler half, so every call reaching
+    /// this table today is a READ — so a setter visited after its getter must
+    /// never overwrite the getter's entry: a setter-only impl is held back in
+    /// <c>setterOnly</c> and only applied once the whole program has been
+    /// scanned, and only for a name no getter claimed. Before this fix, a
+    /// property declaring both always resolved a READ to the SETTER (the one
+    /// collected last) and printed/stored <c>null</c> (PR #829 review).</para>
     /// </summary>
     private void IndexExtensionMembers()
     {
+        var setterOnly = new List<(string Name, string Impl)>();
+
         foreach (var (owner, members) in _classMembersByOwner)
         {
             var ownerShort = Naming.TypeShortName(owner);
@@ -276,10 +290,22 @@ public sealed partial class CSharpCompiler
                     continue;
                 }
 
-                _extensionMemberImpl[member.Name] =
-                    ModuleQualifier(ownerModule)
-                    + MemberImplName(ownerShort, split.Member, MetaBool(member.Metadata, "is_setter"));
+                var isSetter = MetaBool(member.Metadata, "is_setter");
+                var impl = ModuleQualifier(ownerModule) + MemberImplName(ownerShort, split.Member, isSetter);
+
+                if (isSetter)
+                {
+                    setterOnly.Add((member.Name, impl));
+                    continue;
+                }
+
+                _extensionMemberImpl[member.Name] = impl;
             }
+        }
+
+        foreach (var (name, impl) in setterOnly)
+        {
+            _extensionMemberImpl.TryAdd(name, impl);
         }
     }
 

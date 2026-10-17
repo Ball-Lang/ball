@@ -2367,7 +2367,22 @@ function __isUnknownFnError(e: any): boolean {
     // Extension members (issue #670), keyed by qualified Ball function name.
     // Built from EVERY user module: an override may name an extension declared
     // in another module of the program, and the call carries that module.
+    //
+    // A getter and its setter share this SAME qualified name (differing only
+    // in `metadata.is_getter`/`is_setter`) — TS emits them as one `get`/`set`
+    // accessor pair on the class, so `compileCall`'s extension-override branch
+    // (the only consumer of this table) must always resolve a READ to the
+    // GETTER entry, never whichever accessor was visited last. A setter is
+    // held back in `extensionSetterOnly` and applied only for a name no getter
+    // claims, so it never overwrites a getter already recorded (PR #829
+    // review — before this fix, a setter visited after its getter made every
+    // READ try to `.call()` the SETTER accessor's value instead of invoking
+    // the getter through `Reflect.get`).
     this.extensionMembers = new Map();
+    const extensionSetterOnly = new Map<
+      string,
+      { cls: string; member: string; isGetter: boolean }
+    >();
     const extensionTypeNames = new Set(
       [...this.typeDefByName.entries()]
         .filter(([, td]) => (td.metadata ?? {})["kind"] === "extension")
@@ -2377,11 +2392,21 @@ function __isUnknownFnError(e: any): boolean {
       for (const fn of mod.functions ?? []) {
         const enclosing = this.enclosingTypeName(fn.name);
         if (enclosing === undefined || !extensionTypeNames.has(enclosing)) continue;
-        this.extensionMembers.set(fn.name, {
+        const entry = {
           cls: classTsName(enclosing),
           member: memberShortName(fn.name),
           isGetter: (fn.metadata ?? {})["is_getter"] === true,
-        });
+        };
+        if ((fn.metadata ?? {})["is_setter"] === true) {
+          extensionSetterOnly.set(fn.name, entry);
+          continue;
+        }
+        this.extensionMembers.set(fn.name, entry);
+      }
+    }
+    for (const [name, entry] of extensionSetterOnly) {
+      if (!this.extensionMembers.has(name)) {
+        this.extensionMembers.set(name, entry);
       }
     }
 

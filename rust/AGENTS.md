@@ -700,16 +700,29 @@ positional argument per input field". They have their own arms in
   so encoding it as an entry-less `map_create` would silently compute `{}` (the issue #55 class).
   Both helpers panic naming the shape instead; `a_map_create_over_a_spliced_list_fails_loud` and
   its set twin are the pins.
-- **Stated, pre-existing gap surfaced while measuring this: every compiled STRING literal
-  re-encodes wrapped in `std.to_string`.** `compile_expression` emits a Ball string literal as
-  `BallValue::String("a".to_string())`, and `.to_string()` is NOT one of `methods.rs`'s identity
-  passthroughs — in hand-written Rust, which is this encoder's actual input, it genuinely IS
-  `std.to_string`. Over a `String` that op returns its operand unchanged, so the re-encoded
-  program computes the same answer; the extra node is a node-fidelity difference, not a
-  behavioural one, and making it an identity would special-case a literal receiver on evidence
-  nobody has measured. It is ASSERTED, not normalized away, in
-  `a_compiled_map_literal_re_encodes_as_std_map_create` (the map KEYS come back as
-  `std.to_string({value: "a"})`), so the day it changes, a test says so.
+- **CLOSED (issue #807): a `.to_string()` call on a LITERAL receiver re-encodes as the bare
+  literal, not `std.to_string`.** `compile_expression` emits EVERY Ball string literal as exactly
+  `BallValue::String("a".to_string())`, and before #807 `.to_string()` was not one of
+  `methods.rs`'s identity passthroughs — in hand-written Rust, which is this encoder's actual
+  input, an UNGUARDED `.to_string()` genuinely IS `std.to_string`. Over a `String` that op returns
+  its operand unchanged, so the re-encoded program computed the same answer either way — the extra
+  node was a node-fidelity difference, not a behavioural one — but making it an identity was left
+  as a stated gap "on evidence nobody has measured" until #807 measured it: **251 of the 368
+  `tests/conformance` fixtures (68%) carry at least one string literal**, making this the single
+  largest node-fidelity gap in the compiler<->encoder round trip. `methods.rs::literal_string_value`
+  peels `(...)`/group wrappers to see whether a `.to_string()` call's receiver is, underneath, a
+  bare string LITERAL (the same literal-only receiver test `is_string_constructor` already applies
+  to this identical method, for the unrelated `write!`/`writeln!` sink detection, #630) and, when it
+  is, emits the literal directly. A NON-literal receiver (an `i64`, a `String` local, …) still routes
+  through `std.to_string`, because `.to_string()` is a REAL conversion there — `5.to_string()` is not
+  `5`. `a_compiled_map_literal_re_encodes_as_std_map_create` now asserts the map KEYS come back as
+  the bare literals `"a"`/`"b"`; `method_sugar.rs`'s
+  `literal_to_string_encodes_as_the_bare_literal_not_std_to_string` (encode → compile → run) and
+  `compiled_type_ops_and_literals.rs`'s `a_compiled_bare_string_literal_re_encodes_as_the_bare_literal`
+  pin the fix directly, and each has a non-literal-receiver control
+  (`non_literal_to_string_still_encodes_as_std_to_string`,
+  `a_compiled_non_literal_to_string_call_still_re_encodes_as_std_to_string`) proving the guard did
+  not widen past literal receivers.
 - **Measured yield:** the `rust-roundtrip` row moved **109 -> 124** of 361 (run 35556939950, job
   `Rust Round-Trip Leg (measurement)`), and `RUST_ROUNDTRIP_FLOOR` is raised to 124 in the same
   PR. All four of #692's blockers left the first-blocker histogram entirely — `ball_map_create`
@@ -1182,7 +1195,9 @@ variant hierarchy — `type_emit.rs::superclass_of` exists, but nothing uses it 
 exactly two arms today (`is_option_result_pattern`, `encode_literal_switch_match`), so matching a
 user enum's variant name panics even in the *fieldless* case. Five first-blocked Tier A files, and
 per the table above the aggregate would not move either. `data_carrying_enum_variant_is_a_documented_gap`
-stays `#[should_panic]`, with this reasoning recorded in its doc comment.
+stays `#[should_panic]`, with this reasoning recorded in its doc comment, and now tracked as its
+own issue, **#887** — the ADT-representation decision is a scope of its own, not something a
+stage-1-gap sweep decides in passing.
 
 #### #767's stage-1 gaps — tuple expressions, reference `impl` self types, and two carve-outs
 
@@ -1200,8 +1215,8 @@ already stale by the time it was filed.
 | non-plain `impl` self type | 8 | 8 | **half CLOSED** — 4 reference self types; 4 non-nominal ones pinned |
 | `write!` | 7 | **0** | **already CLOSED** by #630/#698 — left the histogram entirely |
 | tuple expressions | 6 | 6 | **CLOSED** |
-| data-carrying enum variants | 5 | 5 | still open (see the section above) |
-| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open |
+| data-carrying enum variants | 5 | 5 | still open, tracked as **#887** (see the section above) |
+| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open, tracked as **#888** (5 pins, see below) |
 
 **Tuple expressions.** `lib.rs::encode_expr` had no `syn::Expr::Tuple` arm at all.
 `encode_tuple` lowers `(a, b)` to `std.record` — the universal base function
@@ -1264,6 +1279,34 @@ out of the denominator, and a path it lists that a run SCORED is a breach (#676)
 carve-out is not a test-only file: those 9 + 4 files stay scored and stay failing, which is the
 honest reading. Carve-outs live in the `methods.rs`/`types.rs` doc comments, the
 `documented_gaps.rs` pins and this section.
+
+#### Non-identifier `Some`/`Ok`/`Err` bindings are five different sub-patterns, not one (#888)
+
+The issue's sixth gap is `control_flow.rs::pattern_outcome_shape`'s refusal of anything but a
+plain identifier or `_` as the binding inside `Some`/`Ok`/`Err(...)` — re-measured at **5**, not
+the issue's stale **4** (the same kind of staleness that made `write!` a zero above). Each of the
+5 real files is a DIFFERENT nested pattern reaching that one refusal, pinned as its own
+`#[should_panic]` test in `documented_gaps.rs` rather than one shared pin, because a change that
+widens the restriction to admit one shape must not silently leave another's regression
+unobserved — the same reasoning the `impl` self-type boundary above splits on:
+
+| sub-pattern | example | why it's still open |
+|---|---|---|
+| slice | `Ok([_, _])` | needs a runtime LENGTH check `outcome_condition`'s flat `is_err` test can't express |
+| nested enum variant | `Ok(Either::Left(_))` | needs a runtime discriminant-TAG check, same reason |
+| tuple | `Ok((_, flag))` | no missing runtime check (arity is static) — needs `pattern_outcome_shape` to return a TREE of positional bindings, not one flat name |
+| nested outcome | `Some(Ok(ok))` | needs the discriminant check CHAINED (an inner `is_err` nested inside the outer's `then`), a second kind of generalization |
+| nested outcome (2nd file) | `Ok(Ok(x))` | the same gap as above, a distinct source occurrence |
+
+The first two are **not** safe to close by widening "binds nothing" (the way a bare `_` already
+is) to admit them: silently treating `Ok(Either::Left(_))` as "any Ok" would drop the very check
+a sibling `Ok(Either::Right(_))` arm in the same match depends on to differ from it — the #55
+class of bug this crate's fail-loud posture exists to prevent, not a tolerance worth widening to.
+The tuple and nested-outcome cases are genuinely closable, but need `pattern_outcome_shape`'s
+return type generalized beyond `(bool, Option<String>)`, which is real new encoder capacity, not
+a quick admit. Tracked as **#888**, with the 5 pins as its starting characterization — flip each
+one individually as its sub-case closes, and raise `baseline.json`'s Rust row as `encoded`/
+`compiledBack` climb.
 
 #### A note on "slice N" labels
 

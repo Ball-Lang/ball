@@ -160,6 +160,43 @@ def test_ball_raw_map_answers_like_map():
     assert selfhost.is_type([1], "BallRawMap") is False
 
 
+def test_is_type_null_matches_any_nullable_type_including_a_generic_bound():
+    """A `None` value is assignable to any NULLABLE type (a trailing `?`) and
+    to `dynamic`/`Null`/`void`, regardless of the base type -- Dart's sound
+    null-safety rule, independent of whether the type string is simple or
+    generic (#824 follow-up regression).
+
+    #824's own generic-element recursion in `is_type` made this observable for
+    the self-hosted engine's OWN compiled source for the first time: Dart's
+    `target is Map<String, Object?>` (`engine.dart`'s `ballObjectSetField`,
+    where every Ball value is trivially `Object?`) recurses into
+    `is_type(v, "Object?")` for every entry, and a non-inherited instance's
+    `__super__` field is legitimately `None`. Stripping the `?` before a bare,
+    null-excluding `_BUILTIN["Object"]` lookup answered `False` the moment any
+    field was `None`, silently turning every `Map<String, Object?>` check
+    (and therefore every setter write through `ballObjectSetField`) into a
+    no-op on any object with no superclass -- the exact shape that made
+    `104_getter_setter`/`341_setter_param_binding`/`432_shadowed_getter_setter_write`/
+    `470_setter_beside_final_field`/`478_setter_backing_store_disambiguation`
+    silently stop persisting setter writes on the self-hosted Python engine.
+    """
+    from ballrt import selfhost
+
+    assert selfhost.is_type(None, "Object?") is True
+    assert selfhost.is_type(None, "int?") is True
+    assert selfhost.is_type(None, "String?") is True
+    assert selfhost.is_type(None, "dynamic") is True
+    assert selfhost.is_type(None, "Null") is True
+    assert selfhost.is_type(None, "void") is True
+    # A NON-nullable bound still excludes null (real Dart semantics).
+    assert selfhost.is_type(None, "Object") is False
+    assert selfhost.is_type(None, "int") is False
+    # The regression's actual shape: every entry of a `Map<String, Object?>`
+    # -- including a `None` value -- must satisfy the per-value bound.
+    temperature_like = {"__type__": "main:Temperature", "_celsius": 0.0, "__super__": None}
+    assert selfhost.is_type(temperature_like, "Map<String, Object?>") is True
+
+
 def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
     """``ballrt.proto`` must answer ANY ``has<Field>`` the compiler emits (#570).
 

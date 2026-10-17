@@ -131,8 +131,26 @@ def is_type(value, typename: str) -> bool:
     checks and matches a user type by class name walked over the MRO (so
     subclasses match their base, e.g. a StdModuleHandler
     ``is BallModuleHandler``).
+
+    ``None`` is handled FIRST, independent of whether ``typename`` is simple
+    or generic: Dart's sound null safety makes ``null`` assignable to any
+    NULLABLE type (a trailing ``?``) and to ``dynamic``/``Null``/``void``,
+    regardless of the base type — a rule #824's own generic-element recursion
+    needs just as much as a plain `x is int?` does. Checking it up front
+    matters for the self-hosted engine's OWN compiled source, not just user
+    fixtures: `engine.dart`'s `ballObjectSetField` tests `target is
+    Map<String, Object?>` (every Ball value is `Object?`, so that bound is
+    meant to be trivial), which recurses into `is_type(v, "Object?")` for
+    every entry — and a non-inherited instance's `__super__` field is
+    legitimately `None`. Stripping the `?` before a bare, null-excluding
+    `_BUILTIN["Object"]` lookup made that recursion silently answer `False`
+    the moment any field was `None`, which made EVERY setter write silently
+    no-op on every object with no superclass (a `104_getter_setter`-class
+    regression #824's own fix introduced).
     """
     t = typename.strip()
+    if value is None:
+        return t in ("dynamic", "Null", "void") or t.endswith("?")
     m = _GENERIC_TYPE_RE.match(t)
     if m:
         base_type = m.group(1)

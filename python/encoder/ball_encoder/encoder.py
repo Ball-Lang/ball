@@ -582,6 +582,38 @@ class _Encoder:
                 and isinstance(guard.body[0], ast.Raise)
                 and guard.body[0].exc is None)
 
+    def _is_switch_case_break_trap(self, s: ast.Try) -> bool:
+        """``compiler._run_switch_case_body``'s statement-mode wrapping
+        (issue #824)::
+
+            try:
+                <case body>
+            except ballrt.BallBreak as _swbrk:
+                if _swbrk.label: raise
+
+        Unlike ``_is_loop_trap``, there is no paired ``BallContinue`` handler
+        and no trailing native ``break``: a switch arm has no loop of its own
+        to exit, so an unlabeled ``std.break`` just ends execution of the
+        body and falls through to whatever follows this `if`/`elif`/`else`
+        arm (``encode_if`` already walks the surrounding chain as ordinary
+        nested ``std.if``s — nothing here needs to reconstruct a
+        ``std.switch`` node). Ball has no "swallow a bare break" node outside
+        a loop/switch, so the inverse wraps the body in a single-pass
+        ``std.do_while { condition: false }``: the reference engine's own
+        loop-body trap already swallows an unlabeled break there exactly like
+        a real switch would, a LABELED break/continue still re-raises and
+        escapes this wrapper untouched, and Dart's own grammar makes a bare
+        (unlabeled) ``continue`` directly inside a switch case illegal (it
+        must name a label) — so one can never legally reach this wrapper from
+        a program `python/compiler` itself produced.
+        """
+        if s.orelse or s.finalbody or len(s.handlers) != 1:
+            return False
+        handler = s.handlers[0]
+        if self._rt_attr(handler.type) != rt.FLOW_BREAK or not handler.name:
+            return False
+        return self._is_label_reraise(handler.body, handler.name)
+
     def _is_return_wrapper(self, s: ast.Try) -> bool:
         """``compiler.emit_body``::
 
@@ -607,7 +639,7 @@ class _Encoder:
                 and only.value.value.id == handler.name)
 
     def encode_try(self, s: ast.Try) -> list[dict]:
-        """One of the four ``try:`` lowerings, or a loud failure."""
+        """One of the five ``try:`` lowerings, or a loud failure."""
         if self._is_loop_trap(s):
             # `encode_stmts` intercepts a trap where it can still see whether
             # anything follows it, so this arm means a caller walked statements
@@ -616,6 +648,11 @@ class _Encoder:
                       "back in its enclosing block, where a C-style `for`'s update "
                       "is still visible")
             return []
+        if self._is_switch_case_break_trap(s):
+            return [b.expr_stmt(b.std_call("do_while", b.args_message(
+                ("body", self.encode_block(s.body)),
+                ("condition", b.bool_lit(False)),
+            )))]
         if self._is_return_wrapper(s):
             return self.encode_stmts(s.body)
         return [b.expr_stmt(self.encode_ball_try(s))]

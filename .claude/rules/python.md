@@ -223,6 +223,43 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `python/compiler/tests/test_final_field_setter.py` (including the negative control) and fixture
   `472_initializer_list_field_with_setter` in `test_conformance.py`'s `PROVEN` list.
 
+- **A subclass's own PLAIN field shadowing an ancestor's getter+setter PAIR also gets a
+  synthesized property (#824/#892).** `class Plain extends Scaler { @override int amount = 5; }`
+  over `class Scaler { get amount => _stored; set amount(v) { _stored = v * 10; } }` is legal Dart
+  because `Plain`'s own field accessors override BOTH of `Scaler`'s — a plain `plain.amount = 7`
+  must store `7` verbatim, never run the inherited scaling setter (mirroring the reference engine's
+  `_trySetterDispatch`, #501). Python's native attribute protocol instead resolves a descriptor by
+  walking the MRO from the instance's own class and taking the FIRST match, which with no property
+  of `Plain`'s own is `Scaler.amount`'s — so every write silently ran the ancestor's setter and the
+  read then saw that scaled value too: exit 0, wrong answer, never an error (fixtures
+  `432_shadowed_getter_setter_write`, `470_setter_beside_final_field`). `_shadow_backed_fields` is
+  the lowering, the sibling of `_setter_backed_fields` above for this COLLISION direction: a plain
+  field `short` declares (no getter/setter of its own) whose name matches an ancestor's FULL
+  getter+setter pair gets a trivial `@property`/`@x.setter` pair synthesized in `short` itself, over
+  a private `_ball_backing_<name>` attribute, so Python's own MRO lookup finds `short`'s descriptor
+  first. `_field_target` routes every `__init__`/factory assignment through the same backing
+  attribute for symmetry with `_setter_backed_fields` (though plain seeding would also be safe here,
+  since the synthesized setter just forwards to it). Scoped to a field the DECLARING class itself
+  leaves plain (no getter/setter of its own) that collides with an ancestor's COMPLETE pair — a
+  getter alone or a setter alone up the chain is a different shape left alone, and a field the class
+  gives its own getter/setter never reaches this path (`101_simple_class`/`104_getter_setter` are
+  unaffected). Fixtures `432_shadowed_getter_setter_write`/`470_setter_beside_final_field` are in
+  `test_conformance.py`'s `PROVEN` list.
+
+- **`obj.runtimeType` must defer to a receiver class's own declared OVERRIDE getter (#824/#787's
+  family).** `ballrt.getfield` (`python/runtime/ballrt/values.py`) special-cases the name
+  `"runtimeType"` as its very first check, and that shortcut fired UNCONDITIONALLY — even on a
+  class declaring `@override Type get runtimeType => stored.runtimeType;` (legal Dart), so
+  `g.runtimeType` silently answered the class's own structural type name instead of running the
+  override's computed value: exit 0, wrong answer, never an error (fixture
+  `479_user_member_named_like_collection_accessor`). The C++ compiler's `compile_field_access` has
+  the identical by-name shortcut bug for this and five sibling names (#787); this is the Python
+  RUNTIME's own instance of that family. The fix checks `getattr(type(obj), "runtimeType", None)`
+  for a `property` FIRST (a compiled class's own synthesized `@property`, found by walking the MRO
+  — a builtin Python type has no such attribute at all, so a plain value falls through unchanged)
+  and calls its `fget` before falling back to the structural `_runtime_type_name`. Fixture
+  `479_user_member_named_like_collection_accessor` is in `test_conformance.py`'s `PROVEN` list.
+
 - **Every hardcoded base-function dispatch name must be DECLARED, and a gate says so (#743).**
   Base functions are implemented here by name (`fn == "sink_write"`, `fn in table_2`,
   `str_1[fn]`), and nothing used to compare those names against the canonical builders. The `str_1`
@@ -289,6 +326,23 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   silently answered `False` — every regex path in the compiled engine (`std.string_matches`, the
   engine's own `^arg\d+$` constructor-argument test) was dead in Python while every other target
   ran it. Pinned by `python/compiler/tests/test_runtime.py`.
+- **`ballrt.is_type` must treat `None` as matching ANY nullable type (`T?`), checked BEFORE the
+  generic-type branch (#824 follow-up regression).** Issue #824 taught `is_type` to check a generic
+  type's element/entry type arguments recursively instead of stripping them (`[1,2,3] is
+  List<String>` used to answer `true`) — correct for user-level checks, but it also made the
+  self-hosted engine's OWN compiled source newly observable for the first time: `engine.dart`'s
+  `ballObjectSetField` tests `target is Map<String, Object?>` (every Ball value is trivially
+  `Object?`, so Dart's own sound-null-safety rule makes that bound ALWAYS satisfied, including by
+  `None`), which now recurses into `is_type(v, "Object?")` for every entry — and a non-inherited
+  instance's `__super__` field is legitimately `None`. Stripping the `?` before the bare,
+  null-EXCLUDING `_BUILTIN["Object"]` lookup answered `False` the moment any field was `None`,
+  silently turning every such check — and therefore every setter write through
+  `ballObjectSetField` — into a no-op on any object with no superclass: `t.celsius = 100.0` simply
+  never persisted. `is_type` now returns `True` immediately for `None` when the type string is
+  `dynamic`/`Null`/`void` or ends in `?`, independent of whether it is simple or generic (a
+  NON-nullable bound like plain `Object`/`int` still excludes `None`, matching real Dart). Pinned by
+  `test_is_type_null_matches_any_nullable_type_including_a_generic_bound` in
+  `python/compiler/tests/test_runtime.py`.
 - **Per-fixture timeout is a subprocess kill, not cooperative** (contrast Go): each fixture runs as
   its own killable `python -m ball_engine` subprocess with `subprocess.run(timeout=…)`, so a runaway
   is simply killed — a Python process is trivially killable, sidestepping the goroutine-leak problem
@@ -454,12 +508,26 @@ python -m conformance.runner                             # prints the CI-parseab
   `python-roundtrip` row runs on the DART engine — so the set fixtures are in
   `python/compiler/tests/test_conformance.py`'s `PROVEN` list, the only leg that compiles a
   conformance fixture to Python and runs it.
-  **The STATEMENT lowerings are shaped, not named.** A compiled Python `try:` is one of FOUR
+  **The STATEMENT lowerings are shaped, not named.** A compiled Python `try:` is one of FIVE
   things and only one is a Ball `std.try`: the loop-body `except ballrt.BallBreak`/`BallContinue`
   trap, the `except ballrt.BallReturn` function-body wrapper, that wrapper's value-less
-  constructor form, and `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop.
-  `encoder.encode_try`/`encode_while` recognise them; `ballrt_calls.py` holds only the class names
-  they match on (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
+  constructor form, `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop, and
+  (since #824) a statement `switch`'s per-case `except ballrt.BallBreak as _swbrk: if
+  _swbrk.label: raise` — unlike the loop trap, no paired `BallContinue` handler and no trailing
+  native `break`, since a switch arm has no loop of its own to exit. `encoder.encode_if` already
+  walks the surrounding `if`/`elif`/`else` chain as ordinary nested `std.if`s (it never tries to
+  reconstruct a `std.switch` node), so `_is_switch_case_break_trap` only needs to invert the ONE
+  wrapped `try:` itself — into a single-pass `std.do_while { condition: false }` over the case
+  body, which the self-hosted engine's own loop trap already swallows an unlabeled break from
+  exactly like a real switch would, while a LABELED break/continue still re-raises through
+  untouched (Dart's own grammar makes a bare `continue` directly inside a switch case illegal, so
+  one can never legally reach this wrapper otherwise). Fixture `147_complex_switch` pins it in
+  `test_ballrt_inverse.py`'s `TRY_SHAPE_FIXTURES`; `python-roundtrip`'s floor caught this family as
+  five fixtures that went from passing to `encode-error` the moment the compiler started emitting
+  the switch-case trap at all (#824's own regression, closed in the same PR).
+  `encoder.encode_try`/`encode_while` recognise the other four; `ballrt_calls.py` holds only the
+  class names they match on
+  (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
   `CAUGHT_STACK`, `STACK_TRACE_OF`, `CATCH_MATCHES`), closed against `python/runtime` by its own
   test. Since #724 the `std.try` shape's handler may hold a typed DISPATCH CHAIN
   (`if`/`elif ballrt.catch_matches(_ex.value, "<Type>")`, the untyped clause as `else`, a trailing

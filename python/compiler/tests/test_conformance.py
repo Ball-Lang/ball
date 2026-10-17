@@ -147,6 +147,36 @@ PROVEN = [
     # (mirroring the reference engine's own `_evalLazySwitch`, "consume an
     # unlabeled break (switch break, not loop break)").
     "150_state_machine",
+    # A subclass's own PLAIN field shadows an ANCESTOR's explicit getter+setter
+    # pair of the same name — `class B extends A { @override int x = 5; }`
+    # over `class A { get x; set x(v) {...} }` (issue #824/#892, mirroring the
+    # reference engine's `_trySetterDispatch`, #501). Python's native attribute
+    # protocol resolves a descriptor by walking the MRO from the instance's OWN
+    # class, which with no property of `B`'s own finds `A.x`'s FIRST — so every
+    # write silently ran the ancestor's setter and the read then saw that
+    # scaled value too: exit 0, wrong answer, never an error.
+    # `_shadow_backed_fields` synthesizes a TRIVIAL property/setter pair in the
+    # SUBCLASS itself over a private backing attribute, so Python's own MRO
+    # lookup finds it first (mirroring `_setter_backed_fields`'s answer to the
+    # sibling one-namespace collision, #695/#680's C++ precedent).
+    "432_shadowed_getter_setter_write",
+    # The other direction of the SAME collision (#664/#501/#824): a `final`
+    # field beside its own DECLARED setter must still run that setter (not
+    # silently overwrite the final field), while a NON-final field in a
+    # SUBCLASS shadowing an ancestor's getter+setter pair must still win
+    # verbatim (`432` above) — this fixture pins BOTH directions together so a
+    # fix for one cannot silently undo the other.
+    "470_setter_beside_final_field",
+    # `obj.runtimeType` must dispatch to a USER-DECLARED OVERRIDE getter before
+    # falling to the structural type-name fallback — issue #824/#787's family.
+    # `ballrt.getfield`'s `"runtimeType"` shortcut fired UNCONDITIONALLY, so a
+    # class overriding `Type get runtimeType => ...` (legal Dart) never got a
+    # chance to run: `g.runtimeType` answered the class's own structural name
+    # instead of the override's computed value — exit 0, wrong answer, never
+    # an error. The C++ compiler's `compile_field_access` has the identical
+    # by-name shortcut bug for this and five sibling names (#787); this is the
+    # Python runtime's own instance of that family, discovered here.
+    "479_user_member_named_like_collection_accessor",
 ]
 
 

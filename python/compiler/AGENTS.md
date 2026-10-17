@@ -144,10 +144,10 @@ compiler, and (since #823/#824) prints a dedicated
 `SILENTLY-WRONG (status=fail, N): <names>` line naming every `fail`-status
 fixture — grep that line for the live, honest roster rather than trusting this
 prose, which goes stale the moment a fixture moves. Measured, not asserted
-(and re-measured with #724):
+(and re-measured with #724, then with #824/#892):
 
 ```
-Results: 264 passed, 98 failed, 362 total (4 skipped carve-outs)
+Results: 276 passed, 88 failed, 364 total (4 skipped carve-outs)
 ```
 
 The pytest cases are a curated *proof set*; this is the honest corpus number, and
@@ -180,19 +180,30 @@ entirely and matched on the bare base type alone, so `[1,2,3] is List<String>`
 and `Box<int>(...) is Box<String>` both answered `true`; `is_type` now checks
 every List/Map/Set element/entry recursively and a user object's own reified
 `__type_args__` tag, mirroring the reference engine's `_typeMatches`) — all
-five are now in `tests/test_conformance.py`'s `PROVEN` list. **Three remain,
-named in `PYTHON_SILENTLY_WRONG_KNOWN`:** `203_closure_in_loop` /
+five are now in `tests/test_conformance.py`'s `PROVEN` list.
+
+The SAME PR that measured 276 additionally closed three more (#892's own set):
+`432_shadowed_getter_setter_write` and `470_setter_beside_final_field` (a
+subclass's own PLAIN field must shadow BOTH an ancestor's explicit getter and
+setter; Python's attribute protocol always prefers a data descriptor found
+anywhere in the instance's MRO over the subclass's own `__dict__` entry, so
+`self.x = 5` in the subclass's `__init__` silently ran the ancestor's SCALING
+setter instead of storing a plain field — `_shadow_backed_fields` now
+synthesizes a trivial `@property`/`@x.setter` pair in the subclass itself over
+a private backing attribute, mirroring `_setter_backed_fields`'s answer to the
+sibling one-namespace collision, #695/#680's C++ precedent) and
+`479_user_member_named_like_collection_accessor` (`ballrt.getfield`'s
+`"runtimeType"` shortcut fired unconditionally, even on a receiver class that
+declares its own `@override Type get runtimeType => ...`; it now defers to that
+override first — the Python runtime's own instance of #787's family).
+
+**Two remain, named in `PYTHON_SILENTLY_WRONG_KNOWN`:** `203_closure_in_loop` /
 `229_closure_loop_var_semantics` (a C-style-`for` loop var is captured by Python's
 late-binding closure, so every closure sees the final value: prints `12 12 12`,
 golden `10 11 12` — the per-iteration snapshot the compiler does for `for-in` is
-missing for C-`for`) and `432_shadowed_getter_setter_write` (a subclass's plain
-field must shadow BOTH an ancestor's explicit getter and setter; Python's
-attribute protocol always prefers a data descriptor found anywhere in the
-instance's MRO over the subclass's own `__dict__` entry, so `self.x = 5` in the
-subclass's `__init__` silently runs the ancestor's SCALING setter instead of
-storing a plain field). Do not describe this compiler as "no silent-wrong
+missing for C-`for`). Do not describe this compiler as "no silent-wrong
 output" until `PYTHON_SILENTLY_WRONG_KNOWN` is empty. Tracking issue for
-these 3: [#892](https://github.com/Ball-Lang/ball/issues/892).
+these 2: [#892](https://github.com/Ball-Lang/ball/issues/892).
 `146_nested_try_catch_types` was on this list until #724: it printed the FIRST
 catch clause's body whatever was thrown.
 

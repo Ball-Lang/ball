@@ -375,6 +375,9 @@ TRY_SHAPE_FIXTURES = [
     ("300_enc_catch_stack", "catch (e, st) — the stack_trace variable"),
     ("22_rethrow_preserves", "ballrt.rethrow() inside a catch"),
     ("245_exception_finally_order", "finally ordering across nested try"),
+    ("147_complex_switch", "a statement switch's per-case except ballrt.BallBreak "
+                           "trap (issue #824) -- no paired BallContinue handler "
+                           "and no trailing native break, unlike a loop's trap"),
 ]
 
 

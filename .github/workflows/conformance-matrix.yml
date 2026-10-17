@@ -1683,11 +1683,21 @@ jobs:
       # `167_generics_reified`, `180_generic_list_ops`, `181_generic_map_ops`)
       # moved into `tests/test_conformance.py`'s golden-exact `PROVEN` list, so
       # `failed` drops by 5 and `passed` rises by the same 5 — a disjoint change
-      # from anything else on main since 268 was measured. Provisional until
-      # THIS row's own CI run confirms the exact number (gate 6 below is
-      # strict both ways, so a wrong guess here fails loud either direction);
-      # correct it from that run's printed `Results:` line in the same PR.
-      PYTHON_COMPILER_FLOOR: "273"
+      # from anything else on main since 268 was measured.
+      #
+      # 276 is #892's own partial yield, in the same PR: 3 MORE silently-wrong
+      # fixtures moved into `PROVEN` — `432_shadowed_getter_setter_write` and
+      # `470_setter_beside_final_field` (a subclass's own plain field now gets
+      # a synthesized property/setter pair over a private backing attribute,
+      # so Python's MRO-based attribute lookup finds it before an ancestor's
+      # inherited accessor — `_shadow_backed_fields`) and
+      # `479_user_member_named_like_collection_accessor` (`ballrt.getfield`'s
+      # `"runtimeType"` shortcut now defers to a receiver class's own declared
+      # override first). Provisional until THIS row's own CI run confirms the
+      # exact number (gate 6 below is strict both ways, so a wrong guess here
+      # fails loud either direction); correct it from that run's printed
+      # `Results:` line in the same PR.
+      PYTHON_COMPILER_FLOOR: "276"
       # The CLOSED SET of fixtures the compiler currently compiles to a
       # program that exits 0 and prints the WRONG answer (status `fail`,
       # never `compile-error`/`error`) — issue #823/#824's priority, the
@@ -1696,22 +1706,19 @@ jobs:
       # together into one `failed` count, so a fixture moving FROM
       # `compile-error` INTO `fail` (a real regression — a scope gap becoming
       # a silent wrong answer) leaves `passed`/`failed` both unchanged. #824
-      # closed 5 of the original 8 (named above); these 3 remain:
-      # `203_closure_in_loop` / `229_closure_loop_var_semantics` (a
-      # C-style-`for` loop var is captured by Python's late-binding closure,
-      # so every closure sees the SAME cell — missing the per-iteration
-      # snapshot `for-in` already gets) and `432_shadowed_getter_setter_write`
-      # (a subclass's plain field must shadow BOTH an ancestor's explicit
-      # getter and setter, never just dispatch through the inherited
-      # `@property`; Python's attribute protocol always prefers a DATA
-      # DESCRIPTOR found anywhere in the instance's MRO over a same-named
-      # entry in the instance's own `__dict__`, so a bare `self.x = 5` in the
-      # subclass's `__init__` silently runs the ancestor's SCALING setter
-      # instead). This set can only SHRINK: remove a name here (and add it to
-      # `PROVEN`) in the PR that fixes it; a run naming any OTHER fixture is a
-      # fresh silently-wrong-output regression and must be fixed, never
-      # absorbed by widening this list. Tracking issue for these 3: #892.
-      PYTHON_SILENTLY_WRONG_KNOWN: "203_closure_in_loop,229_closure_loop_var_semantics,432_shadowed_getter_setter_write"
+      # closed 5 of the original 8 (named above); this same PR additionally
+      # closes `432_shadowed_getter_setter_write`, `470_setter_beside_final_field`
+      # and `479_user_member_named_like_collection_accessor` (#892's own set,
+      # reasoned about in `PYTHON_COMPILER_FLOOR`'s comment above), leaving
+      # only two: `203_closure_in_loop` / `229_closure_loop_var_semantics` — a
+      # C-style-`for` loop var captured by Python's late-binding closure, so
+      # every closure sees the SAME cell, missing the per-iteration snapshot
+      # `for-in` already gets. This set can only SHRINK: remove a name here
+      # (and add it to `PROVEN`) in the PR that fixes it; a run naming any
+      # OTHER fixture is a fresh silently-wrong-output regression and must be
+      # fixed, never absorbed by widening this list. Tracking issue for the
+      # remaining 2: #892.
+      PYTHON_SILENTLY_WRONG_KNOWN: "203_closure_in_loop,229_closure_loop_var_semantics"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

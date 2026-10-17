@@ -198,6 +198,10 @@ class Compiler:
         self.instance_fields: dict[str, list[str]] = {}
         # class short name -> {final field with a same-named setter: backing attr}
         self._setter_backed: dict[str, dict[str, str]] = {}
+        # class short name -> {own plain field shadowing an ANCESTOR's
+        # getter+setter pair of the same name: backing attr} (issue #824,
+        # see `_shadow_backed_fields`)
+        self._shadow_backed: dict[str, dict[str, str]] = {}
 
         for m in self.prog.get("modules", []):
             fns = m.get("functions", [])
@@ -473,6 +477,11 @@ class Compiler:
         # has a property to decorate.
         setter_backed = self._setter_backed_fields(short)
         getter_names |= {sanitize(f) for f in setter_backed}
+        # A plain field that shadows an ancestor's getter+setter pair of the
+        # same name (see _shadow_backed_fields) needs its OWN trivial pair
+        # synthesized too, so Python's MRO-based attribute lookup finds
+        # `short`'s own descriptor before the ancestor's.
+        shadow_backed = self._shadow_backed_fields(short)
         has_tostring = any(_member_short(m.get("name", "")) == "toString" for m in members)
         # Emit real Python inheritance only when the superclass is another user
         # class we emit; a runtime base type (BallValue/BallMap …) is not a
@@ -495,6 +504,21 @@ class Compiler:
                 self.line(f"def {sanitize(fld)}(self):")
                 with self.block():
                     self.line(f"return self.{backing}")
+                self.line("")
+            # A shadow-backed field's pair is entirely synthesized (#824):
+            # `short` declares no getter/setter of its own for it at all, so
+            # both halves come from here, never from the member loop below.
+            for fld, backing in shadow_backed.items():
+                sf = sanitize(fld)
+                self.line("@property")
+                self.line(f"def {sf}(self):")
+                with self.block():
+                    self.line(f"return self.{backing}")
+                self.line("")
+                self.line(f"@{sf}.setter")
+                self.line(f"def {sf}(self, value):")
+                with self.block():
+                    self.line(f"self.{backing} = value")
                 self.line("")
             for m in members:
                 meta = m.get("metadata", {}) or {}
@@ -574,14 +598,82 @@ class Compiler:
         self._setter_backed[short] = out
         return out
 
+    def _shadow_backed_fields(self, short: str) -> dict[str, str]:
+        """``short``'s own PLAIN fields (no getter/setter of their own) that
+        shadow an ANCESTOR class's explicit getter+setter PAIR of the same
+        name, mapped to a private backing attribute — ``class Plain extends
+        Scaler { @override int amount = 5; }`` over ``class Scaler { get
+        amount => _stored; set amount(v) { _stored = v * 10; } }`` (issue
+        #824, conformance ``470_setter_beside_final_field``'s second half).
+
+        Dart's actual rule (``engine_control_flow.dart``'s
+        ``_trySetterDispatch``, #501): a field the instance declares ITSELF
+        shadows any accessor of the same name declared further up the class
+        hierarchy — ``Plain``'s own implicit field accessors override BOTH of
+        ``Scaler``'s, so ``plain.amount = 7`` must store `7` verbatim, never
+        run the inherited scaling setter. Python's native attribute protocol
+        instead resolves a descriptor by walking the MRO from the instance's
+        OWN class and picking the FIRST match — which, with no property of
+        its own, is ``Scaler.amount``'s — so every write silently ran the
+        ancestor's setter. The fix mirrors ``_setter_backed_fields``'s answer
+        to the sibling one-namespace collision (#695/#680's C++ precedent):
+        synthesize a TRIVIAL ``@property``/``@x.setter`` pair in ``short``
+        itself, over a private backing attribute, so Python's own MRO lookup
+        finds ``short``'s own descriptor first.
+
+        Scoped to a field ``short`` declares as PLAIN (no getter/setter of
+        its own) that collides with an ancestor's FULL pair — a getter alone,
+        or a setter alone, up the chain is a different shape this leaves
+        alone, and a field ``short`` gives its own getter/setter never reaches
+        here at all (that shape is already legal dispatch).
+        """
+        cached = self._shadow_backed.get(short)
+        if cached is not None:
+            return cached
+        own_members = self.class_members.get(short, [])
+        own_accessor_names = {
+            _member_short(m.get("name", ""))
+            for m in own_members
+            if (m.get("metadata", {}) or {}).get("is_getter")
+            or (m.get("metadata", {}) or {}).get("is_setter")
+        }
+        out: dict[str, str] = {}
+        for field in self._all_field_names(short):
+            if field in own_accessor_names:
+                continue
+            ancestor = self.extends.get(short)
+            while ancestor:
+                amembers = self.class_members.get(ancestor, [])
+                a_getters = {_member_short(m.get("name", "")) for m in amembers
+                            if (m.get("metadata", {}) or {}).get("is_getter")}
+                a_setters = {_member_short(m.get("name", "")) for m in amembers
+                            if (m.get("metadata", {}) or {}).get("is_setter")}
+                if field in a_getters and field in a_setters:
+                    out[field] = f"_ball_backing_{sanitize(field)}"
+                    break
+                if field in a_getters or field in a_setters:
+                    # Only HALF a pair up there — not the shape this guard
+                    # targets; stop so a coincidental further-up match cannot
+                    # silently apply instead.
+                    break
+                ancestor = self.extends.get(ancestor)
+        self._shadow_backed[short] = out
+        return out
+
     def _field_target(self, short: str, field: str) -> str:
         """The attribute an ``__init__``/factory assignment for ``field`` writes.
 
         A setter-backed field must be seeded through its BACKING attribute:
         ``self.windowSize = end`` would run the declared setter, which for the
-        ``ListSlice`` shape throws.
+        ``ListSlice`` shape throws. A shadow-backed field (#824) is seeded the
+        same way for symmetry, though it would also be safe to seed plainly —
+        the synthesized property it gets in :meth:`emit_class` just writes
+        straight through to the same backing attribute either way.
         """
-        return f"self.{self._setter_backed_fields(short).get(field, field)}"
+        backing = (self._setter_backed_fields(short).get(field)
+                  or self._shadow_backed_fields(short).get(field)
+                  or field)
+        return f"self.{backing}"
 
     def _all_field_names(self, short: str) -> list[str]:
         """Every declared field of a class (descriptor + metadata + this-params)."""

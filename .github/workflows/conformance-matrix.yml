@@ -1637,6 +1637,22 @@ jobs:
       # rather than the receiver-asking `ballrt.CallMethod`. Measured by this
       # very row (PR #829, job 106251801272: `Results: 299 passed, 64 failed,
       # 363 total`), never predicted.
+      #
+      # origin/main separately raised 298 -> 308 by #813's getter/setter
+      # accessor-dispatch fix (memberImplName's setter suffix + the dedicated
+      # per-property ballAccessorGet_*/ballAccessorSet_* dispatch), unblocking
+      # 470_setter_beside_final_field and nine other fixtures. Measured on
+      # main at 308 on run 39008181371 (job 117325339800), against 298 on the
+      # commit it branched from.
+      #
+      # Merging the two: both gains start from the SAME ancestor value (298)
+      # and touch disjoint fixtures (480 vs. 470 + nine others), so the merged
+      # tree should measure 298 + 1 + 10 = 309 — but per this repo's own "a
+      # floor is measured, never predicted" rule (the CSHARP_COMPILER_FLOOR
+      # precedent earlier in this same PR), the floor is left at the LOWER,
+      # already-proven value (299) until THIS merge's own run prints the real
+      # number, which then replaces this comment and value in a follow-up
+      # commit.
       GO_COMPILER_FLOOR: "299"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

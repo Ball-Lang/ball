@@ -3220,15 +3220,6 @@ func unregister(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method 'unregister' for " + __t})
 }
 
-func registeredFunctions(input ballrt.Value) ballrt.Value {
-	self := ballrt.FieldGet(input, "self")
-	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
-	if __t == "main:StdModuleHandler" || __t == "StdModuleHandler" {
-		return StdModuleHandler__registeredFunctions(input)
-	}
-	panic(ballrt.Thrown{Value: "no method 'registeredFunctions' for " + __t})
-}
-
 func BallEngine___consumeGeneratorFlow(input ballrt.Value) (__ret ballrt.Value) {
 	_ = input
 	__self := ballrt.FieldGet(input, "self")
@@ -48364,6 +48355,14 @@ func StdModuleHandler__call(input ballrt.Value) (__ret ballrt.Value) {
 		return ballrt.CallFunction(handler, ball_input)
 	}()
 	return
+}
+
+func ballAccessorGet_registeredFunctions(obj ballrt.Value) ballrt.Value {
+	__t := ballrt.ToStr(ballrt.MessageTypeName(obj))
+	if __t == "main:StdModuleHandler" || __t == "StdModuleHandler" {
+		return StdModuleHandler__registeredFunctions(ballrt.WithSelf(ballrt.Value(nil), obj))
+	}
+	return ballrt.FieldGet(obj, "registeredFunctions")
 }
 
 var ballOneof_Expression_Expr = func() ballrt.Value {

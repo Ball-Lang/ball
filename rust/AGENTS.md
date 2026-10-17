@@ -217,20 +217,36 @@ would wedge the row's 90-minute job rather than report anything. That is not hyp
   arguments and never exits), drives it through the real `run_dart` path, and asserts it comes
   back as the `__timeout__` sentinel inside the budget it is HANDED: `run_dart` takes the budget
   as an ARGUMENT, so the kill is proven in milliseconds without touching the environment.
+- **The kill reaches the whole process TREE, not just `dart` (#791).** `dart run` is a launcher:
+  it forks the Dart VM, and the VM is what runs the program and holds the inherited stdout pipe.
+  Killing the launcher alone left one orphaned VM per timed-out fixture alive in the runner —
+  invisible to the self-test above, which only ever asserted the HARNESS came back. `run_dart`
+  spawns the child as its own process-group leader (`CommandExt::process_group(0)`) and
+  `kill_process_tree` kills the GROUP (`libc::kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on
+  Windows), matching `RoundTripLeg.cs`'s `Kill(entireProcessTree: true)`.
+  `a_timed_out_fixture_leaves_no_orphaned_descendant_process` is the negative control: a
+  fabricated stand-in that forks a grandchild inheriting its stdout, driven through `run_dart`
+  with its own hard-coded millisecond budget (no environment write here either), asserting the
+  GRANDCHILD is gone through a heartbeat file it appends to every 50 ms (with a positive floor on
+  that file, so a control that failed to fork anything cannot pass while proving nothing).
 - **No test in this target may write the process environment** (#790). libtest runs a target's
   non-`#[ignore]`d tests CONCURRENTLY, and `std::env::set_var` is `unsafe` precisely because
   another thread may be inside `getenv`. `roundtrip_conformance.rs` once carried one, under a
   SAFETY note reading “this is the only non-`#[ignore]`d test in this target” — a
   claim that was **already false** when it was written, and that every test added to that file
-  falsifies again: the target now has FIVE non-`#[ignore]`d tests
+  falsifies again: the target now has SIX non-`#[ignore]`d tests
   (`a_failure_is_bucketed_by_its_cause_not_by_its_fixture`,
   `the_per_fixture_budget_is_read_from_ball_timeout_ms`,
   `the_histogram_orders_by_frequency_and_accounts_for_every_failure`,
-  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` and the runaway test), beside the
-  `#[ignore]`d whole-corpus sweep. The rule is the COMPILER's, not this paragraph's: the target
-  carries `#![forbid(unsafe_code)]`, so a future test reaching for `set_var` fails to build in
-  the PR-gated `Rust` job — pass the value in as an argument instead, the way `run_dart` takes
-  its budget.
+  `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path`, and the two runaway tests —
+  launcher-only and whole-tree), beside the `#[ignore]`d whole-corpus sweep. The rule is the
+  COMPILER's, not this paragraph's: the target carries `#![deny(unsafe_code)]`, so a future test
+  reaching for `set_var` fails to build in the PR-gated `Rust` job — pass the value in as an
+  argument instead, the way `run_dart` takes its budget. `deny`, not `forbid`: the whole-tree kill
+  above needs one real syscall no safe std API exposes (`libc::kill(-pid, SIGKILL)` on unix), so
+  `kill_process_tree`'s unix half carries its own narrowly-scoped, SAFETY-commented
+  `#[allow(unsafe_code)]` — the only unsafe this file permits, and the only thing a crate-level
+  `forbid` would have made impossible to express here at all.
 - A `timeout` outcome is a **hard error** in `tools/ci/roundtrip_floor.sh`, not one more increment
   of `failed`. Folded into the failure count it is indistinguishable from a golden mismatch, and
   the ratchet can only notice it once enough fixtures hang to push `passed` under the floor. All
@@ -1195,7 +1211,9 @@ variant hierarchy — `type_emit.rs::superclass_of` exists, but nothing uses it 
 exactly two arms today (`is_option_result_pattern`, `encode_literal_switch_match`), so matching a
 user enum's variant name panics even in the *fieldless* case. Five first-blocked Tier A files, and
 per the table above the aggregate would not move either. `data_carrying_enum_variant_is_a_documented_gap`
-stays `#[should_panic]`, with this reasoning recorded in its doc comment.
+stays `#[should_panic]`, with this reasoning recorded in its doc comment, and now tracked as its
+own issue, **#887** — the ADT-representation decision is a scope of its own, not something a
+stage-1-gap sweep decides in passing.
 
 #### #767's stage-1 gaps — tuple expressions, reference `impl` self types, and two carve-outs
 
@@ -1213,8 +1231,8 @@ already stale by the time it was filed.
 | non-plain `impl` self type | 8 | 8 | **half CLOSED** — 4 reference self types; 4 non-nominal ones pinned |
 | `write!` | 7 | **0** | **already CLOSED** by #630/#698 — left the histogram entirely |
 | tuple expressions | 6 | 6 | **CLOSED** |
-| data-carrying enum variants | 5 | 5 | still open (see the section above) |
-| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open |
+| data-carrying enum variants | 5 | 5 | still open, tracked as **#887** (see the section above) |
+| non-identifier `Some`/`Ok`/`Err` bindings | 4 | **5** | still open, tracked as **#888** (5 pins, see below) |
 
 **Tuple expressions.** `lib.rs::encode_expr` had no `syn::Expr::Tuple` arm at all.
 `encode_tuple` lowers `(a, b)` to `std.record` — the universal base function
@@ -1277,6 +1295,34 @@ out of the denominator, and a path it lists that a run SCORED is a breach (#676)
 carve-out is not a test-only file: those 9 + 4 files stay scored and stay failing, which is the
 honest reading. Carve-outs live in the `methods.rs`/`types.rs` doc comments, the
 `documented_gaps.rs` pins and this section.
+
+#### Non-identifier `Some`/`Ok`/`Err` bindings are five different sub-patterns, not one (#888)
+
+The issue's sixth gap is `control_flow.rs::pattern_outcome_shape`'s refusal of anything but a
+plain identifier or `_` as the binding inside `Some`/`Ok`/`Err(...)` — re-measured at **5**, not
+the issue's stale **4** (the same kind of staleness that made `write!` a zero above). Each of the
+5 real files is a DIFFERENT nested pattern reaching that one refusal, pinned as its own
+`#[should_panic]` test in `documented_gaps.rs` rather than one shared pin, because a change that
+widens the restriction to admit one shape must not silently leave another's regression
+unobserved — the same reasoning the `impl` self-type boundary above splits on:
+
+| sub-pattern | example | why it's still open |
+|---|---|---|
+| slice | `Ok([_, _])` | needs a runtime LENGTH check `outcome_condition`'s flat `is_err` test can't express |
+| nested enum variant | `Ok(Either::Left(_))` | needs a runtime discriminant-TAG check, same reason |
+| tuple | `Ok((_, flag))` | no missing runtime check (arity is static) — needs `pattern_outcome_shape` to return a TREE of positional bindings, not one flat name |
+| nested outcome | `Some(Ok(ok))` | needs the discriminant check CHAINED (an inner `is_err` nested inside the outer's `then`), a second kind of generalization |
+| nested outcome (2nd file) | `Ok(Ok(x))` | the same gap as above, a distinct source occurrence |
+
+The first two are **not** safe to close by widening "binds nothing" (the way a bare `_` already
+is) to admit them: silently treating `Ok(Either::Left(_))` as "any Ok" would drop the very check
+a sibling `Ok(Either::Right(_))` arm in the same match depends on to differ from it — the #55
+class of bug this crate's fail-loud posture exists to prevent, not a tolerance worth widening to.
+The tuple and nested-outcome cases are genuinely closable, but need `pattern_outcome_shape`'s
+return type generalized beyond `(bool, Option<String>)`, which is real new encoder capacity, not
+a quick admit. Tracked as **#888**, with the 5 pins as its starting characterization — flip each
+one individually as its sub-case closes, and raise `baseline.json`'s Rust row as `encoded`/
+`compiledBack` climb.
 
 #### A note on "slice N" labels
 

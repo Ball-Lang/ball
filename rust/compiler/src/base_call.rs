@@ -1386,8 +1386,11 @@ impl Compiler<'_> {
     fn compile_assert(&self, fields: &IndexMap<String, Expression>) -> String {
         let condition = self.field_or_null(fields, "condition");
         let panic_stmt = match fields.get("message") {
-            Some(message) => format!("panic!(\"{{}}\", {});", self.compile_expression(message)),
-            None => "panic!(\"Assertion failed\");".to_string(),
+            Some(message) => format!(
+                "panic!(\"MUTATED-FOR-717-RED-EVIDENCE {{}}\", {});",
+                self.compile_expression(message)
+            ),
+            None => "panic!(\"Assertion failed MUTATED-FOR-717-RED-EVIDENCE\");".to_string(),
         };
         format!("{{ if !ball_truthy({condition}) {{ {panic_stmt} }} BallValue::Null }}")
     }

@@ -151,6 +151,7 @@ dependencies = [
  "ball-lang-compiler",
  "ball-lang-encoder",
  "ball-lang-shared",
+ "libc",
  "prost",
  "prost-reflect",
  "serde_json",

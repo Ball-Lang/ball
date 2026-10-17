@@ -1016,14 +1016,22 @@ and its own encoder refuses caps that column no matter how good either half is o
   that records the key it was asked for), and
   `the_repo_root_handed_to_the_dart_cli_is_not_a_verbatim_path` (#692; `canonicalize` returns a
   `\\?\` path on Windows, `dart run` rejects one on stderr and **exits 0**, so every local Windows
-  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected). Every
-  test in that target except the whole-corpus sweep is non-`#[ignore]`d — five of them as of
-  #790 — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here
-  may write the process environment** (`std::env::set_var` is `unsafe` for exactly that reason),
-  and the target carries `#![forbid(unsafe_code)]` so that is a BUILD ERROR rather than a rule a
-  reader has to remember — pass the value in as an argument instead. The remaining gap is named in the row's own step
-  summary with the issue tracking it, never as an "expected baseline". #692's own two buckets
-  are CLOSED — the leg moved **100 -> 109**
+  run of the sweep reported a phantom `0 passed` — CI, on ubuntu, was never affected), and
+  `a_timed_out_fixture_leaves_no_orphaned_descendant_process` (#791; the kill must reach the
+  whole process TREE — `dart run` forks the Dart VM, so killing the launcher alone left one
+  orphaned VM per timed-out fixture in the runner. `run_dart` spawns into its own process group
+  and `kill_process_tree` kills the group, matching C#'s `Kill(entireProcessTree: true)`). Every
+  test in that target except the whole-corpus sweep is non-`#[ignore]`d — six of them as of #791
+  — so `cargo test --workspace` runs them all on every PR, CONCURRENTLY: **no test here may write
+  the process environment** (`std::env::set_var` is `unsafe` for exactly that reason), and the
+  target carries `#![deny(unsafe_code)]` so that is a BUILD ERROR rather than a rule a reader has
+  to remember — pass the value in as an argument instead. That lint is `deny`, not `forbid`,
+  for exactly one reason: `kill_process_tree`'s unix half needs the one real syscall no safe std
+  API exposes (`libc::kill(-pid, SIGKILL)`, to reach the whole process group) and carries its own
+  SAFETY-commented, narrowly-scoped `#[allow(unsafe_code)]` — the only unsafe this file permits;
+  `forbid` would have made that legitimate syscall impossible to express here at all. The
+  remaining gap is named in the row's own step summary with the issue tracking it, never as an
+  "expected baseline". #692's own two buckets are CLOSED — the leg moved **100 -> 109**
   (of 358 at run 34803611448, of 360 at run 35550645549 after two more fixtures joined the
   corpus) — and #712's spliced collection-literal fix, with the `ball_iterate`/
   `ball_spread_iter` inverses it owed, took it **109 -> 121 of 361** (run 35557346693): every

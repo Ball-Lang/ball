@@ -94,4 +94,111 @@ describe("compiler — extension-override dispatch (#670)", () => {
     const got = runSource(compileFixture(FIXTURE)).replace(/\r\n/g, "\n");
     assert.equal(got, golden);
   });
+
+  // ─── A READ through an override of a BOTH-getter-AND-setter member ───
+  //
+  // Hand-built IR, not a fixture: `480_extension_override_selection`
+  // deliberately carries no setter arm (#865), so this shape — valid Dart,
+  // just excluded from the cross-target corpus — is unreachable from the
+  // committed fixture set. The getter and setter share the qualified name
+  // `main:AlphaTag.slot`, and the call site reaches them exactly as a
+  // parsed `Ext(x).m` read does: a call whose packed input carries an
+  // explicit `self` field. (PR #829 review.)
+  function getterAndSetterOverrideProgram(): Program {
+    const getter = {
+      name: "main:AlphaTag.slot",
+      outputType: "String",
+      body: { literal: { stringValue: "GETTER" } },
+      metadata: { kind: "method", is_getter: true, expression_body: true },
+    };
+    const setter = {
+      name: "main:AlphaTag.slot",
+      inputType: "int",
+      outputType: "void",
+      body: { literal: { stringValue: "SETTER" } },
+      metadata: { kind: "method", is_setter: true, expression_body: true },
+    };
+    const overrideCall = {
+      call: {
+        module: "main",
+        function: "main:AlphaTag.slot",
+        input: {
+          messageCreation: {
+            fields: [
+              {
+                name: "self",
+                value: {
+                  literal: {
+                    listValue: {
+                      elements: [
+                        { literal: { intValue: "1" } },
+                        { literal: { intValue: "2" } },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const mainFn = {
+      name: "main",
+      metadata: { kind: "function" },
+      body: {
+        block: {
+          statements: [
+            {
+              expression: {
+                call: {
+                  module: "std",
+                  function: "print",
+                  input: {
+                    messageCreation: {
+                      fields: [{ name: "message", value: overrideCall }],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    return unwrapBallFile({
+      name: "test",
+      version: "1.0.0",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] },
+        {
+          name: "main",
+          typeDefs: [
+            { name: "main:AlphaTag", metadata: { kind: "extension", on: "List<int>" } },
+          ],
+          functions: [getter, setter, mainFn],
+        },
+      ],
+    }) as Program;
+  }
+
+  test("a read through an override with both a getter and a setter dispatches the getter", () => {
+    // Before the fix, `extensionMembers` was filled in one pass with no
+    // getter/setter precedence: the getter and setter share the Ball
+    // function name, so whichever member the loop visited LAST won the map
+    // slot. The setter is collected after the getter in every real
+    // extension (`get` syntactically precedes `set`), so a plain read
+    // compiled to `(AlphaTag.prototype as any).slot.call(xs)` — invoking
+    // the SETTER accessor's VALUE as a function, which is not callable.
+    const got = runSource(compile(getterAndSetterOverrideProgram())).replace(/\r\n/g, "\n");
+    assert.equal(got, "GETTER\n");
+  });
+
+  test("the setter still compiles — the getter winning the read is not at the setter's expense", () => {
+    const ts = compile(getterAndSetterOverrideProgram());
+    assert.ok(/\bget\s+slot\s*\(/.test(ts), `emitted TS has no getter accessor\n---\n${ts}`);
+    assert.ok(/\bset\s+slot\s*\(/.test(ts), `emitted TS has no setter accessor\n---\n${ts}`);
+  });
 });

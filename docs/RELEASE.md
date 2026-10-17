@@ -25,29 +25,443 @@ trunk, **all fully automated with no human step in any critical path**.
 > for free) and `.github/workflows/pubdev-freshness.yml` (weekly — pub.dev's live
 > state versus `main`).
 
-## npm lane (@ball-lang/engine, cli, compiler, encoder)
+## Release via PR (issue #755)
+
+**What broke.** The `Protect main` ruleset
+([17056238](https://github.com/Ball-Lang/ball/rules/17056238)) started
+requiring its 19 status-check contexts on `main` itself (not just on PRs) on
+2026-09-13. `release.yml`'s `npx semantic-release` step, and
+`coverage-study.yml`'s weekly "Publish coverage table" job, each pushed a bot
+commit straight to `main` with a plain `git push` — and GitHub rejects that
+outright with `GH013` the moment the target branch has even one required
+status check, because the ruleset enforces on the push itself, independent of
+who performs it. Every push to `main` failed `release.yml`'s `Semantic
+Release` job from that date on, silently skipping the npm/C++/Go/pub.dev
+publish dispatches gated on it; `coverage-study.yml`'s weekly run has been red
+for the same reason since 2026-09-21 (e.g. run
+[38284141945](https://github.com/Ball-Lang/ball/actions/runs/38284141945)).
+
+**Why not just give the bot's token a bypass.** `bypass_actors` on that
+ruleset names exactly one human; widening it to a bot identity reopens the
+exact hole required status checks exist to close — a release landing without
+having actually passed them. The owner's ruling (2026-10-17) was **release via
+auto-merged PR**: a release becomes an ordinary PR that earns its merge
+through the same required checks as everyone else's, with no human step.
+
+**The two GitHub mechanics this design has to work around**, both verified
+against this repo's live ruleset rather than assumed:
+
+1. **A `git push --dry-run` is NOT evaluated against branch protection.**
+   Verified empirically 2026-10-17: `git push --dry-run --no-verify -- origin
+   <new-commit>:refs/heads/main` against this repo's real `Protect main`
+   ruleset reports the would-be fast-forward update and exits 0 — GitHub does
+   not run required-status-checks/non-fast-forward enforcement for a push
+   that never actually updates the ref. `semantic-release`'s own
+   `dryRun: true` mode calls exactly this (`lib/git.js`'s `verifyAuth`,
+   unconditionally, even in dry-run) before doing anything else, so running it
+   in dry-run mode against the live protected branch is safe and needs no
+   bypass. Confirmed from `semantic-release`'s own source
+   (`lib/definitions/plugins.js`): only `verifyConditions`/`analyzeCommits`/
+   `verifyRelease`/`generateNotes` run under `dryRun: true`; `prepare`/
+   `publish`/`addChannel`/`success`/`fail` (where the real commit, tag and
+   push happen) are skipped entirely. `tools/release/compute_next_release.mjs`
+   uses exactly this to get `nextRelease.{version,notes,gitTag}` with zero
+   side effects.
+2. **A PR (or branch) created with the default `GITHUB_TOKEN` does not get its
+   `pull_request`-triggered required checks run.** GitHub's own docs state the
+   recursion-protection rule's two exceptions by name —
+   `workflow_dispatch`/`repository_dispatch` are the only events a
+   `GITHUB_TOKEN`-driven action still triggers new workflow runs for — and this
+   is independently confirmed by numerous real-world reports: a PR opened (or
+   whose branch is pushed) by a workflow's own `GITHUB_TOKEN` never gets a
+   `pull_request`-triggered check run, same-repo branch or not (searched
+   2026-10-17; see e.g. GitHub community discussions
+   [#65321](https://github.com/orgs/community/discussions/65321) and
+   [#199292](https://github.com/orgs/community/discussions/199292)). Every
+   bot-PR workflow already in this org's fleet that needs its own checks to
+   run (`js-autofix.yml`, `train-open-pr.py`) works around this with a
+   **GitHub App installation token**, never `GITHUB_TOKEN` — but minting one
+   needs a new App + org secret, an owner-level action this fix does not take.
+   The alternative this repo already had available, with no new credential:
+   `workflow_dispatch` IS exempted, and the branch ruleset's
+   `required_status_checks` rule matches a context by **(name, head SHA)**
+   regardless of which event produced the check run — the same mechanism that
+   lets a human unblock a PR today by manually re-running a required
+   workflow. So `tools/release/open_bot_pr.sh` explicitly dispatches `ci.yml`
+   and `regression-gates.yml` (the two workflows that produce all 19 required
+   contexts) via `gh workflow run <file> --ref <bot-branch>` after pushing the
+   branch — using `GITHUB_TOKEN`, which is allowed for `workflow_dispatch` —
+   and `gh pr merge --auto` only after that.
+
+**The merge queue (PR #881 review, round 3, finding 1).** The `Protect main`
+ruleset gained a `merge_queue` rule on 2026-10-17 (#756 — `merge_method:
+SQUASH`, `check_response_timeout_minutes: 90`, `grouping_strategy: ALLGREEN`;
+read back from the live ruleset, `gh api repos/Ball-Lang/ball/rulesets/17056238`).
+An earlier draft of this section said there was no such rule and asked for
+exactly this re-verification once there was. Re-verified, the queue changes
+two things for every bot PR `open_bot_pr.sh` opens:
+
+1. **The merge commit's subject is the queue's, not the one we pin.** GitHub's
+   own GraphQL schema says so for every field `gh pr merge --auto` sends
+   (`EnablePullRequestAutoMergeInput.commitHeadline`: "NOTE: when merging with
+   a merge queue any input value for commit headline is ignored"; the same
+   note is on `commitBody` and `mergeMethod`). The queue squashes with the
+   repository default (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`), which
+   for a single-commit PR is "the title of the commit message for the single
+   commit, followed by the pull request number" with that commit's body
+   ([About pull request merges](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges)).
+   Every queue-merged commit on `main` has that shape (e.g. `009fad1c`, "…
+   dependabot.yml (#905)", which kept its single commit's body). So the root
+   release commit lands as `chore(release): 1.73.0 (#912)` and the Go one as
+   `chore(release): go v0.3.0 (#913)`, and `finish_release.sh` /
+   `finish_go_release.sh` originally matched only the bare subject, anchored
+   with `$`, so they would never have tagged a real release. Both now accept
+   the optional ` (#N)`, and both still require a version starting with a
+   digit, so neither lane can read the other's release commit as its own.
+   `finish_release_test.sh` and `finish_go_release_test.sh` (tests 6-8) pin
+   the queue shape, a re-poll of it, and the cross-lane exclusion. The release
+   commits themselves already carry the exact subject and the full notes as
+   their body, which is why a queue that ignores our pinned subject and body
+   loses nothing but the missing suffix.
+2. **A merge group enqueued for `GITHUB_TOKEN` starts no CI at all.** Once a
+   bot PR's own checks pass, GitHub enqueues it on behalf of whoever armed its
+   auto-merge, here the `github-actions` bot, and the merge group's
+   `merge_group` "checks_requested" event is then a `GITHUB_TOKEN`-triggered
+   event that the recursion guard creates no workflow run for. This is
+   measured, not inferred: dork-labs/dorkos recorded a `GITHUB_TOKEN`-enqueued
+   queue branch with **0** workflow runs beside a human-enqueued one with 4
+   ([merge-tail.yml](https://github.com/dork-labs/dorkos/blob/6f06d98e5448db910a1c2740f1fc51449b0717bc/.github/workflows/merge-tail.yml)),
+   and [verbara/Verbara.Sdk#24](https://github.com/verbara/Verbara.Sdk/pull/24)
+   and [duckduckgo/content-scope-scripts#2750](https://github.com/duckduckgo/content-scope-scripts/pull/2750)
+   each diagnosed entries stuck at `AWAITING_CHECKS` for exactly this reason
+   (all three fixed it with a PAT or App token). Such an entry never reports
+   its 19 required contexts, waits out the 90-minute timeout, is evicted, and
+   **blocks every entry behind it for those 90 minutes**, because the queue
+   merges strictly in order. It was not tested live here, because doing that
+   would mean jamming the queue every lane shares.
+
+   The fix needs no new credential and uses the same exemption mechanic 2
+   above already relies on. `.github/workflows/bot-merge-queue.yml` runs
+   `tools/release/service_bot_merge_queue.sh` every 5 minutes. It looks at
+   each queue entry the GitHub Actions bot is behind — its enqueuer, or the
+   PR's author or auto-merge enabler, so a bot PR is not skipped whichever
+   actor GitHub records for an enqueue it performs itself — that is
+   `AWAITING_CHECKS` and whose merge group is older than a 3-minute grace. For
+   each one it finds the `gh-readonly-queue/main/pr-<N>-<base-sha>` branch
+   pointing at the entry's head commit and `workflow_dispatch`es `ci.yml` and
+   `regression-gates.yml` onto it, unless a non-cancelled run of that workflow
+   already exists on that head SHA. It runs the full fail-open suite, because
+   the detector has no diff base for `workflow_dispatch`. GitHub documents the
+   same SHA-based reporting for third-party CI on merge groups (["Triggering
+   merge group checks with third-party CI providers"](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue#triggering-merge-group-checks-with-third-party-ci-providers)).
+   The servicer is correct under both hypotheses: if GitHub ever does start
+   `merge_group` runs for such an entry, they have registered before the grace
+   expires, the head-SHA lookup finds them, and nothing is dispatched twice.
+   Entries with no bot behind them are never touched. A queue the token cannot
+   read is an error, not an empty queue: a `null` `mergeQueue` on a branch
+   whose rules include `merge_queue` fails the run. The
+   5-minute cadence is what the timeout leaves room for: a fail-open run on
+   this repo takes roughly 15-55 minutes, and it has to start and finish
+   inside 90. `service_bot_merge_queue_test.sh` pins the servicer's decisions
+   against a stub `gh`. The workflow's own `pull_request` rehearsal runs the
+   real script in `--dry-run` against the live queue under its own
+   `GITHUB_TOKEN`, which proves the token can read the queue.
+   `check_release_pr_wiring.sh` keeps the servicer scheduled, permitted to
+   dispatch, and dispatching exactly the workflows every bot-PR caller
+   dispatches for its own branch. **What only the first real bot PR through
+   the queue can prove** is that the queue accepts the dispatched runs' check
+   results for the merge group. If it ever does not, the entry is evicted
+   after 90 minutes (the servicer's run log shows the dispatch), and
+   `release-freshness.yml` turns red once the release is overdue. The fallback
+   then is the App-token arming the reports above use, which is an owner
+   action.
+
+**The caveat that applies with or without the queue, found by PR #881's
+review (finding 2): auto-merge itself.** The first analysis checked the wrong
+mechanic for whether the PUSH that lands the release merge can be trusted to
+trigger anything. `gh pr merge --auto` ENABLES GitHub's native auto-merge (or,
+under the queue, "add to the merge queue when ready"); the actual merge is
+performed later, by GitHub itself, once the required checks go green, not
+synchronously inside any workflow run. Multiple independent real-world reports confirm that when
+auto-merge was *armed* with `GITHUB_TOKEN`, as it is here, that later merge's
+push is STILL credited to `GITHUB_TOKEN` and the recursion guard still
+suppresses any `on: push` run for it — not a hypothetical edge case, the
+literal common path:
+[wbrawner.com, "GitHub Actions auto-merge … workflow trigger issue"](https://wbrawner.com/2024/03/15/github-actions-not-triggering-on-pr-merge/)
+(`gh pr merge --auto` by name), the `release-please`-adjacent
+[rmartz/bot-automerge#8](https://github.com/rmartz/bot-automerge/issues/8),
+and GitHub community discussion
+[#70310](https://github.com/orgs/community/discussions/70310) (the sibling
+merge-queue-enqueue case). So the one push `finish_release.sh` exists to
+react to — the release PR's own auto-merge landing on `main` — is, by
+construction, the one push whose trigger is suppressed essentially always,
+not "sometimes missed". `release.yml` therefore does **not** rely on `push`
+for Phase 2 at all: see "The shape, end to end" below for the `schedule`
+recovery poll this drove.
+
+**The shape, end to end** (`.github/workflows/release.yml`, TWO independent
+jobs — not two steps of one job, after PR #881's review (finding 1) caught a
+duplicate-PR race in the original single-job shape; see that job's own
+header comments for the full mechanics):
 
 ```
-push to main
+push to main / recurring schedule (every 15 min) / workflow_dispatch
   └► release.yml
-       ├─ Pre-release tests (proto lint, Dart suites, TS engine)
-       └─ semantic-release (.releaserc.json)
-            ├─ analyzes conventional commits → next repo version vX.Y.Z
-            ├─ bumps ALL FOUR ts/*/package.json versions in LOCKSTEP
-            ├─ commits CHANGELOG + package.jsons ("chore(release): X.Y.Z [skip ci]")
-            ├─ tags vX.Y.Z + creates the GitHub release
-            └─ successCmd (@semantic-release/exec) → released_version output
+       │
+       ├─ `release` job (needs `test`; several minutes) — Phase 1, runs on
+       │  push/workflow_dispatch only, never on schedule:
+       │    ├─ open_release_pr.sh:
+       │    │    ├─ compute_next_release.mjs — semantic-release DRY RUN against
+       │    │    │    the root .releaserc.json → {version, notes} or "nothing
+       │    │    │    to do"
+       │    │    ├─ apply_version_bump.mjs — CHANGELOG.md + the four
+       │    │    │    ts/*/package.json versions, applied to a branch
+       │    │    │    `release/next` freshly forked from origin/main (never to
+       │    │    │    `main` itself)
+       │    │    ├─ commit "chore(release): X.Y.Z" + the full notes as the body
+       │    │    └─ open_bot_pr.sh — force-push `release/next`, open-or-refresh
+       │    │         its PR, dispatch ci.yml + regression-gates.yml (produces
+       │    │         the 19 required contexts against this branch's head SHA
+       │    │         — see mechanic 2 above), arm `gh pr merge --auto --squash`
+       │    │         (under the merge queue: "enqueue when ready"; the queue
+       │    │         ignores the subject/body/method it also sends)
+       │    └ No tag, GitHub Release or publish dispatch happens here.
+       │
+       │  … the PR's checks pass → GitHub enqueues it for `github-actions` →
+       │  its merge group starts no `merge_group` run →
+       │  bot-merge-queue.yml (every 5 min) dispatches ci.yml +
+       │  regression-gates.yml onto `gh-readonly-queue/main/pr-<N>-<sha>` →
+       │  the queue squash-merges `chore(release): X.Y.Z (#N)` onto main
+       │
+       └─ `finish-release` job (no `test` dependency; seconds) — Phase 2, runs
+          on push, schedule AND a real workflow_dispatch:
+            ├─ finish_release.sh: scans every commit since the last `vX.Y.Z`
+            │    tag (oldest first) for one whose subject matches
+            │    `chore(release): X.Y.Z`, with or without the queue's ` (#N)`
+            │    — NOT merely whether HEAD itself
+            │    matches (PR #881 review, round 2, finding 1: a commit
+            │    landing in the gap between the release-PR merge and the
+            │    next 15-minute poll tick moves HEAD off the release commit;
+            │    a HEAD-only check would then never tag it, and the next
+            │    Phase 1 would recompute + duplicate it). None found: no-op
+            │    (`is_release=false`).
+            ├─ (only when one is found — i.e. that release PR merged, at or
+            │    before HEAD) tag vX.Y.Z at THAT commit (not necessarily
+            │    HEAD), push it, `gh release create` with the commit body as
+            │    notes. `newly_tagged=true` ONLY the one run that actually
+            │    created the tag — a poll that lands with nothing new since
+            │    the last tag reports `is_release=true` (for visibility) but
+            │    `newly_tagged=false`, so it dispatches nothing again.
+            └► gated on `newly_tagged == 'true'`:
+               gh workflow run publish-npm.yml / release-cpp.yml --ref vX.Y.Z
+               gh workflow run go-release.yml / pubdev-release.yml --ref main
+               (unchanged from before — same explicit-dispatch pattern, same
+               recursion-protection reason, just gated on Phase 2's verdict
+               instead of semantic-release's own `released_version` output)
+```
+
+**Why the job split, not just a step reorder.** The original shape ran Phase
+1 then Phase 2 as two STEPS of one job, every push. On the one push whose
+HEAD actually is the release-PR merge, Phase 1's dry run ran BEFORE the tag
+existed — `semantic-release`'s `lastRelease` is computed from tags, so it
+still saw every original feat/fix commit as unreleased and recomputed the
+identical version, opening a SECOND `chore(release): X` PR with a duplicated
+`CHANGELOG.md` entry, and (via the old, un-split `is_release` gate) a second
+round of every downstream publish dispatch. Reordering the two steps helps
+the common case, but a parallel recovery poll (needed for the reason above)
+can still race a same-job Phase 1 that is mid-flight when Phase 2 tags.
+Splitting them into independent jobs removes the ordering dependency
+entirely: Phase 1 sits behind the `test` job (several minutes) while Phase 2
+needs nothing and finishes in seconds, so by the time Phase 1 even checks
+out the repo, Phase 2 has already pushed the tag — its dry run correctly
+sees it and computes nothing to release for the lone "chore" commit (which,
+yes, is still not releasable to commit-analyzer on its own; that fact alone
+was never what kept the loop from running away — the ordering was).
+
+No tag, GitHub Release or publish dispatch happens until the PR in Phase 1
+has actually merged through the normal required-checks path. `workflow_dispatch`'s
+`dry_run` input (default `true`) rehearses Phase 1's computation with zero
+side effects on any branch, the same shape go-release.yml/pubdev-release.yml
+already use; it does not rehearse `finish-release`, which only reads `main`'s
+own history. That job's decisions (which commit is a release, both subject
+shapes, the gap-commit race, idempotent re-polls) are pinned instead by
+`finish_release_test.sh` against throwaway repos.
+
+**The freshness alarms** — two independent, differently-scheduled ones, not
+to be confused with each other:
+- `.github/workflows/release-freshness.yml` (weekly + dispatch) runs
+  `tools/release/check_release_freshness.sh`, the sibling of
+  `go-freshness.yml`/`pubdev-freshness.yml` for this channel — it asks
+  whether `main` has a releasable commit that has sat unreleased for more
+  than a grace window (`MAX_LAG_MINUTES`, default 24h) with no new tag to
+  show for it, citing the open `release/next` PR (or its absence) so a
+  silently stalled lane reds a real, scheduled gate instead of being
+  invisible between someone noticing `CHANGELOG.md` looks stale. This is
+  this issue's Definition of Done asking for an outcome alarm, not a
+  recovery mechanism — it alarms a human, it does not act.
+- `release.yml`'s own `schedule: cron: "*/15 * * * *"` (added by PR #881's
+  review, finding 2) is a DIFFERENT thing: the actual Phase-2 recovery
+  mechanism described above, not an alarm. It is cheap enough (git + gh
+  only, `finish-release` job, seconds) to run every 15 minutes forever, and
+  a `concurrency: group: release-finish` serialises any tick that overlaps a
+  `push`-triggered run instead of letting two race to tag the same release.
+
+**A second, independent bug PR #881's review (finding 4) turned up**: writing
+the first-ever test that exercises `check_release_freshness.sh`'s STALE
+message past the `classify()` call (previously untestable — see "Why the
+freshness alarm's own live path had no test" below) found that the alert's
+most actionable line — "Open release PR: …" — was silently dropped on every
+real STALE verdict whenever `main` had a prior release tag (i.e. essentially
+always). Root cause: bash's parser treats an unescaped `'` inside a
+`${var:-word}` default as opening a quoted region even inside an outer
+double-quoted string, and with TWO such apostrophes on that one line ("the
+repo's first commit", "release.yml's recent runs"), it silently absorbed
+everything between them into the (normally unused) `${LAST_TAG:-...}`
+default, truncating the echoed message right after `$LAST_TAG`'s value.
+Fixed by rephrasing both defaults with no apostrophe.
+
+**Why the freshness alarm's own live path had no test, and what now covers
+it.** `check_release_freshness.sh --self-test` only ever proved the pure
+`classify()` function in isolation. Everything after the
+`compute_next_release.mjs` call — the real `LAST_TAG`/`RANGE`/`OLDEST_ISO`
+computation against actual git state, `classify()` fed from it, the STALE
+branch's `gh pr list` lookup, and the alert text (the bug above) — was
+exercised NOWHERE: `semantic-release`'s core unconditionally refuses to
+compute a real answer for a `pull_request` event (logs "This run was
+triggered by a pull request and therefore a new version won't be
+published.") or for any branch other than its configured release branch
+(logs "… configured to only publish from main …"), and those are the *only*
+two ways `release-freshness.yml`'s own `pull_request` rehearsal (scoped to
+its own 2 files) and `release.yml`'s `workflow_dispatch` dry-run rehearsal
+ever call it. Both always see `{"release":false}`, so this script always
+reported FRESH trivially — a "test" that could not fail by construction, no
+matter what the rest of the script did. Confirmed from this repo's own CI
+logs on PR #881's branch (job `117304930214` and job `117303849054`).
+`tools/release/test/check_release_freshness_live_test.sh` is the fix: it runs
+the real script (`BALL_REPO_ROOT` override) against a throwaway local git
+repo, using a test-only `BALL_FORCE_RELEASE_DUE` env var to stand in for a
+real "yes, a release is due" verdict — never set by the real workflow — so
+the git-state computation, the classifier, the `gh pr list` lookup (stubbed)
+and the alert text all run for real, including the exact STALE path that hid
+the apostrophe bug above.
+
+**Two more bugs PR #881's round-2 review found, both fixed:**
+
+1. **(finding 1) `finish_release.sh` checked only HEAD, so a commit landing
+   in the recovery window permanently un-sees a release.** The `schedule`
+   poll above runs every 15 minutes, and GitHub documents that scheduled
+   runs can be delayed under load. If ANY commit (human-, Dependabot-, or
+   merge-queue-merged) lands on `main` in that window, HEAD is no longer the
+   release-PR-merge commit, and the original HEAD-only `git log -1` check
+   would never see it again: the commit stays untagged forever, and the next
+   Phase 1 run recomputes the identical version and opens a DUPLICATE
+   `chore(release): X` PR with a duplicated `CHANGELOG.md` entry (confirmed
+   with a real repro: `feat: x` → `chore(release): 1.2.0` → `fix: unrelated`,
+   `finish_release.sh` reported `is_release=false` for that history). Fixed
+   by scanning every commit since the last `vX.Y.Z` tag (oldest first) for
+   one matching the release-PR-merge pattern, and tagging THAT commit — not
+   HEAD. `tools/release/test/finish_release_test.sh`'s tests 4-5 pin exactly
+   this "release commit followed by another commit" shape.
+2. **(finding 2) `release-freshness.yml` ran `compute_next_release.mjs` with
+   `permissions: contents: read`, so the alarm was red every week with an
+   auth error regardless of whether `main` was actually stale.**
+   `semantic-release`'s core `run()` calls `verifyAuth()` — a `git push
+   --dry-run --no-verify` — UNCONDITIONALLY, even under `dryRun: true`, as
+   described in mechanic 1 above. That mechanic was verified with
+   write-capable credentials; `release-freshness.yml`'s `freshness` job
+   inherited the workflow-level `contents: read` default, under which
+   GitHub 403s a dry-run push the same as a real one (confirmed against two
+   independent real-world reports:
+   [cycjimmy/semantic-release-action#312](https://github.com/cycjimmy/semantic-release-action/issues/312),
+   [ai-ecoverse/slicc-jerk#6](https://github.com/ai-ecoverse/slicc-jerk/pull/6)
+   — both fixed the same way). Fixed by overriding the `freshness` job's
+   permissions to `contents: write` + `pull-requests: read` (for its `gh pr
+   list` lookup), pinned by a new `check_freshness_alarm_permissions` check
+   in `tools/release/check_release_pr_wiring.sh`, the same style as the
+   `coverage-study.yml` scope-pinning finding 3 added below.
+
+**PR #881's round-3 review**: finding 1 (the merge queue) is "The merge queue"
+above. Finding 4 is that `check_release_freshness.sh` had two production
+`|| true`s, against the §3a ban (docs/TESTING_STRATEGY.md, #694). The second
+one swallowed a failing `gh pr list` together with its stderr, so a STALE
+alert answered "Open release PR: NONE" when it did not actually know. The
+alert now says `UNKNOWN (gh pr list failed …)` and keeps gh's error on the
+log (`check_release_freshness_live_test.sh` test 2c). The first, `git
+describe`, now names its one expected failure ("no `v*` tag yet") the way
+`finish_release.sh` does (test 4).
+
+**Issue #879, same defect one level down — Go fixed here, pub.dev still
+open.** `pubdev-release.yml` (nine Dart packages) and `go-release.yml` (the Go
+module line) each used to run a REAL (non-dry-run) `semantic-release` of their
+own, and each pushed its own version-bump commit straight to `main` the exact
+same way — the identical GH013 defect, one level down, for the SAME reason:
+once this fix makes `finish_release.sh`'s downstream dispatches actually fire
+again (they haven't, at all, since 2026-09-13), those two lanes hit this exact
+rejection the moment they run. `go-release.yml` now has the SAME release-via-PR
+shape as the root line (see "Go modules lane" below —
+`tools/release/open_go_release_pr.sh` / `finish_go_release.sh`). **`pubdev-
+release.yml` is NOT fixed yet** — its per-package sequential loop with
+lockstep-plan bookkeeping across all nine packages is a materially larger
+redesign (the version-bump-and-commit step would have to decide and apply all
+nine packages' edits locally, in order, before anything is pushed, then hand a
+manifest of {package: version} to Phase 2 so it knows which packages' tags to
+cut and which `release-publish.yml` dispatches to fire) — issue
+[#879](https://github.com/Ball-Lang/ball/issues/879) stays open for exactly
+that slice; see that issue for the current status before assuming the pub.dev
+lane works.
+
+**The guards:** `tools/release/check_release_pr_wiring.sh` (every PR,
+`Proto Checks`) sweeps every workflow for the exact rejected pattern (`git
+push … HEAD:main`, comment-stripped so a line merely documenting this
+history — like this section — never trips it), asserts both call sites are
+wired to the shared helpers, AND (PR #881 review finding 3) that
+`coverage-study.yml`'s `publish` job's `permissions:` block grants all three
+scopes `open_bot_pr.sh` needs (`contents`/`pull-requests`/`actions: write` —
+`contents: write` alone 403s on the first `gh pr` call), AND (round 2,
+finding 2) that `release-freshness.yml`'s `freshness` job's `permissions:`
+block grants `contents: write` + `pull-requests: read` (`contents: read`
+alone 403s `semantic-release`'s `verifyAuth()` dry-run push), AND (round 3,
+finding 1) that `bot-merge-queue.yml` is scheduled, runs
+`service_bot_merge_queue.sh` with `actions: write`, and that the servicer's
+`REQUIRED_CHECK_WORKFLOWS` equals every bot-PR caller's `--dispatch` set (a
+third required-check workflow added to the callers only would let a bot PR's
+own checks pass while its merge group never reports that context);
+`tools/release/check_release_dispatch_wiring.sh` (and its Go/pub.dev
+siblings) assert the four downstream dispatches are gated on
+`steps.finish.outputs.newly_tagged`, not `is_release` (a poll ticking on an
+already-tagged HEAD must not re-fire them); `tools/release/check_release_freshness.sh
+--self-test` proves the alarm's classifier in isolation; and
+`tools/release/test/{release_pr_lib_test.mjs,apply_version_bump_test.mjs,
+apply_changelog_bump_test.mjs,open_bot_pr_test.sh,finish_release_test.sh,
+finish_go_release_test.sh,check_release_freshness_live_test.sh,
+service_bot_merge_queue_test.sh}` exercise the file-mutation logic, the shared
+PR-opening/release-finishing scripts (both lanes, both subject shapes), the
+freshness alarm's live path, and the merge-queue servicer end-to-end against
+throwaway local git repos and a stubbed `gh` (zero network, zero real
+credentials). All of them run in `ci.yml`'s `Proto Checks` job on every PR.
+
+## npm lane (@ball-lang/engine, cli, compiler, encoder)
+
+**Versioning and tagging now happen via a PR** — see "Release via PR (issue
+#755)" above for the full two-phase shape (`release.yml`'s Phase 1 opens the
+version-bump PR, Phase 2 tags + releases once it merges). What follows is
+what runs AFTER that PR has merged and Phase 2 has tagged `vX.Y.Z`:
+
+```
+release/next PR merges into main
+  └► release.yml (Phase 2, tools/release/finish_release.sh)
+       ├─ tags vX.Y.Z at the merge commit + creates the GitHub release
        └► gh workflow run publish-npm.yml --ref vX.Y.Z      ← EXPLICIT dispatch
             └► publish-npm.yml: build+test all four packages, then
                npm publish --provenance via OIDC trusted publishing
 ```
 
-**Why the explicit dispatch:** semantic-release authenticates with the
-default `GITHUB_TOKEN`, and GitHub suppresses workflow triggers for events
-created with it (recursion protection). The `release: published` trigger on
-publish-npm.yml therefore never fires for automated releases — npm silently
-froze at 0.2.x for months before the dispatch existed. The `release:` trigger
-is kept only for manually-published releases.
+**Why the explicit dispatch:** Phase 2 creates the tag + GitHub Release with
+the default `GITHUB_TOKEN`, and GitHub suppresses workflow triggers for
+events created with it (recursion protection). The `release: published`
+trigger on publish-npm.yml therefore never fires for automated releases — npm
+silently froze at 0.2.x for months before the dispatch existed. The
+`release:` trigger is kept only for manually-published releases.
 
 **Versioning:** all four npm packages share the repo version (lockstep,
 `.releaserc.json` has one `@semantic-release/npm` entry per `pkgRoot`).
@@ -369,32 +783,66 @@ The six Go modules are consumed straight from the module proxy — there is no
 registry account and nothing to upload; a tag *is* the release. The Go module
 version is its **own line** (`v0.1.0` first, `v0.2.0` since #586), not the repo's
 `vX.Y.Z`, and since #361's second half that line is computed by
-`semantic-release` from the conventional commits that touched `go/`:
+`semantic-release` from the conventional commits that touched `go/`.
+
+**Release via PR too (issue #879).** Until #879 this lane ran
+`semantic-release` for REAL and its `@semantic-release/git` step pushed the
+version-bump commit straight to `main` — the exact `Protect main` GH013
+rejection issue #755 fixed for the root npm line, one lane down. The fix is the
+identical two-phase shape (see "Release via PR (issue #755)" above):
 
 ```
 push to main
-  └► release.yml → semantic-release (as in the npm lane above)
+  └► release.yml (root line) → finish_release.sh tags a real release
        └► gh workflow run go-release.yml --ref main        ← EXPLICIT dispatch
-            └► go-release.yml
-                 ├─ bootstrap the go-modules/vX.Y.Z channel tag (local, once)
-                 └─ semantic-release (.github/release/go.releaserc.json)
-                      ├─ analyzeCommits, path-filtered to go/  → patch|minor|major
-                      ├─ verifyReleaseCmd: bump_go_modules.sh --check-next …
-                      │    (legal semver, major < 2, and exactly semver.inc of
-                      │     the line in the tree — runs under --dry-run too)
-                      ├─ prepareCmd: bump_go_modules.sh vA.B.C   ← the 9 sites
-                      ├─ @semantic-release/git: "chore(release): go vA.B.C [skip ci]"
-                      ├─ core creates+pushes the tag  go-modules/vA.B.C
-                      └─ publishCmd → await_workflow_run.py --dispatch
-                                        --workflow tag-go-modules.yml
-                                        --ref go-modules/vA.B.C
-                           ├► tag-go-modules.yml: ONE `git push` creating all six
-                           │  go/<module>/vA.B.C tags on the bump commit
-                           └─ …and the publishCmd WAITS for that run (30 s apart,
-                              20 min budget), accepting ONLY a run newer than the
-                              newest one on that ref before the dispatch, and
-                              fails the release on any non-success conclusion
-                                                          ← AWAITED (#627, #656)
+            └► go-release.yml: open-release-pr job (Phase 1)
+                 ├─ bootstrap_channel_tag.sh: mirror the six go/<module>/vX.Y.Z
+                 │  tags into a LOCAL go-modules/vX.Y.Z tag (never pushed; a
+                 │  permanent no-op once this lane's own first real release
+                 │  has pushed one of its own)
+                 ├─ stage go.releaserc.json, compute_next_release.mjs
+                 │  (semantic-release, DRY RUN ONLY — see compute_next_release.mjs's
+                 │  header for why its one unconditional side effect,
+                 │  verifyAuth()'s dry-run push, is safe against the live ruleset)
+                 │    ├─ analyzeCommits, path-filtered to go/  → patch|minor|major
+                 │    └─ verifyReleaseCmd: bump_go_modules.sh --check-next …
+                 │         (legal semver, major < 2, exactly semver.inc of the
+                 │          line in the tree — one of the four steps a dry run
+                 │          still runs)
+                 ├─ open_go_release_pr.sh applies the REAL edits itself —
+                 │  bump_go_modules.sh vA.B.C (the 9 sites) + a go/CHANGELOG.md
+                 │  prepend (apply_changelog_bump.mjs) — to a release/go-next
+                 │  branch, commits "chore(release): go vA.B.C"
+                 └─ open_bot_pr.sh: opens/refreshes the PR, dispatches
+                    ci.yml + regression-gates.yml so the PR's required checks
+                    actually run (workflow_dispatch — the one event
+                    GITHUB_TOKEN's recursion guard still fires for), arms
+                    `gh pr merge --auto`; once those pass, GitHub enqueues it
+                    for `github-actions` and bot-merge-queue.yml dispatches
+                    its merge group's required checks (see "The merge queue"
+                    in "Release via PR" above)
+
+main (push, every 15 min schedule, or real workflow_dispatch)
+  └► go-release.yml: finish-release job (Phase 2, independent job — no `test`
+       dependency, runs in seconds)
+       └─ finish_go_release.sh: scans every commit since the last
+          go-modules/vX.Y.Z tag (oldest first) for a "chore(release): go
+          vA.B.C" release-PR-merge commit, bare or with the merge queue's
+          " (#N)" suffix — never HEAD alone, so a commit
+          landing in the gap between the merge and the next poll tick is
+          still found (the release.yml Phase 2 rationale, verbatim)
+            ├─ tags THAT commit go-modules/vA.B.C, pushes the tag
+            ├─ gh release create go-modules/vA.B.C (visibility/changelog only
+            │  -- nothing downstream reads it, same as every other channel)
+            └─ await_workflow_run.py --dispatch
+                 --workflow tag-go-modules.yml
+                 --ref go-modules/vA.B.C
+                 ├► tag-go-modules.yml: ONE `git push` creating all six
+                 │  go/<module>/vA.B.C tags on the bump commit
+                 └─ …and WAITS for that run (30 s apart, 20 min budget),
+                    accepting ONLY a run newer than the newest one on that
+                    ref before the dispatch, and fails on any non-success
+                    conclusion                              ← AWAITED (#627, #656)
 
 weekly, independently
   └► go-freshness.yml → check_go_freshness.sh
@@ -404,6 +852,15 @@ weekly, independently
        must list the version main's go.mod files name, tolerating a tag
        younger than MAX_LAG_MINUTES (60) — the proxy index lag
 ```
+
+`.github/release/go.releaserc.json` keeps only the two plugins whose lifecycle
+hooks are `dryRun: true` (`only-package-commits.mjs`'s `analyzeCommits`/
+`generateNotes`, `@semantic-release/exec`'s `verifyReleaseCmd`) — no
+`@semantic-release/git`, no `@semantic-release/github`, no `prepareCmd`/
+`publishCmd`. Those four were exactly the real-publish machinery issue #879
+removed; keeping them around unreachable would be the one-line change away
+from resurrecting the direct push, so `check_go_release_wiring.sh` asserts
+their absence rather than trusting every future diff to notice they are dead.
 
 **What used to be manual, and why nothing caught it.** Tagging has been
 automatic since #361 — but the tagger only ever cuts the version *already
@@ -425,10 +882,11 @@ report success while shipping nothing, both of which the shape guard is blind to
 by construction. First, `publishCmd` was a bare `gh workflow run`, which returns
 the moment GitHub *accepts* the dispatch — a tagger run that then failed, was
 cancelled, hit its half-tagged refusal, or never started left the `go-release`
-run green. It now goes through `tools/release/await_workflow_run.py`, which polls
+run green. It now goes through `tools/release/await_workflow_run.py` (called,
+since #879, by `finish_go_release.sh` in the `finish-release` job), which polls
 the dispatched run (30 s apart, 20 min budget — `tag-go-modules.yml`'s own job
-timeout is 15) and fails the publish step on any non-`success` conclusion, on the
-budget running out, and on the dispatch itself failing. Second, nothing anywhere
+timeout is 15) and fails the dispatching step on any non-`success` conclusion, on
+the budget running out, and on the dispatch itself failing. Second, nothing anywhere
 asked the *registry* whether it serves what the tree names;
 `.github/workflows/go-freshness.yml` is that alarm, and it is the Go sibling of
 `pubdev-freshness.yml`.
@@ -461,16 +919,17 @@ for every consumer that already has it,
 <https://go.dev/ref/mod#version-queries>), so a second tagger with its own logic
 could publish a broken module set permanently.
 
-**Why semantic-release tags `go-modules/vX.Y.Z` and not one of the six.**
-semantic-release always creates its own `tagFormat` tag. If that were, say,
-`go/cli/vX.Y.Z`, `tag_go_modules.sh` would then find one of six tags already
+**Why the lane tags `go-modules/vX.Y.Z` and not one of the six.** If the
+release-PR-merge commit were tagged with one of the six `go/<module>/vX.Y.Z`
+names instead, `tag_go_modules.sh` would then find one of six tags already
 present and refuse the set as half-tagged — correctly. So the lane keeps a
-separate **channel tag**, which is also what carries version continuity from one
-release to the next. It is created after the prepare steps and before the
-publish steps (semantic-release's `index.js`: *"Create the tag before calling the
-publish plugins as some require the tag to exists"*), on the commit
-`@semantic-release/git` just pushed — which is why the publishCmd can dispatch
-the tagger at that tag and get the bumped `go.mod` files.
+separate **channel tag** (`tagFormat` in go.releaserc.json, still read by the
+dry-run version computation even though nothing publishes through it
+anymore), which is also what carries version continuity from one release to
+the next. `finish_go_release.sh` creates it on the release-PR-merge commit
+(the one carrying the bumped `go.mod` files, pushed by
+`open_go_release_pr.sh`) — which is why its dispatch to the tagger, pinned to
+that tag, gets those files.
 
 **The v2 cliff is a hard stop.** From major 2 on, Go requires a `/vN` suffix on
 the module **path** (<https://go.dev/ref/mod#major-version-suffixes>), and these
@@ -495,27 +954,35 @@ or split across commits. `--check-next` is the backstop: it refuses any version
 that is not exactly `semver.inc` of the line in the tree, so a lane that lost its
 baseline stops before it releases rather than after.
 
-**Why the explicit dispatch** — same reason as npm and C++ above, and this lane
-learned it the expensive way. The tagging job originally lived in
-`release-tag.yml` (since deleted, #551) behind
+**Why the explicit dispatch of go-release.yml itself** — same reason as npm
+and C++ above, and this lane learned it the expensive way. The tagging job
+originally lived in `release-tag.yml` (since deleted, #551) behind
 `on: push: branches:[main]` + `if: contains(head_commit.message, 'chore(release)')`.
-semantic-release commits `chore(release): X.Y.Z [skip ci]`, and GitHub's skip-ci
-recursion protection suppresses the **entire workflow run** on such a push — not
-merely the job's `if:`. No run row is created at all, so the dead channel read as
-"nothing red" while five releases (v1.61.1 … v1.64.0) shipped and
-`gh api repos/Ball-Lang/ball/git/matching-refs/tags/go%2F` still returned `[]`.
-`tools/release/check_release_dispatch_wiring.sh` pins that contract for the two
-tag-pinned channels (npm, C++); the two lanes that *run* semantic-release
-(`pubdev-release.yml`, `go-release.yml`) are dispatched `--ref main` instead —
-`@semantic-release/git` pushes commits and tags to a **branch**, and a detached
-tag ref gives it nothing to release from — and have their own guards.
+A commit carrying `[skip ci]` suppresses the **entire workflow run** on such a
+push — not merely the job's `if:`. No run row is created at all, so the dead
+channel read as "nothing red" while five releases (v1.61.1 … v1.64.0) shipped
+and `gh api repos/Ball-Lang/ball/git/matching-refs/tags/go%2F` still returned
+`[]`. `tools/release/check_release_dispatch_wiring.sh` pins that contract for
+the two tag-pinned channels (npm, C++); this lane (and pub.dev's) are
+dispatched `--ref main` instead, because each opens its OWN version-bump PR
+against a branch (issue #879), and a detached tag ref gives that nothing to
+branch from — and each has its own guard
+(`check_go_release_wiring.sh`/`check_pubdev_release_wiring.sh`).
 
-**Those two lanes share one concurrency group** (`main-release-push`), because
-`release.yml` dispatches both within a second of each other and both push
-commits to main; concurrent pushes lose to non-fast-forward rejections. Neither
-can lose work to the queueing: a rejected push fails the run *before* any tag is
-created, and each run is stateless, so the next release's dispatch re-analyses
-the same unreleased commits.
+**The `finish-release` job's own dispatch of `tag-go-modules.yml`** needs the
+*same* awaited-poll + recovery-schedule machinery release.yml's root-line
+Phase 2 has, for the identical reason: `open_bot_pr.sh` arms the release PR's
+merge with `gh pr merge --auto` under this workflow's own `GITHUB_TOKEN`, and
+GitHub's recursion guard suppresses the resulting merge's own `push` trigger
+(see "Release via PR (issue #755)" above for the citations) — so `finish-
+release`'s every-15-minutes `schedule` trigger (`5,20,35,50 * * * *`), not
+`push`, is what this lane
+actually depends on; `finish_go_release.sh`'s oldest-untagged-commit scan is
+what survives a poll landing late enough for another commit to have passed
+through first. The `go-release-finish` concurrency group is scoped to THIS
+lane only — a tag push here (`go-modules/vX.Y.Z`) cannot collide with the root
+line's `vX.Y.Z` tag push or pub.dev's `<pkg>-vX.Y.Z` tag push, so (unlike
+before #879) there is no need to share a group with pub.dev's own finish job.
 
 **Status: the six `go/<module>/v0.1.0` tags exist** (backfilled by #556, all on
 `08599a51`) — but they predate #586, when the compiled engine and CLI core were
@@ -531,15 +998,17 @@ the first Go module line that carries the committed artifacts** (cut on
 gh workflow run go-release.yml --ref <branch> -f dry_run=true
 ```
 
-computes the next Go module version and creates no tags, commits, releases or
-dispatches — semantic-release's `prepare`, `publish`, `addChannel`, `success`
-and `fail` steps all carry `dryRun: false` in `lib/definitions/plugins.js` and
-are skipped, while `verifyConditions`, `analyzeCommits`, `verifyRelease` and
-`generateNotes` still run. The bump is a `prepareCmd` (so a rehearsal rewrites
-nothing) and the version check is a `verifyReleaseCmd` (so a rehearsal proves
-the computed version). A dry run checks out **the ref it was dispatched for** —
-a real run always checks out `main` — so a change to this lane can be rehearsed
-on its own branch before it is merged.
+runs only Phase 1's `open-release-pr` job and creates no branch, PR, tag or
+dispatch — see "Release via PR (issue #755)"'s rehearsal note above for the
+one limitation this shares with the root line's own rehearsal: off `main`,
+semantic-release's branch detection reports "configured to only publish from
+main" and computes nothing (PR #881 review round 2, finding 4), so a
+rehearsal proves the SHAPE (it reaches `compute_next_release.mjs` with no
+side effects), never the live verdict — `bump_go_modules.sh --check-next`'s
+own self-test and `tools/release/check_go_release_wiring.sh` cover the
+computation's correctness instead. A dry run checks out **the ref it was
+dispatched for** — a real run always checks out `main` — so a change to this
+lane can be rehearsed on its own branch before it is merged.
 
 `tools/go-module-proxy/smoke.sh` (gating in ci.yml's `go` job) proves `go install
 github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
@@ -627,6 +1096,20 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
 
 ## Failure recovery
 
+- **A bot PR (`release/next`, `release/go-next`, the coverage-study table)
+  sits at `AWAITING_CHECKS` in the merge queue, or its timeline says it was
+  removed for timing out:** open the `Bot merge-queue checks` runs for that
+  window. If no tick dispatched `ci.yml`/`regression-gates.yml` onto the
+  entry's `gh-readonly-queue/main/pr-<N>-…` branch, the servicer's own log
+  says why (an `::error::` run is red). If it dispatched them and they passed
+  but the queue still timed out, the queue did not accept workflow-dispatched
+  results for the merge group. That premise is the one only a live run could
+  prove (see "The merge queue" under "Release via PR"), and the fix then is
+  App-token arming, which is an owner action. To land the PR in the meantime,
+  re-arm it yourself (`gh pr merge <N> --auto`): a human-enqueued entry gets
+  ordinary `merge_group` runs. Nothing re-arms an evicted bot PR on its own,
+  by design. An automatic retry of a deterministic failure would jam the
+  queue for 90 minutes after every push to `main`.
 - **publish-npm failed mid-run:** nothing published (all publishes run after
   every build/test step). Fix, merge (the fix itself cuts the next release),
   or re-dispatch manually: `gh workflow run publish-npm.yml --ref vX.Y.Z`.
@@ -688,29 +1171,37 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   `gh workflow run pubdev-release.yml --ref <branch> -f dry_run=true`. #566
   shipped unrehearsed because this step pinned `main` unconditionally and the
   only way to exercise a change was to merge it.
-- **`go-release.yml` red in `verifyRelease` ("refusing a *type* release at
-  …"):** `bump_go_modules.sh --check-next` computed a different successor than
-  semantic-release did, so the lane is not measuring the module line in the
-  tree. Nothing was written — this fires before `prepare`. Two causes: the
-  `go-modules/v*` baseline was lost (the bootstrap step's log says what it did;
-  if it reports "nothing to bootstrap" while the version is 1.0.0, a stray
-  `go-modules/*` tag is the baseline), or the tree's line and the published tags
-  genuinely disagree (`python3 tools/go-module-proxy/build_local_proxy.py
-  --print-version` versus `git tag --list 'go/cli/v*'`). Fix forward; never
-  hand-tag to make the check pass.
-- **`go-release.yml` red citing `major-version-suffixes`:** a breaking-change
-  commit under `go/` computed a major ≥ 2, which Go cannot serve from these
-  module paths. This is a design decision, not an outage: either the commit
-  should not have been `BREAKING CHANGE`/`feat!` (amend the message and the
-  next release computes a normal bump), or the modules really do need `/v2`
-  paths — a separate, deliberate rename of every module path, `go.work` pin and
-  intra-repo `require`. The lane stays stopped until one of those happens.
-- **`go-release.yml` red on a non-fast-forward push:** it raced
-  `pubdev-release.yml` onto main despite the shared `main-release-push` group
-  (or someone pushed to main mid-run). Nothing half-landed — the push happens in
-  `prepare`, before any tag is created. The next release's dispatch re-analyses
-  the same commits and releases them; re-dispatch `go-release.yml --ref main`
-  to do it sooner.
+- **`go-release.yml`'s `open-release-pr` job red in `verifyRelease` ("refusing
+  a *type* release at …"):** `bump_go_modules.sh --check-next` computed a
+  different successor than semantic-release did, so the lane is not measuring
+  the module line in the tree. Nothing was written — this fires inside the dry
+  run, before `open_go_release_pr.sh` applies anything. Two causes: the
+  `go-modules/v*` baseline was lost (`bootstrap_channel_tag.sh`'s log says what
+  it did; if it reports "nothing to bootstrap" while the version is 1.0.0, a
+  stray `go-modules/*` tag is the baseline), or the tree's line and the
+  published tags genuinely disagree (`python3
+  tools/go-module-proxy/build_local_proxy.py --print-version` versus `git tag
+  --list 'go/cli/v*'`). Fix forward; never hand-tag to make the check pass.
+- **`go-release.yml`'s `open-release-pr` job red citing `major-version-suffixes`:**
+  a breaking-change commit under `go/` computed a major ≥ 2, which Go cannot
+  serve from these module paths. This is a design decision, not an outage:
+  either the commit should not have been `BREAKING CHANGE`/`feat!` (amend the
+  message and the next release computes a normal bump), or the modules really
+  do need `/v2` paths — a separate, deliberate rename of every module path,
+  `go.work` pin and intra-repo `require`. The lane stays stopped until one of
+  those happens.
+- **`open_go_release_pr.sh` red force-pushing `release/go-next`:** unlikely
+  (the push is `--force`, via `open_bot_pr.sh`), but if it happens re-dispatch
+  `go-release.yml --ref main`; the next run recomputes from `main`'s current
+  state and nothing is half-landed either way (the push happens before any PR
+  is opened or merged).
+- **`finish-release`'s tag push races:** `go-modules/vX.Y.Z` is a NEW tag name
+  each release and `v*/<pkg>-v*` tags live in disjoint namespaces, so this
+  lane's tag push cannot collide with the root line's or pub.dev's own
+  `finish-release` — there is no longer a shared concurrency group to worry
+  about (pre-#879, both lanes pushed real commits to `main` and had to
+  serialise; post-#879 only Phase 2 pushes anything directly, and it pushes a
+  tag, not a branch).
 - **`tag-go-modules.yml` red with "N of 6 tags already exist and M do not":** a
   half-published module set, which the script refuses to paper over. Do **not**
   delete and re-cut: a tag any consumer already fetched through
@@ -730,10 +1221,10 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   `GOPROXY=direct GONOSUMCHECK=1 go install …` (which reads the tag from GitHub
   and skips the cached negative). Nothing to fix or re-run.
 - **A release cut the Go version but no `go/**` tags appeared:** the
-  `publishCmd` dispatch failed after the commit and channel tag landed. Since
-  #627 this cannot happen quietly — `await_workflow_run.py` reddens the
-  `go-release` run with the tagger run's URL and conclusion, or with
-  `did not complete within 1200s`. The state is consistent, just untagged:
+  `finish_go_release.sh` dispatch failed after the commit and channel tag
+  landed. Since #627 this cannot happen quietly — `await_workflow_run.py`
+  reddens the `finish-release` run with the tagger run's URL and conclusion, or
+  with `did not complete within 1200s`. The state is consistent, just untagged:
   re-dispatch the tagger at the channel tag that release created,
   `gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z`. It derives the
   version from that ref's `go.mod` files, so the tags land on the right commit.
@@ -762,14 +1253,17 @@ another.
 |---|---|---|---|
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
 | `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, the lockstep wiring (#566) going missing, and a dry run losing the ability to rehearse the branch it was dispatched for | whether a release was actually cut — it is entirely static |
-| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) + its own `--self-test` | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / bump / commit / dispatch disagree, a file the bump rewrites that the release commit does not carry, a second tagger next to `tag_go_modules.sh`, the driver losing its dry-run rehearsal, the two main-pushing lanes drifting out of one concurrency group, a `publishCmd` that dispatches the tagger without awaiting it, (#627) a `tag-go-modules.yml` header that claims `release.yml` dispatches it, a poller that awaits a run without pinning it to a pre-dispatch baseline, and (#656) a `go-freshness.yml` whose `pull_request` filter has grown past the alarm's own two files — the only thing that keeps this repo's one PR-triggered freshness alarm from making unrelated work depend on `proxy.golang.org`. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
-| `tools/release/await_workflow_run.py` | every PR (`--self-test`, `Proto Checks`) + every Go release's `publishCmd` | a **tag cut that did not happen**: `gh workflow run` returns as soon as GitHub accepts the dispatch, so before #627 a `tag-go-modules.yml` run that failed, was cancelled, hit its half-tagged refusal or never started left the `go-release` run green. It polls the dispatched run to completion (30 s apart, 20 min budget) and fails on any non-`success` conclusion — and since #656 only a run **strictly newer** than the newest one on that ref before the dispatch can answer for it, so a stale run left by a manual repair or a re-run cannot stand in for the one this release started | whether the tags it waited for are *reachable* — that is the freshness alarm's job |
+| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) + its own `--self-test` | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / version-check disagree, that config growing a live `@semantic-release/git`/`@semantic-release/github`/`prepareCmd`/`publishCmd` back (#879 — the direct-push-to-`main` defect returning), a file the bump rewrites that `open_go_release_pr.sh`'s release-PR branch does not carry, a second tagger next to `tag_go_modules.sh`, the `open-release-pr` job losing its dry-run rehearsal or the Go-specific bootstrap step that rehearsal needs, a direct CLI/binary invocation of semantic-release reappearing anywhere in the lane, the `finish-release` job losing its own concurrency group, `finish_go_release.sh`'s tagger dispatch no longer going through `await_workflow_run.py --dispatch` at the channel tag (pinned statically since PR #881 review round 4, beside `finish_go_release_test.sh`'s behavioural pin, which this guard checks ci.yml still runs), (#627, #879) a `tag-go-modules.yml` header that does not name the dispatcher this guard discovers, or that still names a lifecycle hook #879 removed (`prepareCmd`, `publishCmd`, `@semantic-release/git`, `@semantic-release/github`) or claims `release.yml` dispatches it, a poller that awaits a run without pinning it to a pre-dispatch baseline, and (#656) a `go-freshness.yml` whose `pull_request` filter has grown past the alarm's own two files — the only thing that keeps this repo's one PR-triggered freshness alarm from making unrelated work depend on `proxy.golang.org`. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
+| `tools/release/await_workflow_run.py` | every PR (`--self-test`, `Proto Checks`) + every `finish_go_release.sh` run that finds a release | a **tag cut that did not happen**: `gh workflow run` returns as soon as GitHub accepts the dispatch, so before #627 a `tag-go-modules.yml` run that failed, was cancelled, hit its half-tagged refusal or never started left the dispatching run green. It polls the dispatched run to completion (30 s apart, 20 min budget) and fails on any non-`success` conclusion — and since #656 only a run **strictly newer** than the newest one on that ref before the dispatch can answer for it, so a stale run left by a manual repair or a re-run cannot stand in for the one this release started | whether the tags it waited for are *reachable* — that is the freshness alarm's job |
 | `.github/workflows/go-freshness.yml` | weekly + dispatch | the **module proxy falling behind main**: `proxy.golang.org` not listing the version `main`'s six `go.mod` files name, for a tag older than the (default 60 min) index-lag window, or for a version never tagged at all. The Go sibling of `pubdev-freshness.yml`, and the only guard in this table that leaves the repository | a lane that broke in the last hour (the lag window is deliberately generous), and anything about *which* commit the tags sit on |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
 | `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |
 | `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version. Plus, via `check_published_siblings.py`, an upload that resolves *cleanly* and is still wrong: a Ball sibling resolved older than the release tag's tree declares | anything about packages this run did not publish |
 | `tools/release/resolve_published.py` | every PR (`--self-test`, `Proto Checks`) + both read-back steps of every publish | the read-back **misreading its own failure**: giving up while pub.dev is still indexing the upload — the package's own (#568) or a lockstep sibling's (#574), both a red verify job on a correct release — or sitting out a 15-minute budget on a permanent sibling-pin conflict instead of reporting it at once | whether the package is semantically right — that is `check_published_siblings.py`'s job |
+| `tools/release/check_release_pr_wiring.sh` | every PR (`Proto Checks`) + its own `--self-test` | the release-via-PR **shape** (#755): any workflow pushing a commit straight to `main` again, the root/coverage-study call sites losing the shared helpers or the permissions they need, `release-freshness.yml` losing the scopes `verifyAuth()` needs, and the merge-queue servicer going unscheduled or dispatching a different workflow set than the bot-PR callers (round 3) | whether a release actually landed — entirely static |
+| `.github/workflows/bot-merge-queue.yml` (`service_bot_merge_queue.sh`) | every 5 minutes + a `pull_request` rehearsal (`--dry-run` against the live queue) | a bot PR's **merge group that can never report**: enqueued for `github-actions`, so no `merge_group` run starts and the entry would block the whole queue for the 90-minute timeout. Its exit is red when the queue cannot be read or an entry awaiting checks has no queue branch at its head | whether the queue accepts the dispatched runs' results. Only the first real bot PR through the queue proves that (see "The merge queue" in "Release via PR") |
+| `.github/workflows/release-freshness.yml` (`check_release_freshness.sh`) | weekly + dispatch | the **root release line stalling** for any reason: a releasable commit on `main` older than the grace window (24 h) with no `vX.Y.Z` tag to show for it, naming the open `release/next` PR (or saying the lookup failed) | why it stalled; it alarms, it does not act |
 
 The 30-day staleness bound is a judgement call, not a release cadence: it says
 "if this package's code has been moving for over a month and pub.dev has not,

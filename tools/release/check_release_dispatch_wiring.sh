@@ -2,10 +2,14 @@
 # Static wiring guard for the release pipeline's downstream dispatches (#361).
 #
 # WHY THIS EXISTS: this repo cuts releases from `release.yml` (semantic-release).
-# Its `@semantic-release/git` plugin pushes a `chore(release): X.Y.Z [skip ci]`
-# commit, and GitHub's skip-ci recursion protection suppresses the ENTIRE
-# workflow run for any `push`-triggered workflow on such a commit — not merely
-# the job's own `if:`. Anything hung off `on: push: branches:[main]` +
+# Until #755 its `@semantic-release/git` plugin pushed a
+# `chore(release): X.Y.Z [skip ci]` commit, and GitHub's skip instructions
+# suppress the ENTIRE workflow run for any `push`-triggered workflow on such a
+# commit — not merely the job's own `if:` (GitHub's "Skipping workflow runs"
+# docs). Since #755 the
+# release commit lands through an auto-merged PR armed with `GITHUB_TOKEN`,
+# whose events start no workflow run either, so the conclusion is unchanged.
+# Anything hung off `on: push: branches:[main]` +
 # `if: contains(head_commit.message, 'chore(release)')` therefore never runs on
 # the commits it targets, and the failure is INVISIBLE: no run row appears at
 # all, so a dashboard reads "nothing red" while the channel silently never
@@ -15,10 +19,12 @@
 #
 # The repo's own documented workaround, already used for npm and C++, is an
 # explicit `gh workflow run <file> --ref "v<version>"` step in release.yml,
-# guarded on `steps.semrel.outputs.released_version != ''`, pointed at a
-# workflow that declares `workflow_dispatch:`. This guard pins that four-part
-# contract for every release-reactive channel so a future one cannot be added
-# with the unreachable push trigger again.
+# guarded on `steps.finish.outputs.newly_tagged == 'true'` (issue #755's
+# release-via-PR Phase 2 — see tools/release/finish_release.sh; this guard's
+# name predates that rename but still asserts the same four-part contract),
+# pointed at a workflow that declares `workflow_dispatch:`. This guard pins
+# that contract for every release-reactive channel so a future one cannot be
+# added with the unreachable push trigger again.
 #
 # Deliberately textual/grep-based against the DOCUMENTED pattern (same style as
 # tools/check_conformance_doc_counts.sh): it asserts the four things that make a
@@ -38,17 +44,19 @@ RELEASE="$WORKFLOWS/release.yml"
 # RELEASED TREE, and is therefore dispatched pinned to the fresh `vX.Y.Z` tag.
 # Adding a channel here without wiring its dispatch is a hard failure, by design.
 #
-# The two lanes that RUN semantic-release — pubdev-release.yml and
+# The two lanes that compute their OWN version — pubdev-release.yml and
 # go-release.yml — are deliberately not in this list: they are dispatched
-# `--ref main`, because @semantic-release/git pushes commits and tags to a
-# BRANCH and a detached tag ref gives it nothing to release from. Their
-# contracts live in check_pubdev_release_wiring.sh and
-# check_go_release_wiring.sh. `tag-go-modules.yml` left this list with #361's
-# second half: release.yml no longer dispatches it at all, because a dispatch
-# that carried no version only ever re-cut the tags a human had already written
-# into the go.mod files. go.releaserc.json's publishCmd dispatches it now,
-# pinned to the channel tag whose commit carries the bumped files — see the
-# stray-tagger leg below, which still pins that it has exactly one dispatcher.
+# `--ref main` because they open a version-bump PR against a BRANCH (issue
+# #879's release-via-PR shape, the release.yml/#755 sibling), and a detached
+# tag ref gives that nothing to branch from. Their contracts live in
+# check_pubdev_release_wiring.sh and check_go_release_wiring.sh. `tag-go-
+# modules.yml` left this list with #361's second half: release.yml no longer
+# dispatches it at all, because a dispatch that carried no version only ever
+# re-cut the tags a human had already written into the go.mod files.
+# tools/release/finish_go_release.sh dispatches it now (since #879 — formerly
+# go.releaserc.json's publishCmd), pinned to the channel tag whose commit
+# carries the bumped files — see the stray-tagger leg below, which still pins
+# that it has exactly one dispatcher.
 TARGETS="publish-npm.yml release-cpp.yml"
 
 pass=0
@@ -95,18 +103,24 @@ for target in $TARGETS; do
   fi
 
   # (3) release.yml actually dispatches it, pinned to the fresh release tag.
-  # The `--ref v<released_version>` pin is load-bearing: an unpinned dispatch
-  # runs the workflow off the default branch, which for a tag-cutting or
+  # The `--ref v<version>` pin is load-bearing: an unpinned dispatch runs the
+  # workflow off the default branch, which for a tag-cutting or
   # asset-uploading channel is a different commit than the one released.
-  if grep -qF "gh workflow run $target --ref \"v\${{ steps.semrel.outputs.released_version }}\"" "$RELEASE"; then
+  if grep -qF "gh workflow run $target --ref \"v\${{ steps.finish.outputs.version }}\"" "$RELEASE"; then
     ok "release.yml dispatches $target pinned to the fresh release tag"
   else
     no "release.yml dispatches $target pinned to the fresh release tag" \
-      "expected a step running: gh workflow run $target --ref \"v\${{ steps.semrel.outputs.released_version }}\"" \
-      "a push-triggered workflow cannot substitute — semantic-release's commit carries [skip ci], which suppresses the whole run"
+      "expected a step running: gh workflow run $target --ref \"v\${{ steps.finish.outputs.version }}\"" \
+      "a push-triggered workflow cannot substitute — a release PR merge carries no [skip ci] of its own kind that would make this reachable any other way"
   fi
 
-  # (4) That dispatch is guarded on a release actually having been cut.
+  # (4) That dispatch is guarded on a release actually having been cut THIS
+  # run, not merely on HEAD being a release commit. `is_release` stays true
+  # on every idempotent re-run that sees an already-tagged HEAD (every poll
+  # tick between a release-PR merge and the next push — see
+  # tools/release/finish_release.sh and PR #881 review finding 2), so the
+  # gate must be `newly_tagged`, not `is_release`, or a scheduled poll
+  # re-dispatches every downstream publish workflow on every tick.
   # Checked by locating the dispatch line and looking back a bounded window for
   # the guard, so an unguarded step cannot borrow a neighbour's `if:`.
   line="$(grep -nF "gh workflow run $target --ref" "$RELEASE" | head -1 | cut -d: -f1)"
@@ -114,14 +128,14 @@ for target in $TARGETS; do
     start=$((line - 8))
     [ "$start" -lt 1 ] && start=1
     if sed -n "${start},${line}p" "$RELEASE" |
-      grep -qF "if: steps.semrel.outputs.released_version != ''"; then
-      ok "the $target dispatch is guarded on released_version != ''"
+      grep -qF "if: steps.finish.outputs.newly_tagged == 'true'"; then
+      ok "the $target dispatch is guarded on newly_tagged == 'true'"
     else
-      no "the $target dispatch is guarded on released_version != ''" \
-        "an unguarded dispatch fires on every push to main, releasing or not"
+      no "the $target dispatch is guarded on newly_tagged == 'true'" \
+        "an unguarded (or is_release-guarded) dispatch re-fires on every poll of an already-tagged HEAD, releasing or not"
     fi
   else
-    no "the $target dispatch is guarded on released_version != ''" \
+    no "the $target dispatch is guarded on newly_tagged == 'true'" \
       "no dispatch line for $target to guard"
   fi
 done
@@ -131,10 +145,12 @@ done
 # `if: contains(head_commit.message, 'chore(release)')`. That shape is proven
 # unreachable for `chore(release): X.Y.Z [skip ci]` commits; re-adding it would
 # silently resurrect the dead channel next to the live one. release-tag.yml is
-# gone entirely since #551, so this now checks the general case: no WORKFLOW may
-# declare the tagging job or dispatch it — its only dispatcher is
-# `.github/release/go.releaserc.json`'s publishCmd, which
-# check_go_release_wiring.sh pins as the single one.
+# gone entirely since #551, so this now checks the general case: no WORKFLOW
+# (.yml) may declare the tagging job or dispatch it — its only dispatcher is
+# the SCRIPT tools/release/finish_go_release.sh (since #879; formerly
+# `.github/release/go.releaserc.json`'s publishCmd), which
+# check_go_release_wiring.sh pins as the single one — a different file, so a
+# .yml sweep here and a .sh-aware sweep there is deliberate, not an omission.
 # Matched against the JOB declaration and the dispatch command only, never
 # against prose — several workflows legitimately describe this history in
 # comments.
@@ -148,8 +164,8 @@ for wf in "$WORKFLOWS"/*.yml; do
   # there is none: a version-less dispatch re-cuts whatever version the go.mod
   # files already carry, which is a no-op that reports success. Both dispatch
   # shapes are recognised — the bare `gh workflow run` and the awaited
-  # `await_workflow_run.py --workflow …` the publishCmd uses since #627 — so a
-  # stray dispatcher cannot hide behind the newer spelling.
+  # `await_workflow_run.py --workflow …` finish_go_release.sh uses since #627 —
+  # so a stray dispatcher cannot hide behind the newer spelling.
   sed 's/#.*$//' "$wf" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml' &&
     stray+=("$(basename "$wf"): dispatches tag-go-modules.yml")
 done

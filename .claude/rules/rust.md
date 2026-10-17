@@ -272,19 +272,29 @@ cargo fmt --check && cargo clippy --workspace
   if a later change breaks one: the subject binding lives **inside** the loop body, so it is
   re-evaluated every iteration; the synthetic `break` is **unlabeled**, so it exits this loop and
   not a labelled enclosing one (a source label still goes through `wrap_label` around the
-  `std.while`, so `compile_label`'s directly-nested-loop fast path still applies); and the pattern
-  binding goes through `with_pattern_binding` (#630) so it shadows a same-named enclosing local
-  for the BODY only. Everything else is shared with `encode_if_let` — `pattern_outcome_shape` +
-  `outcome_condition` over `option_result_message`'s unified Option/Result outcome shape, so
-  `Some`/`Ok` and `None`/`Err` both fall out with no extra branch and every other pattern keeps
-  its existing loud refusal (whose wording now names `while let` too). `encode_loop` needs **no**
-  counterpart: `loop` has no condition, so no `Expr::Let` can reach it. The catch-all's message is
-  now `let-chain pattern binding (only a plain `if let` / `while let` condition is supported)`,
-  describing what can still legitimately arrive there (a Rust 2024 let chain, `a && let Some(x) =
-  y`). Guards: `rust/encoder/tests/while_let.rs` — one shape assertion plus **five** encode →
-  compile → `cargo build` → run proofs, because the desugaring's whole risk is dynamic and a tree
-  assertion cannot see once-vs-per-iteration evaluation, which frame the `break` exits, or how
-  long the binding lives.
+  `std.while`, so `compile_label`'s directly-nested-loop fast path still applies); and the
+  per-iteration `let <bind> = __ball_while_let.value;` sits INSIDE the desugared then-block, so
+  ordinary Ball lexical block scoping shadows a same-named enclosing local for the BODY only and
+  restores it afterward. The encoded binding is also wrapped in
+  `Encoder::with_pattern_binding` (#630) — but that frame's own effect is narrower than
+  "shadowing": it is encode-time bookkeeping with exactly one reader
+  (`methods.rs::classify_write_destination`, the `write!`/`writeln!` destination rule) plus the
+  `&mut`-alias shadow it restores on exit, since `encode_path_expr` resolves a pattern binding and
+  a plain `let` identically either way (issue #853 — the ordinary variable-shadowing property
+  above needs no such guard at all). Everything else is shared with `encode_if_let` —
+  `pattern_outcome_shape` + `outcome_condition` over `option_result_message`'s unified
+  Option/Result outcome shape, so `Some`/`Ok` and `None`/`Err` both fall out with no extra branch
+  and every other pattern keeps its existing loud refusal (whose wording now names `while let`
+  too). `encode_loop` needs **no** counterpart: `loop` has no condition, so no `Expr::Let` can
+  reach it. The catch-all's message is now `let-chain pattern binding (only a plain `if let` /
+  `while let` condition is supported)`, describing what can still legitimately arrive there (a
+  Rust 2024 let chain, `a && let Some(x) = y`). Guards: `rust/encoder/tests/while_let.rs` — **two**
+  shape assertions (the always-true `std.while`/break-else structure, and #853's
+  `while_let_pattern_binding_write_is_a_sink_not_the_enclosing_string_local`, the one shape that
+  can tell `with_pattern_binding` apart from a no-op stub) plus **five** encode → compile →
+  `cargo build` → run proofs, because the desugaring's whole risk is dynamic and a tree assertion
+  alone cannot see once-vs-per-iteration evaluation, which frame the `break` exits, or how long
+  the binding lives.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
   variants, **signature-only** receiver-less `trait` associated functions (a *default-bodied* one
   encodes — see below; the guard keys on the missing BODY, not the missing receiver), a

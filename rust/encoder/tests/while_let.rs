@@ -249,12 +249,26 @@ fn main() {
     );
 }
 
-/// The `while let` binding is live for the BODY only. An enclosing local of
-/// the same name must be neither read nor written by the loop — the exact
-/// failure `Encoder::with_pattern_binding` exists to prevent (issue #630),
-/// and the one that would be silent here: without the pattern frame, `v`
-/// inside the body resolves to the OUTER `v`, so the loop would overwrite it
-/// and the final `println!` would print 5 instead of 99.
+/// The `while let` binding is live for the BODY only. `encode_while_let`
+/// emits the per-iteration `let <bind> = __ball_while_let.value;` INSIDE the
+/// desugared then-block, so ordinary Ball lexical block scoping — not
+/// `Encoder::with_pattern_binding` — is what shadows the enclosing `let v =
+/// 99;` for the loop body and restores it afterward: if that `let` were ever
+/// hoisted out of the inner block, `v` inside the body would resolve to the
+/// OUTER `v`, the loop would overwrite it, and the final `println!` would
+/// print 5 instead of 99.
+///
+/// This test does **not** exercise `Encoder::with_pattern_binding` itself
+/// (issue #853): that frame is encode-time bookkeeping with exactly one
+/// reader, the `write!`/`writeln!` destination rule in
+/// `methods.rs::classify_write_destination` — `encode_path_expr` resolves a
+/// pattern binding and a plain `let` identically, emitting `reference("v")`
+/// either way, so this test would keep passing even with
+/// `with_pattern_binding`'s body deleted (a no-op stub). See
+/// `while_let_pattern_binding_write_is_a_sink_not_the_enclosing_string_local`
+/// below for the one shape — a `write!` through the pattern-bound name while
+/// an enclosing `String` local shares it — that can actually tell
+/// `with_pattern_binding` apart from a no-op.
 #[test]
 fn while_let_binding_does_not_clobber_an_enclosing_local() {
     let source = r#"

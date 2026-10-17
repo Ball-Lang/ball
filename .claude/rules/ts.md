@@ -206,6 +206,27 @@ const json = toJson(ProgramSchema, program);
   loudly — `this.x` is a valid property read, so a method-local silently
   answered with the MEMBER's value (#501 family).
 
+- **A plain switch's wrapper is a LABELLED BLOCK, never a `do { … } while
+  (false)` (issue #824's Python-encoder follow-up, discovered here too via
+  conformance fixture `480_continue_inside_switch_in_loop`).** A plain
+  (unlabelled-case) `std.switch` statement compiles to an if/else chain
+  wrapped so a case's unlabeled `std.break` ends only the switch — but a
+  `do-while` IS a JS iteration statement, and an unlabeled `continue`
+  **always** targets the nearest enclosing iteration statement regardless of
+  label, so a bare `continue` written directly inside a switch case nested
+  in a real loop (legal Dart — it targets the LOOP, never the switch, unlike
+  `break`) silently ended the switch and fell through to the code after it
+  instead of continuing the loop:
+  `d0,after0,skip1,d2,after2` became `d0,after0,skip1,after1,d2,after2`. A
+  labelled BLOCK (`__swN: { const __sw = …; if (…) {…} else if (…) {…} }`) is
+  NOT an iteration statement, so JS's own "continue targets the nearest
+  loop" rule already does the right thing with no change to how `continue`
+  is emitted — only an unlabeled `break` needs retargeting, via the new
+  `plainSwitchStack` (the sibling of the pre-existing `switchLabelStack`,
+  which does the same thing for a goto-switch), to `break __swN;` instead of
+  a bare `break;`. Guard: `480_continue_inside_switch_in_loop` (compiled +
+  run via `ts/compiler/test/full_e2e.ts`).
+
 ### Engine
 
 - `compiled_engine.ts` — auto-generated, NEVER edit

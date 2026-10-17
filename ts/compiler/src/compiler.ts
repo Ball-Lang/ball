@@ -151,10 +151,29 @@ export class BallCompiler {
   }> = [];
 
   /**
+   * Stack of enclosing PLAIN (unlabelled-case) switch statements, the
+   * sibling of `switchLabelStack` for the common case. A plain switch
+   * compiles to an if/else chain inside a uniquely-named LABELLED BLOCK
+   * (`__swN: { const __sw = …; if (…) {…} else if (…) {…} }`), never a
+   * `do { … } while (false)` — the shape it used before: a `do-while` IS a
+   * JS iteration statement, and an unlabelled `continue` always targets the
+   * NEAREST enclosing iteration statement regardless of label, so a bare
+   * `continue` written directly inside a switch case nested in a real loop
+   * (legal Dart — it targets that loop, never the switch, unlike `break`)
+   * silently ended the switch and fell through to the code after it instead
+   * of continuing the loop. A labelled BLOCK is not an iteration statement
+   * at all, so JS's own "continue targets the nearest loop" rule already
+   * does the right thing with NO change to how `continue` is emitted —
+   * only an unlabelled `break` needs retargeting, via this stack, exactly
+   * like `switchLabelStack` retargets one for a goto-switch.
+   */
+  private plainSwitchStack: Array<{ label: string; depth: number }> = [];
+
+  /**
    * Count of enclosing break/continue-capturing scopes (loops + switches)
-   * currently open during body emission. Consulted only when a
-   * `switchLabelStack` entry is active, to tell a case-body-level break from a
-   * nested-loop break (see `switchLabelStack`).
+   * currently open during body emission. Consulted whenever a
+   * `switchLabelStack` or `plainSwitchStack` entry is active, to tell a
+   * case-body-level break from a nested-loop break (see both stacks above).
    */
   private loopNest = 0;
 
@@ -3508,13 +3527,24 @@ function __isUnknownFnError(e: any): boolean {
           // switch case — emit verbatim.
           this.writeln(`break ${label};`);
         } else {
-          // An unlabeled break directly inside a goto-switch case body exits
-          // the switch (its lowered state-machine loop). Inside a *nested* loop
-          // it belongs to that loop, so leave it verbatim (see switchLabelStack).
-          const ctx = this.switchLabelStack[this.switchLabelStack.length - 1];
-          this.writeln(
-            ctx && this.loopNest === ctx.depth ? `break ${ctx.loopLabel};` : "break;",
-          );
+          // An unlabeled break directly inside a switch case body exits the
+          // switch — its lowered goto-switch state-machine loop
+          // (`switchLabelStack`) or its labelled if/else block
+          // (`plainSwitchStack`). Inside a *nested* loop/switch it belongs to
+          // THAT construct instead, so leave it verbatim; `loopNest` tells the
+          // two apart (see both stacks' doc comments). Only one of the two
+          // stacks can have a LIVE top matching the current depth at any one
+          // break site, since they nest strictly and this compiles one body
+          // at a time.
+          const gotoCtx = this.switchLabelStack[this.switchLabelStack.length - 1];
+          const plainCtx = this.plainSwitchStack[this.plainSwitchStack.length - 1];
+          if (gotoCtx && this.loopNest === gotoCtx.depth) {
+            this.writeln(`break ${gotoCtx.loopLabel};`);
+          } else if (plainCtx && this.loopNest === plainCtx.depth) {
+            this.writeln(`break ${plainCtx.label};`);
+          } else {
+            this.writeln("break;");
+          }
         }
         break;
       }
@@ -3590,11 +3620,16 @@ function __isUnknownFnError(e: any): boolean {
         }
         const { parsedCases, defaultBody } = parsed;
         let first = true;
-        // Wrap in do-while(false) so case `break;` exits the switch,
-        // not an enclosing for loop (switch is compiled as if/else chain).
-        this.writeln(`do { const __sw = ${subjectStr};`);
+        // Wrap in a uniquely-labelled BLOCK (never a `do { … } while
+        // (false)` — see `plainSwitchStack`'s doc comment for why that
+        // shape silently swallowed a bare `continue` meant for an
+        // enclosing loop) so an unlabeled case `break;` exits the switch
+        // without touching how `continue` is emitted at all.
+        const switchLabel = `__sw${this.switchUid++}`;
+        this.writeln(`${switchLabel}: { const __sw = ${subjectStr};`);
         this.depth++;
         this.loopNest++;
+        this.plainSwitchStack.push({ label: switchLabel, depth: this.loopNest });
         for (const pc of parsedCases) {
           const caseBindings = this.switchArmBindings(pc);
           const combinedCond = this.buildSwitchArmCond(pc, caseBindings);
@@ -3621,9 +3656,10 @@ function __isUnknownFnError(e: any): boolean {
             this.writeln("}");
           }
         }
+        this.plainSwitchStack.pop();
         this.loopNest--;
         this.depth--;
-        this.writeln("} while (false);");
+        this.writeln("}");
         break;
       }
     }

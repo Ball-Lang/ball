@@ -25,6 +25,7 @@ gh api repos/Ball-Lang/ball -q .permissions   # {"push":true,...} = maintainer; 
 4. **Green means verified** — before merging (maintainers), confirm the stack-relevant CI jobs actually *ran and passed*: absent or `skipping` checks are not green, and `gh run rerun --failed` does not revive gate-skipped dependents (use a full rerun).
 5. **Closing keywords are commitments** — `fixes #N` auto-closes on merge; use it only when the issue's acceptance criteria are fully met, otherwise write `advances #N`.
 6. **Honest status** — coverage/conformance claims come from CI runs, not aspiration; issues close at 100%-of-reachable with per-site-justified exclusions, not before.
+7. **Your PR title becomes `main`'s commit message, verbatim, with an empty body** (`squash_merge_commit_title: PR_TITLE` + `squash_merge_commit_message: BLANK` — issue #881; see "Landing via the merge queue" below). Never put a GitHub skip-CI token (`[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[actions skip]`, a `skip-checks: true` trailer) or a closing keyword before an issue number in a PR title — `tools/ci/check_pr_title_skip_tokens.sh` gates the former on every PR; nothing gates the latter mechanically, so rule 5 above is on you. And because the body is dropped, a `BREAKING CHANGE:` footer written only in a commit body never reaches `main` either — see `docs/RELEASE.md` → "Release via PR" for how (and whether) that is currently signalled per release lane.
 
 ## AI-assisted development
 
@@ -59,7 +60,24 @@ including `"merge_queue"`), with these parameters:
 | `check_response_timeout_minutes` | 90 |
 
 (see `docs/TESTING_STRATEGY.md` → "Merge-queue readiness (#756)" for the full
-wiring story). Landing a PR now works like this:
+wiring story).
+
+**Your PR title is what lands on `main`.** The repository's squash settings
+are `squash_merge_commit_title: PR_TITLE` and `squash_merge_commit_message:
+BLANK` (verify live: `gh api repos/Ball-Lang/ball --jq
+'{t:.squash_merge_commit_title,m:.squash_merge_commit_message}'`) — the queue
+squashes with these repository defaults regardless of what `gh pr merge`
+requests, same as a plain squash merge (GitHub's API docs say the queue
+ignores any commit headline/body/method an auto-merge call sends). So every
+merge's squash commit on `main` is exactly `<your PR title> (#N)` with an
+**empty body** — no commit body, no footer, ever reaches `main` this way.
+This used to be `squash_merge_commit_title: COMMIT_OR_PR_TITLE` (the single
+commit's own subject + body, for a single-commit PR); it changed because PR
+#881's merge commit carried a literal `[skip ci]` inherited from a branch
+commit and silently skipped every push-triggered workflow on `main` for that
+merge, including Release. `tools/ci/check_pr_title_skip_tokens.sh` (always-on,
+`Proto Checks`) now fails any PR whose title contains a GitHub skip-CI token
+before it can repeat that. Landing a PR now works like this:
 
 1. Get the PR's own `pull_request` checks green, same as always — queueing
    does **not** skip that.

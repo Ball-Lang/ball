@@ -233,14 +233,22 @@ fi
 
 # ── Test 6: the release commit as the MERGE QUEUE actually writes it ───────
 # `main` requires a merge queue (ruleset 17056238's `merge_queue` rule,
-# merge_method SQUASH). A queue squash ignores the subject
-# `gh pr merge --auto --subject` asked for and uses the repository default
-# (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`): for a single-commit PR,
-# "<that commit's subject> (#<PR number>)", body = that commit's body
+# merge_method SQUASH). A queue squash ignores the subject/body
+# `gh pr merge --auto --subject` asked for and uses the repository default,
+# which as of issue #881 (2026-10-17) is `squash_merge_commit_title: PR_TITLE`
+# / `squash_merge_commit_message: BLANK`: "<the PR's title> (#<PR number>)"
+# with NO body at all
 # (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges#merge-message-for-a-squash-merge;
 # every queue-merged commit on main has this shape, e.g. 009fad1c "… (#905)").
+# This fixture still gives the commit a body (`## [2.1.0](url) ...`) to pin
+# `find_oldest_release_commit`'s SUBJECT match independently of the body the
+# live queue no longer writes — see docs/RELEASE.md's "Release via PR" for why
+# `NOTES` (`git log -1 --format=%b`) now reads empty on the real thing, and
+# issue #923, which tracks fixing that rather than this test pretending it
+# does not happen.
 # PR #881 review round 3, finding 1: the `$`-anchored subject pattern rejected
-# the suffix, so a real release commit was never tagged and nothing published.
+# the ` (#N)` suffix, so a real release commit was never tagged and nothing
+# published.
 printf 'chore(release): 2.1.0 (#912)\n\n## [2.1.0](url) (2026-10-17)\n\n* queued thing\n' \
   | git -C "$WORK" commit -q --allow-empty -F -
 QUEUE_RELEASE_SHA="$(git -C "$WORK" rev-parse HEAD)"

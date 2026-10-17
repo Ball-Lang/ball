@@ -101,28 +101,49 @@ An earlier draft of this section said there was no such rule and asked for
 exactly this re-verification once there was. Re-verified, the queue changes
 two things for every bot PR `open_bot_pr.sh` opens:
 
-1. **The merge commit's subject is the queue's, not the one we pin.** GitHub's
-   own GraphQL schema says so for every field `gh pr merge --auto` sends
-   (`EnablePullRequestAutoMergeInput.commitHeadline`: "NOTE: when merging with
-   a merge queue any input value for commit headline is ignored"; the same
-   note is on `commitBody` and `mergeMethod`). The queue squashes with the
-   repository default (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`), which
-   for a single-commit PR is "the title of the commit message for the single
-   commit, followed by the pull request number" with that commit's body
+1. **The merge commit's subject (and now body) is the queue's, not the one we
+   pin.** GitHub's own GraphQL schema says so for every field
+   `gh pr merge --auto` sends (`EnablePullRequestAutoMergeInput.commitHeadline`:
+   "NOTE: when merging with a merge queue any input value for commit headline
+   is ignored"; the same note is on `commitBody` and `mergeMethod`). The queue
+   squashes with the **repository default**, which as of 2026-10-17 is
+   `squash_merge_commit_title: PR_TITLE` / `squash_merge_commit_message:
+   BLANK` (verify live: `gh api repos/Ball-Lang/ball --jq
+   '{t:.squash_merge_commit_title,m:.squash_merge_commit_message}'`) — "the
+   title of the pull request" with **no body at all**
    ([About pull request merges](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges)).
-   Every queue-merged commit on `main` has that shape (e.g. `009fad1c`, "…
-   dependabot.yml (#905)", which kept its single commit's body). So the root
-   release commit lands as `chore(release): 1.73.0 (#912)` and the Go one as
-   `chore(release): go v0.3.0 (#913)`, and `finish_release.sh` /
-   `finish_go_release.sh` originally matched only the bare subject, anchored
-   with `$`, so they would never have tagged a real release. Both now accept
-   the optional ` (#N)`, and both still require a version starting with a
-   digit, so neither lane can read the other's release commit as its own.
-   `finish_release_test.sh` and `finish_go_release_test.sh` (tests 6-8) pin
-   the queue shape, a re-poll of it, and the cross-lane exclusion. The release
-   commits themselves already carry the exact subject and the full notes as
-   their body, which is why a queue that ignores our pinned subject and body
-   loses nothing but the missing suffix.
+   This was `COMMIT_OR_PR_TITLE` (a single-commit PR's own subject, with that
+   commit's body) until issue #881: PR #881's merge commit 6be2d949 carried a
+   literal `[skip ci]` inherited from a branch commit under that setting,
+   which GitHub matches case-insensitively anywhere in a commit message and
+   which therefore silently skipped **every** push-triggered workflow on
+   `main` for that merge — including the first run of this very release flow
+   ([skipping workflow runs](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/skipping-workflow-runs)).
+   `tools/ci/check_pr_title_skip_tokens.sh` (always-on, `Proto Checks`) now
+   fails any PR whose TITLE contains one of those tokens, since the title is
+   what becomes the commit subject now, verbatim.
+
+   Every queue-merged commit on `main` has the `<PR title> (#N)` shape (e.g.
+   `009fad1c`, "… dependabot.yml (#905)"). So the root release commit lands as
+   `chore(release): 1.73.0 (#912)` and the Go one as `chore(release): go
+   v0.3.0 (#913)` either way — `open_bot_pr.sh`/`open_release_pr.sh` set the
+   release PR's TITLE to that exact subject, not just its first commit's — and
+   `finish_release.sh`/`finish_go_release.sh` originally matched only the bare
+   subject, anchored with `$`, so they would never have tagged a real release.
+   Both now accept the optional ` (#N)`, and both still require a version
+   starting with a digit, so neither lane can read the other's release
+   commit as its own. `finish_release_test.sh` and `finish_go_release_test.sh`
+   (tests 6-8) pin the queue shape, a re-poll of it, and the cross-lane
+   exclusion.
+
+   **The body is a different story now.** Under the old `COMMIT_OR_PR_TITLE`
+   setting the release commits' own body (the full generated notes) survived
+   the squash, which is what `finish_release.sh`/`finish_go_release.sh` read
+   back via `git log -1 --format=%b` to populate the GitHub Release. Under
+   `squash_merge_commit_message: BLANK` that body is gone for every commit on
+   `main`, releases included — so that read now returns an empty string and
+   every future GitHub Release ships with no notes, silently, until it is
+   fixed. Tracked, not fixed, by this PR: issue #923.
 2. **A merge group enqueued for `GITHUB_TOKEN` starts no CI at all.** Once a
    bot PR's own checks pass, GitHub enqueues it on behalf of whoever armed its
    auto-merge, here the `github-actions` bot, and the merge group's
@@ -1185,11 +1206,19 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
 - **`go-release.yml`'s `open-release-pr` job red citing `major-version-suffixes`:**
   a breaking-change commit under `go/` computed a major ≥ 2, which Go cannot
   serve from these module paths. This is a design decision, not an outage:
-  either the commit should not have been `BREAKING CHANGE`/`feat!` (amend the
-  message and the next release computes a normal bump), or the modules really
-  do need `/v2` paths — a separate, deliberate rename of every module path,
-  `go.work` pin and intra-repo `require`. The lane stays stopped until one of
-  those happens.
+  either the commit should not have been `BREAKING CHANGE` (amend the message
+  and the next release computes a normal bump), or the modules really do need
+  `/v2` paths — a separate, deliberate rename of every module path, `go.work`
+  pin and intra-repo `require`. The lane stays stopped until one of those
+  happens. **This failure mode presumes a `BREAKING CHANGE:` footer actually
+  reached `main`, which — since `squash_merge_commit_message: BLANK` (issue
+  #881) — it no longer does for any squash-merged PR; see issue #923.** Note
+  also that `feat!:` never triggered this: none of this repo's
+  `.releaserc.json`s override `@semantic-release/commit-analyzer`'s default
+  **angular** preset, and that preset's `headerPattern`
+  (`/^(\w*)(?:\((.*)\))?: (.*)$/`, no `breakingHeaderPattern`) does not even
+  parse a `!`-before-colon header as a commit at all, let alone as breaking —
+  https://github.com/conventional-changelog/conventional-changelog/blob/master/packages/conventional-changelog-angular/src/parser.js.
 - **`open_go_release_pr.sh` red force-pushing `release/go-next`:** unlikely
   (the push is `--force`, via `open_bot_pr.sh`), but if it happens re-dispatch
   `go-release.yml --ref main`; the next run recomputes from `main`'s current

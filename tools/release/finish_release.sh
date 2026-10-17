@@ -93,11 +93,20 @@ cd "$ROOT"
 #                                     commitHeadline/commitBody/mergeMethod
 #                                     `gh pr merge --auto` sends
 #                                     (EnablePullRequestAutoMergeInput), so the
-#                                     repository default applies — for a
-#                                     single-commit PR, that commit's subject
-#                                     followed by " (#<PR number>)" (every
-#                                     queue-merged commit on main has it, e.g.
-#                                     009fad1c "… (#905)").
+#                                     repository default applies instead:
+#                                     `squash_merge_commit_title: PR_TITLE`
+#                                     (issue #881, 2026-10-17) — the PR's own
+#                                     TITLE followed by " (#<PR number>)"
+#                                     (every queue-merged commit on main has
+#                                     it, e.g. 009fad1c "… (#905)";
+#                                     open_release_pr.sh/open_bot_pr.sh set the
+#                                     release PR's title to this exact
+#                                     subject, so the two never disagree).
+#                                     `squash_merge_commit_message: BLANK`
+#                                     means the body is now always empty too —
+#                                     see docs/RELEASE.md's "Release via PR"
+#                                     and issue #923 for why NOTES below reads
+#                                     empty on a live queue-merged release.
 # PR #881 review round 3, finding 1: the `$`-anchored bare-version pattern
 # rejected the second shape, so the live lane never tagged anything. The
 # version must start with a digit, so the Go lane's own

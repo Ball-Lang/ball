@@ -1039,7 +1039,13 @@ jobs:
       # is not green until it is claimed. `Results: 283 passed, 81 failed, 364
       # total (floor: 282)` on run 38998673595 (job 117296783328). Measured by
       # THIS row, never predicted.
-      CSHARP_COMPILER_FLOOR: "283"
+      #
+      # 284: the new 480_list_take_drop fixture (#833 — `list_take`/`list_drop`
+      # through universal `std_collections`) also compiles and runs cleanly on
+      # this leg, growing the corpus to 365. `Results: 284 passed, 81 failed,
+      # 365 total (floor: 283)` on run 39010580039 (job 117333688193). Measured
+      # by THIS row, never predicted.
+      CSHARP_COMPILER_FLOOR: "284"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1538,7 +1544,13 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "282"
+      #
+      # 283: the new 480_list_take_drop fixture (#833 — `list_take`/`list_drop`
+      # through universal `std_collections`) also compiles and runs cleanly on
+      # this leg, growing the corpus to 365. `Results: 283 passed, 82 failed,
+      # 365 total (floor: 282)` on run 39010580039 (job 117333688189). Measured
+      # by THIS row, never predicted.
+      RUST_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1614,7 +1626,17 @@ jobs:
       # other fixtures whose first blocker was the same shape. Measured by
       # this row at 308 on run 39008181371 (job 117325339800), against 298 on
       # the commit it branched from.
-      GO_COMPILER_FLOOR: "308"
+      #
+      # The new 480_list_take_drop fixture (#833 — `list_take`/`list_drop`
+      # through universal `std_collections`) also compiled and ran cleanly on
+      # this leg against the PR's pre-merge tree (floor 298 at the time):
+      # `Results: 299 passed, 66 failed, 365 total (floor: 298)` on run
+      # 39010580039 (job 117333688272). This branch then merged in main's own
+      # 298 -> 308 getter/setter-dispatch gain, so 309 is this PR's floor on
+      # the MERGED tree (308 + the one fixture this PR adds) — a prediction
+      # this PR's own next CI run on the merged tree measures directly and
+      # this comment is corrected to match if it disagrees.
+      GO_COMPILER_FLOOR: "309"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1677,7 +1699,13 @@ jobs:
       # and the corpus's own growth to 363, sitting unclaimed under the old
       # advisory ::notice::. Measured by THIS row on run 35604595391 (job
       # 106348942693), never predicted.
-      PYTHON_COMPILER_FLOOR: "268"
+      #
+      # 269: the new 480_list_take_drop fixture (#833 — `list_take`/`list_drop`
+      # through universal `std_collections`) also compiles and runs cleanly on
+      # this leg, growing the corpus to 365. `Results: 269 passed, 96 failed,
+      # 365 total (floor: 268)` on run 39010580039 (job 117333688164). Measured
+      # by THIS row, never predicted.
+      PYTHON_COMPILER_FLOOR: "269"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

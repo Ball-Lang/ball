@@ -14,8 +14,8 @@ Every base function across the 8 universal std modules, generated directly from 
 | Metric | Count |
 |---|---|
 | Total base functions | 306 |
-| Encoder-emittable | 145 |
-| Covered by a conformance fixture | 168 |
+| Encoder-emittable | 147 |
+| Covered by a conformance fixture | 170 |
 | Dart engine-implemented | 268 |
 | Documented carve-outs | 0 |
 
@@ -121,7 +121,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 365 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +362 more | ✅ |
+| `print` | ✅ | ✅ 366 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +363 more | ✅ |
 | `record` | ✅ | ✅ 2 fixture(s): `207_record_pattern_destructure`, `305_record_patterns` | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
@@ -198,7 +198,7 @@ Standard collections module. List and map operations. Separate from std because 
 | `list_clear` | ✅ | ✅ 1 fixture(s): `111_cascade_operator` | ✅ |
 | `list_concat` | ✅ | ✅ 1 fixture(s): `386_list_concat_addall` | ✅ |
 | `list_contains` | ✅ | ✅ 6 fixture(s): `118_set_operations`, `129_unique_elements`, `260_string_functions` +3 more | ✅ |
-| `list_drop` | ❌ | ❌ | ✅ |
+| `list_drop` | ✅ | ✅ 1 fixture(s): `480_list_take_drop` | ✅ |
 | `list_filter` | ✅ | ✅ 1 fixture(s): `384_list_filter_where` | ✅ |
 | `list_find` | ❌ | ✅ 2 fixture(s): `463_list_find_no_match`, `465_state_error_message` | ✅ |
 | `list_first` | ❌ | ✅ 1 fixture(s): `465_state_error_message` | ✅ |
@@ -223,8 +223,8 @@ Standard collections module. List and map operations. Separate from std because 
 | `list_slice` | ✅ | ✅ 2 fixture(s): `132_merge_sort`, `155_pipeline_compose` | ✅ |
 | `list_sort` | ✅ | ✅ 5 fixture(s): `118_set_operations`, `122_list_sort_comparator`, `124_frequency_counter` +2 more | ✅ |
 | `list_sort_by` | ❌ | ❌ | ✅ |
-| `list_take` | ❌ | ❌ | ✅ |
-| `list_to_list` | ✅ | ✅ 14 fixture(s): `118_set_operations`, `124_frequency_counter`, `125_group_by` +11 more | ✅ |
+| `list_take` | ✅ | ✅ 1 fixture(s): `480_list_take_drop` | ✅ |
+| `list_to_list` | ✅ | ✅ 15 fixture(s): `118_set_operations`, `124_frequency_counter`, `125_group_by` +12 more | ✅ |
 | `list_zip` | ❌ | ❌ | ✅ |
 | `map_contains_key` | ✅ | ✅ 11 fixture(s): `106_factory_constructor`, `125_group_by`, `153_memoized_recursive` +8 more | ✅ |
 | `map_contains_value` | ✅ | ✅ 1 fixture(s): `468_map_contains_value` | ✅ |
@@ -383,7 +383,7 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 
 ## Gaps
 
-### Not encoder-emittable (161) — no Dart-source construct routes to this function
+### Not encoder-emittable (159) — no Dart-source construct routes to this function
 
 - `std_memory.address_of`
 - `std_io.args_get`
@@ -416,7 +416,6 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_time.hour`
 - `std.int_to_double`
 - `std.length`
-- `std_collections.list_drop`
 - `std.list_filled`
 - `std_collections.list_find`
 - `std_collections.list_first`
@@ -430,7 +429,6 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_collections.list_set`
 - `std_collections.list_single`
 - `std_collections.list_sort_by`
-- `std_collections.list_take`
 - `std_collections.list_zip`
 - `std_collections.map_delete`
 - `std_collections.map_entries`

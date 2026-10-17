@@ -2,10 +2,13 @@
 # Static wiring guard for the release pipeline's downstream dispatches (#361).
 #
 # WHY THIS EXISTS: this repo cuts releases from `release.yml` (semantic-release).
-# Its `@semantic-release/git` plugin pushes a `chore(release): X.Y.Z [skip ci]`
-# commit, and GitHub's skip-ci recursion protection suppresses the ENTIRE
-# workflow run for any `push`-triggered workflow on such a commit — not merely
-# the job's own `if:`. Anything hung off `on: push: branches:[main]` +
+# Until #755 its `@semantic-release/git` plugin pushed a
+# `chore(release): X.Y.Z [skip ci]` commit, and GitHub's skip-ci recursion
+# protection suppresses the ENTIRE workflow run for any `push`-triggered
+# workflow on such a commit — not merely the job's own `if:`. Since #755 the
+# release commit lands through an auto-merged PR armed with `GITHUB_TOKEN`,
+# whose events start no workflow run either, so the conclusion is unchanged.
+# Anything hung off `on: push: branches:[main]` +
 # `if: contains(head_commit.message, 'chore(release)')` therefore never runs on
 # the commits it targets, and the failure is INVISIBLE: no run row appears at
 # all, so a dashboard reads "nothing red" while the channel silently never

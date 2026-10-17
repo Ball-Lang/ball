@@ -66,8 +66,9 @@ echo "::group::apply version bump (go v$VERSION) to a fresh branch off origin/ma
 git fetch origin main "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>/dev/null || git fetch origin main
 git checkout -B "$BRANCH" origin/main
 
-# The REAL prepareCmd (go.releaserc.json), run directly instead of through
-# semantic-release — deterministic and idempotent, see the script's own header.
+# The edit go.releaserc.json's prepareCmd made before #879 removed that hook,
+# run directly instead of through semantic-release — deterministic and
+# idempotent, see the script's own header.
 bash tools/go-module-proxy/bump_go_modules.sh "v$VERSION"
 # The REAL @semantic-release/changelog prepare-phase edit.
 node "$HERE/apply_changelog_bump.mjs" go/CHANGELOG.md "$WORKDIR/next_release.json"

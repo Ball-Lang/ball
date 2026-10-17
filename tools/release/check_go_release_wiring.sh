@@ -942,15 +942,17 @@ fi
 
 # release.yml must dispatch it, guarded on a release actually having been cut.
 # `--ref main`, NOT the vX.Y.Z tag the npm/C++ channels use: those build a
-# released tree, this one RUNS semantic-release, whose @semantic-release/git
-# step pushes commits and tags to a BRANCH.
+# released tree, while this one computes the next version from main's history
+# (a semantic-release dry run, whose branch detection only releases from main)
+# and branches release/go-next off origin/main. A detached tag ref gives it
+# neither.
 if grep -qF 'gh workflow run go-release.yml --ref main' "$RELEASE"; then
-  ok "release.yml dispatches go-release.yml (--ref main, the branch semantic-release releases from)"
+  ok "release.yml dispatches go-release.yml (--ref main, the branch the dry run computes from)"
 else
-  no "release.yml dispatches go-release.yml (--ref main, the branch semantic-release releases from)" \
+  no "release.yml dispatches go-release.yml (--ref main, the branch the dry run computes from)" \
     "expected a step running: gh workflow run go-release.yml --ref main" \
-    "a push-triggered driver cannot substitute: release.yml's own semantic-release commit carries" \
-    "[skip ci], which suppresses the whole workflow run (#361)"
+    "a push trigger cannot substitute: the root release merges through an auto-merge armed with" \
+    "GITHUB_TOKEN, and events that token causes start no workflow run (#361, #755)"
 fi
 
 line="$(grep -nF 'gh workflow run go-release.yml --ref' "$RELEASE" | head -1 | cut -d: -f1)"
@@ -1046,7 +1048,7 @@ if [ -f "$BUMP" ]; then
   grep -qF -- '--check-next' "$BUMP" ||
     v2probs+=(
       "expected a --check-next mode: the refusal must be reachable from verifyRelease (which runs"
-      "under --dry-run) and not only from the prepare-time rewrite, or a rehearsal cannot see it"
+      "under --dry-run) and not only from open_go_release_pr.sh's rewrite, or a rehearsal cannot see it"
     )
   if [ "${#v2probs[@]}" -eq 0 ]; then
     ok "bump_go_modules.sh refuses a major >= 2 and exposes that refusal to verifyRelease"
@@ -1067,8 +1069,9 @@ if [ -f "$TAGGER" ]; then
   fi
   if grep -qE '^[[:space:]]*push:' "$TAGGER"; then
     no "tag-go-modules.yml is not push-triggered" \
-      "semantic-release's commit carries [skip ci], which suppresses the ENTIRE workflow run for a" \
-      "push trigger — no run row is even created, so the dead channel reads as 'nothing red' (#361)"
+      "the release commit it would wait for lands through an auto-merge armed with GITHUB_TOKEN," \
+      "whose events start no workflow run (and before #755 it carried [skip ci], which suppresses" \
+      "the whole run too). No run row is even created, so the dead channel reads as 'nothing red' (#361)"
   else
     ok "tag-go-modules.yml is not push-triggered"
   fi

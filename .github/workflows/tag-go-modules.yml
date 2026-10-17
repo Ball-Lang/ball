@@ -1,7 +1,7 @@
 name: Tag Go modules
 
 # ──────────────────────────────────────────────────
-# Go modules — the six `go/<module>/vX.Y.Z` tags (issues #361, #623)
+# Go modules — the six `go/<module>/vX.Y.Z` tags (issues #361, #623, #879)
 # ──────────────────────────────────────────────────
 # The Go module proxy serves each nested module as its own tree, keyed by a
 # `go/<module>/vX.Y.Z` tag, and every intra-repo `require` in go/*/go.mod names
@@ -9,30 +9,36 @@ name: Tag Go modules
 # dependent resolves to a version that does not exist.
 #
 # WHO DISPATCHES THIS, AND WHEN. Exactly one thing does:
-# `.github/release/go.releaserc.json`'s **publishCmd**, at the end of a
-# `go-release.yml` semantic-release run, pinned to that run's own
-# `go-modules/vX.Y.Z` channel tag. Since #623 the Go module version is its own
-# semantic-release line computed from `go/`-path commits: the same config's
-# prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh`, @semantic-release/git
-# pushes the bump as `chore(release): go vX.Y.Z [skip ci]`, semantic-release
-# creates the channel tag ON that commit (it tags after prepare and before
-# publish), and publishCmd then dispatches this workflow at it. That is why the
-# ref carries the bumped go.mod files and why the version below is simply read
-# back out of them.
+# `tools/release/finish_go_release.sh`, run by the `finish-release` job of
+# `.github/workflows/go-release.yml` (Phase 2 of the Go module release lane),
+# pinned to the `go-modules/vX.Y.Z` channel tag it has just pushed. The Go
+# module version is its own line, computed by a semantic-release DRY RUN over
+# the `go/`-path commits (#623), and since #879 it lands through an auto-merged
+# PR, never a push to `main`. Phase 1, `tools/release/open_go_release_pr.sh`,
+# runs `tools/go-module-proxy/bump_go_modules.sh` on a `release/go-next` branch
+# and opens the `chore(release): go vX.Y.Z` PR. Once main's merge queue has
+# merged it (as `chore(release): go vX.Y.Z (#N)`), Phase 2 finds that commit,
+# tags it `go-modules/vX.Y.Z`, creates the GitHub Release, and dispatches this
+# workflow at the tag. That is why the ref carries the bumped go.mod files and
+# why the version below is simply read back out of them.
 #
-# `release.yml` does NOT dispatch this workflow. It used to, version-lessly, on
-# every release — which re-ran the tagger at whatever number the go.mod files
-# already carried and reported success for doing nothing. #623 removed it, and
-# `tools/release/check_go_release_wiring.sh` now FAILS if it ever comes back, if
-# a second dispatcher appears, or if this header starts claiming otherwise
-# (#627).
+# `release.yml` does NOT dispatch this workflow. After a root release it
+# dispatches go-release.yml, whose own Phase 2 is what reaches this file. It
+# used to dispatch this one directly and version-lessly on every release, which
+# re-ran the tagger at whatever number the go.mod files already carried and
+# reported success for doing nothing. #623 removed that, and
+# `tools/release/check_go_release_wiring.sh` FAILS if it ever comes back, if a
+# second dispatcher appears, or if this header stops naming the one that exists
+# (#627, #879).
 #
 # The dispatch is AWAITED (#627). `gh workflow run` returns the moment GitHub
-# accepts the request, so publishCmd goes through
-# `tools/release/await_workflow_run.py`, which polls this run to completion on a
-# bounded budget and fails the release step on any non-success conclusion. A tag
-# cut that fails, is cancelled, or never starts now reddens the release run that
-# caused it instead of leaving it green.
+# accepts the request, so finish_go_release.sh dispatches through
+# `tools/release/await_workflow_run.py --dispatch`. That polls this run to
+# completion on a bounded budget, accepts only a run strictly newer than the
+# newest one on the tag before the dispatch (#656), and fails the
+# `finish-release` job on any non-success conclusion. A tag cut that fails, is
+# cancelled, or never starts reddens the release run that caused it instead of
+# leaving it green.
 #
 # The version is NOT the Dart/Melos release version: the Go modules carry their
 # own line (v0.1.0 first, v0.2.0 since #586), single-sourced from the go.mod
@@ -53,12 +59,16 @@ name: Tag Go modules
 #
 # NOT triggered by `push: branches:[main]` + a `chore(release)` message match.
 # This job lived in release-tag.yml behind exactly that gate and never ran once:
-# semantic-release's @semantic-release/git plugin commits
-# `chore(release): X.Y.Z [skip ci]`, and GitHub's skip-ci recursion protection
-# suppresses the ENTIRE workflow run on such a push — not merely the job's own
-# `if:`. No run row is even created, so the dead channel reads as "nothing red"
-# while five releases shipped with zero `go/**` tags. workflow_dispatch is the
-# documented exception to that suppression, which is why this lane uses it.
+# the release commit it waited for carried `[skip ci]`, and GitHub's skip-ci
+# recursion protection suppresses the ENTIRE workflow run on such a push — not
+# merely the job's own `if:`. No run row is even created, so the dead channel
+# read as "nothing red" while five releases shipped with zero `go/**` tags.
+# Since #879 a push trigger would be dead for a second reason: the release PR is
+# merged by an auto-merge armed with `GITHUB_TOKEN`, and "events triggered by
+# the GITHUB_TOKEN will not create a new workflow run", except
+# `workflow_dispatch` and `repository_dispatch` (GitHub's "Triggering a
+# workflow" docs). workflow_dispatch is exempt from both suppressions, which is
+# why this lane uses it.
 #
 # Whether the tags this cuts are actually SERVED is a separate question, and a
 # separate alarm: `.github/workflows/go-freshness.yml` (weekly) asks

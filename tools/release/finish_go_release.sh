@@ -18,8 +18,9 @@
 # This is tools/release/finish_release.sh's shape, adapted to the Go lane's
 # own tag line and its one extra downstream step (the awaited
 # tag-go-modules.yml dispatch, formerly go.releaserc.json's publishCmd — see
-# that file's header for the #627 "awaited, not fire-and-forget" rationale,
-# unchanged here). Read finish_release.sh's header for why: the job split
+# tools/release/await_workflow_run.py's header for the #627 "awaited, not
+# fire-and-forget" rationale, unchanged here; tools/release/check_go_release_wiring.sh
+# leg 12 pins that this script dispatches through it, at the channel tag). Read finish_release.sh's header for why: the job split
 # (not a step reorder) removes the Phase 1/2 race, `schedule` exists because
 # `gh pr merge --auto` + `GITHUB_TOKEN` suppresses the merge's own `push`
 # trigger, and the scan (not a HEAD-only check) survives a commit landing in

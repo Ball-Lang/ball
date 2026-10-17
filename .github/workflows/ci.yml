@@ -839,6 +839,33 @@ jobs:
           bash tools/ci/check_merge_group_wiring.sh --self-test
           bash tools/ci/check_merge_group_wiring.sh
 
+      # #923: `main` squash-merges with `squash_merge_commit_message: BLANK`, so
+      # a PR's TITLE is the only text of it that reaches `main` — no body, so no
+      # `BREAKING CHANGE:` footer. Every release line therefore runs
+      # commit-analyzer + release-notes-generator with the `conventionalcommits`
+      # preset, where `type(scope)!: subject` means MAJOR. This proves it per
+      # config — root .releaserc.json and every .github/release/*.releaserc.json,
+      # each through its OWN plugin entry (the only-package-commits.mjs path
+      # filter included) — by running the REAL analyzer and notes generator
+      # against empty-body commits in a throwaway repo, with a negative control
+      # that the old angular default computes no release for the same commit.
+      # It needs the pinned plugins, hence the toolchain install; it is the LAST
+      # thing in this job so every step above keeps the runner's preinstalled
+      # `node`, as their comments say. Deterministic and offline once installed.
+      # Always on, not path-filtered: a release config, the lockfile, or the
+      # path filter can each break it, and none of those is a "stack".
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/release/package-lock.json
+
+      - name: Install the pinned release toolchain (no lifecycle scripts)
+        run: cd tools/release && npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: "Breaking change from a squash-merged PR title, every release line (#923)"
+        run: node --test tools/release/test/conventional_commits_preset_test.mjs
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

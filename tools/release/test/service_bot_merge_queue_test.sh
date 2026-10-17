@@ -81,10 +81,13 @@ write_queue() {
   fi
 }
 
-# One entry node. $1 PR number, $2 state, $3 enqueuer login, $4 head oid.
+# One entry node. $1 PR number, $2 state, $3 enqueuer login, $4 head oid,
+# $5 the merge group commit's date (default: long past the servicer's grace),
+# $6 the PR author's login (default: a human).
+OLD_DATE="2026-01-01T00:00:00Z"
 entry() {
-  printf '{"state":"%s","enqueuer":{"login":"%s"},"headCommit":{"oid":"%s"},"pullRequest":{"number":%s}}' \
-    "$2" "$3" "$4" "$1"
+  printf '{"state":"%s","enqueuer":{"login":"%s"},"headCommit":{"oid":"%s","committedDate":"%s"},"pullRequest":{"number":%s,"author":{"login":"%s"},"autoMergeRequest":null}}' \
+    "$2" "$3" "$4" "${5:-$OLD_DATE}" "$1" "${6:-ahmednfwela}"
 }
 
 # Two refs under the PR's queue prefix: the live merge group (HEAD_SHA) and a
@@ -237,6 +240,35 @@ if run_service --dry-run > "$WORKDIR/log7.txt" 2>&1; then
   fi
 else
   no "--dry-run -> exit 0 ($(cat "$WORKDIR/log7.txt"))"
+fi
+
+# ── Test 7b: a merge group built moments ago is left for one more tick ────
+#    (any merge_group run GitHub does start registers within seconds; deciding
+#    "no run is coming" before then could dispatch a duplicate) ─────────────
+reset
+write_queue "[$(entry 912 AWAITING_CHECKS github-actions "$HEAD_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")]"
+if run_service > "$WORKDIR/log7b.txt" 2>&1; then
+  if [ "$(dispatches)" = "0" ] && grep -qF "waiting 180s for any merge_group run to register" "$WORKDIR/log7b.txt"; then
+    ok "bot merge group inside the grace window -> nothing dispatched yet, exit 0"
+  else
+    no "bot merge group inside the grace window -> nothing dispatched yet (out: $(cat "$WORKDIR/log7b.txt"); gh: $(cat "$GH_LOG"))"
+  fi
+else
+  no "bot merge group inside the grace window -> exit 0 ($(cat "$WORKDIR/log7b.txt"))"
+fi
+
+# ── Test 7c: a bot-AUTHORED PR is serviced whoever the queue records as its
+#    enqueuer — skipping it would leave it blocking the queue ──────────────
+reset
+write_queue "[$(entry 912 AWAITING_CHECKS ahmednfwela "$HEAD_SHA" "$OLD_DATE" github-actions)]"
+if run_service > "$WORKDIR/log7c.txt" 2>&1; then
+  if [ "$(dispatches)" = "2" ]; then
+    ok "bot-authored PR with a non-bot enqueuer and no runs -> both workflows dispatched"
+  else
+    no "bot-authored PR with a non-bot enqueuer and no runs -> both workflows dispatched (log: $(cat "$GH_LOG"))"
+  fi
+else
+  no "bot-authored PR with a non-bot enqueuer -> exit 0 ($(cat "$WORKDIR/log7c.txt"))"
 fi
 
 # ── Test 8: the queue query itself failing is an error, never "empty queue" ─

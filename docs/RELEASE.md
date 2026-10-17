@@ -142,18 +142,24 @@ two things for every bot PR `open_bot_pr.sh` opens:
 
    The fix needs no new credential and uses the same exemption mechanic 2
    above already relies on. `.github/workflows/bot-merge-queue.yml` runs
-   `tools/release/service_bot_merge_queue.sh` every 5 minutes. For each queue
-   entry **enqueued by** the GitHub Actions bot that is `AWAITING_CHECKS`, it
-   finds the `gh-readonly-queue/main/pr-<N>-<base-sha>` branch pointing at the
-   entry's head commit and `workflow_dispatch`es `ci.yml` and
+   `tools/release/service_bot_merge_queue.sh` every 5 minutes. It looks at
+   each queue entry the GitHub Actions bot is behind — its enqueuer, or the
+   PR's author or auto-merge enabler, so a bot PR is not skipped whichever
+   actor GitHub records for an enqueue it performs itself — that is
+   `AWAITING_CHECKS` and whose merge group is older than a 3-minute grace. For
+   each one it finds the `gh-readonly-queue/main/pr-<N>-<base-sha>` branch
+   pointing at the entry's head commit and `workflow_dispatch`es `ci.yml` and
    `regression-gates.yml` onto it, unless a non-cancelled run of that workflow
    already exists on that head SHA. It runs the full fail-open suite, because
    the detector has no diff base for `workflow_dispatch`. GitHub documents the
    same SHA-based reporting for third-party CI on merge groups (["Triggering
    merge group checks with third-party CI providers"](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue#triggering-merge-group-checks-with-third-party-ci-providers)).
    The servicer is correct under both hypotheses: if GitHub ever does start
-   `merge_group` runs for such an entry, the head-SHA lookup finds them and
-   nothing is dispatched twice. Human-enqueued entries are never touched. The
+   `merge_group` runs for such an entry, they have registered before the grace
+   expires, the head-SHA lookup finds them, and nothing is dispatched twice.
+   Entries with no bot behind them are never touched. A queue the token cannot
+   read is an error, not an empty queue: a `null` `mergeQueue` on a branch
+   whose rules include `merge_queue` fails the run. The
    5-minute cadence is what the timeout leaves room for: a fail-open run on
    this repo takes roughly 15-55 minutes, and it has to start and finish
    inside 90. `service_bot_merge_queue_test.sh` pins the servicer's decisions

@@ -28,15 +28,17 @@
 # third-party CI on merge groups, which reports against the
 # `gh-readonly-queue/<base>/pr-<N>-<sha>` branch the queue pushes
 # (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue#triggering-merge-group-checks-with-third-party-ci-providers).
-# So for every entry ENQUEUED BY the GitHub Actions bot that is
-# AWAITING_CHECKS, this dispatches the two workflows that own all 19 required
-# contexts onto that entry's own queue branch, unless a live run already
-# exists on the entry's head commit. Correct under BOTH hypotheses: if GitHub
-# ever does start merge_group runs for such an entry, they are found by that
-# head-SHA lookup and nothing is dispatched twice.
+# So for every entry the GitHub Actions bot is behind (its enqueuer, or the
+# PR's author or auto-merge enabler) that is AWAITING_CHECKS, this dispatches
+# the two workflows that own all 19 required contexts onto that entry's own
+# queue branch, unless a non-cancelled run already exists on the entry's head
+# commit. It waits GRACE_SECONDS after the merge group is built before
+# deciding. That makes it correct under BOTH hypotheses: if GitHub ever does
+# start merge_group runs for such an entry, they have registered by then and
+# are found by the head-SHA lookup, so nothing is dispatched twice.
 #
-# Human-enqueued entries are never touched — their merge_group runs start
-# normally. Run every 5 minutes by .github/workflows/bot-merge-queue.yml.
+# Entries with no bot behind them are never touched — their merge_group runs
+# start normally. Run every 5 minutes by .github/workflows/bot-merge-queue.yml.
 #
 # Exit status: 0 when every bot entry awaiting checks was serviced (or none
 # needed it); non-zero when the queue could not be read — including a null
@@ -74,6 +76,13 @@ REQUIRED_CHECK_WORKFLOWS=(ci.yml regression-gates.yml)
 # `github-actions[bot]`); both are accepted.
 BOT_LOGINS_JSON='["github-actions","github-actions[bot]"]'
 
+# How long a merge group must have existed before this decides no run is
+# coming for it. If GitHub ever does start `merge_group` runs for a
+# bot-armed entry, they register within seconds; waiting this long first keeps
+# a tick that lands right after the group is built from dispatching a
+# duplicate. A tick runs every 5 minutes, so this costs at most one tick.
+GRACE_SECONDS="${GRACE_SECONDS:-180}"
+
 REPO="${GH_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 
 # A native Windows jq.exe ends its text output with CRLF, which would leave a
@@ -92,7 +101,12 @@ query($owner: String!, $name: String!, $branch: String!) {
   repository(owner: $owner, name: $name) {
     mergeQueue(branch: $branch) {
       entries(first: 100) {
-        nodes { state enqueuer { login } headCommit { oid } pullRequest { number } }
+        nodes {
+          state
+          enqueuer { login }
+          headCommit { oid committedDate }
+          pullRequest { number author { login } autoMergeRequest { enabledBy { login } } }
+        }
       }
     }
   }
@@ -113,15 +127,25 @@ if jq -e '.data.repository.mergeQueue == null' "$WORKDIR/queue.json" > /dev/null
   exit 0
 fi
 
-# "<pr> <state> <head oid>" for every entry the GitHub Actions bot enqueued.
-jqr -r --argjson bots "$BOT_LOGINS_JSON" '
+# "<pr> <state> <head oid> <merge-group age in seconds>" for every entry the
+# GitHub Actions bot is behind. Its ENQUEUER is the actor the missing runs are
+# attributed to, but the PR's author and its auto-merge enabler are accepted
+# too: whichever actor GitHub records for an enqueue it performs itself, a
+# bot PR must not be skipped, and over-including is safe because nothing is
+# dispatched where a run already exists. Age is -1 when the head commit has no
+# timestamp, which never satisfies the grace below.
+jqr -r --argjson bots "$BOT_LOGINS_JSON" --argjson now "$(date +%s)" '
+  def bot($login): ($login // "") as $who | $bots | index($who) != null;
   .data.repository.mergeQueue.entries.nodes[]
-  | select((.enqueuer.login // "") as $who | $bots | index($who))
-  | "\(.pullRequest.number) \(.state) \(.headCommit.oid // "")"
+  | select(bot(.enqueuer.login)
+      or bot(.pullRequest.author.login)
+      or bot(.pullRequest.autoMergeRequest.enabledBy.login))
+  | (if .headCommit.committedDate then ($now - (.headCommit.committedDate | fromdateiso8601)) else -1 end) as $age
+  | "\(.pullRequest.number) \(.state) \(.headCommit.oid // "") \($age)"
 ' "$WORKDIR/queue.json" > "$WORKDIR/bot_entries.txt"
 
 if [ ! -s "$WORKDIR/bot_entries.txt" ]; then
-  echo "service_bot_merge_queue: no entry in $BASE's merge queue was enqueued by the GitHub Actions bot — nothing to service"
+  echo "service_bot_merge_queue: no entry in $BASE's merge queue belongs to the GitHub Actions bot — nothing to service"
   exit 0
 fi
 
@@ -132,14 +156,20 @@ failures=0
 # The loop reads the entries on stdin, so every `gh` call inside it reads
 # /dev/null instead — a command that consumed stdin would otherwise silently
 # swallow the remaining entries.
-while read -r pr state oid; do
+waiting=0
+while read -r pr state oid age; do
   if [ "$state" != "AWAITING_CHECKS" ]; then
     echo "PR #$pr: $state — no merge group awaiting checks, nothing to dispatch"
     continue
   fi
-  if [ -z "$oid" ]; then
-    echo "::error::PR #$pr is AWAITING_CHECKS but its merge-queue entry reports no head commit"
+  if [ -z "$oid" ] || [ "$age" -lt 0 ]; then
+    echo "::error::PR #$pr is AWAITING_CHECKS but its merge-queue entry reports no head commit (or no commit date) — cannot tell which merge group to service"
     failures=$((failures + 1))
+    continue
+  fi
+  if [ "$age" -lt "$GRACE_SECONDS" ]; then
+    echo "PR #$pr: merge group $oid is ${age}s old — waiting ${GRACE_SECONDS}s for any merge_group run to register before dispatching"
+    waiting=$((waiting + 1))
     continue
   fi
 
@@ -170,5 +200,5 @@ while read -r pr state oid; do
   done
 done < "$WORKDIR/bot_entries.txt"
 
-echo "service_bot_merge_queue: dispatched=$dispatched already_running=$already failures=$failures"
+echo "service_bot_merge_queue: dispatched=$dispatched already_running=$already waiting=$waiting failures=$failures"
 [ "$failures" -eq 0 ]

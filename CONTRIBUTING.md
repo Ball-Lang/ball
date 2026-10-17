@@ -37,16 +37,29 @@ gh api repos/Ball-Lang/ball -q .permissions   # {"push":true,...} = maintainer; 
 
 ## Landing via the merge queue
 
-`main`'s `Protect main` ruleset (17056238) is moving from a plain "19 required
+`main`'s `Protect main` ruleset (17056238) moved from a plain "19 required
 checks must be green" gate to GitHub's **merge queue**
 ([#756, owner decision 2026-10-17](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998))
 — the fix for #749, where two PRs were each green alone and broke `main` on
-their union, discovered only after both had merged. As of this writing the
-`merge_queue` rule is **not yet enabled** on that ruleset — #756 tracks that
-follow-up step separately from the PR that wires the workflows up for it (see
-`docs/TESTING_STRATEGY.md` → "Merge-queue readiness (#756)"); until it lands,
-landing a PR still works the old way (19 green required checks, no queue).
-Once it's enabled, landing a PR works like this:
+their union, discovered only after both had merged. The ruleset's workflows
+were wired for this first (every required-context workflow gained a
+`merge_group:` trigger — #756's first PR), and the `merge_queue` rule itself
+is now **enabled** on ruleset 17056238 (confirmed via
+`gh api repos/Ball-Lang/ball/rulesets/17056238 --jq '[.rules[].type]'`
+including `"merge_queue"`), with these parameters:
+
+| Parameter | Value |
+| --- | --- |
+| `merge_method` | `SQUASH` |
+| `grouping_strategy` | `ALLGREEN` |
+| `max_entries_to_build` | 5 |
+| `max_entries_to_merge` | 5 |
+| `min_entries_to_merge` | 1 |
+| `min_entries_to_merge_wait_minutes` | 5 |
+| `check_response_timeout_minutes` | 90 |
+
+(see `docs/TESTING_STRATEGY.md` → "Merge-queue readiness (#756)" for the full
+wiring story). Landing a PR now works like this:
 
 1. Get the PR's own `pull_request` checks green, same as always — queueing
    does **not** skip that.
@@ -69,9 +82,14 @@ Once it's enabled, landing a PR works like this:
 The merge-group run is a separate check-run set from the PR's own
 `pull_request` run, on a different ref (`gh-readonly-queue/...`) and commit;
 whether `gh pr checks <n> --watch` follows it once queued is unverified —
-confirm on the PR page once the `merge_queue` rule is actually enabled (#756
-tracks that follow-up), or watch the Actions run for the `gh-readonly-queue/`
-branch directly in the meantime.
+confirm on the PR page now that the `merge_queue` rule is enabled, or watch
+the Actions run for the `gh-readonly-queue/` branch directly in the meantime.
+
+Every required-context workflow's `pull_request:` trigger is also
+unconditional now — no `paths:`/`paths-ignore:` filter — so a docs-only PR's
+checks always start and can actually reach "green" to queue; see
+`docs/TESTING_STRATEGY.md` → "Docs-only PRs and required-context workflows"
+for why that matters once a merge queue is the only way to land.
 
 ## Build, test, verify
 

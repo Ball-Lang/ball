@@ -73,9 +73,56 @@ ball_classify_stacks() {
   m() { grep -qE "$1" <<<"$files"; }
   out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
 
-  # infra = ANY changed file OUTSIDE the single-stack dirs — proto/, tests/,
-  # tools/, examples/, root configs, the workflows themselves, etc. Anything
-  # cross-cutting forces every stack to run.
+  # DOCS CARVE-OUT (#756 follow-up, 2026-10-17). `ci.yml` and
+  # `regression-gates.yml` used to exclude a docs-only diff from ever
+  # STARTING at all, via a `paths-ignore:` filter on their `pull_request:`
+  # trigger (`**.md`, `docs/**`, `LICENSE`, `.gitignore`). That filter is gone
+  # from `pull_request:` now (`push:` keeps it — it owns no required context):
+  # GitHub's own troubleshooting guidance is to "avoid requiring workflows
+  # that can be skipped" (a workflow a path filter skips never starts, so
+  # every required context it owns stays "Pending" forever — exactly what
+  # blocked every docs-only PR before this change;
+  # https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks,
+  # "Handling skipped but required checks"). So both workflows now always
+  # START, and this carve-out — the SAME four entries, moved here — is what
+  # keeps a docs-only diff CHEAP: without it, `infra` would still flip true
+  # for e.g. a changed `docs/TESTING_STRATEGY.md` (not a single-stack dir
+  # below) and every heavy per-stack job would run anyway, which is exactly
+  # the cost the removed `paths-ignore:` existed to avoid. `*.md` is
+  # deliberately repo-wide (mirroring `**.md`'s own double-star semantics,
+  # not just root/docs) — see truth_table.sh's "docs-md-anywhere-is-not-infra"
+  # for a tests/ example, and its sibling "tests-outside-corpus-is-not-corpus"
+  # for the non-markdown tests/ file that still trips infra as before.
+  # tools/ci/check_pr_job_fanout.sh is the matching STATIC guard: it fails the
+  # build if either workflow's `pull_request:` trigger grows a `paths:` or
+  # `paths-ignore:` filter again while owning a required context, so this
+  # carve-out and that removal can never drift apart undetected.
+  #
+  # EXCEPT `tests/conformance/` (code review finding, 2026-10-17). Several
+  # `*.md` files living there are machine-READ ledgers, not prose:
+  # `CARVEOUTS.md`, `ENCODER_COMPLETENESS_CARVEOUTS.md` and
+  # `NODE_SHAPE_COVERAGE_CARVEOUTS.md` are read by
+  # check_conformance_sources.dart / check_encoder_completeness.dart /
+  # check_node_shape_coverage.dart, and the generated `STD_COVERAGE.md` is
+  # read by gen_std_coverage.dart's drift assert — all four run ONLY inside
+  # ci.yml's `ball-freshness` job (`Ball Artifact Freshness`), which is gated
+  # on `dart || ts || go || infra`. A diff touching only one of these ledgers
+  # (or one plus an unrelated rust/csharp/python/go file) used to set
+  # `infra=true` like any other non-stack-dir file, which ran
+  # `ball-freshness` and let its Asserts actually check the ledger. Exempting
+  # `tests/conformance/**.md` as "docs" the same way `docs/**.md` is exempted
+  # would silently stop running those Asserts — a ledger-only PR would go
+  # green unchecked, and the drift would surface later on an unrelated
+  # dart/ts/go PR, misattributed (`detect.sh`'s own `std_inventory` comment
+  # above describes this exact failure shape). So `tests/conformance/**` is
+  # excluded from the carve-out below, regardless of extension — exactly as
+  # it was before this carve-out existed. (It already has its own narrower
+  # `corpus` signal, below, for the conformance-matrix's row selection; this
+  # exclusion is the separate `infra`/`ball-freshness` concern.)
+  local docs_only_re='\.md$|^docs/|^LICENSE$|^\.gitignore$'
+
+  # infra = ANY changed file OUTSIDE the single-stack dirs AND outside the
+  # docs carve-out above — the fail-safe flag that forces every stack to run.
   #
   # List every language dir THAT HAS ITS OWN OUTPUT AND JOB — and only those.
   # The two directions fail very differently:
@@ -87,8 +134,33 @@ ball_classify_stacks() {
   #     UNSAFE — it would stop tripping infra without anything else covering it,
   #     silently dropping that PR to proto-only checks.
   # So java/ is correctly absent. Add it here only alongside a java job.
+  # NOTE: `grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)'` below must
+  # appear VERBATIM — tools/ci/check_std_inventory_signal.sh derives the full
+  # stack set from this exact substring (it refuses to guess), so the prefix
+  # list may not move into a variable or change shape independently of that
+  # script.
   local infra=false
-  if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<<"$files"; then infra=true; fi
+  if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<<"$files"; then
+    # At least one changed file is outside the single-stack dirs. It still
+    # might be ENTIRELY covered by the docs carve-out above — re-derive the
+    # actual non-stack file list (captured into a variable, then re-fed via a
+    # here-string, never a LIVE pipe between two greps: this file's own
+    # convention is here-strings, not `echo | grep`, specifically because
+    # `set -o pipefail` — on in ball_detect_main — can flake on SIGPIPE when a
+    # downstream `grep -q` early-exits while an upstream process is still
+    # writing) and check whether anything in it survives the carve-out too.
+    local non_stack_files
+    non_stack_files="$(grep -vE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<<"$files")"
+    # infra=true if EITHER: something survives the docs carve-out (a real
+    # non-docs, non-stack file), OR anything at all sits under
+    # `tests/conformance/` — the ledger exclusion above, which must trip
+    # infra even when the file itself matches `docs_only_re` (e.g. a
+    # `tests/conformance/*.md` carve-out ledger).
+    if grep -qvE "$docs_only_re" <<<"$non_stack_files" ||
+      grep -qE '^tests/conformance/' <<<"$non_stack_files"; then
+      infra=true
+    fi
+  fi
 
   # self_host = the diff touches a Dart source that CROSS-COMPILES into the
   # C++, Rust, C#, Go AND Python self-hosted artifacts, even though it lives

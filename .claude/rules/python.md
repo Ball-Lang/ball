@@ -343,6 +343,32 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   NON-nullable bound like plain `Object`/`int` still excludes `None`, matching real Dart). Pinned by
   `test_is_type_null_matches_any_nullable_type_including_a_generic_bound` in
   `python/compiler/tests/test_runtime.py`.
+- **A class-name match with no reified `__type_args__` is NOT evidence of a mismatch, and
+  `Iterable<T>` is a generic base too (#824 follow-up regression #2, tracks the SAME family as
+  `dart/engine`'s own pre-existing `_typeMatches` bug, issue #916 — but is a real regression on
+  THIS target specifically, since the Python compiler leg is graded against real `dart run`, not
+  against the reference engine's own answer).** #824's generic-element rewrite only special-cased
+  the three exact base names `List`/`Map`/`Set`; any other generic base — `Iterable<T>` above all
+  — fell through to the user-object branch and answered `False` for a plain list/set, something
+  this base type had never gotten wrong before #824 (`[1,2,3] is Iterable<int>` and
+  `{'a','b'} is Iterable<String>` are `True` on real Dart). Separately, that same user-object branch
+  demanded a `__type_args__` tag before even checking the class name, so an instance constructed
+  with NO explicit generic argument — a bare `Box(42)`, whose `Box<int>` is Dart's own STATIC
+  inference and is never captured by this encoder/compiler pair — answered `False` against ANY
+  generic argument, including the true one (`Box(42) is Box<int>` must stay `True`, matching both
+  real Dart and this function's OWN pre-#824 answer; only a REIFIED mismatch, e.g.
+  `with_type_args(Box('x'), ['int']) is Box<String>`, is unambiguous evidence and still answers
+  `False` — #824's actual fix, untouched). `is_type` now: (1) element-checks `Iterable<T>` for a
+  `list`/`BallSet` exactly like `List<T>`/`Set<T>`; (2) checks the CLASS NAME first for a user
+  generic, returning `False` outright on a class mismatch, `True` on a class match with no tag at
+  all (no evidence either way), and the tag comparison only when one exists. Pinned by
+  `test_is_type_iterable_and_untagged_user_generic_match_real_dart` in
+  `python/compiler/tests/test_runtime.py`. No cross-target conformance fixture can pin this: the
+  Dart ENCODER never records an inferred construction's type argument either, and the REFERENCE
+  engine (and therefore every self-hosted engine compiled from it) shares bug #1 above — a `.dart`
+  fixture exercising `Iterable<T>` or an inferred generic would fail on every OTHER target today,
+  which is why #916 tracks fixing `_typeMatches` itself (and adding that fixture) as separate,
+  cross-cutting work out of this target's scope.
 - **Per-fixture timeout is a subprocess kill, not cooperative** (contrast Go): each fixture runs as
   its own killable `python -m ball_engine` subprocess with `subprocess.run(timeout=…)`, so a runaway
   is simply killed — a Python process is trivially killable, sidestepping the goroutine-leak problem
@@ -517,14 +543,33 @@ python -m conformance.runner                             # prints the CI-parseab
   native `break`, since a switch arm has no loop of its own to exit. `encoder.encode_if` already
   walks the surrounding `if`/`elif`/`else` chain as ordinary nested `std.if`s (it never tries to
   reconstruct a `std.switch` node), so `_is_switch_case_break_trap` only needs to invert the ONE
-  wrapped `try:` itself — into a single-pass `std.do_while { condition: false }` over the case
-  body, which the self-hosted engine's own loop trap already swallows an unlabeled break from
-  exactly like a real switch would, while a LABELED break/continue still re-raises through
-  untouched (Dart's own grammar makes a bare `continue` directly inside a switch case illegal, so
-  one can never legally reach this wrapper otherwise). Fixture `147_complex_switch` pins it in
+  wrapped `try:` itself. **Not** into `std.do_while { condition: false }` — a bare `continue`
+  directly inside a switch case is NOT illegal Dart (a prior revision of this doc, and of the
+  recognizer's own docstring, claimed it was): it is legal, and targets whatever LOOP encloses the
+  switch, whenever one does (confirmed against real `dart run`:
+  `for (i<3) { switch(i){ case 1: continue; default: out.add('d$i'); } out.add('after$i'); }`
+  prints `d0,after0,after1,d2,after2`, never ending the loop at `i==1`). A `do_while` swallows a
+  bare `continue` exactly like it swallows a bare `break` — every Ball loop construct does, that is
+  the whole point of `continue` — so wrapping the case body in one silently turned "continue the
+  enclosing loop" into "end the switch, fall through to the code after it", a regression this fix
+  closes. `_encode_switch_case_body` instead wraps the body in `std.labeled` with a label
+  synthesized on the spot, and relabels ONLY an unlabeled `ballrt.brk("")` found in the body
+  WITHOUT crossing a nested loop's or nested switch-case's own trap (`_find_unshielded_breaks` —
+  those are already correctly scoped to their own construct and must not be touched) to carry that
+  label; `std.labeled` only ever consumes a signal carrying its OWN label
+  (`dart/engine/lib/engine_control_flow.dart`'s `_evalLabeled`), so every `continue` — labeled or
+  not — sails straight through it, same as it already sails through the real
+  `except ballrt.BallBreak` trap. A body with no unlabeled break is inlined with no wrapper at
+  all, same as `_is_return_wrapper`'s. Fixture `147_complex_switch` pins the no-break shape in
   `test_ballrt_inverse.py`'s `TRY_SHAPE_FIXTURES`; `python-roundtrip`'s floor caught this family as
   five fixtures that went from passing to `encode-error` the moment the compiler started emitting
-  the switch-case trap at all (#824's own regression, closed in the same PR).
+  the switch-case trap at all (#824's own regression, closed in the same PR). The continue-inside-
+  a-switch-inside-a-loop shape (break AND continue in the same switch, so neither regresses the
+  other) is pinned by fixture `480_continue_inside_switch_in_loop`, in BOTH
+  `test_ballrt_inverse.py`'s `TRY_SHAPE_FIXTURES` (golden-exact) and its
+  `ROUND_TRIP_FIXTURES` (cross-checked against the real Dart reference engine via
+  `test_reference_engine_roundtrip.py`'s derived set). The labeled-wrap mechanism this needed
+  (`std.labeled` support in `python/compiler`, see `run_labeled` below) is new.
   `encoder.encode_try`/`encode_while` recognise the other four; `ballrt_calls.py` holds only the
   class names they match on
   (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +

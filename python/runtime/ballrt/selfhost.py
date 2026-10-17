@@ -120,17 +120,45 @@ def _class_name_matches(value, base_type: str) -> bool:
 def is_type(value, typename: str) -> bool:
     """Dart ``value is Type``.
 
-    A GENERIC type (``List<T>``/``Map<K, V>``/``Set<T>``) checks every
-    element/entry against the type argument(s), and a generic USER type
-    compares its own reified ``__type_args__`` tag — exactly like the
-    reference engine's ``_typeMatches`` (``engine_std.dart``), issue #824:
-    `std.is`/`std.is_not` used to strip the generic argument entirely
+    A GENERIC type (``List<T>``/``Map<K, V>``/``Set<T>``/``Iterable<T>``)
+    checks every element/entry against the type argument(s), and a generic
+    USER type compares its own reified ``__type_args__`` tag — exactly like
+    the reference engine's ``_typeMatches`` (``engine_std.dart``), issue
+    #824: `std.is`/`std.is_not` used to strip the generic argument entirely
     (`_base_type_name`) and match on the bare base type alone, so
     `[1, 2, 3] is List<String>` and `Box<int>(...) is Box<String>` both
     silently answered `true`. A non-generic type maps builtins to Python
     checks and matches a user type by class name walked over the MRO (so
     subclasses match their base, e.g. a StdModuleHandler
     ``is BallModuleHandler``).
+
+    Two things #824's own rewrite got wrong, both regressions against real
+    `dart run` on THIS target specifically (the Python compiler leg is
+    graded against it) and not merely a difference from the pre-#824
+    base-type-only answer:
+
+    * ``Iterable<T>`` is a generic base too, and `dart run` agrees that a
+      `List`/`Set` satisfies it element-wise exactly like `List<T>`/`Set<T>`
+      do (`[1,2,3] is Iterable<int>` is `true`) — the rewrite only ever
+      special-cased the three EXACT names `List`/`Map`/`Set`, so any other
+      generic base (starting with `Iterable`) fell to the user-object branch
+      below and answered `false` for every list/set, a NEW silent wrong
+      answer this base type never had before #824.
+    * A user instance with NO reified ``__type_args__`` tag at all — built
+      from a constructor call that carried no explicit type argument, such
+      as a bare `Box(42)` whose `Box<int>` is Dart's own STATIC inference,
+      never captured by this encoder/compiler pair at all — carries no
+      evidence either way, so the base type name is the whole story Dart's
+      real answer and this function's PRE-#824 answer agree on
+      (`Box(42) is Box<int>` is `true`). The rewrite instead required a tag
+      to exist before even checking the class name, so every untagged
+      instance answered `false` against ANY generic argument, class name
+      included — also a NEW regression against real `dart run`, and the
+      opposite direction from #824's own motivating bug (that one was a
+      false POSITIVE on a REIFIED mismatch, `Box<int>(..) is Box<String>`
+      answering `true`; this one is a false NEGATIVE with no reification at
+      all). A reified tag that disagrees with the queried argument is still
+      unambiguous evidence and still answers `false`, exactly as #824 fixed.
 
     ``None`` is handled FIRST, independent of whether ``typename`` is simple
     or generic: Dart's sound null safety makes ``null`` assignable to any
@@ -170,12 +198,22 @@ def is_type(value, typename: str) -> bool:
             if len(type_args) == 1:
                 return all(is_type(e, type_args[0]) for e in value)
             return True
-        # A user object (or a dict-tagged self-hosted-engine one) reports its
-        # own reified type arguments, set at construction time.
+        if base_type == "Iterable" and isinstance(value, (list, BallSet)):
+            if len(type_args) == 1:
+                return all(is_type(e, type_args[0]) for e in value)
+            return True
+        # A user object (or a dict-tagged self-hosted-engine one): no class
+        # match is unambiguous (`"x" is Box<int>` is `false` regardless of
+        # reification), but a class match with NO reified type-argument tag
+        # is NOT evidence of a mismatch — it is the absence of evidence, and
+        # answers `true` exactly like the pre-#824 base-type-only check did.
+        if not _class_name_matches(value, base_type):
+            return False
         obj_type_args = _reified_type_args(value)
-        if obj_type_args is not None and _class_name_matches(value, base_type):
-            if len(obj_type_args) == len(type_args):
-                return obj_type_args == type_args
+        if obj_type_args is None:
+            return True
+        if len(obj_type_args) == len(type_args):
+            return obj_type_args == type_args
         return False
     bt = _base_type_name(t)
     checker = _BUILTIN.get(bt)

@@ -197,6 +197,50 @@ def test_is_type_null_matches_any_nullable_type_including_a_generic_bound():
     assert selfhost.is_type(temperature_like, "Map<String, Object?>") is True
 
 
+def test_is_type_iterable_and_untagged_user_generic_match_real_dart():
+    """Two more regressions #824's own generic rewrite introduced, both
+    distinct from the null-matching one above and both NEW silent wrong
+    answers against real `dart run` (the Python compiler leg's own oracle):
+
+    * `Iterable<T>` is a generic base too -- `[1,2,3] is Iterable<int>` and
+      `{'a','b'} is Iterable<String>` are `true` on real Dart, exactly like
+      `List<T>`/`Set<T>`. The rewrite only special-cased the three exact
+      names `List`/`Map`/`Set`, so every other generic base fell to the
+      user-object branch and answered `false` for a list/set that had never
+      been wrong before #824.
+    * A user instance with NO reified `__type_args__` tag -- a bare
+      `Box(42)`, whose `Box<int>` is Dart's own static inference and is
+      never captured by this encoder/compiler pair -- carries no evidence
+      either way, so `Box(42) is Box<int>` must still answer `true` (the
+      pre-#824 base-type-only answer, and real Dart's). The rewrite instead
+      demanded a tag before even checking the class name, so an untagged
+      instance answered `false` against ANY generic argument.
+
+    A REIFIED mismatch is unambiguous evidence and must still answer
+    `false` -- that is #824's own fix and this test does not relitigate it,
+    only pins that it still holds alongside the two fixes above.
+    """
+    from ballrt import selfhost
+
+    assert selfhost.is_type([1, 2, 3], "Iterable<int>") is True
+    assert selfhost.is_type([1, 2, "x"], "Iterable<int>") is False
+    assert selfhost.is_type(ballrt.BallSet(["a", "b"]), "Iterable<String>") is True
+    assert selfhost.is_type(ballrt.BallSet(["a", 1]), "Iterable<String>") is False
+
+    class Box:
+        def __init__(self, v):
+            self.v = v
+
+    untagged = Box(42)
+    assert selfhost.is_type(untagged, "Box<int>") is True
+    assert selfhost.is_type(untagged, "Box<String>") is True  # no evidence either way
+    assert selfhost.is_type("not a box", "Box<int>") is False  # class mismatch is unambiguous
+
+    reified_int = selfhost.with_type_args(Box(5), ["int"])
+    assert selfhost.is_type(reified_int, "Box<int>") is True
+    assert selfhost.is_type(reified_int, "Box<String>") is False  # #824's own fix, unchanged
+
+
 def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
     """``ballrt.proto`` must answer ANY ``has<Field>`` the compiler emits (#570).
 

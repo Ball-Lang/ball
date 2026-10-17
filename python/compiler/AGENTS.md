@@ -125,7 +125,16 @@ closures, and OOP (constructors incl. **named + optional params**, methods,
 That list describes what the *engine* program exercises. It is **not** whole-corpus
 coverage: the compile leg below shows `super`, static methods, factory
 constructors, mixins, enum-value references, switch patterns, generators and
-labeled break are all still open on the fixture corpus. The named-constructor gap
+a **labeled LOOP's** break/continue (`outer: for (...) { break outer; }`) are all
+still open on the fixture corpus (`run_labeled`'s `_labeled_body_is_loop` guard
+fails loud on that shape rather than guessing — see its docstring). A labeled
+**plain** block/statement — no loop of its own, just catching a break that names
+it — IS supported (issue #824 follow-up): it is the shape `python/encoder`'s
+`_encode_switch_case_body` synthesizes when a switch case's unlabeled `break`
+needs to be told apart from a bare `continue` that must still reach whatever
+loop actually encloses the switch (a `continue` can never legally target a
+non-loop label, so the trap `run_labeled` compiles never needs to catch one).
+The named-constructor gap
 (`Class.name(args)` -> a spurious `unresolved reference 'Countdown'`) was **fixed**
 in [#527](https://github.com/Ball-Lang/ball/issues/527): `value_call`'s dispatch was
 already correct, but it eagerly compiled the raw `self` field through

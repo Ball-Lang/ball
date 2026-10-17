@@ -177,6 +177,15 @@ PROVEN = [
     # by-name shortcut bug for this and five sibling names (#787); this is the
     # Python runtime's own instance of that family, discovered here.
     "479_user_member_named_like_collection_accessor",
+    # The COMPILER half of the #824 follow-up: a bare `continue` directly
+    # inside a switch `case`, nested in a `for` loop, targets the loop (legal
+    # Dart), never the switch — unlike a bare `break`, which ends only the
+    # switch. `_run_switch_case_body`'s trap names `BallBreak` only, so a
+    # raised `BallContinue` already sails through it untouched; this pins
+    # that the compiler keeps getting it right. The ENCODER's inverse of this
+    # same trap is the half that regressed (python/encoder's
+    # `_encode_switch_case_body`, pinned in `python/encoder/tests`).
+    "480_continue_inside_switch_in_loop",
 ]
 
 

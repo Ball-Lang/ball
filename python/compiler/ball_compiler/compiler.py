@@ -52,6 +52,7 @@ _EXPR_KINDS = ("call", "literal", "reference", "fieldAccess", "messageCreation",
 # both the run() dispatch and the value()-position "needs hoisting" test.
 _CONTROL_HOIST = {
     "if", "for", "while", "for_in", "for_each", "do_while", "switch", "switch_expr", "try",
+    "labeled",
 }
 _INCDEC = {"pre_increment", "post_increment", "pre_decrement", "post_decrement"}
 _FLOW = {"return", "break", "continue", "throw", "rethrow"}
@@ -1047,6 +1048,8 @@ class Compiler:
                     return self.run_switch(call, dest)
                 if fn == "try":
                     return self.run_try(call, dest)
+                if fn == "labeled":
+                    return self.run_labeled(call, dest)
                 if fn in _FLOW:
                     self.line(self.base_flow_expr(call))
                     return
@@ -1214,6 +1217,75 @@ class Compiler:
                 self.line("if _cnt.label: raise")
             self.loop_vars.pop()
         self.pop_scope()
+        if dest[0] != "discard":
+            self.dispatch(dest, "None")
+
+    #: `std.labeled`'s `body` shapes this compiler can tell are a LOOP (a
+    #: direct loop call, or the block-of-one shape `dart/encoder`'s own
+    #: `LabeledStatement` emission produces). A labeled LOOP needs its break/
+    #: continue trap to compare against the label (never built here — see
+    #: `run_labeled`'s docstring), unlike a labeled PLAIN block/statement,
+    #: which only ever needs to catch a BREAK naming it.
+    _LOOP_FNS = frozenset({"for", "while", "for_in", "for_each", "do_while"})
+
+    def _labeled_body_is_loop(self, body) -> bool:
+        if _which(body) == "call" and body["call"].get("function") in self._LOOP_FNS:
+            return True
+        if _which(body) == "block":
+            stmts = body["block"].get("statements", [])
+            if (len(stmts) == 1 and "expression" in stmts[0]
+                    and _which(stmts[0]["expression"]) == "call"
+                    and stmts[0]["expression"]["call"].get("function") in self._LOOP_FNS):
+                return True
+        return False
+
+    def run_labeled(self, call, dest):
+        """``std.labeled {label, body}`` — a labelled statement (issue #824
+        follow-up).
+
+        A labeled LOOP (``outer: for (...) { ... break outer; }``) needs its
+        break/continue trap to compare the signal's label against this one
+        (continuing/breaking the loop on a match, re-raising past it
+        otherwise) and is a still-open gap (see `python/compiler/AGENTS.md`'s
+        "labeled break" status line) — fixing it needs the SAME label
+        threaded through `_loop_body`'s existing (today always-empty) label
+        parameter, which is out of this fix's scope.
+
+        A labeled PLAIN block/statement, with no loop of its own, is a
+        narrower and already-closed problem: the engine's own `_evalLabeled`
+        (`dart/engine/lib/engine_control_flow.dart`) only ever consumes a
+        break/continue signal carrying EXACTLY this label, leaving every
+        other signal — including every unlabeled one — to sail straight
+        through untouched. The one producer of this shape today,
+        `python/encoder`'s `_encode_switch_case_body`, only ever emits an
+        unlabeled-switch-case-break retargeted to carry this label, so a
+        plain `try/except BallBreak` comparing the label is the whole
+        inverse this compiler needs; it never needs to catch `BallContinue`,
+        because a non-loop label can never legally be the target of a bare
+        Dart `continue` in the first place.
+        """
+        f = self.fields(call)
+        label = self.str_field(f, "label")
+        body = f.get("body")
+        if body is None:
+            if dest[0] != "discard":
+                self.dispatch(dest, "None")
+            return
+        if self._labeled_body_is_loop(body):
+            self.fail("std.labeled wrapping a loop (a labeled for/while/"
+                       "for_in/do_while) is not supported -- only a labeled "
+                       "PLAIN block, consuming a break aimed at its own "
+                       "label, is")
+            return
+        self.line("try:")
+        with self.block():
+            before = len(self.lines)
+            self.run(body, DISCARD)
+            if len(self.lines) == before:
+                self.line("pass")
+        self.line("except ballrt.BallBreak as _lbl:")
+        with self.block():
+            self.line(f"if _lbl.label != {pystr(label)}: raise")
         if dest[0] != "discard":
             self.dispatch(dest, "None")
 

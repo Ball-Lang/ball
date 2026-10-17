@@ -117,7 +117,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Rehearsal — show what Phase 1 would compute (dry run only)
-        if: inputs.dry_run == 'true'
+        if: inputs.dry_run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -128,7 +128,7 @@ jobs:
           rm -f .releaserc.json
 
       - name: Phase 1 — open/refresh the auto-merging Go release PR
-        if: inputs.dry_run == 'false'
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/release/open_go_release_pr.sh
@@ -145,7 +145,7 @@ jobs:
     name: Finish a merged Go release PR
     if: |
       github.event_name == 'push' || github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false')
+      (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Serialises overlapping attempts (a `push` run racing a `schedule` tick,

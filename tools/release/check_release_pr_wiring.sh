@@ -62,6 +62,38 @@ check_no_direct_push_to_main() {
   [ "$hit" -eq 0 ] && ok "no workflow under $workflows_dir pushes straight to main (git push … HEAD:main)"
 }
 
+# `dry_run` is declared `type: boolean` on every release workflow's
+# `workflow_dispatch` input, which means the `inputs.dry_run` expression
+# context carries a REAL boolean — not the string "true"/"false" that
+# `github.event.inputs.dry_run` always carries regardless of declared type.
+# GitHub Actions' `==` converts a boolean operand to a number (false -> 0)
+# and a non-numeric string operand to NaN before comparing, so
+# `inputs.dry_run == 'false'` (or `'true'`) is ALWAYS false — confirmed by
+# dispatching go-release.yml's `open-release-pr` job with `-f dry_run=true`
+# and observing both of its `inputs.dry_run`-gated steps report `skipped`
+# (PR #881 review). `release.yml`'s own `finish-release` job had the
+# identical bug on its `workflow_dispatch` branch — silent because the
+# `push`/`schedule` OR-terms already cover every real trigger, so it only
+# ever mattered for a manual `-f dry_run=false` dispatch. A comparison
+# against a step OUTPUT (always a string, e.g. `steps.cfg.outputs.dry_run ==
+# 'false'`) is NOT this bug and must not be flagged — only `inputs.dry_run`
+# compared to a quoted literal is.
+QUOTED_BOOL_DRY_RUN_PATTERN="inputs\\.dry_run[[:space:]]*==[[:space:]]*['\"](true|false)['\"]"
+
+check_no_quoted_boolean_dry_run_comparison() {
+  local workflows_dir="$1"
+  local hit=0
+  local file
+  for file in "$workflows_dir"/*.yml; do
+    [ -f "$file" ] || continue
+    if grep -v '^[[:space:]]*#' "$file" | grep -Eq "$QUOTED_BOOL_DRY_RUN_PATTERN"; then
+      no "no workflow compares inputs.dry_run (a real boolean) to a quoted string — $file still does"
+      hit=1
+    fi
+  done
+  [ "$hit" -eq 0 ] && ok "no workflow under $workflows_dir compares inputs.dry_run to a quoted 'true'/'false' (always false)"
+}
+
 check_release_yml_wiring() {
   local release_yml="$1"
   [ -f "$release_yml" ] || {
@@ -193,6 +225,7 @@ check_freshness_alarm_permissions() {
 run_checks() {
   local workflows_dir="$1"
   check_no_direct_push_to_main "$workflows_dir"
+  check_no_quoted_boolean_dry_run_comparison "$workflows_dir"
   check_release_yml_wiring "$workflows_dir/release.yml"
   check_coverage_study_wiring "$workflows_dir/coverage-study.yml"
   check_freshness_alarm_permissions "$workflows_dir/release-freshness.yml"
@@ -266,6 +299,59 @@ EOF
     echo "FAIL  self-test: negative control — the clean file alone passes (got pass=$cleanonly_pass fail=$cleanonly_fail)"
   fi
 
+  # Negative control for check_no_quoted_boolean_dry_run_comparison: both
+  # quoted spellings are caught, a step-OUTPUT comparison (always a real
+  # string, never this bug) is not, and the bare-boolean form is not either.
+  cat > "$tmp/workflows/bad-dryrun1.yml" <<'EOF'
+name: bad-dryrun1
+jobs:
+  x:
+    if: inputs.dry_run == 'false'
+    steps:
+      - run: echo hi
+EOF
+  cat > "$tmp/workflows/bad-dryrun2.yml" <<'EOF'
+name: bad-dryrun2
+jobs:
+  x:
+    steps:
+      - if: inputs.dry_run == 'true'
+        run: echo hi
+EOF
+  cat > "$tmp/workflows/good-dryrun.yml" <<'EOF'
+name: good-dryrun
+jobs:
+  x:
+    steps:
+      - if: steps.cfg.outputs.dry_run == 'false'
+        run: echo hi
+      - if: inputs.dry_run
+        run: echo hi
+      - if: ${{ !inputs.dry_run }}
+        run: echo hi
+EOF
+
+  pass=0
+  fail=0
+  check_no_quoted_boolean_dry_run_comparison "$tmp/workflows"
+  local dryrun_pass=$pass dryrun_fail=$fail
+  if [ "$dryrun_fail" -eq 2 ] && [ "$dryrun_pass" -eq 0 ]; then
+    echo "PASS  self-test: negative control — both quoted inputs.dry_run spellings are caught, the clean file reports no failure line"
+  else
+    echo "FAIL  self-test: negative control — quoted inputs.dry_run comparisons (got pass=$dryrun_pass fail=$dryrun_fail, want pass=0 fail=2)"
+  fi
+
+  rm -f "$tmp/workflows/bad-dryrun1.yml" "$tmp/workflows/bad-dryrun2.yml"
+  pass=0
+  fail=0
+  check_no_quoted_boolean_dry_run_comparison "$tmp/workflows"
+  local dryrunclean_pass=$pass dryrunclean_fail=$fail
+  if [ "$dryrunclean_fail" -eq 0 ] && [ "$dryrunclean_pass" -eq 1 ]; then
+    echo "PASS  self-test: negative control — the clean inputs.dry_run file alone passes (step-output and bare-boolean forms are not flagged)"
+  else
+    echo "FAIL  self-test: negative control — the clean inputs.dry_run file alone passes (got pass=$dryrunclean_pass fail=$dryrunclean_fail)"
+  fi
+
   # Negative control for finding 2's guard: a release-freshness.yml missing
   # either permission scope must be caught, and one carrying both must pass.
   cat > "$tmp/workflows/bad-freshness.yml" <<'EOF'
@@ -313,6 +399,7 @@ EOF
   fi
 
   [ "$real_fail" -eq 0 ] && [ "$neg_fail" -eq 2 ] && [ "$neg_pass" -eq 0 ] && [ "$cleanonly_fail" -eq 0 ] &&
+    [ "$dryrun_fail" -eq 2 ] && [ "$dryrun_pass" -eq 0 ] && [ "$dryrunclean_fail" -eq 0 ] && [ "$dryrunclean_pass" -eq 1 ] &&
     [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ] && [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ]
 }
 

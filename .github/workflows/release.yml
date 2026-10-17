@@ -221,9 +221,21 @@ jobs:
   # ──────────────────────────────────────────────────
   finish-release:
     name: Finish a merged release PR
+    # `inputs.dry_run` is a declared `type: boolean` input, which the `inputs.*`
+    # context exposes as a real boolean (NOT the string "true"/"false" that
+    # `github.event.inputs.*` always carries regardless of declared type) — so
+    # the third OR term below MUST compare against the boolean literal, never
+    # a quoted string: GitHub Actions' `==` converts a boolean to a number
+    # (false -> 0) and a non-numeric string to NaN before comparing, so
+    # `inputs.dry_run == 'false'` is ALWAYS false regardless of the input's
+    # actual value — confirmed by dispatching the Go-release sibling of this
+    # exact job with `-f dry_run=true` and observing both of its conditional
+    # steps report `skipped` (PR #881 review). This term only ever matters for
+    # a manual `workflow_dispatch -f dry_run=false` (the push/schedule terms
+    # already cover every real trigger), so the bug was silent until exercised.
     if: |
       github.event_name == 'push' || github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false')
+      (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Serialises overlapping attempts (a `push` run racing a `schedule` tick,

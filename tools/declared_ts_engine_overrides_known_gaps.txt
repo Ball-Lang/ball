@@ -1,0 +1,72 @@
+# Names ts/engine/src/engine_setup.ts's `registerExtraStdFunctions` registers
+# on `StdHandler` by hardcoded name that NO dart/shared/lib/std*.dart builder
+# declares.
+#
+# tools/check_ts_engine_setup_declared.py (ci.yml's `typescript` job) fails
+# when a registered name is neither declared in
+# tests/conformance/std_coverage.json nor listed here — so a NEW undeclared
+# name can never slip in again (issue #817, the TS sibling of issue #505's
+# dart/shared/test/std_routed_declarations_test.dart, issue #607's
+# cpp/test/check_declared_base_functions.py, and issue #743's
+# python/compiler/tests/test_declared_base_functions.py).
+#
+# This file freezes the drift that already existed, MEASURED by running the
+# gate with an empty list, never assumed. It found 35 undeclared names; the
+# 35th, `string_from_char_codes`, is the one #817 was filed about and it was
+# DELETED rather than frozen (same branch #743 took for the identical Python
+# arm) — no builder declares it, no encoder in the repo emits it, the Dart
+# reference engine never dispatches it, and the Dart-SDK static
+# `String.fromCharCodes` is a different surface served per-target, not a std
+# base function.
+#
+# None of these 34 is confirmed dead the way `string_from_char_codes` was —
+# most grep to zero hits across every encoder/compiler/engine in the repo
+# (measured, not assumed), but several look like deliberate camelCase/
+# Dart-SDK-method aliases for an already-declared snake_case function
+# (`map_containsKey` next to the declared `map_contains_key`, `sort`/
+# `generate`/`filled`/`union`/`intersection`/`difference` as bare Dart-SDK
+# method names beside their declared `list_sort`/`list_generate`/
+# `list_filled`/`set_union`/`set_intersection`/`set_difference`). Each is its
+# own small investigation (declare it properly and regenerate
+# tests/conformance/std_coverage.json, or prove it unreachable and delete it)
+# that #817's scope did not cover — this file is what keeps that investigation
+# from being forced onto whoever touches this registry next, while still
+# making the debt visible and shrink-only.
+#
+# It is a RATCHET, not a dumping ground. The gate also fails when an entry is
+# now declared, or names a function the registry no longer registers, so the
+# list can only get SMALLER.
+dart_list_from
+dart_list_of
+difference
+filled
+fromEntries
+generate
+intersection
+list_add
+list_add_all
+list_every
+list_expand
+list_from
+list_of
+list_peek
+list_remove
+list_remove_last
+list_reversed
+list_skip
+list_sublist
+list_where
+map_add_all
+map_clear
+map_containsKey
+map_for_each
+map_fromEntries
+map_remove
+map_update
+set_add_all
+set_from
+sort
+string_to_lower_case
+string_to_upper_case
+timestamp_micros
+union

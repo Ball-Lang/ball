@@ -761,7 +761,6 @@ describe("registerExtraStdFunctions: string_*", () => {
     assert.equal(await h.call("string_code_unit_at", { value: "A", index: 0 }), 65);
     assert.equal(await h.call("string_char_code_at", { value: "A", index: 0 }), 65);
     assert.equal(await h.call("string_from_char_code", { value: 65 }), "A");
-    assert.equal(await h.call("string_from_char_codes", { codes: [72, 73] }), "HI");
     assert.equal(await h.call("string_replace", { value: "abc", from: "b", to: "X" }), "aXc");
     assert.equal(await h.call("string_replace_all", { value: "aXaXa", from: "X", to: "-" }), "a-a-a");
     assert.equal(await h.call("string_repeat", { value: "ab", count: 2 }), "abab");
@@ -1438,8 +1437,6 @@ describe("registerExtraStdFunctions: string_* fallback keys and branch edges", (
     assert.equal(await h.call("string_from_char_code", { code: 65 }), "A");
     assert.equal(await h.call("string_from_char_code", { arg0: 65 }), "A");
     assert.equal(await h.call("string_from_char_code", {}), "\0");
-    assert.equal(await h.call("string_from_char_codes", { list: [72, 73] }), "HI");
-    assert.equal(await h.call("string_from_char_codes", {}), "");
     assert.equal(await h.call("string_char_at", { string: "abc", arg0: 1 }), "b");
   });
 
@@ -1644,7 +1641,6 @@ describe("registerExtraStdFunctions: terminal default-fallback branches (no reco
   test("string_* helpers default to '' / NaN when neither 'value' nor 'string' is given", async () => {
     assert.ok(Number.isNaN(await h.call("string_code_unit_at", {})));
     assert.ok(Number.isNaN(await h.call("string_char_code_at", {})));
-    assert.deepEqual(await h.call("string_from_char_codes", {}), "");
     assert.equal(await h.call("string_replace", { pattern: "a", replacement: "b" }), "");
     assert.equal(await h.call("string_replace_all", { pattern: "a", replacement: "b" }), "");
     assert.deepEqual(await h.call("string_split", {}), []);
@@ -2164,11 +2160,6 @@ describe("registerExtraStdFunctions / MethodDispatchHandler: final fallback-arm 
     assert.deepEqual(await h.call("union", {}), new Set());
     assert.deepEqual(await h.call("intersection", {}), new Set());
     assert.deepEqual(await h.call("difference", {}), new Set());
-  });
-
-  test("string_from_char_codes: 'list' key and the non-array default", async () => {
-    assert.equal(await h.call("string_from_char_codes", { list: [72, 73] }), "HI");
-    assert.equal(await h.call("string_from_char_codes", { codes: 5 }), "");
   });
 
   test("string_replace/string_replace_all: default (empty) search/replacement when neither key is given", async () => {

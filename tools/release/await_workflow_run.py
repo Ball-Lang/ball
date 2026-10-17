@@ -13,7 +13,10 @@ signal was, once again, "the automation ran". That is the #551/#361 failure
 shape verbatim: every automated part reporting success while the channel ships
 nothing (PR #623's review, advisory B).
 
-So the dispatch is now awaited. The polling is the `resolve_published.py`
+So the dispatch is now awaited. Since #879 its one caller is
+`tools/release/finish_go_release.sh`, Phase 2 of `go-release.yml`, which
+replaced that `publishCmd` when the lane moved to release-via-PR; the call is
+the first usage line below. The polling is the `resolve_published.py`
 pattern — a bounded budget, a fixed interval, and a classification that can
 never mistake "I do not know yet" for "it worked":
 
@@ -38,10 +41,10 @@ never mistake "I do not know yet" for "it worked":
   * budget exhausted           -> FAIL, naming what it last saw.
 
 WHICH RUN IS "THE" RUN. The ref is the channel tag `go-modules/vX.Y.Z`, which
-semantic-release creates exactly once per release and which nothing else is ever
-dispatched on. Matching is done here, on `headBranch`, rather than through
-`gh run list --branch`, so a tag ref that the server-side filter treats
-differently from a branch cannot silently return an empty list forever.
+finish_go_release.sh creates exactly once per release and which no automation
+other than it ever dispatches on. Matching is done here, on `headBranch`, rather
+than through `gh run list --branch`, so a tag ref that the server-side filter
+treats differently from a branch cannot silently return an empty list forever.
 
 That is not enough on its own (#656). GitHub creates the dispatched run's row a
 few SECONDS after accepting the dispatch, so the first poll lands in a window
@@ -73,7 +76,7 @@ Usage:
   python3 tools/release/await_workflow_run.py --workflow tag-go-modules.yml --ref main
   python3 tools/release/await_workflow_run.py --self-test
 
-Env overrides (the release config passes none; they exist for a recovery re-run):
+Env overrides (finish_go_release.sh passes none; they exist for a recovery re-run):
   BALL_AWAIT_RUN_BUDGET_SECONDS    total polling budget   (default 1200 = 20 min)
   BALL_AWAIT_RUN_INTERVAL_SECONDS  delay between attempts (default 30)
 """
@@ -535,8 +538,8 @@ def _self_test() -> int:
         no("a success on another ref does not end the wait", f"code={code}")
 
     # ── the pre-dispatch baseline (#656) ──────────────────────────────────
-    # A workflow_dispatch run may ALREADY exist on the channel tag when the
-    # publishCmd dispatches: docs/RELEASE.md documents
+    # A workflow_dispatch run may ALREADY exist on the channel tag when
+    # finish_go_release.sh dispatches: docs/RELEASE.md documents
     # `gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z` as the manual
     # repair for a release whose tags never landed, and GitHub's re-run button
     # produces one too. GitHub creates the NEW run's row a few seconds AFTER

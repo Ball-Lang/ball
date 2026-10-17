@@ -343,8 +343,8 @@ inline const std::vector<std::string>& program_names() {
         "477_std_concurrency_handles",
         "478_setter_backing_store_disambiguation",
         "479_user_member_named_like_collection_accessor",
-        "480_iife_mutates_captured_local",
-        "481_as_expression_identity",
+        "481_iife_mutates_captured_local",
+        "482_as_expression_identity",
     };
     return names;
 }

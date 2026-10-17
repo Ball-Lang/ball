@@ -1647,13 +1647,19 @@ jobs:
       #
       # Merging the two: both gains start from the SAME ancestor value (298)
       # and touch disjoint fixtures (480 vs. 470 + nine others), so the merged
-      # tree should measure 298 + 1 + 10 = 309 — but per this repo's own "a
-      # floor is measured, never predicted" rule (the CSHARP_COMPILER_FLOOR
-      # precedent earlier in this same PR), the floor is left at the LOWER,
-      # already-proven value (299) until THIS merge's own run prints the real
-      # number, which then replaces this comment and value in a follow-up
-      # commit.
-      GO_COMPILER_FLOOR: "299"
+      # tree was predicted to measure 298 + 1 + 10 = 309 — and per this
+      # repo's own "a floor is measured, never predicted" rule, it was left at
+      # the lower, already-proven 299 until this merge's own run printed the
+      # real number. It did: `Results: 309 passed, 56 failed, 365 total`
+      # (run 39051551781, job 117452337046) — matching the prediction exactly,
+      # confirming no interaction between the two independent fixes. Raised
+      # to 309. (The one remaining new failure in that run's list,
+      # 89_tower_of_hanoi, is NOT this PR's: it already fails identically on
+      # origin/main's own green run at `ce874cf1` — job 117442337495,
+      # `Results: 308 passed, 56 failed, 364 total (floor: 308)` — a
+      # pre-existing top-level-variable compound-assignment gap this PR never
+      # touches.)
+      GO_COMPILER_FLOOR: "309"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

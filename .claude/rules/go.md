@@ -210,6 +210,20 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `Map.fromEntries` (`ballrt.MapFromEntries`) landed with it — 121's next blocker once it compiled.
   `go/compiler/list_foreach_test.go` compiles all three fixtures AND runs them against the goldens.
 
+- **`ballrt.MapFromEntries`'s key/value fallback treats a PRESENT-BUT-NULL field the same as an
+  ABSENT one, matching Dart's `??` exactly (#715).** The Dart reference engine's
+  `eMap['key'] ?? eMap['arg0']` (`engine_std.dart`) falls through to `arg0` whenever `key` reads
+  null — whether that is because the key is missing from the entry message or because it is
+  PRESENT and explicitly `null`. The Go runtime's `hasKey`-only check only did the former: a
+  present-but-nil `key` read `hasKey == true`, skipped the `arg0` fallback, and then the
+  `k == nil` guard silently DROPPED the whole entry — not reachable from any shape the Go
+  compiler/encoder currently emit, but a real cross-target divergence a future encoder/compiler
+  change (or a hand-authored `.ball.json`) could trigger silently. Fixed by checking `k == nil`
+  (not just `!hasKey`) before each fallback, mirrored for `value`/`arg1`.
+  `go/runtime/map_from_entries_test.go` is the guard — the shape is not producible from Go
+  source, so no conformance fixture can express it (same reason #740's `self`-keyed single-param
+  bag gap has no fixture either).
+
 - **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
   `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
   `dart/shared/lib/std_collections.dart` says ("Find first:
@@ -326,6 +340,54 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   never meet, and the bug bites every bodyless constructor with an initializer list, setter or no
   setter. Guard: `go/compiler/final_field_setter_test.go`, over fixture
   `472_initializer_list_field_with_setter`.
+
+- **A getter and its same-named setter get DISTINCT impl identifiers, and a property dispatches
+  through a dedicated per-NAME accessor mechanism — never the general per-short-name method
+  dispatcher (#813, fixture `470_setter_beside_final_field`).** A Dart `get celsius` and its
+  `set celsius(value)` carry the SAME Ball function name
+  (`main:Temperature.celsius`) — only `metadata.is_getter`/`is_setter` tells them apart — and Go
+  flattens every class member to one top-level func, so the pair used to collide on one
+  identifier: `memberImplName` had no setter-vs-getter suffix, so both compiled to
+  `Owner__member`, a DUPLICATE Go declaration caught only at `go build`/`go run` (never by
+  `gofmt`/`go/format`, since a duplicate top-level func is a type-check error, not a syntax one —
+  the compiled source *looked* fine). `memberImplName` now takes an `isSetter bool` and appends
+  `__set` for the setter — the Go sibling of C#'s `MemberImplName`'s `__set` suffix
+  (`csharp/compiler/src/Constructors.cs`), since C# hits the identical one-name-one-method
+  constraint. Two further silent-wrong-answer defects shared the same root and are fixed
+  together: the general dispatcher (`compileDispatcher`) used to receive a branch for BOTH the
+  getter and the setter under the same owner, so one was permanently dead code (an unreachable
+  duplicate `if __t == ... { return ... }`, whichever was added second); and `compileFieldAccess`
+  (a property READ) and `emitMutation`'s `"field"` case (a property WRITE) always lowered
+  straight to `ballrt.FieldGet`/`ballrt.FieldSet`, bypassing a class's own declared getter/setter
+  entirely — so a setter that validates or throws (470's does, over a `final` field) never ran.
+  Getters/setters are now EXCLUDED from the general dispatcher's `dispatch[short]` map entirely
+  (they are never reached that way — Dart has no `obj.property()` call syntax) and instead get a
+  dedicated per-property pair, `ballAccessorGet_<name>`/`ballAccessorSet_<name>`
+  (`compileAccessors` in `library.go`), resolved through the SAME `metadata.superclass` walk every
+  other class-hierarchy lookup here uses (`resolveAccessorImpl`/`accessorTargets`) — stopping the
+  moment a class declares its OWN plain field of that name, an ordinary Dart/OOP override
+  (470's `Plain extends Scaler` has its own `amount` field, so it must bypass Scaler's `*10`
+  setter entirely) — and falling back to a plain `ballrt.FieldGet`/`FieldSet` for any receiver
+  that resolves to neither. That fallback is exactly what every call site already emitted before
+  this existed, so routing a name some class exposes as a property is a strict superset — never a
+  silent change for any other receiver. The Go sibling of C#'s `csharp/compiler/src/Accessors.cs`
+  (including its own #461 "own field shadows inherited accessor" fix). `compileReference` also
+  routes an implicit-`this` BARE reference to a getter name through the same
+  `ballAccessorGet_<name>` dispatcher (checked before the existing method-tear-off branch) rather
+  than wrapping the getter's impl func as a callable value — Dart has no syntax to tear a getter
+  off, referencing it by name always invokes it immediately, and the receiver must still be
+  resolved DYNAMICALLY (a method inherited from an ancestor that reads an implicit-`this` property
+  by bare name must see a subclass's own shadowing field, exactly like an explicit `self.<name>`
+  would). Guards: `go/compiler/getter_setter_dispatch_test.go` (the build-level duplicate-symbol
+  pin, a full run of 470 against its golden, and a hand-built two-unrelated-classes-share-a-name
+  fixture proving the dispatcher branches by the ACTUAL receiver type rather than always taking
+  the first/only branch). **A separate, pre-existing, unrelated defect surfaced while writing
+  470's regression coverage and is NOT fixed by this change**: the general per-short-name method
+  dispatcher has no superclass fallback at all, so a plain (non-getter/setter) INHERITED method
+  call panics `no method '<name>' for <subclass>` even with zero accessors involved — reproduces
+  identically on a two-class, no-getter/no-setter fixture. Filed as **#890**; it is why
+  conformance fixture `432_shadowed_getter_setter_write` (which also calls an inherited method)
+  still cannot pass the Go compiler leg even after this fix.
 
 ### Encoder
 

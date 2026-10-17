@@ -77,7 +77,7 @@ func (c *Compiler) indexConstructors() {
 			if !ok {
 				continue
 			}
-			impl := memberImplName(ownerShort, m)
+			impl := memberImplName(ownerShort, m, false)
 			if m == unnamedCtorMember {
 				// Two reasons the unnamed constructor needs an impl of its own
 				// rather than the inline field map compileMessageCreation
@@ -112,9 +112,22 @@ func (c *Compiler) namedConstructorImpl(classShort, ctorShort string) (string, b
 	return impl, ok
 }
 
-// memberImplName is the impl func name for a class member (Owner__member).
-func memberImplName(ownerShort, member string) string {
-	return sanitize(ownerShort) + "__" + sanitize(member)
+// memberImplName is the impl func name for a class member: `Owner__member`,
+// or `Owner__member__set` for a setter (isSetter). A Dart `get celsius` and
+// its `set celsius(value)` carry the SAME Ball function name
+// (`main:Temperature.celsius`) — only metadata.is_getter/is_setter tells them
+// apart — and Go flattens every class member to one top-level func, so the
+// pair collided on one identifier (a duplicate Go declaration, caught only at
+// `go build`/`go run`, never by the formatter: issue #813, fixture
+// 470_setter_beside_final_field). The `__set` suffix is the Go sibling of
+// C#'s MemberImplName (csharp/compiler/src/Constructors.cs) — same reason,
+// since C# hits the identical one-name-one-method constraint.
+func memberImplName(ownerShort, member string, isSetter bool) string {
+	suffix := ""
+	if isSetter {
+		suffix = "__set"
+	}
+	return sanitize(ownerShort) + "__" + sanitize(member) + suffix
 }
 
 func (c *Compiler) unnamedConstructorImpl(typeName string) (string, bool) {
@@ -243,7 +256,9 @@ func (c *Compiler) compileClassMembers() string {
 				continue
 			}
 			short := sanitize(memberShort)
-			implName := memberImplName(typeShortName(owner), memberShort)
+			isGetter := metaBool(member.GetMetadata(), "is_getter")
+			isSetter := metaBool(member.GetMetadata(), "is_setter")
+			implName := memberImplName(typeShortName(owner), memberShort, isSetter)
 
 			if metaString(member.GetMetadata(), "kind") == "constructor" {
 				// A NAMED constructor always needs an impl: it is only ever
@@ -268,6 +283,21 @@ func (c *Compiler) compileClassMembers() string {
 			}
 			impls.WriteString(c.compileMethodImpl(implName, ownerTd, member))
 			impls.WriteString("\n")
+			if isGetter || isSetter {
+				// A getter/setter is reached only through fieldAccess/assign
+				// (compileFieldAccess / emitMutation) or an implicit-`this`
+				// bare reference (compileReference) — never through an
+				// ordinary `obj.name(args)` call — so it is dispatched by the
+				// dedicated per-PROPERTY accessor mechanism (compileAccessors)
+				// instead of this general per-short-NAME method dispatcher.
+				// That separation is required, not cosmetic: a getter and a
+				// setter of the SAME name need two DIFFERENT call shapes
+				// ({self} vs {self, value}), which one shared dispatcher slot
+				// cannot express — grouping them here produced a duplicated,
+				// permanently-dead `if __t == ...` branch under the same
+				// owner (issue #813).
+				continue
+			}
 			if _, seen := dispatch[short]; !seen {
 				dispatchOrder = append(dispatchOrder, short)
 			}
@@ -300,6 +330,192 @@ func (c *Compiler) compileDispatcher(short string, targets []struct{ owner, impl
 		fmt.Fprintf(&b, "\tpanic(ballrt.Thrown{Value: \"no method '%s' for \" + __t})\n", short)
 	}
 	b.WriteString("}\n")
+	return b.String()
+}
+
+// ── Property (getter/setter) accessor dispatch (issue #813) ────────────────
+//
+// A Dart `get celsius` and its `set celsius(value)` carry the SAME Ball
+// function name, so Go's general per-short-name method dispatcher
+// (compileDispatcher, above) cannot carry both — a getter's call shape is
+// `{self}`, a setter's is `{self, value}`, and one generated function cannot
+// answer to either shape depending on which arm happens to run first (that
+// was the duplicated, permanently-dead branch 470_setter_beside_final_field
+// exposed). A property is also never *called* — the IR reaches it as a
+// `field_access` (a read, compileFieldAccess), an `std.assign` whose target
+// is a `field_access` (a write, emitMutation's "field" case), or an
+// implicit-`this` bare `reference` from inside the declaring class
+// (compileReference) — so it needs its own dispatch keyed on the PROPERTY
+// NAME, resolving the receiver's run-time type through the SAME
+// metadata.superclass walk every other class-hierarchy lookup here uses, and
+// falling back to a plain ballrt.FieldGet/FieldSet for any receiver that is
+// NOT one of those classes (a map, a proto message, a core value, or a user
+// class that never declares the property at all). That fallback is exactly
+// what every one of those three call sites already emitted for a field
+// access before this existed, so routing a name some class exposes as a
+// property is a strict superset — never a silent change for any other
+// receiver. The Go sibling of C#'s csharp/compiler/src/Accessors.cs.
+
+// indexAccessors records every short member name some class declares as an
+// instance getter or setter — called once from newCompiler, before any
+// emission, so compileFieldAccess/emitMutation/compileReference can consult
+// it while compiling bodies that run EARLIER in program order than the class
+// that declares the accessor.
+func (c *Compiler) indexAccessors() {
+	for _, owner := range c.classMemberOrder {
+		// A member whose owner has no TypeDefinition gets no impl emitted (see
+		// compileClassMembers), so it can never be dispatched to.
+		if _, ok := c.typeDefsByShort[typeShortName(owner)]; !ok {
+			continue
+		}
+		for _, member := range c.classMembers[owner] {
+			if metaString(member.GetMetadata(), "kind") != "method" || metaBool(member.GetMetadata(), "is_static") {
+				continue
+			}
+			_, short, ok := splitMemberName(member.GetName())
+			if !ok {
+				continue
+			}
+			if metaBool(member.GetMetadata(), "is_getter") {
+				c.getterMembers[short] = true
+			} else if metaBool(member.GetMetadata(), "is_setter") {
+				c.setterMembers[short] = true
+			}
+		}
+	}
+}
+
+// accessorGetFuncName / accessorSetFuncName are the generated per-property
+// dispatcher names compileFieldAccess/emitMutation/compileReference call into.
+func accessorGetFuncName(member string) string { return "ballAccessorGet_" + sanitize(member) }
+func accessorSetFuncName(member string) string { return "ballAccessorSet_" + sanitize(member) }
+
+// resolveAccessorImpl returns the impl func an instance of td resolves the
+// getter (or setter) member to — found by walking td's metadata.superclass
+// chain so a subclass inherits its parent's property — or ("", false) when no
+// class in the chain declares it. A class that declares its OWN plain field
+// of this name SHADOWS any inherited accessor (ordinary Dart/OOP override
+// semantics: `class B extends A { int x = 5; }` over `A`'s `get x`), so the
+// walk stops there rather than running past it to an ancestor's accessor —
+// mirrors C#'s Accessors.cs ResolveAccessorImpl, including its #461 fix.
+func (c *Compiler) resolveAccessorImpl(td *ballv1.TypeDefinition, member string, setter bool) (string, bool) {
+	cur := td
+	for i := 0; i < 32; i++ {
+		for _, candidate := range c.classMembers[cur.GetName()] {
+			if metaString(candidate.GetMetadata(), "kind") != "method" || metaBool(candidate.GetMetadata(), "is_static") {
+				continue
+			}
+			_, short, ok := splitMemberName(candidate.GetName())
+			if !ok || short != member {
+				continue
+			}
+			key := "is_getter"
+			if setter {
+				key = "is_setter"
+			}
+			if !metaBool(candidate.GetMetadata(), key) {
+				continue
+			}
+			return memberImplName(typeShortName(cur.GetName()), member, setter), true
+		}
+		for _, f := range cur.GetDescriptor_().GetField() {
+			if f.GetName() == member {
+				return "", false
+			}
+		}
+		sup := c.superclassOf(cur)
+		if sup == "" {
+			return "", false
+		}
+		superTd, ok := c.typeDefsByShort[typeShortName(sup)]
+		if !ok {
+			return "", false
+		}
+		cur = superTd
+	}
+	return "", false
+}
+
+// accessorTargets lists every user type (declaration order) resolving the
+// property member, paired with the impl it resolves to.
+func (c *Compiler) accessorTargets(member string, setter bool) []struct{ owner, impl string } {
+	var targets []struct{ owner, impl string }
+	for _, m := range c.prog.GetModules() {
+		if c.baseModules[m.GetName()] || c.stubModules[m.GetName()] {
+			continue
+		}
+		for _, td := range m.GetTypeDefs() {
+			if td.GetDescriptor_() == nil {
+				continue
+			}
+			if impl, ok := c.resolveAccessorImpl(td, member, setter); ok {
+				targets = append(targets, struct{ owner, impl string }{td.GetName(), impl})
+			}
+		}
+	}
+	return targets
+}
+
+// compileAccessors emits, for every property name some class declares as a
+// getter or a setter, the dedicated dispatcher(s) compileFieldAccess/
+// emitMutation/compileReference call into. Empty when the program declares no
+// property.
+func (c *Compiler) compileAccessors() string {
+	names := map[string]bool{}
+	for n := range c.getterMembers {
+		names[n] = true
+	}
+	for n := range c.setterMembers {
+		names[n] = true
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	ordered := make([]string, 0, len(names))
+	for n := range names {
+		ordered = append(ordered, n)
+	}
+	sort.Strings(ordered)
+
+	var b strings.Builder
+	for _, member := range ordered {
+		if c.getterMembers[member] {
+			b.WriteString(c.compileGetterAccessor(member))
+		}
+		if c.setterMembers[member] {
+			b.WriteString(c.compileSetterAccessor(member))
+		}
+	}
+	return b.String()
+}
+
+// compileGetterAccessor is a property READ: invoke the resolved class's
+// getter impl with {self}, else read the field.
+func (c *Compiler) compileGetterAccessor(member string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "func %s(obj ballrt.Value) ballrt.Value {\n", accessorGetFuncName(member))
+	b.WriteString("\t__t := ballrt.ToStr(ballrt.MessageTypeName(obj))\n")
+	for _, t := range c.accessorTargets(member, false) {
+		fmt.Fprintf(&b, "\tif __t == %q || __t == %q { return %s(ballrt.WithSelf(ballrt.Value(nil), obj)) }\n", t.owner, typeShortName(t.owner), t.impl)
+	}
+	fmt.Fprintf(&b, "\treturn ballrt.FieldGet(obj, %q)\n", member)
+	b.WriteString("}\n\n")
+	return b.String()
+}
+
+// compileSetterAccessor is a property WRITE: invoke the resolved class's
+// setter impl with {self, arg0}, else write the field. The assigned value is
+// returned regardless (an assignment EXPRESSION evaluates to the assigned
+// value, even though a setter's own body yields something else or nothing).
+func (c *Compiler) compileSetterAccessor(member string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "func %s(obj, value ballrt.Value) ballrt.Value {\n", accessorSetFuncName(member))
+	b.WriteString("\t__t := ballrt.ToStr(ballrt.MessageTypeName(obj))\n")
+	for _, t := range c.accessorTargets(member, true) {
+		fmt.Fprintf(&b, "\tif __t == %q || __t == %q { %s(ballrt.Arg0WithSelf(value, obj)); return value }\n", t.owner, typeShortName(t.owner), t.impl)
+	}
+	fmt.Fprintf(&b, "\treturn ballrt.FieldSet(obj, %q, value)\n", member)
+	b.WriteString("}\n\n")
 	return b.String()
 }
 

@@ -181,9 +181,14 @@ for the authoritative member set).
   `'std'` for every std call, while the declared spelling reached the default
   arm. `ball_proto` is the one base module out of the population — it has no
   switch (`_compileBallProtoCall` lowers every name to `<receiver>.<name>()`).
-  Shape is not meaning, and these names are unreachable from the ENCODER, so
-  they can have no `tests/conformance/src/*.dart` fixture — nothing encodes to
-  `std_collections.list_zip`, which is why they stayed unimplemented.
+  Shape is not meaning, and most of these names are unreachable from the
+  ENCODER, so they can have no `tests/conformance/src/*.dart` fixture —
+  nothing encodes to `std_collections.list_zip`, which is why they stayed
+  unimplemented. `list_take`/`list_drop` are the pair that stopped being an
+  exception: #833 gave them an encoder route (`collectionRoutes`'s
+  `'take'`/`'skip'` entries) and fixture `tests/conformance/481_list_take_drop`
+  is their ordinary proof now, but they stay in the hand-authored list too —
+  see the next bullet.
   `dart/compiler/test/declared_base_call_equivalence_test.dart` is the
   behavioural half: ONE hand-authored Ball program, run on the reference engine
   AND through `dart run` over its compiled Dart, both pinned to the same
@@ -378,6 +383,24 @@ avoid constructs that need receiver-type info:
     compiler-side mirror of `check_encoder_completeness.dart`, and since **#654**
     its population is the DECLARED set with no exclusion — see the
     "closed set over the builders" bullet above.
+  - **`std_collections.list_take`/`list_drop` had NO ENCODER ROUTE at all
+    (#833)** — declared, compiler-lowered (`.take(n).toList()` /
+    `.skip(n).toList()`) and engine-implemented on every target, but
+    `collectionRoutes` had no `'take'`/`'skip'` entries, so no
+    `tests/conformance/src/*.dart` fixture could ever reach them — the
+    `list_zip`-style "unreachable from the encoder" gap, except this pair
+    IS encoder-reachable once routed (`list_zip`'s isn't; it has no Dart
+    syntax to route FROM at all). Added as `('std_collections', 'list_take'
+    /'list_drop', 'list', 1, 1)`, the same shape as `'map'`/`'where'`
+    immediately above; the renamed-`arg0` switch needed no new case, since
+    its `_ => 'value'` default already matches `engine_std.dart`'s
+    `m['value'] ?? m['index']` read. `Iterable.take`/`.skip` return a lazy
+    Iterable, not a `List`, so the fixture
+    (`tests/conformance/481_list_take_drop`) chains an explicit `.toList()`
+    — materializing on the native-`dart run` oracle side to agree with the
+    engine handlers, which already materialize inside `list_take`/`list_drop`
+    itself; that `.toList()` re-routes through the EXISTING `'toList'` entry,
+    landing on `list_to_list(list_take(...))` (redundant, not wrong).
 
   Still open, each with its own issue and its own measured repro:
   - `collection/lib/src/list_extensions.dart` — the compiler marks a

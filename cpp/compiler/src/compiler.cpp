@@ -12713,7 +12713,16 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_take") {
         auto list = get_message_field(call, "list");
-        auto count = get_message_field(call, "count");
+        // The encoder's collectionRoutes rename-to-"value" default packs the
+        // count operand under "value" (matching engine_std.dart's `m['value']
+        // ?? m['index']` read — #833); "count" is never the field the real
+        // encoder emits, and get_message_field() answers a null BallDyn() for
+        // an absent field, which _toInt-equivalent coercion reads as 0 — so
+        // `.take(n)` always ran as `.take(0)` here. Try "index" too, the same
+        // fallback spelling the Dart engine accepts.
+        auto* count_e = get_message_field_expr(call, "value");
+        if (!count_e) count_e = get_message_field_expr(call, "index");
+        auto count = count_e ? compile_expr(*count_e) : "BallDyn()";
         return "[](const BallDyn& v, int64_t n) -> BallDyn {"
                "BallList r;int64_t len=std::min(n,static_cast<int64_t>(v.size()));"
                "for(int64_t i=0;i<len;i++)r.push_back(std::any(v[i]));"
@@ -12722,7 +12731,10 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_drop") {
         auto list = get_message_field(call, "list");
-        auto count = get_message_field(call, "count");
+        // Same field-name fix as list_take above (#833).
+        auto* count_e = get_message_field_expr(call, "value");
+        if (!count_e) count_e = get_message_field_expr(call, "index");
+        auto count = count_e ? compile_expr(*count_e) : "BallDyn()";
         return "ball_skip(" + list + "," + count + ")";
     }
     if (fn == "list_to_list") {

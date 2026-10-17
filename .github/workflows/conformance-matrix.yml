@@ -1059,7 +1059,18 @@ jobs:
       # run printed `Results: 284 passed, 81 failed, 365 total (floor: 283)`
       # plus its own `IMPROVED` error (job 117425052451), so the floor raises
       # to 284 here, in the same PR, per this file's own rule.
-      CSHARP_COMPILER_FLOOR: "284"
+      #
+      # 285: THIS branch's own 480_list_take_drop fixture (#833, renumbered
+      # 481 once it collided with #829's own 480_extension_override_selection
+      # — see cpp/test/e2e_fixture_list.h's resolved conflict) is disjoint
+      # from every gain above and had already compiled cleanly on this leg at
+      # 284 passed / 365 total on this branch's own pre-this-merge run
+      # (39010580039, job 117333688193, which measured it at 284 against a
+      # pre-merge floor of 283). Merging that one more fixture onto the
+      # already-284 tree above predicts 285 at a corpus of 366 — a prediction
+      # this merge's own next CI run measures directly and this comment is
+      # corrected to match if it disagrees.
+      CSHARP_COMPILER_FLOOR: "285"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1134,7 +1145,7 @@ jobs:
       # NEVER lower this to turn a red build green — preventing exactly that is
       # the whole point of a ratchet. The job prints the exact new value when it
       # sees an improvement; raise it in the SAME PR as the fix that earned it.
-      CSHARP_ROUNDTRIP_FLOOR: "125"
+      CSHARP_ROUNDTRIP_FLOOR: "126"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1256,7 +1267,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
       # engine. NEVER lower this to turn a red build green; raise it in the SAME
       # PR as the fix that earned it (the job prints the exact new value).
-      PYTHON_ROUNDTRIP_FLOOR: "157"
+      PYTHON_ROUNDTRIP_FLOOR: "158"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1338,7 +1349,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      GO_ROUNDTRIP_FLOOR: "80"
+      GO_ROUNDTRIP_FLOOR: "81"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1607,7 +1618,17 @@ jobs:
       # #829, job 106262486121: `Results: 283 passed, 80 failed, 363 total`), never
       # predicted — the commit before it measured 282 with the call site already
       # right and the definition missing (E0433).
-      RUST_COMPILER_FLOOR: "283"
+      #
+      # 284: THIS branch's own 480_list_take_drop fixture (#833, renumbered 481
+      # once it collided with #829's own 480_extension_override_selection — see
+      # cpp/test/e2e_fixture_list.h's resolved conflict) is disjoint from the
+      # gain above and had already compiled cleanly on this leg, measured by
+      # THIS row's own pre-this-merge run at `Results: 283 passed, 82 failed,
+      # 365 total (floor: 282)` (run 39010580039, job 117333688189). Merging
+      # that one more fixture onto the 283-floor tree above predicts 284 at a
+      # corpus of 366 — a prediction this merge's own next CI run measures
+      # directly and this comment is corrected to match if it disagrees.
+      RUST_COMPILER_FLOOR: "284"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1701,7 +1722,19 @@ jobs:
       # `Results: 308 passed, 56 failed, 364 total (floor: 308)` — a
       # pre-existing top-level-variable compound-assignment gap this PR never
       # touches.)
-      GO_COMPILER_FLOOR: "309"
+      #
+      # 310: a THIRD lane's own gain merges on top of the 309 above — THIS
+      # branch's own 480_list_take_drop fixture (#833, renumbered 481 once it
+      # collided with #829's own 480_extension_override_selection — see
+      # cpp/test/e2e_fixture_list.h's resolved conflict), disjoint from both
+      # fixtures the 309 figure already accounts for. It had already compiled
+      # cleanly on this leg against this branch's own pre-merge tree (floor
+      # 298 at the time): `Results: 299 passed, 66 failed, 365 total (floor:
+      # 298)` on run 39010580039 (job 117333688272). Merging it onto the
+      # already-309 tree above predicts 310 at a corpus of 366 — a prediction
+      # this merge's own next CI run measures directly and this comment is
+      # corrected to match if it disagrees.
+      GO_COMPILER_FLOOR: "310"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1781,7 +1814,19 @@ jobs:
       # forward is 269 (265 + the one shared 3-fixture gain + #670's own 1),
       # not 265 + 3 + 3. If this merged tree's own run measures otherwise,
       # raise it to match — a floor is measured, never predicted.
-      PYTHON_COMPILER_FLOOR: "269"
+      #
+      # 270: a SECOND lane's own gain merges on top of the 269 above — THIS
+      # branch's own 480_list_take_drop fixture (#833, renumbered 481 once it
+      # collided with #829's own 480_extension_override_selection — see
+      # cpp/test/e2e_fixture_list.h's resolved conflict), disjoint from the
+      # fixture 269 already accounts for. It had already compiled cleanly on
+      # this leg against this branch's own pre-merge tree: `Results: 269
+      # passed, 96 failed, 365 total (floor: 268)` on run 39010580039 (job
+      # 117333688164). Merging it onto the already-269 tree above predicts
+      # 270 at a corpus of 366 — a prediction this merge's own next CI run
+      # measures directly and this comment is corrected to match if it
+      # disagrees.
+      PYTHON_COMPILER_FLOOR: "270"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

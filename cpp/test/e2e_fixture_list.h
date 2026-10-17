@@ -344,6 +344,7 @@ inline const std::vector<std::string>& program_names() {
         "478_setter_backing_store_disambiguation",
         "479_user_member_named_like_collection_accessor",
         "480_extension_override_selection",
+        "481_list_take_drop",
     };
     return names;
 }

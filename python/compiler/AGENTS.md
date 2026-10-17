@@ -109,7 +109,12 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
   `tests/declared_base_functions_known_gaps.txt`. A new undeclared name can never
   be added to that file — it exists only to freeze the six pre-existing,
   cross-target spellings (`for_each`, `parenthesized`, `null_aware_index`, …),
-  and it can only shrink.
+  and it can only shrink. The dispatch-site extraction is SHAPE-bound, not
+  NAME-bound (#827): a dispatcher's own name local is discovered by tracing an
+  assignment back to a `.get("function", ...)` read, not by requiring the
+  spelling `fn`, so a dispatcher that calls the result `name` (or anything
+  else) is found the same way; the fall-through dispatcher's delegated-module
+  set is pinned exactly rather than floored at `>= 2`.
 
 ## Status (Phases 2 + 4)
 

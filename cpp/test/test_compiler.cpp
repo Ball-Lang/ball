@@ -2296,10 +2296,20 @@ TEST(collections_list_slice_take_drop_concat_zip_join) {
         "ball_sublist(");
     ASSERT_CONTAINS(compile_program(build_program(
         coll("list_slice", {{"list", ref("a")}}))), "ball_sublist(");
+    // The real encoder packs the count operand under "value" (collectionRoutes'
+    // rename-to-"value" default, matching engine_std.dart's `m['value'] ??
+    // m['index']` read — #833); "index" is the documented fallback spelling.
+    // A stale "count" field name here used to mask list_take/list_drop always
+    // compiling as `.take(0)`/`.skip(0)` — see the compiler's own `fn ==
+    // "list_take"`/`"list_drop"` comment.
     ASSERT_CONTAINS(compile_program(build_program(
-        coll("list_take", {{"list", ref("a")}, {"count", lit_int(2)}}))), "std::min(n,");
+        coll("list_take", {{"list", ref("a")}, {"value", lit_int(2)}}))), "std::min(n,");
     ASSERT_CONTAINS(compile_program(build_program(
-        coll("list_drop", {{"list", ref("a")}, {"count", lit_int(2)}}))), "ball_skip(");
+        coll("list_drop", {{"list", ref("a")}, {"value", lit_int(2)}}))), "ball_skip(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_take", {{"list", ref("a")}, {"index", lit_int(2)}}))), "std::min(n,");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_drop", {{"list", ref("a")}, {"index", lit_int(2)}}))), "ball_skip(");
     ASSERT_CONTAINS(compile_program(build_program(
         coll("list_to_list", {{"list", ref("a")}}))), "ball_list_copy(");
     ASSERT_CONTAINS(compile_program(build_program(

@@ -346,6 +346,34 @@ const cases: Case[] = [
     body: std("list_sublist", { list: ref("l"), start: lit(1), end: lit(3) }),
     expect: [/l\.slice\(1, 3\)/],
   },
+  // list_take / list_drop (#833): declared, Dart-engine-implemented and
+  // compiler-lowered on every other target, but this compiler had NO case at
+  // all before — any program reaching it (including the self-hosted engine's
+  // OWN `list_take`/`list_drop` handlers, once dart/encoder routes their
+  // `.take`/`.skip` syntax through collectionRoutes) failed to compile with
+  // `std.list_take is not implemented`. The encoder's rename-to-"value"
+  // default packs the count operand under "value"; "index" is the documented
+  // fallback (matches engine_std.dart's `m['value'] ?? m['index']` read).
+  {
+    name: "listTakeValue",
+    body: std("list_take", { list: ref("l"), value: lit(3) }),
+    expect: [/l\.take\(3\)/],
+  },
+  {
+    name: "listTakeIndexFallback",
+    body: std("list_take", { list: ref("l"), index: lit(3) }),
+    expect: [/l\.take\(3\)/],
+  },
+  {
+    name: "listDropValue",
+    body: std("list_drop", { list: ref("l"), value: lit(2) }),
+    expect: [/l\.skip\(2\)/],
+  },
+  {
+    name: "listDropIndexFallback",
+    body: std("list_drop", { list: ref("l"), index: lit(2) }),
+    expect: [/l\.skip\(2\)/],
+  },
   // Map ops.
   {
     name: "mapContainsKey",
@@ -509,6 +537,8 @@ const cases: Case[] = [
   // (right/other/value → arg0/left), so this genuinely leaves `r` unresolved.
   { name: "listConcatMissing", body: std("list_concat", { list: ref("a") }), expect: [/return \[\];/] },
   { name: "listSliceMissing", body: std("list_sublist", { start: lit(0) }), expect: [/return \[\];/] },
+  { name: "listTakeMissing", body: std("list_take", { list: ref("l") }), expect: [/return \[\];/] },
+  { name: "listDropMissing", body: std("list_drop", { list: ref("l") }), expect: [/return \[\];/] },
   { name: "mapGet", body: std("map_get", { map: ref("m"), key: lit("k") }), expect: [/m\['k'\]/] },
   { name: "mapGetMissing", body: std("map_get", { map: ref("m") }), expect: [/return undefined;/] },
   { name: "mapSet", body: block([{ expression: std("map_set", { map: ref("m"), key: lit("k"), value: lit(1) }) }]), expect: [/__ball_require_map\(m, 'map_set'\)\['k'\] = 1/] },

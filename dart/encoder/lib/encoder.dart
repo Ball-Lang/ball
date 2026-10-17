@@ -4440,6 +4440,18 @@ class DartEncoder {
         'any': ('std_collections', 'list_any', 'list', 1, 1),
         'every': ('std_collections', 'list_all', 'list', 1, 1),
         'reduce': ('std_collections', 'list_reduce', 'list', 1, 1),
+        // `list_take`/`list_drop` are declared, compiler-lowered
+        // (`.take(n).toList()` / `.skip(n).toList()`) and engine-implemented,
+        // but had NO encoder route at all — unreachable from any Dart source,
+        // so no `tests/conformance/src/*.dart` fixture could ever exercise
+        // them (issue #833). `Iterable.take`/`.skip` return a lazy Iterable,
+        // not a List, so a source fixture must chain `.toList()` itself for
+        // the native-`dart run` oracle to agree with the materializing engine
+        // handlers; that chained `.toList()` re-routes through the existing
+        // `'toList'` entry above, onto `list_to_list(list_take(...))` —
+        // redundant but correct on every target.
+        'take': ('std_collections', 'list_take', 'list', 1, 1),
+        'skip': ('std_collections', 'list_drop', 'list', 1, 1),
         'containsKey': ('std_collections', 'map_contains_key', 'map', 1, 1),
         'containsValue': ('std_collections', 'map_contains_value', 'map', 1, 1),
         'putIfAbsent': ('std_collections', 'map_put_if_absent', 'map', 2, 2),

@@ -5665,6 +5665,24 @@ function __isUnknownFnError(e: any): boolean {
         const list = f.get("list") ?? f.get("value");
         return list ? `[...${this.expr(list)}].reverse()` : "[]";
       }
+      // Declared, Dart-engine-implemented and compiler-lowered on every other
+      // target, but this compiler had NO case at all until #833: the encoder's
+      // collectionRoutes rename-to-"value" default packs the count operand
+      // under "value" (matching engine_std.dart's `m['value'] ?? m['index']`
+      // read), with "index" the documented fallback spelling. `.take`/`.skip`
+      // are preamble.ts polyfills on Array.prototype (slice-based, so they
+      // already clamp like Dart's `Iterable.take`/`.skip`) — never emit a bare
+      // method name here without them, since plain JS arrays have neither.
+      case "list_take": {
+        const list = f.get("list");
+        const n = f.get("value") ?? f.get("index");
+        return list && n ? `${this.expr(list)}.take(${this.expr(n)})` : "[]";
+      }
+      case "list_drop": {
+        const list = f.get("list");
+        const n = f.get("value") ?? f.get("index");
+        return list && n ? `${this.expr(list)}.skip(${this.expr(n)})` : "[]";
+      }
       case "list_slice": case "list_sublist": {
         const list = f.get("list");
         // Use raw field list for start/end because the encoder may emit

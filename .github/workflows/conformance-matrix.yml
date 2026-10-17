@@ -1781,7 +1781,54 @@ jobs:
       # forward is 269 (265 + the one shared 3-fixture gain + #670's own 1),
       # not 265 + 3 + 3. If this merged tree's own run measures otherwise,
       # raise it to match — a floor is measured, never predicted.
-      PYTHON_COMPILER_FLOOR: "269"
+      #
+      # 269 above is `origin/main`'s own merged-and-verified number (#829 +
+      # #864). This branch's PRE-merge history separately reasoned through
+      # 268 -> 273 -> 276 -> 277 on an EARLIER, now-superseded base (#823/#824's
+      # 5-fixture yield, #892's 3-fixture yield, and this PR's own
+      # `481_continue_inside_switch_in_loop` — renumbered from 480 to resolve a
+      # collision with #829's `480_extension_override_selection`, merged to
+      # main in the meantime). That lineage is DISJOINT from #864's and from
+      # #829's `480_extension_override_selection` gap (unrelated: this branch's
+      # fixture fixes a switch/continue defect, #670's fixes an extension
+      # dispatch defect, and `480_extension_override_selection` is not in
+      # either SILENTLY-WRONG set below). 269 is carried forward here as the
+      # conservative floor — never guessed upward — specifically so THIS exact
+      # merged tree's own next CI run decides the true number: the gate fails
+      # loud with "IMPROVED to N, raise to N" if the merge's true count is
+      # higher, which is the correct and intended outcome. Raise it from that
+      # run's printed `Results:` line in the SAME PR, never predicted here.
+      #
+      # That next run (job 117481788390, run 39061933579) printed exactly
+      # that: `Results: 278 passed, 88 failed, 366 total (floor: 269)`, with
+      # the SILENTLY-WRONG line unchanged (`203_closure_in_loop,
+      # 229_closure_loop_var_semantics`), confirming no new silently-wrong
+      # fixture. 278 is that measured number, not a derived one — the exact
+      # per-fixture attribution of 269 -> 278 across this merge is not
+      # re-derived here; measure again rather than trust this arithmetic if
+      # it is ever in question.
+      PYTHON_COMPILER_FLOOR: "278"
+      # The CLOSED SET of fixtures the compiler currently compiles to a
+      # program that exits 0 and prints the WRONG answer (status `fail`,
+      # never `compile-error`/`error`) — issue #823/#824's priority, the
+      # issue-#55 class the aggregate `PYTHON_COMPILER_FLOOR` ratchet above
+      # cannot see on its own: it folds `compile-error`/`error`/`fail`
+      # together into one `failed` count, so a fixture moving FROM
+      # `compile-error` INTO `fail` (a real regression — a scope gap becoming
+      # a silent wrong answer) leaves `passed`/`failed` both unchanged. #824
+      # closed 5 of the original 8 (named above); this same PR additionally
+      # closes `432_shadowed_getter_setter_write`, `470_setter_beside_final_field`
+      # and `479_user_member_named_like_collection_accessor` (#892's own set,
+      # reasoned about in `PYTHON_COMPILER_FLOOR`'s comment above), leaving
+      # only two: `203_closure_in_loop` / `229_closure_loop_var_semantics` — a
+      # C-style-`for` loop var captured by Python's late-binding closure, so
+      # every closure sees the SAME cell, missing the per-iteration snapshot
+      # `for-in` already gets. This set can only SHRINK: remove a name here
+      # (and add it to `PROVEN`) in the PR that fixes it; a run naming any
+      # OTHER fixture is a fresh silently-wrong-output regression and must be
+      # fixed, never absorbed by widening this list. Tracking issue for the
+      # remaining 2: #892.
+      PYTHON_SILENTLY_WRONG_KNOWN: "203_closure_in_loop,229_closure_loop_var_semantics"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1803,6 +1850,29 @@ jobs:
           exit_code=$?
           set -e
           cat "$RUNNER_TEMP/compiler.log"
+
+          # The CLOSED SET of silently-wrong (status=fail) fixtures
+          # (#823/#824) — see PYTHON_SILENTLY_WRONG_KNOWN's own comment above
+          # for why the aggregate passed/failed ratchet below cannot see this
+          # move on its own. EXACT set equality, in both directions: a name
+          # leaving means someone fixed it and must also remove it here (and
+          # add it to PROVEN); a name entering — known or not — is a fresh
+          # regression. Runs BEFORE the floor script so a silent-wrong-output
+          # regression is named by this message even when the aggregate
+          # ratchet below would also fail the step.
+          wrong_line=$(grep -E '^SILENTLY-WRONG ' "$RUNNER_TEMP/compiler.log" | tail -1 || true)
+          if [ -z "$wrong_line" ]; then
+            echo "::error::The Python compiler leg printed no SILENTLY-WRONG line (issue #823/#824) — refusing to trust the silent-wrong-output roster"
+            exit 1
+          fi
+          actual_wrong=$(echo "$wrong_line" | sed -E 's/^SILENTLY-WRONG \(status=fail, [0-9]+\): //' \
+            | tr ',' '\n' | sed -e 's/^ *//' -e 's/ *$//' | grep -v '^(none)$' | sort | paste -sd, -)
+          expected_wrong=$(echo "$PYTHON_SILENTLY_WRONG_KNOWN" | tr ',' '\n' \
+            | sed -e 's/^ *//' -e 's/ *$//' | sort | paste -sd, -)
+          if [ "$actual_wrong" != "$expected_wrong" ]; then
+            echo "::error::Python compiler leg's silently-wrong (status=fail) fixture set changed (issue #823/#824). Expected [$expected_wrong], got [$actual_wrong]. A fixture LEAVING this set must be removed from PYTHON_SILENTLY_WRONG_KNOWN (and added to PROVEN in tests/test_conformance.py) in the same PR that fixed it; a fixture ENTERING it is a fresh silently-wrong-output regression — fix it, never widen this list to absorb it."
+            exit 1
+          fi
 
           # The parse, the positive floor and the RATCHET IN BOTH
           # DIRECTIONS live in one tested script (#792) — this row used

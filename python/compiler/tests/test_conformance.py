@@ -109,6 +109,83 @@ PROVEN = [
     "392_empty_set_literal",
     "459_set_add_remove_bool",
     "462_set_mutation_in_place",
+    # A named constructor's initializer list reading an INDEXED expression off
+    # one of its own parameters (`Point.fromList(List<double> coords) : x =
+    # coords[0], y = coords[1];`) — issue #824. `_lower_init` only recognised a
+    # bare-identifier initializer (`x = a`), a literal, or a zero-arg
+    # constructor call; `coords[0]` matched none of those and silently fell
+    # back to its "default to null" case, so `p3.toString()` printed
+    # `(null, null)` instead of `(1.5, 2.5)` — exit 0, wrong answer, never an
+    # error.
+    "112_named_constructors",
+    # `value is List<T>`/`Map<K,V>` must check every ELEMENT/ENTRY against the
+    # type argument, exactly like the Dart reference engine's `_typeMatches`
+    # (`engine_std.dart`) — issue #824. `ballrt.is_type` used to strip the
+    # generic argument entirely (`_base_type_name`) and match on the bare
+    # base type alone, so `[1, 2, 3] is List<String>` answered `true`: exit 0,
+    # wrong answer, never an error.
+    "180_generic_list_ops",
+    "181_generic_map_ops",
+    # The SAME generics-matching gap, on a user-declared generic CLASS
+    # (`Box<int>` vs `Box<String>`) — issue #824. The reference engine answers
+    # this from the constructed instance's own reified `__type_args__` tag
+    # (`main:Box.new`'s messageCreation carries it as a real field); the
+    # Python compiler dropped that field outright as purely cosmetic
+    # (`_SYNTH_FIELDS`), so every `Box<T>` instance answered `true` to
+    # `is Box<AnythingElse>`.
+    "167_generics_reified",
+    # A statement `switch` lowers to `if`/`elif`, and each case's explicit
+    # `break;` compiled unconditionally to `ballrt.brk("")` — issue #824. That
+    # is correct ONLY when the switch is not itself inside a loop: a switch
+    # INSIDE a `for`/`while` body let the case's own `break` escape straight
+    # into the ENCLOSING loop's break trap (the loop body is wrapped in
+    # `except ballrt.BallBreak`), ending the whole loop after the FIRST
+    # character instead of just the switch. Every other target compiles
+    # `std.switch` to a native `switch`, whose host language already treats a
+    # bare `break` as ending the switch and not an enclosing loop — Python has
+    # no such statement, so only this target needed to swallow it explicitly
+    # (mirroring the reference engine's own `_evalLazySwitch`, "consume an
+    # unlabeled break (switch break, not loop break)").
+    "150_state_machine",
+    # A subclass's own PLAIN field shadows an ANCESTOR's explicit getter+setter
+    # pair of the same name — `class B extends A { @override int x = 5; }`
+    # over `class A { get x; set x(v) {...} }` (issue #824/#892, mirroring the
+    # reference engine's `_trySetterDispatch`, #501). Python's native attribute
+    # protocol resolves a descriptor by walking the MRO from the instance's OWN
+    # class, which with no property of `B`'s own finds `A.x`'s FIRST — so every
+    # write silently ran the ancestor's setter and the read then saw that
+    # scaled value too: exit 0, wrong answer, never an error.
+    # `_shadow_backed_fields` synthesizes a TRIVIAL property/setter pair in the
+    # SUBCLASS itself over a private backing attribute, so Python's own MRO
+    # lookup finds it first (mirroring `_setter_backed_fields`'s answer to the
+    # sibling one-namespace collision, #695/#680's C++ precedent).
+    "432_shadowed_getter_setter_write",
+    # The other direction of the SAME collision (#664/#501/#824): a `final`
+    # field beside its own DECLARED setter must still run that setter (not
+    # silently overwrite the final field), while a NON-final field in a
+    # SUBCLASS shadowing an ancestor's getter+setter pair must still win
+    # verbatim (`432` above) — this fixture pins BOTH directions together so a
+    # fix for one cannot silently undo the other.
+    "470_setter_beside_final_field",
+    # `obj.runtimeType` must dispatch to a USER-DECLARED OVERRIDE getter before
+    # falling to the structural type-name fallback — issue #824/#787's family.
+    # `ballrt.getfield`'s `"runtimeType"` shortcut fired UNCONDITIONALLY, so a
+    # class overriding `Type get runtimeType => ...` (legal Dart) never got a
+    # chance to run: `g.runtimeType` answered the class's own structural name
+    # instead of the override's computed value — exit 0, wrong answer, never
+    # an error. The C++ compiler's `compile_field_access` has the identical
+    # by-name shortcut bug for this and five sibling names (#787); this is the
+    # Python runtime's own instance of that family, discovered here.
+    "479_user_member_named_like_collection_accessor",
+    # The COMPILER half of the #824 follow-up: a bare `continue` directly
+    # inside a switch `case`, nested in a `for` loop, targets the loop (legal
+    # Dart), never the switch — unlike a bare `break`, which ends only the
+    # switch. `_run_switch_case_body`'s trap names `BallBreak` only, so a
+    # raised `BallContinue` already sails through it untouched; this pins
+    # that the compiler keeps getting it right. The ENCODER's inverse of this
+    # same trap is the half that regressed (python/encoder's
+    # `_encode_switch_case_body`, pinned in `python/encoder/tests`).
+    "481_continue_inside_switch_in_loop",
 ]
 
 

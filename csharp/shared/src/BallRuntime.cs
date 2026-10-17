@@ -186,8 +186,11 @@ public static partial class BallRuntime
     /// in engine_std.dart): the explicit <see cref="BallThrow.TypeName"/> when the
     /// runtime synthesized a typed throw, else the payload's own type tag (a
     /// <see cref="BallMessage"/>'s type name or a <see cref="BallMap"/>'s
-    /// <c>__type__</c> entry), else the literal <c>Exception</c> — <c>std.throw</c>'s
-    /// own default for an untagged value.
+    /// <c>__type__</c> entry — falling back to the single-underscore
+    /// <c>__type</c> key when <c>__type__</c> is absent, <c>std.throw</c>'s own
+    /// two-key rule <c>valMap['__type__'] ?? valMap['__type']</c>, issue #823),
+    /// else the literal <c>Exception</c> — <c>std.throw</c>'s own default for an
+    /// untagged value.
     /// </summary>
     public static string ExceptionTypeName(BallThrow ex)
     {
@@ -200,6 +203,7 @@ public static partial class BallRuntime
         {
             BallMessage message => message.TypeName,
             BallMap map when map.Get("__type__") is { } tag => tag.ToString() ?? "Exception",
+            BallMap map when map.Get("__type") is { } tag => tag.ToString() ?? "Exception",
             _ => "Exception",
         };
     }

@@ -160,6 +160,144 @@ def test_ball_raw_map_answers_like_map():
     assert selfhost.is_type([1], "BallRawMap") is False
 
 
+def test_is_type_null_matches_any_nullable_type_including_a_generic_bound():
+    """A `None` value is assignable to any NULLABLE type (a trailing `?`) and
+    to `dynamic`/`Null`/`void`, regardless of the base type -- Dart's sound
+    null-safety rule, independent of whether the type string is simple or
+    generic (#824 follow-up regression).
+
+    #824's own generic-element recursion in `is_type` made this observable for
+    the self-hosted engine's OWN compiled source for the first time: Dart's
+    `target is Map<String, Object?>` (`engine.dart`'s `ballObjectSetField`,
+    where every Ball value is trivially `Object?`) recurses into
+    `is_type(v, "Object?")` for every entry, and a non-inherited instance's
+    `__super__` field is legitimately `None`. Stripping the `?` before a bare,
+    null-excluding `_BUILTIN["Object"]` lookup answered `False` the moment any
+    field was `None`, silently turning every `Map<String, Object?>` check
+    (and therefore every setter write through `ballObjectSetField`) into a
+    no-op on any object with no superclass -- the exact shape that made
+    `104_getter_setter`/`341_setter_param_binding`/`432_shadowed_getter_setter_write`/
+    `470_setter_beside_final_field`/`478_setter_backing_store_disambiguation`
+    silently stop persisting setter writes on the self-hosted Python engine.
+    """
+    from ballrt import selfhost
+
+    assert selfhost.is_type(None, "Object?") is True
+    assert selfhost.is_type(None, "int?") is True
+    assert selfhost.is_type(None, "String?") is True
+    assert selfhost.is_type(None, "dynamic") is True
+    assert selfhost.is_type(None, "Null") is True
+    assert selfhost.is_type(None, "void") is True
+    # A NON-nullable bound still excludes null (real Dart semantics).
+    assert selfhost.is_type(None, "Object") is False
+    assert selfhost.is_type(None, "int") is False
+    # The regression's actual shape: every entry of a `Map<String, Object?>`
+    # -- including a `None` value -- must satisfy the per-value bound.
+    temperature_like = {"__type__": "main:Temperature", "_celsius": 0.0, "__super__": None}
+    assert selfhost.is_type(temperature_like, "Map<String, Object?>") is True
+
+
+def test_is_type_iterable_and_untagged_user_generic_match_real_dart():
+    """Two more regressions #824's own generic rewrite introduced, both
+    distinct from the null-matching one above and both NEW silent wrong
+    answers against real `dart run` (the Python compiler leg's own oracle):
+
+    * `Iterable<T>` is a generic base too -- `[1,2,3] is Iterable<int>` and
+      `{'a','b'} is Iterable<String>` are `true` on real Dart, exactly like
+      `List<T>`/`Set<T>`. The rewrite only special-cased the three exact
+      names `List`/`Map`/`Set`, so every other generic base fell to the
+      user-object branch and answered `false` for a list/set that had never
+      been wrong before #824.
+    * A user instance with NO reified `__type_args__` tag -- a bare
+      `Box(42)`, whose `Box<int>` is Dart's own static inference and is
+      never captured by this encoder/compiler pair -- carries no evidence
+      either way, so `Box(42) is Box<int>` must still answer `true` (the
+      pre-#824 base-type-only answer, and real Dart's). The rewrite instead
+      demanded a tag before even checking the class name, so an untagged
+      instance answered `false` against ANY generic argument.
+
+    A REIFIED mismatch is unambiguous evidence and must still answer
+    `false` -- that is #824's own fix and this test does not relitigate it,
+    only pins that it still holds alongside the two fixes above.
+    """
+    from ballrt import selfhost
+
+    assert selfhost.is_type([1, 2, 3], "Iterable<int>") is True
+    assert selfhost.is_type([1, 2, "x"], "Iterable<int>") is False
+    assert selfhost.is_type(ballrt.BallSet(["a", "b"]), "Iterable<String>") is True
+    assert selfhost.is_type(ballrt.BallSet(["a", 1]), "Iterable<String>") is False
+
+    class Box:
+        def __init__(self, v):
+            self.v = v
+
+    untagged = Box(42)
+    assert selfhost.is_type(untagged, "Box<int>") is True
+    assert selfhost.is_type(untagged, "Box<String>") is True  # no evidence either way
+    assert selfhost.is_type("not a box", "Box<int>") is False  # class mismatch is unambiguous
+
+    reified_int = selfhost.with_type_args(Box(5), ["int"])
+    assert selfhost.is_type(reified_int, "Box<int>") is True
+    assert selfhost.is_type(reified_int, "Box<String>") is False  # #824's own fix, unchanged
+
+
+def test_is_type_element_check_defaults_to_true_for_unresolvable_type_arguments():
+    """PR #898 review, round 3: the element-wise recursion #824 added for
+    `List`/`Map`/`Set`/`Iterable` answered `false` whenever the element TYPE
+    ARGUMENT was something this function has no way to resolve at all -- a
+    Dart FUNCTION TYPE, a TYPEDEF alias (erased before this layer ever sees
+    it), or an SDK structural interface `_BUILTIN` does not enumerate. All
+    three are `true` on real `dart run` and were `true` on this function's
+    own pre-#824 answer (the generic argument was stripped and ignored
+    outright back then) -- #824's recursion was a NEW regression for exactly
+    these three shapes, the Python compiler leg's own oracle being real Dart,
+    not the reference engine (which shares this gap, tracked separately as
+    issue #916).
+
+    Dart source this pins (`dart run` prints `true` three times):
+
+        typedef Json = Map<String, dynamic>;
+        void main() {
+          final fs = <int Function(int)>[(int x) => x + 1];
+          final js = <Json>[{'a': 1}];
+          print(fs is List<int Function(int)>);
+          print(js is List<Json>);
+          print([1, 2] is List<Comparable>);
+        }
+    """
+    from ballrt import selfhost
+
+    fn = lambda x: x + 1  # noqa: E731 - stands in for the compiled closure
+    assert selfhost.is_type([fn], "List<int Function(int)>") is True
+    assert selfhost.is_type([{"a": 1}], "List<Json>") is True
+    assert selfhost.is_type([1, 2], "List<Comparable>") is True
+
+    # Not a blanket "always true": a BUILTIN element-type mismatch inside the
+    # exact same generic shape must still answer `false` (#824's own fix,
+    # unaffected -- "int"/"String" ARE in `_BUILTIN`, so they are resolved,
+    # not defaulted).
+    assert selfhost.is_type([1, "x"], "List<int>") is False
+
+    # Not a blanket "always true" for a REAL class mismatch either: a value
+    # that DOES carry its own declared Ball type identity (a `__type__`-tagged
+    # engine-shape dict, or a genuine compiled-class instance, mirroring the
+    # existing `is_type(value, "UnrelatedError")` contract) still answers
+    # `false` against an unrelated name, even when checked as a list element.
+    tagged_mismatch = {"__type__": "main:Box", "v": 1}
+    assert selfhost.is_type([tagged_mismatch], "List<Comparable>") is False
+
+    class Box:
+        def __init__(self, v):
+            self.v = v
+
+    assert selfhost.is_type([Box(1)], "List<Comparable>") is False
+
+    # A bare function-type signature is checked structurally against
+    # `callable`, not defaulted blindly -- a non-callable element still
+    # answers `false`.
+    assert selfhost.is_type([5], "List<int Function(int)>") is False
+
+
 def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
     """``ballrt.proto`` must answer ANY ``has<Field>`` the compiler emits (#570).
 

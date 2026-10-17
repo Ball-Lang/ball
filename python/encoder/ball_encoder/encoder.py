@@ -125,6 +125,9 @@ class _Encoder:
         # Names bound as parameters of the function currently being encoded — a
         # reassignment to one of these must not be hoisted (the prologue owns it).
         self._params: set[str] = set()
+        # Monotonic counter for synthesized labels (see `_fresh_label`) — needs
+        # no cross-call uniqueness, only uniqueness within this one `encode()`.
+        self._label_counter = 0
 
     # ── Entry point ──────────────────────────────────────────────────────────
 
@@ -582,6 +585,127 @@ class _Encoder:
                 and isinstance(guard.body[0], ast.Raise)
                 and guard.body[0].exc is None)
 
+    def _is_switch_case_break_trap(self, s: ast.Try) -> bool:
+        """``compiler._run_switch_case_body``'s statement-mode wrapping
+        (issue #824)::
+
+            try:
+                <case body>
+            except ballrt.BallBreak as _swbrk:
+                if _swbrk.label: raise
+
+        Unlike ``_is_loop_trap``, there is no paired ``BallContinue`` handler
+        and no trailing native ``break``: a switch arm has no loop of its own
+        to exit, so an unlabeled ``std.break`` just ends execution of the
+        body and falls through to whatever follows this `if`/`elif`/`else`
+        arm (``encode_if`` already walks the surrounding chain as ordinary
+        nested ``std.if``s — nothing here needs to reconstruct a
+        ``std.switch`` node). See ``_encode_switch_case_body`` for the
+        inverse — it is NOT ``std.do_while { condition: false }`` (a prior,
+        wrong, revision of this comment claimed a bare `continue` inside a
+        switch case is illegal Dart; it is not, whenever a loop encloses the
+        switch, and that shape swallows the continue along with the break).
+        """
+        if s.orelse or s.finalbody or len(s.handlers) != 1:
+            return False
+        handler = s.handlers[0]
+        if self._rt_attr(handler.type) != rt.FLOW_BREAK or not handler.name:
+            return False
+        return self._is_label_reraise(handler.body, handler.name)
+
+    def _fresh_label(self, prefix: str) -> str:
+        """A label this program's own source could never have spelled — the
+        double-underscore convention `dart/encoder` already uses for its own
+        synthetic names (`__nac_N`, `__nachain_N`)."""
+        n = self._label_counter
+        self._label_counter += 1
+        return f"{prefix}{n}"
+
+    def _unlabeled_brk_call(self, node: ast.expr) -> ast.Call | None:
+        """``node`` is exactly ``ballrt.brk("")`` (an UNLABELED
+        ``std.break``) — the one shape `_encode_switch_case_body` may
+        retarget. A labeled break already carries a real label of its own
+        and must never be touched: it re-raises out of the compiled trap
+        untouched today, and must keep doing exactly that."""
+        if (isinstance(node, ast.Call) and self._rt_attr(node.func) == "brk"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == ""):
+            return node
+        return None
+
+    def _find_unshielded_breaks(self, stmts: list[ast.stmt]) -> list[ast.Call]:
+        """Every unlabeled ``ballrt.brk("")`` call reachable from a switch
+        case's body WITHOUT crossing a construct that already catches
+        ``BallBreak`` on its own — a nested loop (``_is_loop_trap``) or a
+        nested switch case (this same shape, recursively). A break inside
+        one of those targets THAT construct, is already correctly scoped by
+        Python's own exception handling, and must never be retargeted to
+        this (outer) switch case's synthetic label."""
+        found: list[ast.Call] = []
+
+        def walk_stmts(body: list[ast.stmt]) -> None:
+            for stmt in body:
+                walk_stmt(stmt)
+
+        def walk_stmt(stmt: ast.stmt) -> None:
+            if isinstance(stmt, ast.Try):
+                if self._is_loop_trap(stmt) or self._is_switch_case_break_trap(stmt):
+                    return  # shielded: its OWN handler catches any break inside
+                walk_stmts(stmt.body)
+                for h in stmt.handlers:
+                    walk_stmts(h.body)
+                walk_stmts(stmt.orelse)
+                walk_stmts(stmt.finalbody)
+            elif isinstance(stmt, (ast.If, ast.While, ast.For, ast.With, ast.AsyncWith)):
+                walk_stmts(stmt.body)
+                walk_stmts(getattr(stmt, "orelse", []))
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                return  # a separate scope: its own break belongs to IT, never here
+            elif isinstance(stmt, ast.Expr):
+                call = self._unlabeled_brk_call(stmt.value)
+                if call is not None:
+                    found.append(call)
+
+        walk_stmts(stmts)
+        return found
+
+    def _encode_switch_case_body(self, stmts: list[ast.stmt]) -> list[dict]:
+        """Invert ``_is_switch_case_break_trap``'s wrapped body (issue #824
+        follow-up): an unlabeled ``std.break`` here must end the SWITCH and
+        nothing else, while a bare ``std.continue`` must propagate to
+        whatever loop actually encloses the switch — exactly as the compiled
+        Python does (the trap's ``except`` names only ``BallBreak``, so a
+        raised ``BallContinue`` sails straight through it, uncaught).
+
+        ``std.do_while { condition: false }`` gets the break half right but
+        ALSO intercepts that continue, because every Ball loop construct is
+        the only thing that swallows a bare continue at all — confirmed
+        against real `dart run`: a bare `continue` inside a switch `case` IS
+        legal Dart whenever a loop encloses the switch (it targets that
+        loop, never the switch), so a switch nested in a loop whose case
+        does `continue` would have that `do_while` silently swallow it and
+        fall through to the code after the switch instead of continuing the
+        loop. So this wraps the body in a ``std.labeled`` instead, with a
+        freshly synthesized label that ONLY an unlabeled break found here
+        (via `_find_unshielded_breaks`) gets retargeted to — `std.labeled`
+        only consumes a signal carrying ITS OWN label (`_evalLabeled`), so
+        every `continue` — labeled or not — sails through it exactly like it
+        sails through the real `except ballrt.BallBreak` trap today. When
+        there is no unlabeled break to swallow, there is nothing to catch
+        and the body is inlined exactly like `_is_return_wrapper`'s.
+        """
+        breaks = self._find_unshielded_breaks(stmts)
+        if not breaks:
+            return self.encode_stmts(stmts)
+        label = self._fresh_label("__switch_case_")
+        for brk in breaks:
+            brk.args[0] = ast.Constant(value=label)
+        return [b.expr_stmt(b.std_call("labeled", b.args_message(
+            ("label", b.string_lit(label)),
+            ("body", self.encode_block(stmts)),
+        )))]
+
     def _is_return_wrapper(self, s: ast.Try) -> bool:
         """``compiler.emit_body``::
 
@@ -607,7 +731,7 @@ class _Encoder:
                 and only.value.value.id == handler.name)
 
     def encode_try(self, s: ast.Try) -> list[dict]:
-        """One of the four ``try:`` lowerings, or a loud failure."""
+        """One of the five ``try:`` lowerings, or a loud failure."""
         if self._is_loop_trap(s):
             # `encode_stmts` intercepts a trap where it can still see whether
             # anything follows it, so this arm means a caller walked statements
@@ -616,6 +740,8 @@ class _Encoder:
                       "back in its enclosing block, where a C-style `for`'s update "
                       "is still visible")
             return []
+        if self._is_switch_case_break_trap(s):
+            return self._encode_switch_case_body(s.body)
         if self._is_return_wrapper(s):
             return self.encode_stmts(s.body)
         return [b.expr_stmt(self.encode_ball_try(s))]

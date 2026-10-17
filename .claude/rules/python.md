@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 365 passed,
-0 failed, 365 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 366 passed,
+0 failed, 366 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -223,6 +223,43 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `python/compiler/tests/test_final_field_setter.py` (including the negative control) and fixture
   `472_initializer_list_field_with_setter` in `test_conformance.py`'s `PROVEN` list.
 
+- **A subclass's own PLAIN field shadowing an ancestor's getter+setter PAIR also gets a
+  synthesized property (#824/#892).** `class Plain extends Scaler { @override int amount = 5; }`
+  over `class Scaler { get amount => _stored; set amount(v) { _stored = v * 10; } }` is legal Dart
+  because `Plain`'s own field accessors override BOTH of `Scaler`'s — a plain `plain.amount = 7`
+  must store `7` verbatim, never run the inherited scaling setter (mirroring the reference engine's
+  `_trySetterDispatch`, #501). Python's native attribute protocol instead resolves a descriptor by
+  walking the MRO from the instance's own class and taking the FIRST match, which with no property
+  of `Plain`'s own is `Scaler.amount`'s — so every write silently ran the ancestor's setter and the
+  read then saw that scaled value too: exit 0, wrong answer, never an error (fixtures
+  `432_shadowed_getter_setter_write`, `470_setter_beside_final_field`). `_shadow_backed_fields` is
+  the lowering, the sibling of `_setter_backed_fields` above for this COLLISION direction: a plain
+  field `short` declares (no getter/setter of its own) whose name matches an ancestor's FULL
+  getter+setter pair gets a trivial `@property`/`@x.setter` pair synthesized in `short` itself, over
+  a private `_ball_backing_<name>` attribute, so Python's own MRO lookup finds `short`'s descriptor
+  first. `_field_target` routes every `__init__`/factory assignment through the same backing
+  attribute for symmetry with `_setter_backed_fields` (though plain seeding would also be safe here,
+  since the synthesized setter just forwards to it). Scoped to a field the DECLARING class itself
+  leaves plain (no getter/setter of its own) that collides with an ancestor's COMPLETE pair — a
+  getter alone or a setter alone up the chain is a different shape left alone, and a field the class
+  gives its own getter/setter never reaches this path (`101_simple_class`/`104_getter_setter` are
+  unaffected). Fixtures `432_shadowed_getter_setter_write`/`470_setter_beside_final_field` are in
+  `test_conformance.py`'s `PROVEN` list.
+
+- **`obj.runtimeType` must defer to a receiver class's own declared OVERRIDE getter (#824/#787's
+  family).** `ballrt.getfield` (`python/runtime/ballrt/values.py`) special-cases the name
+  `"runtimeType"` as its very first check, and that shortcut fired UNCONDITIONALLY — even on a
+  class declaring `@override Type get runtimeType => stored.runtimeType;` (legal Dart), so
+  `g.runtimeType` silently answered the class's own structural type name instead of running the
+  override's computed value: exit 0, wrong answer, never an error (fixture
+  `479_user_member_named_like_collection_accessor`). The C++ compiler's `compile_field_access` has
+  the identical by-name shortcut bug for this and five sibling names (#787); this is the Python
+  RUNTIME's own instance of that family. The fix checks `getattr(type(obj), "runtimeType", None)`
+  for a `property` FIRST (a compiled class's own synthesized `@property`, found by walking the MRO
+  — a builtin Python type has no such attribute at all, so a plain value falls through unchanged)
+  and calls its `fget` before falling back to the structural `_runtime_type_name`. Fixture
+  `479_user_member_named_like_collection_accessor` is in `test_conformance.py`'s `PROVEN` list.
+
 - **Every hardcoded base-function dispatch name must be DECLARED, and a gate says so (#743).**
   Base functions are implemented here by name (`fn == "sink_write"`, `fn in table_2`,
   `str_1[fn]`), and nothing used to compare those names against the canonical builders. The `str_1`
@@ -300,7 +337,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 365 passed, 0 failed, 365 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 366 passed, 0 failed, 366 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -314,6 +351,71 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   silently answered `False` — every regex path in the compiled engine (`std.string_matches`, the
   engine's own `^arg\d+$` constructor-argument test) was dead in Python while every other target
   ran it. Pinned by `python/compiler/tests/test_runtime.py`.
+- **`ballrt.is_type` must treat `None` as matching ANY nullable type (`T?`), checked BEFORE the
+  generic-type branch (#824 follow-up regression).** Issue #824 taught `is_type` to check a generic
+  type's element/entry type arguments recursively instead of stripping them (`[1,2,3] is
+  List<String>` used to answer `true`) — correct for user-level checks, but it also made the
+  self-hosted engine's OWN compiled source newly observable for the first time: `engine.dart`'s
+  `ballObjectSetField` tests `target is Map<String, Object?>` (every Ball value is trivially
+  `Object?`, so Dart's own sound-null-safety rule makes that bound ALWAYS satisfied, including by
+  `None`), which now recurses into `is_type(v, "Object?")` for every entry — and a non-inherited
+  instance's `__super__` field is legitimately `None`. Stripping the `?` before the bare,
+  null-EXCLUDING `_BUILTIN["Object"]` lookup answered `False` the moment any field was `None`,
+  silently turning every such check — and therefore every setter write through
+  `ballObjectSetField` — into a no-op on any object with no superclass: `t.celsius = 100.0` simply
+  never persisted. `is_type` now returns `True` immediately for `None` when the type string is
+  `dynamic`/`Null`/`void` or ends in `?`, independent of whether it is simple or generic (a
+  NON-nullable bound like plain `Object`/`int` still excludes `None`, matching real Dart). Pinned by
+  `test_is_type_null_matches_any_nullable_type_including_a_generic_bound` in
+  `python/compiler/tests/test_runtime.py`.
+- **A class-name match with no reified `__type_args__` is NOT evidence of a mismatch, and
+  `Iterable<T>` is a generic base too (#824 follow-up regression #2, tracks the SAME family as
+  `dart/engine`'s own pre-existing `_typeMatches` bug, issue #916 — but is a real regression on
+  THIS target specifically, since the Python compiler leg is graded against real `dart run`, not
+  against the reference engine's own answer).** #824's generic-element rewrite only special-cased
+  the three exact base names `List`/`Map`/`Set`; any other generic base — `Iterable<T>` above all
+  — fell through to the user-object branch and answered `False` for a plain list/set, something
+  this base type had never gotten wrong before #824 (`[1,2,3] is Iterable<int>` and
+  `{'a','b'} is Iterable<String>` are `True` on real Dart). Separately, that same user-object branch
+  demanded a `__type_args__` tag before even checking the class name, so an instance constructed
+  with NO explicit generic argument — a bare `Box(42)`, whose `Box<int>` is Dart's own STATIC
+  inference and is never captured by this encoder/compiler pair — answered `False` against ANY
+  generic argument, including the true one (`Box(42) is Box<int>` must stay `True`, matching both
+  real Dart and this function's OWN pre-#824 answer; only a REIFIED mismatch, e.g.
+  `with_type_args(Box('x'), ['int']) is Box<String>`, is unambiguous evidence and still answers
+  `False` — #824's actual fix, untouched). `is_type` now: (1) element-checks `Iterable<T>` for a
+  `list`/`BallSet` exactly like `List<T>`/`Set<T>`; (2) checks the CLASS NAME first for a user
+  generic, returning `False` outright on a class mismatch, `True` on a class match with no tag at
+  all (no evidence either way), and the tag comparison only when one exists. Pinned by
+  `test_is_type_iterable_and_untagged_user_generic_match_real_dart` in
+  `python/compiler/tests/test_runtime.py`. No cross-target conformance fixture can pin this: the
+  Dart ENCODER never records an inferred construction's type argument either, and the REFERENCE
+  engine (and therefore every self-hosted engine compiled from it) shares bug #1 above — a `.dart`
+  fixture exercising `Iterable<T>` or an inferred generic would fail on every OTHER target today,
+  which is why #916 tracks fixing `_typeMatches` itself (and adding that fixture) as separate,
+  cross-cutting work out of this target's scope.
+- **An element type this function cannot RESOLVE at all is not evidence of a mismatch either
+  (#824 follow-up regression #3, PR #898 review round 3 — same #916 family, same "real `dart run`
+  is the oracle" reasoning as regression #2 above).** #824's element-wise recursion asks the FINAL
+  fallback (plain, non-generic name) to resolve every `List<T>`/`Map<K,V>`/`Set<T>`/`Iterable<T>`
+  element's type argument, and that fallback answered `False` for three shapes it has no way to
+  resolve: a Dart FUNCTION TYPE (`int Function(int)`), a TYPEDEF alias (`typedef Json = Map<String,
+  dynamic>;` leaves `is_type` nothing to resolve `"Json"` against — it is erased before this layer
+  ever sees it), and an SDK structural interface a core type satisfies but `_BUILTIN` does not
+  enumerate (`Comparable`, `Pattern`, ...). All three are `True` on real `dart run` and were `True`
+  on this function's own pre-#824 answer (the generic argument was stripped and ignored outright
+  back then), so #824's recursion was a NEW regression for exactly these shapes. `is_type` now
+  recognizes a function-type signature structurally (`_is_function_type_signature`, checked against
+  `callable(value)`) and, for any other unresolved name, answers `True` UNLESS `value` carries its
+  own declared Ball type identity to mismatch against (`_has_declared_identity` — a
+  `__type__`-tagged engine-shape dict, or a genuine compiled Ball class instance, never a bare
+  runtime primitive): a real class instance matched against an unrelated name still answers `False`
+  (the existing `is_type(value, "UnrelatedError")` contract, unchanged), but `[1, 2] is
+  List<Comparable>` and `<Json>[{'a': 1}] is List<Json>` now answer `True`. Pinned by
+  `test_is_type_element_check_defaults_to_true_for_unresolvable_type_arguments` in
+  `python/compiler/tests/test_runtime.py`; no cross-target conformance fixture can pin this for the
+  same reason regression #2's fixture gap applies — the reference engine shares the gap, tracked by
+  the same #916.
 - **Per-fixture timeout is a subprocess kill, not cooperative** (contrast Go): each fixture runs as
   its own killable `python -m ball_engine` subprocess with `subprocess.run(timeout=…)`, so a runaway
   is simply killed — a Python process is trivially killable, sidestepping the goroutine-leak problem
@@ -479,12 +581,45 @@ python -m conformance.runner                             # prints the CI-parseab
   `python-roundtrip` row runs on the DART engine — so the set fixtures are in
   `python/compiler/tests/test_conformance.py`'s `PROVEN` list, the only leg that compiles a
   conformance fixture to Python and runs it.
-  **The STATEMENT lowerings are shaped, not named.** A compiled Python `try:` is one of FOUR
+  **The STATEMENT lowerings are shaped, not named.** A compiled Python `try:` is one of FIVE
   things and only one is a Ball `std.try`: the loop-body `except ballrt.BallBreak`/`BallContinue`
   trap, the `except ballrt.BallReturn` function-body wrapper, that wrapper's value-less
-  constructor form, and `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop.
-  `encoder.encode_try`/`encode_while` recognise them; `ballrt_calls.py` holds only the class names
-  they match on (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
+  constructor form, `run_try`'s `except ballrt.BallThrow` + `ballrt.flow._caught` push/pop, and
+  (since #824) a statement `switch`'s per-case `except ballrt.BallBreak as _swbrk: if
+  _swbrk.label: raise` — unlike the loop trap, no paired `BallContinue` handler and no trailing
+  native `break`, since a switch arm has no loop of its own to exit. `encoder.encode_if` already
+  walks the surrounding `if`/`elif`/`else` chain as ordinary nested `std.if`s (it never tries to
+  reconstruct a `std.switch` node), so `_is_switch_case_break_trap` only needs to invert the ONE
+  wrapped `try:` itself. **Not** into `std.do_while { condition: false }` — a bare `continue`
+  directly inside a switch case is NOT illegal Dart (a prior revision of this doc, and of the
+  recognizer's own docstring, claimed it was): it is legal, and targets whatever LOOP encloses the
+  switch, whenever one does (confirmed against real `dart run`:
+  `for (i<3) { switch(i){ case 1: continue; default: out.add('d$i'); } out.add('after$i'); }`
+  prints `d0,after0,after1,d2,after2`, never ending the loop at `i==1`). A `do_while` swallows a
+  bare `continue` exactly like it swallows a bare `break` — every Ball loop construct does, that is
+  the whole point of `continue` — so wrapping the case body in one silently turned "continue the
+  enclosing loop" into "end the switch, fall through to the code after it", a regression this fix
+  closes. `_encode_switch_case_body` instead wraps the body in `std.labeled` with a label
+  synthesized on the spot, and relabels ONLY an unlabeled `ballrt.brk("")` found in the body
+  WITHOUT crossing a nested loop's or nested switch-case's own trap (`_find_unshielded_breaks` —
+  those are already correctly scoped to their own construct and must not be touched) to carry that
+  label; `std.labeled` only ever consumes a signal carrying its OWN label
+  (`dart/engine/lib/engine_control_flow.dart`'s `_evalLabeled`), so every `continue` — labeled or
+  not — sails straight through it, same as it already sails through the real
+  `except ballrt.BallBreak` trap. A body with no unlabeled break is inlined with no wrapper at
+  all, same as `_is_return_wrapper`'s. Fixture `147_complex_switch` pins the no-break shape in
+  `test_ballrt_inverse.py`'s `TRY_SHAPE_FIXTURES`; `python-roundtrip`'s floor caught this family as
+  five fixtures that went from passing to `encode-error` the moment the compiler started emitting
+  the switch-case trap at all (#824's own regression, closed in the same PR). The continue-inside-
+  a-switch-inside-a-loop shape (break AND continue in the same switch, so neither regresses the
+  other) is pinned by fixture `481_continue_inside_switch_in_loop`, in BOTH
+  `test_ballrt_inverse.py`'s `TRY_SHAPE_FIXTURES` (golden-exact) and its
+  `ROUND_TRIP_FIXTURES` (cross-checked against the real Dart reference engine via
+  `test_reference_engine_roundtrip.py`'s derived set). The labeled-wrap mechanism this needed
+  (`std.labeled` support in `python/compiler`, see `run_labeled` below) is new.
+  `encoder.encode_try`/`encode_while` recognise the other four; `ballrt_calls.py` holds only the
+  class names they match on
+  (`FLOW_BREAK`/`FLOW_CONTINUE`/`FLOW_RETURN`/`FLOW_THROW`, `FLOW_MODULE` +
   `CAUGHT_STACK`, `STACK_TRACE_OF`, `CATCH_MATCHES`), closed against `python/runtime` by its own
   test. Since #724 the `std.try` shape's handler may hold a typed DISPATCH CHAIN
   (`if`/`elif ballrt.catch_matches(_ex.value, "<Type>")`, the untyped clause as `else`, a trailing

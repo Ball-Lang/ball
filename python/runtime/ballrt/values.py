@@ -213,6 +213,26 @@ def _runtime_type_name(obj):
 
 def getfield(obj, name):
     if name == "runtimeType":
+        # A user class's own declared OVERRIDE (`@override Type get
+        # runtimeType => ...`) must win over the structural fallback below —
+        # the same precedence every other accessor on this function already
+        # gives a receiver's own field/getter (a dict's own key wins at line
+        # ~257, and the final `getattr` fallback reaches a `BallObject`'s own
+        # attribute). `emit_class` synthesizes `runtimeType` as a real
+        # `@property` only when a compiled class DECLARES one, so a plain
+        # builtin type's bare Python type (which has no such attribute at
+        # all) and a user class that never overrides it both fall straight
+        # through unchanged. Before this check, the shortcut below fired
+        # UNCONDITIONALLY, so `Computed().runtimeType` (overridden to return
+        # `stored.runtimeType`) silently answered the class's own structural
+        # name instead of running the override — fixture
+        # 479_user_member_named_like_collection_accessor, the Python runtime
+        # instance of the #787 family (the C++ compiler's own
+        # `compile_field_access` shortcut has the identical bug for this and
+        # five sibling names).
+        override = getattr(type(obj), "runtimeType", None)
+        if isinstance(override, property):
+            return override.fget(obj)
         return _runtime_type_name(obj)
     if obj is None:
         raise AttributeError(f"ball: field {name!r} on null")

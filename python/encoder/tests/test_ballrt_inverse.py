@@ -137,6 +137,10 @@ ROUND_TRIP_FIXTURES = [
     "380_is_not_type_check",
     # ballrt.getfield on a user object's field
     "262_getter_properties",
+    # the switch-case break trap's inverse, including the labeled-break
+    # retarget this fix adds -- cross-checked against the real Dart
+    # reference engine, not only the stored golden (issue #824 follow-up).
+    "481_continue_inside_switch_in_loop",
 ]
 
 
@@ -375,6 +379,13 @@ TRY_SHAPE_FIXTURES = [
     ("300_enc_catch_stack", "catch (e, st) — the stack_trace variable"),
     ("22_rethrow_preserves", "ballrt.rethrow() inside a catch"),
     ("245_exception_finally_order", "finally ordering across nested try"),
+    ("147_complex_switch", "a statement switch's per-case except ballrt.BallBreak "
+                           "trap (issue #824) -- no paired BallContinue handler "
+                           "and no trailing native break, unlike a loop's trap"),
+    ("481_continue_inside_switch_in_loop", "a bare continue inside a switch "
+                           "case, nested in a loop, targets the LOOP (legal "
+                           "Dart) -- the encoder's inverse must not swallow it "
+                           "the way std.do_while{condition:false} would"),
 ]
 
 

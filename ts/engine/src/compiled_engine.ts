@@ -1871,7 +1871,7 @@ export class BallEngine {
       if (__ball_gt(depth, this.maxExpressionDepth)) {
         throw new BallRuntimeError((((('Expression too deep: ' + __ball_to_string(depth)) + ' levels (max ') + __ball_to_string(this.maxExpressionDepth)) + ')'));
       }
-      do {
+      __sw0: {
         const __sw = whichExpr(current.expr);
         if ((__sw === Expression_Expr.call)) {
           let call = current.expr.call;
@@ -1903,7 +1903,7 @@ export class BallEngine {
         else if ((__sw === Expression_Expr.block)) {
           let block = current.expr.block;
           for (const statement of block.statements) {
-            do {
+            __sw1: {
               const __sw = whichStmt(statement);
               if ((__sw === Statement_Stmt.let)) {
                 let binding = statement.let;
@@ -1915,9 +1915,9 @@ export class BallEngine {
                 stack = (stack.push({ expr: statement.expression, depth: __ball_add(depth, 1) }), stack);
               }
               else if ((__sw === Statement_Stmt.notSet)) {
-                break;
+                break __sw1;
               }
-            } while (false);
+            }
           }
           if (hasResult(block)) {
             stack = (stack.push({ expr: block.result, depth: __ball_add(depth, 1) }), stack);
@@ -1930,9 +1930,9 @@ export class BallEngine {
           }
         }
         else if ((__sw === Expression_Expr.reference) || (__sw === Expression_Expr.notSet)) {
-          break;
+          break __sw0;
         }
-      } while (false);
+      }
     }
   }
 
@@ -3374,7 +3374,7 @@ export class BallEngine {
   async _evalCall(call: any, scope: any): Promise<any> {
     let moduleName = ((call.module.length === 0) ? this._currentModule : call.module);
     if (__ball_eq(moduleName, 'std')) {
-      do {
+      __sw2: {
         const __sw = call.function;
         if ((__sw === 'if')) {
           return this._evalLazyIf(call, scope);
@@ -3465,11 +3465,11 @@ export class BallEngine {
         else if ((__sw === 'map_create')) {
           return this._evalLazyMapCreate(call, scope);
         }
-      } while (false);
+      }
     }
     let input = (hasInput(call) ? await this._evalExpression(call.input, scope) : null);
     if ((call.module.length === 0)) {
-      do {
+      __sw3: {
         const __sw = call.function;
         if ((__sw === 'identical')) {
           let identicalMap = this._asMap(input);
@@ -3480,7 +3480,7 @@ export class BallEngine {
           }
           return false;
         }
-      } while (false);
+      }
     }
     if ((__ball_eq(call.module, 'std') || __ball_eq(call.module, 'std_collections'))) {
       return this._unwrapFuture(await this._callBaseFunction(call.module, call.function, input));
@@ -4003,7 +4003,7 @@ export class BallEngine {
     }
     if (this._isBallSet(object)) {
       let items = this._ballSetItems(object);
-      do {
+      __sw4: {
         const __sw = fieldName;
         if ((__sw === 'length')) {
           return items.length;
@@ -4035,7 +4035,7 @@ export class BallEngine {
           }
           return items.single;
         }
-      } while (false);
+      }
     }
     let objectMap = this._asMap(object);
     if ((!__ball_eq(objectMap, null) && __ball_eq(__ball_index(objectMap, '__type__'), '__builtin_class__'))) {
@@ -4110,7 +4110,7 @@ export class BallEngine {
       if (!__ball_eq(getterResult, _sentinel)) {
         return getterResult;
       }
-      do {
+      __sw5: {
         const __sw = fieldName;
         if ((__sw === 'keys')) {
           return [...objectMap.entries.map(((e) => {
@@ -4148,11 +4148,11 @@ export class BallEngine {
             return { ['key']: e.key, ['value']: e.value };
           }))];
         }
-      } while (false);
+      }
       throw new BallRuntimeError(((('Field "' + __ball_to_string(fieldName)) + '" not found. ') + ('Available: ' + __ball_to_string([...objectMap.keys]))));
     }
     let rawList = this._asList(object);
-    do {
+    __sw6: {
       const __sw = fieldName;
       if ((__sw === 'length')) {
         if ((typeof object === 'string')) {
@@ -4333,7 +4333,7 @@ export class BallEngine {
         }
         return 'Object';
       }
-    } while (false);
+    }
     throw new BallRuntimeError(((('Cannot access field "' + __ball_to_string(fieldName)) + '" on ') + __ball_to_string(((__ball_eq(object, null) ? null : object.runtimeType) ?? 'null'))));
   }
 
@@ -5084,7 +5084,7 @@ export class BallEngine {
   }
 
   async _evalStatement(stmt: any, scope: any): Promise<any> {
-    do {
+    __sw7: {
       const __sw = whichStmt(stmt);
       if ((__sw === Statement_Stmt.let)) {
         let letValue = stmt.let.value;
@@ -5120,7 +5120,7 @@ export class BallEngine {
       else if ((__sw === Statement_Stmt.notSet)) {
         return null;
       }
-    } while (false);
+    }
   }
 
   _evalLambda(func: any, scope: any): any {
@@ -6716,7 +6716,7 @@ export class BallEngine {
     }
     if (_ballValueIsSet(unwrappedSelf)) {
       let items = this._ballSetItems(unwrappedSelf);
-      do {
+      __sw8: {
         const __sw = method;
         if ((__sw === 'add')) {
           if (items.includes(arg0)) {
@@ -6779,7 +6779,7 @@ export class BallEngine {
         else {
           return this._dispatchBuiltinInstanceMethod(items, method, input);
         }
-      } while (false);
+      }
     }
     if (Array.isArray(unwrappedSelf)) {
       let self = unwrappedSelf;
@@ -6787,7 +6787,7 @@ export class BallEngine {
         const input = result;
         return (wasBallList ? result : result);
       });
-      do {
+      __sw9: {
         const __sw = method;
         if ((__sw === 'length')) {
           return self.length;
@@ -7092,12 +7092,12 @@ export class BallEngine {
           let other3 = (false /* BallList is List in TS */ ? arg0.items : ((Array.isArray(arg0) ? arg0 : [])));
           return _wrapList((() => { const __r: any[] = []; for (const __e of self) { __r.push(__e); } for (const __e of other3) { __r.push(__e); } return __r; })());
         }
-      } while (false);
+      }
     }
     if ((unwrappedSelf instanceof Set)) {
       let self = unwrappedSelf;
       let selfList = [...self];
-      do {
+      __sw10: {
         const __sw = method;
         if ((__sw === 'union')) {
           let otherU = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
@@ -7184,11 +7184,11 @@ export class BallEngine {
           }
           return self;
         }
-      } while (false);
+      }
     }
     if ((typeof unwrappedSelf === 'string')) {
       let self = unwrappedSelf;
-      do {
+      __sw11: {
         const __sw = method;
         if ((__sw === 'contains')) {
           return self.includes(__ball_to_string(arg0));
@@ -7298,11 +7298,11 @@ export class BallEngine {
         else if ((__sw === 'compareTo')) {
           return (self < __ball_to_string(arg0) ? -1 : self > __ball_to_string(arg0) ? 1 : 0);
         }
-      } while (false);
+      }
     }
     if ((typeof unwrappedSelf === 'number' || unwrappedSelf instanceof BallDouble)) {
       let self = unwrappedSelf;
-      do {
+      __sw12: {
         const __sw = method;
         if ((__sw === 'toDouble')) {
           return _ballToDouble(self);
@@ -7340,13 +7340,13 @@ export class BallEngine {
         else if ((__sw === 'remainder')) {
           return self.remainder(this._toNum(arg0));
         }
-      } while (false);
+      }
     }
     let selfMap = this._cfAsMap(self);
     if ((!__ball_eq(selfMap, null) && __ball_map_has(selfMap, 'map_contains_key', '__type__'))) {
       let typeName = __ball_index(selfMap, '__type__');
       if ((!__ball_eq(typeName, null) && ((__ball_eq(typeName, _kBallSinkTag) || typeName.endsWith(':StringBuffer')) || __ball_eq(typeName, 'StringBuffer')))) {
-        do {
+        __sw13: {
           const __sw = method;
           if ((__sw === 'write')) {
             selfMap['__buffer__'] = __ball_add((__ball_index(selfMap, '__buffer__') ?? ''), await this._ballToStringAsync(arg0));
@@ -7370,7 +7370,7 @@ export class BallEngine {
           else if ((__sw === 'length')) {
             return (__ball_index(selfMap, '__buffer__') ?? '').length;
           }
-        } while (false);
+        }
       }
       if (__ball_eq(method, 'toString')) {
         return await this._ballToStringAsync(self);
@@ -7495,7 +7495,7 @@ export class BallEngine {
   }
 
   async _dispatchBuiltinClassMethod(className: any, method: any, args: any): Promise<any> {
-    do {
+    __sw14: {
       const __sw = ((__ball_to_string(className) + '.') + __ball_to_string(method));
       if ((__sw === 'List.generate')) {
         let count = (__ball_index(args, 'arg0') ?? __ball_index(args, 'count'));
@@ -7532,7 +7532,7 @@ export class BallEngine {
       else {
         return _sentinel;
       }
-    } while (false);
+    }
   }
 
   async _callBaseFunction(module: any, function_: any, input: any): Promise<any> {
@@ -9865,7 +9865,7 @@ export class BallEngine {
 
   _matchStructuredPattern(value: any, pattern: any, bindings: any): any {
     let kind = this._patternKind(pattern);
-    do {
+    __sw15: {
       const __sw = kind;
       if ((__sw === 'type_test')) {
         let typeName = __ball_index(pattern, 'type');
@@ -10057,7 +10057,7 @@ export class BallEngine {
         }
         return false;
       }
-    } while (false);
+    }
   }
 
   _patternKind(pattern: any): any {

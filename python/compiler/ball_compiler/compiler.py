@@ -52,6 +52,7 @@ _EXPR_KINDS = ("call", "literal", "reference", "fieldAccess", "messageCreation",
 # both the run() dispatch and the value()-position "needs hoisting" test.
 _CONTROL_HOIST = {
     "if", "for", "while", "for_in", "for_each", "do_while", "switch", "switch_expr", "try",
+    "labeled",
 }
 _INCDEC = {"pre_increment", "post_increment", "pre_decrement", "post_decrement"}
 _FLOW = {"return", "break", "continue", "throw", "rethrow"}
@@ -198,6 +199,10 @@ class Compiler:
         self.instance_fields: dict[str, list[str]] = {}
         # class short name -> {final field with a same-named setter: backing attr}
         self._setter_backed: dict[str, dict[str, str]] = {}
+        # class short name -> {own plain field shadowing an ANCESTOR's
+        # getter+setter pair of the same name: backing attr} (issue #824,
+        # see `_shadow_backed_fields`)
+        self._shadow_backed: dict[str, dict[str, str]] = {}
 
         for m in self.prog.get("modules", []):
             fns = m.get("functions", [])
@@ -518,6 +523,11 @@ class Compiler:
         # has a property to decorate.
         setter_backed = self._setter_backed_fields(short)
         getter_names |= {sanitize(f) for f in setter_backed}
+        # A plain field that shadows an ancestor's getter+setter pair of the
+        # same name (see _shadow_backed_fields) needs its OWN trivial pair
+        # synthesized too, so Python's MRO-based attribute lookup finds
+        # `short`'s own descriptor before the ancestor's.
+        shadow_backed = self._shadow_backed_fields(short)
         has_tostring = any(_member_short(m.get("name", "")) == "toString" for m in members)
         # Emit real Python inheritance only when the superclass is another user
         # class we emit; a runtime base type (BallValue/BallMap …) is not a
@@ -540,6 +550,21 @@ class Compiler:
                 self.line(f"def {sanitize(fld)}(self):")
                 with self.block():
                     self.line(f"return self.{backing}")
+                self.line("")
+            # A shadow-backed field's pair is entirely synthesized (#824):
+            # `short` declares no getter/setter of its own for it at all, so
+            # both halves come from here, never from the member loop below.
+            for fld, backing in shadow_backed.items():
+                sf = sanitize(fld)
+                self.line("@property")
+                self.line(f"def {sf}(self):")
+                with self.block():
+                    self.line(f"return self.{backing}")
+                self.line("")
+                self.line(f"@{sf}.setter")
+                self.line(f"def {sf}(self, value):")
+                with self.block():
+                    self.line(f"self.{backing} = value")
                 self.line("")
             for m in members:
                 meta = m.get("metadata", {}) or {}
@@ -619,14 +644,82 @@ class Compiler:
         self._setter_backed[short] = out
         return out
 
+    def _shadow_backed_fields(self, short: str) -> dict[str, str]:
+        """``short``'s own PLAIN fields (no getter/setter of their own) that
+        shadow an ANCESTOR class's explicit getter+setter PAIR of the same
+        name, mapped to a private backing attribute — ``class Plain extends
+        Scaler { @override int amount = 5; }`` over ``class Scaler { get
+        amount => _stored; set amount(v) { _stored = v * 10; } }`` (issue
+        #824, conformance ``470_setter_beside_final_field``'s second half).
+
+        Dart's actual rule (``engine_control_flow.dart``'s
+        ``_trySetterDispatch``, #501): a field the instance declares ITSELF
+        shadows any accessor of the same name declared further up the class
+        hierarchy — ``Plain``'s own implicit field accessors override BOTH of
+        ``Scaler``'s, so ``plain.amount = 7`` must store `7` verbatim, never
+        run the inherited scaling setter. Python's native attribute protocol
+        instead resolves a descriptor by walking the MRO from the instance's
+        OWN class and picking the FIRST match — which, with no property of
+        its own, is ``Scaler.amount``'s — so every write silently ran the
+        ancestor's setter. The fix mirrors ``_setter_backed_fields``'s answer
+        to the sibling one-namespace collision (#695/#680's C++ precedent):
+        synthesize a TRIVIAL ``@property``/``@x.setter`` pair in ``short``
+        itself, over a private backing attribute, so Python's own MRO lookup
+        finds ``short``'s own descriptor first.
+
+        Scoped to a field ``short`` declares as PLAIN (no getter/setter of
+        its own) that collides with an ancestor's FULL pair — a getter alone,
+        or a setter alone, up the chain is a different shape this leaves
+        alone, and a field ``short`` gives its own getter/setter never reaches
+        here at all (that shape is already legal dispatch).
+        """
+        cached = self._shadow_backed.get(short)
+        if cached is not None:
+            return cached
+        own_members = self.class_members.get(short, [])
+        own_accessor_names = {
+            _member_short(m.get("name", ""))
+            for m in own_members
+            if (m.get("metadata", {}) or {}).get("is_getter")
+            or (m.get("metadata", {}) or {}).get("is_setter")
+        }
+        out: dict[str, str] = {}
+        for field in self._all_field_names(short):
+            if field in own_accessor_names:
+                continue
+            ancestor = self.extends.get(short)
+            while ancestor:
+                amembers = self.class_members.get(ancestor, [])
+                a_getters = {_member_short(m.get("name", "")) for m in amembers
+                            if (m.get("metadata", {}) or {}).get("is_getter")}
+                a_setters = {_member_short(m.get("name", "")) for m in amembers
+                            if (m.get("metadata", {}) or {}).get("is_setter")}
+                if field in a_getters and field in a_setters:
+                    out[field] = f"_ball_backing_{sanitize(field)}"
+                    break
+                if field in a_getters or field in a_setters:
+                    # Only HALF a pair up there — not the shape this guard
+                    # targets; stop so a coincidental further-up match cannot
+                    # silently apply instead.
+                    break
+                ancestor = self.extends.get(ancestor)
+        self._shadow_backed[short] = out
+        return out
+
     def _field_target(self, short: str, field: str) -> str:
         """The attribute an ``__init__``/factory assignment for ``field`` writes.
 
         A setter-backed field must be seeded through its BACKING attribute:
         ``self.windowSize = end`` would run the declared setter, which for the
-        ``ListSlice`` shape throws.
+        ``ListSlice`` shape throws. A shadow-backed field (#824) is seeded the
+        same way for symmetry, though it would also be safe to seed plainly —
+        the synthesized property it gets in :meth:`emit_class` just writes
+        straight through to the same backing attribute either way.
         """
-        return f"self.{self._setter_backed_fields(short).get(field, field)}"
+        backing = (self._setter_backed_fields(short).get(field)
+                  or self._shadow_backed_fields(short).get(field)
+                  or field)
+        return f"self.{backing}"
 
     def _all_field_names(self, short: str) -> list[str]:
         """Every declared field of a class (descriptor + metadata + this-params)."""
@@ -742,6 +835,18 @@ class Compiler:
                 return local
             if s in self.top_var_names or s in self.user_funcs or sanitize(s) in self.user_funcs:
                 return sanitize(s)
+        # An indexed initializer off a bound local (issue #824): a named
+        # constructor's initializer list reading one of its OWN parameters by
+        # index (`Point.fromList(List<double> coords) : x = coords[0], y =
+        # coords[1];`). Falling through to the "default to null" case below
+        # silently dropped both fields (exit 0, wrong answer: `(null, null)`
+        # instead of `(1.5, 2.5)`).
+        indexed = re.fullmatch(r"([A-Za-z_]\w*)\[(-?\d+)\]", s)
+        if indexed:
+            ident, idx = indexed.group(1), indexed.group(2)
+            local = self.lookup(ident)
+            if local:
+                return f"ballrt.index_get({local}, {idx})"
         # A zero-arg constructor initializer (`_Scope()` / `StringBuffer()`).
         ctor = re.fullmatch(r"([A-Za-z_]\w*)\(\)", s)
         if ctor:
@@ -988,6 +1093,8 @@ class Compiler:
                     return self.run_switch(call, dest)
                 if fn == "try":
                     return self.run_try(call, dest)
+                if fn == "labeled":
+                    return self.run_labeled(call, dest)
                 if fn in _FLOW:
                     self.line(self.base_flow_expr(call))
                     return
@@ -1158,6 +1265,75 @@ class Compiler:
         if dest[0] != "discard":
             self.dispatch(dest, "None")
 
+    #: `std.labeled`'s `body` shapes this compiler can tell are a LOOP (a
+    #: direct loop call, or the block-of-one shape `dart/encoder`'s own
+    #: `LabeledStatement` emission produces). A labeled LOOP needs its break/
+    #: continue trap to compare against the label (never built here — see
+    #: `run_labeled`'s docstring), unlike a labeled PLAIN block/statement,
+    #: which only ever needs to catch a BREAK naming it.
+    _LOOP_FNS = frozenset({"for", "while", "for_in", "for_each", "do_while"})
+
+    def _labeled_body_is_loop(self, body) -> bool:
+        if _which(body) == "call" and body["call"].get("function") in self._LOOP_FNS:
+            return True
+        if _which(body) == "block":
+            stmts = body["block"].get("statements", [])
+            if (len(stmts) == 1 and "expression" in stmts[0]
+                    and _which(stmts[0]["expression"]) == "call"
+                    and stmts[0]["expression"]["call"].get("function") in self._LOOP_FNS):
+                return True
+        return False
+
+    def run_labeled(self, call, dest):
+        """``std.labeled {label, body}`` — a labelled statement (issue #824
+        follow-up).
+
+        A labeled LOOP (``outer: for (...) { ... break outer; }``) needs its
+        break/continue trap to compare the signal's label against this one
+        (continuing/breaking the loop on a match, re-raising past it
+        otherwise) and is a still-open gap (see `python/compiler/AGENTS.md`'s
+        "labeled break" status line) — fixing it needs the SAME label
+        threaded through `_loop_body`'s existing (today always-empty) label
+        parameter, which is out of this fix's scope.
+
+        A labeled PLAIN block/statement, with no loop of its own, is a
+        narrower and already-closed problem: the engine's own `_evalLabeled`
+        (`dart/engine/lib/engine_control_flow.dart`) only ever consumes a
+        break/continue signal carrying EXACTLY this label, leaving every
+        other signal — including every unlabeled one — to sail straight
+        through untouched. The one producer of this shape today,
+        `python/encoder`'s `_encode_switch_case_body`, only ever emits an
+        unlabeled-switch-case-break retargeted to carry this label, so a
+        plain `try/except BallBreak` comparing the label is the whole
+        inverse this compiler needs; it never needs to catch `BallContinue`,
+        because a non-loop label can never legally be the target of a bare
+        Dart `continue` in the first place.
+        """
+        f = self.fields(call)
+        label = self.str_field(f, "label")
+        body = f.get("body")
+        if body is None:
+            if dest[0] != "discard":
+                self.dispatch(dest, "None")
+            return
+        if self._labeled_body_is_loop(body):
+            self.fail("std.labeled wrapping a loop (a labeled for/while/"
+                       "for_in/do_while) is not supported -- only a labeled "
+                       "PLAIN block, consuming a break aimed at its own "
+                       "label, is")
+            return
+        self.line("try:")
+        with self.block():
+            before = len(self.lines)
+            self.run(body, DISCARD)
+            if len(self.lines) == before:
+                self.line("pass")
+        self.line("except ballrt.BallBreak as _lbl:")
+        with self.block():
+            self.line(f"if _lbl.label != {pystr(label)}: raise")
+        if dest[0] != "discard":
+            self.dispatch(dest, "None")
+
     def run_switch(self, call, dest):
         f = self.fields(call)
         subj = self.newtemp()
@@ -1190,24 +1366,52 @@ class Compiler:
             kw = "elif" if emitted_any else "if"
             self.line(f"{kw} {combined}:")
             with self.block():
-                before = len(self.lines)
-                self.run(body, dest if expr_mode else DISCARD)
-                if not expr_mode and dest[0] != "discard":
-                    pass
-                if len(self.lines) == before:
-                    self.line("pass")
+                self._run_switch_case_body(body, dest, expr_mode)
             emitted_any = True
         if default_case is not None:
             body = self.mc_fields(default_case).get("body")
             self.line("else:" if emitted_any else "if True:")
             with self.block():
-                before = len(self.lines)
                 if body is not None:
-                    self.run(body, dest if expr_mode else DISCARD)
-                if len(self.lines) == before:
+                    self._run_switch_case_body(body, dest, expr_mode)
+                else:
                     self.line("pass")
         if not expr_mode and dest[0] != "discard":
             self.dispatch(dest, "None")
+
+    def _run_switch_case_body(self, body, dest, expr_mode: bool):
+        """Compile one switch case's (or the default's) body, honoring that
+        an UNLABELED ``std.break`` inside it ends the SWITCH, never any
+        enclosing loop (issue #824; mirrors the reference engine's
+        ``_evalLazySwitch``, "consume an unlabeled break (switch break, not
+        loop break)"). The `if`/`elif` lowering this compiler uses for a
+        statement ``switch`` has no native break-scope of its own — unlike
+        every target that emits a real ``switch``, where the HOST language's
+        own break-ends-the-switch rule does this for free — so a bare
+        ``ballrt.brk("")`` compiled in place would propagate straight into
+        the ENCLOSING loop's own break trap and terminate the whole loop on
+        the first case match (`150_state_machine` printed one character and
+        stopped: exit 0, wrong answer, never an error).
+
+        A switch EXPRESSION's arms are plain values with no statements and
+        therefore no `break` to swallow, so the wrapping applies to the
+        statement form only.
+        """
+        before = len(self.lines)
+        if expr_mode:
+            self.run(body, dest)
+        else:
+            self.line("try:")
+            with self.block():
+                inner_before = len(self.lines)
+                self.run(body, DISCARD)
+                if len(self.lines) == inner_before:
+                    self.line("pass")
+            self.line("except ballrt.BallBreak as _swbrk:")
+            with self.block():
+                self.line("if _swbrk.label: raise")
+        if len(self.lines) == before:
+            self.line("pass")
 
     def case_condition(self, subj, cf):
         if "pattern_expr" in cf:
@@ -1543,7 +1747,18 @@ class Compiler:
             # keyword argument, so a Dart named constructor argument
             # (`_FlowSignal('return', value: x)`) reaches the right parameter
             # rather than landing in the wrong positional slot.
-            return f"{sanitize(short)}({self._ctor_args(fields)})"
+            call = f"{sanitize(short)}({self._ctor_args(fields)})"
+            # A `__type_args__` field (`Box<int>(42)`) is cosmetic to the
+            # CONSTRUCTOR CALL — it is never a real parameter, and
+            # `_SYNTH_FIELDS` keeps it out of `_ctor_args` — but it is the
+            # instance's own reified generic type argument, which a later
+            # `is Box<String>` must be able to read back (issue #824). Tag the
+            # constructed instance with it rather than dropping it outright.
+            type_args_field = next(
+                (fv for fv in fields if fv.get("name") == "__type_args__"), None)
+            if type_args_field is not None:
+                return f"ballrt.with_type_args({call}, {self.value(type_args_field['value'])})"
+            return call
         if tn:
             rc = self.runtime_construct(short, fields)
             if rc is not None:

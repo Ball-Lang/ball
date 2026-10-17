@@ -2,12 +2,13 @@
 # PHASE 2 of the root release line (issue #755 — "release via auto-merged
 # PR"): runs from its own `finish-release` job in
 # `.github/workflows/release.yml` on every `push`, on a recurring `schedule`,
-# and on a real (non-dry-run) `workflow_dispatch`. Detects whether HEAD is a
-# release PR that just merged (subject `chore(release): X.Y.Z`, written and
-# pinned by tools/release/open_release_pr.sh's `--merge-subject`), and if so
-# — ONLY then — tags it, creates the GitHub Release, and (via this script's
+# and on a real (non-dry-run) `workflow_dispatch`. Finds the OLDEST commit
+# since the last `vX.Y.Z` tag whose subject is a release-PR merge
+# (`chore(release): X.Y.Z`, written and pinned by
+# tools/release/open_release_pr.sh's `--merge-subject`), and if one exists —
+# ONLY then — tags it, creates the GitHub Release, and (via this script's
 # caller) dispatches the four downstream publish workflows (npm/C++/Go/
-# pub.dev). A push that is not a release-PR merge is a true no-op
+# pub.dev). No such commit anywhere in that range is a true no-op
 # (`is_release=false`).
 #
 # WHY `schedule` EXISTS AND `push` CANNOT BE TRUSTED ALONE (PR #881 review
@@ -29,14 +30,32 @@
 # through it) but the `schedule` poll is the mechanism this line actually
 # depends on.
 #
+# WHY HEAD ALONE IS NOT ENOUGH (PR #881 review, round 2, finding 1): the
+# `schedule` poll above only runs every 15 minutes, and GitHub documents that
+# scheduled workflows can run late under load. If ANY commit — a human
+# merge, a Dependabot merge, or a merge-queue merge — lands on `main` between
+# the release-PR merge and the next poll tick, HEAD is no longer the release
+# commit and a HEAD-only check (the original shape) would never see it: the
+# commit stays untagged forever, and the next Phase 1 run recomputes the
+# identical version and opens a DUPLICATE `chore(release): X` PR with a
+# duplicated CHANGELOG.md entry (`apply_version_bump.mjs`'s
+# `prependChangelogEntry` never dedupes). So this script instead scans every
+# commit since the last `vX.Y.Z` tag (or the whole history, for the very
+# first release) for the OLDEST one whose subject matches the release-PR-merge
+# pattern, and tags THAT commit — not HEAD. Oldest first: if more than one
+# untagged release commit has piled up (several missed polls in a row), this
+# tags exactly one per run; the next invocation (another push, or the next
+# poll tick) finds and tags the next one, so two releases are never created
+# in the same run.
+#
 # WHY A REPEATED POLL ON AN ALREADY-FINISHED RELEASE MUST NOT RE-DISPATCH:
-# `is_release=true` stays true on every subsequent poll of the same HEAD
-# (until the next push moves it), so the caller must NOT gate the four
-# downstream publish dispatches on `is_release` alone — it would re-publish
-# the same version every ~poll-interval until the next commit. `newly_tagged`
-# is `true` only the one time this run is the one that actually created the
-# tag; every idempotent re-run (poll or otherwise) reports
-# `newly_tagged=false`.
+# `is_release=true` stays true on every subsequent poll that still sees that
+# release as the most recent one (until a new release commit lands), so the
+# caller must NOT gate the four downstream publish dispatches on `is_release`
+# alone — it would re-publish the same version every ~poll-interval until the
+# next release. `newly_tagged` is `true` only the one time this run is the
+# one that actually created the tag; every idempotent re-run (poll or
+# otherwise) reports `newly_tagged=false`.
 #
 # Why this never races tools/release/open_release_pr.sh's own PHASE 1 when
 # both react to the SAME push: Phase 1 now runs in a separate job from this
@@ -52,7 +71,10 @@
 # release PR with a duplicated CHANGELOG entry on every push — including the
 # release-PR-merge push itself, on the rare path where that push's trigger
 # does fire. The job split removes the ordering dependency entirely instead
-# of merely reordering two steps that can still race a parallel poll.
+# of merely reordering two steps that can still race a parallel poll. The
+# same job split is what makes the HEAD-only-vs-scan distinction above matter
+# in practice: it is specifically the GAP a job split (or a missed poll)
+# leaves open that a HEAD-only check cannot recover from.
 #
 # Outputs (GITHUB_OUTPUT): is_release (true|false), newly_tagged (true|false),
 # version (when is_release is true).
@@ -64,43 +86,94 @@ set -euo pipefail
 ROOT="${BALL_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 
-SUBJECT="$(git log -1 --format=%s)"
-if [[ ! "$SUBJECT" =~ ^chore\(release\):[[:space:]]+([^[:space:]]+)$ ]]; then
-  echo "finish_release: HEAD ($SUBJECT) is not a release-PR merge — nothing to do"
-  echo "is_release=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-  echo "newly_tagged=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-  exit 0
+RELEASE_SUBJECT_RE='^chore\(release\):[[:space:]]+([^[:space:]]+)$'
+
+# Nearest `vX.Y.Z` tag reachable from HEAD, or "" for a repo with none yet
+# (the very first release). Deliberately NOT `|| true`: a non-matching
+# `git describe` is an expected, named outcome here, not a swallowed error.
+if ! LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null)"; then
+  LAST_TAG=""
 fi
 
-VERSION="${BASH_REMATCH[1]}"
-TAG="v$VERSION"
-NOTES="$(git log -1 --format=%b)"
+# Prints "<sha> <subject>" for the OLDEST commit in revision range $1 whose
+# subject matches a release-PR merge, or nothing if none do. Always exits 0
+# — "no match" is reported by empty output, never by a failing exit status,
+# so callers never need `|| true` to tolerate it.
+find_oldest_release_commit() {
+  local range="$1" line sha subject
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    sha="${line:0:40}"
+    subject="${line:41}"
+    if [[ "$subject" =~ $RELEASE_SUBJECT_RE ]]; then
+      printf '%s %s\n' "$sha" "$subject"
+      return 0
+    fi
+  done < <(git log --reverse --format='%H %s' "$range")
+  return 0
+}
 
-if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
-  echo "finish_release: $TAG already exists — this release PR was already finished (safe re-run)"
+if [ -n "$LAST_TAG" ]; then
+  CANDIDATE="$(find_oldest_release_commit "$LAST_TAG..HEAD")"
+else
+  CANDIDATE="$(find_oldest_release_commit "HEAD")"
+fi
+
+if [ -n "$CANDIDATE" ]; then
+  COMMIT_SHA="${CANDIDATE:0:40}"
+  SUBJECT="${CANDIDATE:41}"
+  [[ "$SUBJECT" =~ $RELEASE_SUBJECT_RE ]]
+  VERSION="${BASH_REMATCH[1]}"
+  TAG="v$VERSION"
+  NOTES="$(git log -1 --format=%b "$COMMIT_SHA")"
+
+  if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+    # Should not normally happen — $COMMIT_SHA was found precisely because it
+    # sits AFTER $LAST_TAG — but tags can be created out of band, so stay
+    # idempotent rather than fail on a tag that already points somewhere.
+    echo "finish_release: $TAG already exists — this release PR was already finished (safe re-run)"
+    echo "is_release=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "newly_tagged=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "version=$VERSION" >> "${GITHUB_OUTPUT:-/dev/null}"
+    exit 0
+  fi
+
+  WORKDIR="$(mktemp -d)"
+  trap 'rm -rf "$WORKDIR"' EXIT
+  printf '%s\n' "$NOTES" > "$WORKDIR/notes.md"
+
+  echo "::group::tag $TAG at $COMMIT_SHA"
+  git tag "$TAG" "$COMMIT_SHA"
+  git push origin "refs/tags/$TAG"
+  echo "::endgroup::"
+
+  echo "::group::create GitHub Release $TAG"
+  gh release create "$TAG" --title "$VERSION" --notes-file "$WORKDIR/notes.md"
+  echo "::endgroup::"
+
   echo "is_release=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-  # NOT newly_tagged: this is an idempotent re-run (a poll tick, a retried
-  # job, a push whose trigger did fire after all) seeing a tag a PRIOR run
-  # already created. The caller must not re-dispatch the four downstream
-  # publish workflows for it — see this script's header.
-  echo "newly_tagged=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "newly_tagged=true" >> "${GITHUB_OUTPUT:-/dev/null}"
   echo "version=$VERSION" >> "${GITHUB_OUTPUT:-/dev/null}"
   exit 0
 fi
 
-WORKDIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR"' EXIT
-printf '%s\n' "$NOTES" > "$WORKDIR/notes.md"
+# No untagged release-PR-merge commit anywhere since $LAST_TAG. If
+# $LAST_TAG's own commit IS one (the common case: nothing new has landed
+# since the last release this mechanism finished), report that — purely for
+# visibility/idempotency parity with a fresh tag-creation run — but
+# `newly_tagged=false`, so the caller never re-dispatches for it.
+if [ -n "$LAST_TAG" ]; then
+  LAST_TAG_SHA="$(git rev-list -n1 "$LAST_TAG")"
+  LAST_TAG_SUBJECT="$(git log -1 --format=%s "$LAST_TAG_SHA")"
+  if [[ "$LAST_TAG_SUBJECT" =~ $RELEASE_SUBJECT_RE ]]; then
+    echo "finish_release: $LAST_TAG already finished this release (no new chore(release) commit since) — safe no-op"
+    echo "is_release=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "newly_tagged=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "version=${BASH_REMATCH[1]}" >> "${GITHUB_OUTPUT:-/dev/null}"
+    exit 0
+  fi
+fi
 
-echo "::group::tag $TAG at HEAD"
-git tag "$TAG" HEAD
-git push origin "refs/tags/$TAG"
-echo "::endgroup::"
-
-echo "::group::create GitHub Release $TAG"
-gh release create "$TAG" --title "$VERSION" --notes-file "$WORKDIR/notes.md"
-echo "::endgroup::"
-
-echo "is_release=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-echo "newly_tagged=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-echo "version=$VERSION" >> "${GITHUB_OUTPUT:-/dev/null}"
+echo "finish_release: no chore(release) commit found since ${LAST_TAG:-the first commit} — nothing to do"
+echo "is_release=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+echo "newly_tagged=false" >> "${GITHUB_OUTPUT:-/dev/null}"

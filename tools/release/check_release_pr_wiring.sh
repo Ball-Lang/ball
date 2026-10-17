@@ -156,11 +156,46 @@ check_freshness_alarm_exists() {
   fi
 }
 
+check_freshness_alarm_permissions() {
+  local wf="$1"
+  [ -f "$wf" ] || {
+    no "release-freshness.yml exists"
+    return
+  }
+
+  # PR #881 review (round 2) finding 2: `check_release_freshness.sh` runs
+  # `compute_next_release.mjs`, whose `semantic-release` core calls
+  # `verifyAuth()` (a `git push --dry-run`) UNCONDITIONALLY, even under
+  # `dryRun: true` — GitHub 403s a dry-run push from a `contents: read`
+  # token, so the workflow-level `contents: read` default this file
+  # otherwise wants everywhere else must be overridden on the `freshness`
+  # job specifically, or the alarm is red every week with an auth error
+  # regardless of whether `main` is actually stale. Scoped to the
+  # `freshness:` job's own block (from its line to EOF — it is the only job
+  # in the file) so a stricter grant elsewhere can never satisfy this by
+  # accident.
+  local job_block
+  job_block="$(awk '/^  freshness:/{found=1} found' "$wf")"
+  if [ -z "$job_block" ]; then
+    no "release-freshness.yml has a freshness: job"
+  else
+    local scope
+    for scope in 'contents: write' 'pull-requests: read'; do
+      if printf '%s\n' "$job_block" | grep -qF "$scope"; then
+        ok "release-freshness.yml's freshness job permissions grant $scope"
+      else
+        no "release-freshness.yml's freshness job permissions grant $scope (compute_next_release.mjs's semantic-release verifyAuth() dry-run push 403s without it)"
+      fi
+    done
+  fi
+}
+
 run_checks() {
   local workflows_dir="$1"
   check_no_direct_push_to_main "$workflows_dir"
   check_release_yml_wiring "$workflows_dir/release.yml"
   check_coverage_study_wiring "$workflows_dir/coverage-study.yml"
+  check_freshness_alarm_permissions "$workflows_dir/release-freshness.yml"
 }
 
 self_test() {
@@ -231,7 +266,54 @@ EOF
     echo "FAIL  self-test: negative control — the clean file alone passes (got pass=$cleanonly_pass fail=$cleanonly_fail)"
   fi
 
-  [ "$real_fail" -eq 0 ] && [ "$neg_fail" -eq 2 ] && [ "$neg_pass" -eq 0 ] && [ "$cleanonly_fail" -eq 0 ]
+  # Negative control for finding 2's guard: a release-freshness.yml missing
+  # either permission scope must be caught, and one carrying both must pass.
+  cat > "$tmp/workflows/bad-freshness.yml" <<'EOF'
+name: bad-freshness
+permissions:
+  contents: read
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tools/release/check_release_freshness.sh
+EOF
+  cat > "$tmp/workflows/good-freshness.yml" <<'EOF'
+name: good-freshness
+permissions:
+  contents: read
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - run: bash tools/release/check_release_freshness.sh
+EOF
+
+  pass=0
+  fail=0
+  check_freshness_alarm_permissions "$tmp/workflows/bad-freshness.yml"
+  local badfresh_pass=$pass badfresh_fail=$fail
+  if [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ]; then
+    echo "PASS  self-test: negative control — a freshness job missing both scopes is caught (2 failures)"
+  else
+    echo "FAIL  self-test: negative control — a freshness job missing both scopes is caught (got pass=$badfresh_pass fail=$badfresh_fail, want pass=0 fail=2)"
+  fi
+
+  pass=0
+  fail=0
+  check_freshness_alarm_permissions "$tmp/workflows/good-freshness.yml"
+  local goodfresh_pass=$pass goodfresh_fail=$fail
+  if [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ]; then
+    echo "PASS  self-test: negative control — a freshness job granting both scopes passes"
+  else
+    echo "FAIL  self-test: negative control — a freshness job granting both scopes passes (got pass=$goodfresh_pass fail=$goodfresh_fail)"
+  fi
+
+  [ "$real_fail" -eq 0 ] && [ "$neg_fail" -eq 2 ] && [ "$neg_pass" -eq 0 ] && [ "$cleanonly_fail" -eq 0 ] &&
+    [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ] && [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ]
 }
 
 if [ "${1:-}" = "--self-test" ]; then

@@ -166,15 +166,22 @@ push to main / recurring schedule (every 15 min) / workflow_dispatch
        │
        └─ `finish-release` job (no `test` dependency; seconds) — Phase 2, runs
           on push, schedule AND a real workflow_dispatch:
-            ├─ finish_release.sh: HEAD's subject matches `chore(release):
-            │    X.Y.Z`? If not: no-op (`is_release=false`).
-            ├─ (only when it matches — i.e. that release PR just merged)
-            │    tag vX.Y.Z at HEAD, push it, `gh release create` with the
-            │    commit body as notes. `newly_tagged=true` ONLY the one run
-            │    that actually created the tag — a poll that lands on an
-            │    already-tagged HEAD reports `is_release=true` (for
-            │    visibility) but `newly_tagged=false`, so it dispatches
-            │    nothing again.
+            ├─ finish_release.sh: scans every commit since the last `vX.Y.Z`
+            │    tag (oldest first) for one whose subject matches
+            │    `chore(release): X.Y.Z` — NOT merely whether HEAD itself
+            │    matches (PR #881 review, round 2, finding 1: a commit
+            │    landing in the gap between the release-PR merge and the
+            │    next 15-minute poll tick moves HEAD off the release commit;
+            │    a HEAD-only check would then never tag it, and the next
+            │    Phase 1 would recompute + duplicate it). None found: no-op
+            │    (`is_release=false`).
+            ├─ (only when one is found — i.e. that release PR merged, at or
+            │    before HEAD) tag vX.Y.Z at THAT commit (not necessarily
+            │    HEAD), push it, `gh release create` with the commit body as
+            │    notes. `newly_tagged=true` ONLY the one run that actually
+            │    created the tag — a poll that lands with nothing new since
+            │    the last tag reports `is_release=true` (for visibility) but
+            │    `newly_tagged=false`, so it dispatches nothing again.
             └► gated on `newly_tagged == 'true'`:
                gh workflow run publish-npm.yml / release-cpp.yml --ref vX.Y.Z
                gh workflow run go-release.yml / pubdev-release.yml --ref main
@@ -266,6 +273,41 @@ the git-state computation, the classifier, the `gh pr list` lookup (stubbed)
 and the alert text all run for real, including the exact STALE path that hid
 the apostrophe bug above.
 
+**Two more bugs PR #881's round-2 review found, both fixed:**
+
+1. **(finding 1) `finish_release.sh` checked only HEAD, so a commit landing
+   in the recovery window permanently un-sees a release.** The `schedule`
+   poll above runs every 15 minutes, and GitHub documents that scheduled
+   runs can be delayed under load. If ANY commit (human-, Dependabot-, or
+   merge-queue-merged) lands on `main` in that window, HEAD is no longer the
+   release-PR-merge commit, and the original HEAD-only `git log -1` check
+   would never see it again: the commit stays untagged forever, and the next
+   Phase 1 run recomputes the identical version and opens a DUPLICATE
+   `chore(release): X` PR with a duplicated `CHANGELOG.md` entry (confirmed
+   with a real repro: `feat: x` → `chore(release): 1.2.0` → `fix: unrelated`,
+   `finish_release.sh` reported `is_release=false` for that history). Fixed
+   by scanning every commit since the last `vX.Y.Z` tag (oldest first) for
+   one matching the release-PR-merge pattern, and tagging THAT commit — not
+   HEAD. `tools/release/test/finish_release_test.sh`'s tests 4-5 pin exactly
+   this "release commit followed by another commit" shape.
+2. **(finding 2) `release-freshness.yml` ran `compute_next_release.mjs` with
+   `permissions: contents: read`, so the alarm was red every week with an
+   auth error regardless of whether `main` was actually stale.**
+   `semantic-release`'s core `run()` calls `verifyAuth()` — a `git push
+   --dry-run --no-verify` — UNCONDITIONALLY, even under `dryRun: true`, as
+   described in mechanic 1 above. That mechanic was verified with
+   write-capable credentials; `release-freshness.yml`'s `freshness` job
+   inherited the workflow-level `contents: read` default, under which
+   GitHub 403s a dry-run push the same as a real one (confirmed against two
+   independent real-world reports:
+   [cycjimmy/semantic-release-action#312](https://github.com/cycjimmy/semantic-release-action/issues/312),
+   [ai-ecoverse/slicc-jerk#6](https://github.com/ai-ecoverse/slicc-jerk/pull/6)
+   — both fixed the same way). Fixed by overriding the `freshness` job's
+   permissions to `contents: write` + `pull-requests: read` (for its `gh pr
+   list` lookup), pinned by a new `check_freshness_alarm_permissions` check
+   in `tools/release/check_release_pr_wiring.sh`, the same style as the
+   `coverage-study.yml` scope-pinning finding 3 added below.
+
 **What is explicitly NOT fixed here, and why.** `pubdev-release.yml` (nine
 Dart packages) and `go-release.yml` (the Go module line) each run a REAL
 (non-dry-run) `semantic-release` of their own, and each pushes its own
@@ -285,7 +327,10 @@ history — like this section — never trips it), asserts both call sites are
 wired to the shared helpers, AND (PR #881 review finding 3) that
 `coverage-study.yml`'s `publish` job's `permissions:` block grants all three
 scopes `open_bot_pr.sh` needs (`contents`/`pull-requests`/`actions: write` —
-`contents: write` alone 403s on the first `gh pr` call);
+`contents: write` alone 403s on the first `gh pr` call), AND (round 2,
+finding 2) that `release-freshness.yml`'s `freshness` job's `permissions:`
+block grants `contents: write` + `pull-requests: read` (`contents: read`
+alone 403s `semantic-release`'s `verifyAuth()` dry-run push);
 `tools/release/check_release_dispatch_wiring.sh` (and its Go/pub.dev
 siblings) assert the four downstream dispatches are gated on
 `steps.finish.outputs.newly_tagged`, not `is_release` (a poll ticking on an

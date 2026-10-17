@@ -49,8 +49,15 @@ run_finish_release() {
 }
 
 output_value() {
-  # $1: key. Reads the last-written value for that key from GITHUB_OUTPUT.
-  grep "^$1=" "$WORKDIR/gh_output" | tail -1 | cut -d= -f2-
+  # $1: key. Reads the last-written value for that key from GITHUB_OUTPUT, or
+  # "" if the script never wrote that key at all (the true-no-op path writes
+  # no `version=` line — under `set -o pipefail` a bare `grep | tail | cut`
+  # trips `set -e` the moment `grep` finds nothing, since tail/cut still exit
+  # 0 and pipefail then reports grep's own non-zero status; this explicit
+  # `|| line=""` names that expected outcome instead of swallowing it blind).
+  local line
+  line="$(grep "^$1=" "$WORKDIR/gh_output" 2>/dev/null | tail -1)" || line=""
+  printf '%s\n' "${line#*=}"
 }
 
 # ── Test 1: a normal (non-release) commit is a true no-op ─────────────────
@@ -147,6 +154,81 @@ if run_finish_release > "$WORKDIR/log3.txt" 2>&1; then
   fi
 else
   no "re-run on already-tagged HEAD -> script must exit 0 ($(cat "$WORKDIR/log3.txt"))"
+fi
+
+# ── Test 4: a commit lands in the gap between the release-PR merge and the
+# next poll — the release commit is no longer at HEAD (PR #881 review, round
+# 2, finding 1). Against the pre-fix script (HEAD-only `git log -1`), this
+# reproduces the exact bug: HEAD is "fix: unrelated", does not match
+# `chore(release): …`, and v2.0.0 is NEVER tagged. The fix scans every commit
+# since the last tag for the release commit instead of trusting HEAD. ─────
+printf 'chore(release): 2.0.0\n\n## [2.0.0](url) (2026-10-17)\n\n* second thing\n' \
+  | git -C "$WORK" commit -q --allow-empty -F -
+RELEASE_COMMIT_SHA="$(git -C "$WORK" rev-parse HEAD)"
+git -C "$WORK" commit -q --allow-empty -m "fix: unrelated PR merged before the next poll tick"
+GAP_HEAD_SHA="$(git -C "$WORK" rev-parse HEAD)"
+
+: > "$GH_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_release > "$WORKDIR/log4.txt" 2>&1; then
+  IS_RELEASE="$(output_value is_release)"
+  VERSION="$(output_value version)"
+  if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "2.0.0" ]; then
+    ok "release commit followed by another commit -> is_release=true, version=2.0.0 (found despite not being at HEAD)"
+  else
+    no "release commit followed by another commit -> is_release=true, version=2.0.0 (got is_release=$IS_RELEASE version=$VERSION, log: $(cat "$WORKDIR/log4.txt"))"
+  fi
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "true" ]; then
+    ok "release commit followed by another commit -> newly_tagged=true"
+  else
+    no "release commit followed by another commit -> newly_tagged=true (got: $NEWLY_TAGGED)"
+  fi
+  if git -C "$BARE" rev-parse --verify refs/tags/v2.0.0 >/dev/null 2>&1; then
+    ok "release commit followed by another commit -> tag v2.0.0 pushed to origin"
+  else
+    no "release commit followed by another commit -> tag v2.0.0 pushed to origin"
+  fi
+  TAG_TARGET_SHA="$(git -C "$WORK" rev-parse refs/tags/v2.0.0^{commit} 2>/dev/null || true)"
+  if [ "$TAG_TARGET_SHA" = "$RELEASE_COMMIT_SHA" ]; then
+    ok "release commit followed by another commit -> tag v2.0.0 points at the RELEASE commit, not HEAD"
+  else
+    no "release commit followed by another commit -> tag v2.0.0 points at the release commit $RELEASE_COMMIT_SHA (got: $TAG_TARGET_SHA, HEAD was $GAP_HEAD_SHA)"
+  fi
+  if grep -q "^release create v2.0.0 " "$GH_LOG"; then
+    ok "release commit followed by another commit -> gh release create v2.0.0 invoked"
+  else
+    no "release commit followed by another commit -> gh release create v2.0.0 invoked (log: $(cat "$GH_LOG"))"
+  fi
+else
+  no "release commit followed by another commit -> script must exit 0 ($(cat "$WORKDIR/log4.txt"))"
+fi
+
+# ── Test 5: polling again after the gap-commit race is still a safe no-op,
+# even though HEAD is the unrelated commit, not a tagged one ───────────────
+: > "$GH_LOG"
+: > "$WORKDIR/gh_output"
+if run_finish_release > "$WORKDIR/log5.txt" 2>&1; then
+  IS_RELEASE="$(output_value is_release)"
+  VERSION="$(output_value version)"
+  if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "2.0.0" ]; then
+    ok "poll after the gap-commit race -> is_release=true, version=2.0.0 (still reports the last release)"
+  else
+    no "poll after the gap-commit race -> is_release=true, version=2.0.0 (got is_release=$IS_RELEASE version=$VERSION)"
+  fi
+  NEWLY_TAGGED="$(output_value newly_tagged)"
+  if [ "$NEWLY_TAGGED" = "false" ]; then
+    ok "poll after the gap-commit race -> newly_tagged=false (must not re-dispatch publishing)"
+  else
+    no "poll after the gap-commit race -> newly_tagged=false (got: $NEWLY_TAGGED)"
+  fi
+  if [ ! -s "$GH_LOG" ]; then
+    ok "poll after the gap-commit race -> gh never invoked again"
+  else
+    no "poll after the gap-commit race -> gh never invoked again (log: $(cat "$GH_LOG"))"
+  fi
+else
+  no "poll after the gap-commit race -> script must exit 0 ($(cat "$WORKDIR/log5.txt"))"
 fi
 
 echo

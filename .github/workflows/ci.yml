@@ -215,6 +215,20 @@ jobs:
       - name: Round-trip leg pass-set regression test (#836)
         run: bash tools/test/test_roundtrip_passset.sh
 
+      # The four `*-compiler` rows carried four byte-identical copies of an
+      # inline gate whose only response to a measured GAIN was
+      # `echo "::notice::… IMPROVED …"; exit 0`. `GO_COMPILER_FLOOR` therefore
+      # sat at 291 while the row measured 297 (run 35552669922), six fixtures of
+      # earned gain unclaimed and a regression to 292 still green (#792). A
+      # ::notice:: in a log is not a gate. tools/ci/compiler_floor.sh makes an
+      # unclaimed gain RED, naming the exact constant and value to write; this
+      # proves the gate itself (a gain must be red, a drop must be red, a flat
+      # zero must be red, an unset/garbage floor must be a hard error rather
+      # than a silently-skipped `[`) AND asserts the wiring — that all four rows
+      # actually invoke it and none kept an inline comparison.
+      - name: Compiler leg floor + ratchet test (#792)
+        run: bash tools/test/test_compiler_floor.sh
+
       # Every runtime raises a handful of built-in Dart errors, and each target
       # then has to answer what a CAUGHT one prints as. Four of them answer from
       # an explicit `name -> prefix` table, and those tables were only "closed"
@@ -712,6 +726,27 @@ jobs:
           bash tools/test/test_check_required_contexts.sh
           bash tools/ci/check_required_contexts.sh
 
+      # claude-iterate.yml's weekly `schedule` run has been red since the
+      # workflow was added on 2026-07-10 (#359) -- every scheduled run from
+      # 2026-07-14 onward failed identically (most recently run 38421075334)
+      # because it passed `track_progress: true` to
+      # anthropics/claude-code-action on a schedule/workflow_dispatch trigger
+      # — an input the action hardcodes valid only for pull_request/issues/
+      # issue_comment/pull_request_review_comment/pull_request_review events
+      # (src/modes/detector.ts). Every run threw before Claude was even
+      # invoked, on all three failover accounts, every time (#870). Nothing
+      # in actionlint or any build gate models a THIRD-PARTY ACTION's own
+      # input semantics, so this parses every workflow, finds every
+      # anthropics/claude-code-action step, and fails when an input it sets
+      # is invalid for that workflow's own `on:` trigger(s) — so this class
+      # of config/trigger mismatch cannot silently reappear on a different
+      # workflow or a different input. `--self-test` first: a guard that
+      # stopped checking must not pass.
+      - name: "claude-code-action input/trigger-event guard (#870)"
+        run: |
+          bash tools/ci/check_claude_action_inputs.sh --self-test
+          bash tools/ci/check_claude_action_inputs.sh
+
       # Merge-queue wiring guard (#756): every workflow that owns one of the
       # 19 required contexts must run on `merge_group` too (ruleset
       # 17056238's checks would otherwise never report for a queued merge,
@@ -768,7 +803,7 @@ jobs:
             go/engine/go.sum
             go/shared/go.sum
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
@@ -844,7 +879,7 @@ jobs:
       # Node is needed by the Dart-side TsCompiler wrapper, which
       # shells out to @ball-lang/compiler (ts/compiler/). Without the
       # dist build the wrapper throws.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -996,7 +1031,7 @@ jobs:
       # TsCompiler wrapper), so Node + the built TS compiler are required or
       # that package's suite fails and its coverage is UNDER-counted — which
       # would redden this gate for the wrong reason.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -1160,7 +1195,7 @@ jobs:
       # engine ran fine. Regenerate-and-diff, same contract as the artifacts
       # above; ts/engine/test/compiled_engine_parity.test.ts is its behavioural
       # half.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -2528,7 +2563,7 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
           restore-keys: pub-${{ runner.os }}-
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm

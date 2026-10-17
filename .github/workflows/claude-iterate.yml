@@ -22,6 +22,28 @@ name: Claude autonomous iterate
 # HUMAN):
 #   1. `claude setup-token` while logged into that account (Pro/Max only)
 #   2. gh secret set CLAUDE_CODE_OAUTH_TOKEN_<N> --repo Ball-Lang/ball   (N = 0,1,2)
+#
+# NO `track_progress` HERE (issue #870): that input forces "tag" mode with a
+# tracking comment, and anthropics/claude-code-action hardcodes it valid only
+# for pull_request/issues/issue_comment/pull_request_review_comment/
+# pull_request_review events (src/modes/detector.ts,
+# validateTrackProgressEvent, at the pinned SHA below). This workflow's
+# triggers are `schedule`/`workflow_dispatch`, neither of which is in that
+# set, so passing it here made EVERY run throw in detectMode() before the
+# action ever installed the Claude CLI or attempted auth — on all three
+# accounts, every time (run 38421075334, job 115378233630). A `prompt` with no
+# `track_progress` auto-detects "agent" mode instead, which is what a
+# schedule/dispatch run needs. tools/ci/check_claude_action_inputs.sh gates
+# this statically on every PR so it cannot silently come back.
+#
+# Each check step below also distinguishes a CONFIGURATION error (the action
+# failed before it ever produced an `execution_file` — i.e. before it got as
+# far as installing/running the Claude CLI, so a different account cannot
+# possibly fix it) from an auth/rate-limit-style FAILURE (the CLI ran and
+# `is_error` came back true, or some other post-install problem) — see
+# `status`/`detail` below. A configuration error short-circuits the
+# remaining failover attempts and is reported as exactly that, instead of
+# the misleading "all three accounts failed (auth, rate limits, ...)".
 
 on:
   schedule:
@@ -116,79 +138,148 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i0)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
           prompt: ${{ steps.prompt.outputs.text }}
-          track_progress: true
 
+      # `status` is one of: ok | config_error | failed.
+      #   ok           — outcome succeeded and (if any) the run was not is_error.
+      #   config_error — the step itself failed AND produced no execution_file at
+      #                  all, meaning the action crashed before it ever got as far
+      #                  as installing/running the Claude CLI (e.g. the #870
+      #                  track_progress/event mismatch). Retrying with a
+      #                  different account cannot change this, so failover stops
+      #                  here instead of burning two more attempts on the same
+      #                  guaranteed failure.
+      #   failed       — outcome failed (or is_error=true) AFTER an execution_file
+      #                  was produced, i.e. Claude actually ran — the shape a bad
+      #                  token, rate limit, or a real execution error leaves. This
+      #                  is the one failover should retry.
       - name: Check primary result
         id: check0
         env:
           OUTCOME: ${{ steps.try0.outcome }}
           EXEC_FILE: ${{ steps.try0.outputs.execution_file }}
         run: |
-          failed=false
+          status=ok
+          detail=""
           if [ "$OUTCOME" != "success" ]; then
-            failed=true
+            if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
+              status=failed
+              detail="step outcome was '$OUTCOME' after an execution_file was produced"
+            else
+              status=config_error
+              detail="step outcome was '$OUTCOME' with NO execution_file produced -- the action failed before it ever invoked Claude, so this is the same failure on every account, not auth/rate-limits"
+            fi
           elif [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
             err=$(jq -r 'if type=="array" then ([.[] | select(.type=="result")] | if length>0 then (last | .is_error // false) else false end) elif type=="object" then (.is_error // false) else false end' "$EXEC_FILE" 2>/dev/null || echo true)
-            [ "$err" = "true" ] && failed=true
+            if [ "$err" = "true" ]; then
+              status=failed
+              detail="execution_file's last result reported is_error=true"
+            fi
           fi
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          if [ "$failed" = "true" ]; then echo "::warning::Primary account attempt failed (outcome=$OUTCOME); failing over."; fi
+          { echo "status=$status"; echo "detail=$detail"; } >> "$GITHUB_OUTPUT"
+          if [ "$status" != "ok" ]; then echo "::warning::Primary account attempt: $status ($detail)."; fi
 
       - name: Claude (failover account 2)
         id: try1
-        if: steps.check0.outputs.failed == 'true'
+        if: steps.check0.outputs.status == 'failed'
         continue-on-error: true
         uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
         with:
           claude_code_oauth_token: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i1)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
           prompt: ${{ steps.prompt.outputs.text }}
-          track_progress: true
 
       - name: Check failover 2 result
         id: check1
-        if: steps.check0.outputs.failed == 'true'
+        if: steps.check0.outputs.status == 'failed'
         env:
           OUTCOME: ${{ steps.try1.outcome }}
           EXEC_FILE: ${{ steps.try1.outputs.execution_file }}
         run: |
-          failed=false
+          status=ok
+          detail=""
           if [ "$OUTCOME" != "success" ]; then
-            failed=true
+            if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
+              status=failed
+              detail="step outcome was '$OUTCOME' after an execution_file was produced"
+            else
+              status=config_error
+              detail="step outcome was '$OUTCOME' with NO execution_file produced -- the action failed before it ever invoked Claude, so this is the same failure on every account, not auth/rate-limits"
+            fi
           elif [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
             err=$(jq -r 'if type=="array" then ([.[] | select(.type=="result")] | if length>0 then (last | .is_error // false) else false end) elif type=="object" then (.is_error // false) else false end' "$EXEC_FILE" 2>/dev/null || echo true)
-            [ "$err" = "true" ] && failed=true
+            if [ "$err" = "true" ]; then
+              status=failed
+              detail="execution_file's last result reported is_error=true"
+            fi
           fi
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          if [ "$failed" = "true" ]; then echo "::warning::Failover account 2 attempt failed (outcome=$OUTCOME); failing over."; fi
+          { echo "status=$status"; echo "detail=$detail"; } >> "$GITHUB_OUTPUT"
+          if [ "$status" != "ok" ]; then echo "::warning::Failover account 2 attempt: $status ($detail)."; fi
 
       - name: Claude (failover account 3)
         id: try2
-        if: steps.check0.outputs.failed == 'true' && steps.check1.outputs.failed == 'true'
+        if: steps.check0.outputs.status == 'failed' && steps.check1.outputs.status == 'failed'
         continue-on-error: true
         uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
         with:
           claude_code_oauth_token: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i2)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
           prompt: ${{ steps.prompt.outputs.text }}
-          track_progress: true
 
       - name: Check failover 3 result
         id: check2
-        if: steps.check0.outputs.failed == 'true' && steps.check1.outputs.failed == 'true'
+        if: steps.check0.outputs.status == 'failed' && steps.check1.outputs.status == 'failed'
         env:
           OUTCOME: ${{ steps.try2.outcome }}
           EXEC_FILE: ${{ steps.try2.outputs.execution_file }}
         run: |
-          failed=false
+          status=ok
+          detail=""
           if [ "$OUTCOME" != "success" ]; then
-            failed=true
+            if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
+              status=failed
+              detail="step outcome was '$OUTCOME' after an execution_file was produced"
+            else
+              status=config_error
+              detail="step outcome was '$OUTCOME' with NO execution_file produced -- the action failed before it ever invoked Claude, so this is the same failure on every account, not auth/rate-limits"
+            fi
           elif [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
             err=$(jq -r 'if type=="array" then ([.[] | select(.type=="result")] | if length>0 then (last | .is_error // false) else false end) elif type=="object" then (.is_error // false) else false end' "$EXEC_FILE" 2>/dev/null || echo true)
-            [ "$err" = "true" ] && failed=true
+            if [ "$err" = "true" ]; then
+              status=failed
+              detail="execution_file's last result reported is_error=true"
+            fi
           fi
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          { echo "status=$status"; echo "detail=$detail"; } >> "$GITHUB_OUTPUT"
 
+      # Always runs: inspects whichever check0/check1/check2 steps actually ran
+      # (a skipped step's outputs are empty strings) and fails loud, naming
+      # EITHER a configuration error (short-circuited failover, same cause on
+      # every account) OR a genuine exhaustion of all three accounts — never
+      # the old one-size-fits-all "auth, rate limits, or a real error" message
+      # for a bug that was neither (#870).
       - name: Fail if all accounts failed
-        if: steps.check0.outputs.failed == 'true' && steps.check1.outputs.failed == 'true' && steps.check2.outputs.failed == 'true'
+        if: always()
+        env:
+          S0: ${{ steps.check0.outputs.status }}
+          D0: ${{ steps.check0.outputs.detail }}
+          S1: ${{ steps.check1.outputs.status }}
+          D1: ${{ steps.check1.outputs.detail }}
+          S2: ${{ steps.check2.outputs.status }}
+          D2: ${{ steps.check2.outputs.detail }}
         run: |
-          echo "::error::All three Claude accounts failed (auth, rate limits, or a real error — check the attempts above)."
+          report_config_error() {
+            echo "::error::Configuration error on $1 (NOT auth/rate-limits -- the same account-independent failure would hit every account): $2"
+            exit 1
+          }
+
+          [ "$S0" = "ok" ] && exit 0
+          [ "$S0" = "config_error" ] && report_config_error "the primary account attempt" "$D0"
+
+          [ -z "$S1" ] && { echo "::error::primary account attempt failed ($D0) but failover account 2 never ran -- unexpected wiring."; exit 1; }
+          [ "$S1" = "ok" ] && exit 0
+          [ "$S1" = "config_error" ] && report_config_error "the failover account 2 attempt" "$D1"
+
+          [ -z "$S2" ] && { echo "::error::failover account 2 attempt failed ($D1) but failover account 3 never ran -- unexpected wiring."; exit 1; }
+          [ "$S2" = "ok" ] && exit 0
+          [ "$S2" = "config_error" ] && report_config_error "the failover account 3 attempt" "$D2"
+
+          echo "::error::All three Claude accounts failed after actually invoking Claude (auth, rate limits, or a real execution error -- check the attempts above): $D0 | $D1 | $D2"
           exit 1

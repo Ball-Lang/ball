@@ -1526,19 +1526,21 @@ warns is unsafe under xUnit's default parallelization ("Captured stdout is per-e
 never a global redirect", issue #611, earlier in this file). Guard:
 `engine/test/TimeoutReportingTests.cs`.
 
-**CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
-row in `conformance-matrix.yml` runs the `compiler` leg on every PR touching a filtered path
-(since #619), on every push to `main`, and on the weekly cron / `workflow_dispatch`, prints the
-honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `258`, measured
-locally in #527/#528 — the leg's own printed count, never a predicted one). This is deliberate.
-Gating it at full parity would just hold `main` red on the remaining known gaps;
-leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
-regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
-only go up, and the job prints the exact new floor to commit when it does. **Raise the floor in
-the same PR that closes a family**, or the gain is not locked in. Never lower it to turn a red
-build green — preventing precisely that is what a ratchet is for. The `engine` leg stays a true
-parity gate (`failed == 0`), because it *is* at parity.
+**CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452, both directions since
+#792).** The `csharp-compiler` row in `conformance-matrix.yml` runs the `compiler` leg on every PR
+touching a filtered path (since #619), on every push to `main`, and on the weekly cron /
+`workflow_dispatch`, prints the honest count, and gates it through `tools/ci/compiler_floor.sh`
+against `CSHARP_COMPILER_FLOOR` (currently `283`, this PR's own measured value — the leg's own
+printed count, never a predicted one) — **in BOTH directions**: it fails when `passed` drops below
+the floor (a fixture that used to compile no longer does) **and** it fails when `passed` rises
+above the floor (an improvement is not green until it is locked in). This is deliberate. Gating it
+at full parity would just hold `main` red on the remaining known gaps; leaving it unrun — the
+status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap regresses silently. A
+ratchet gets the third thing: the number is visible on every run, a regression fails, AND an
+unclaimed gain fails too — the job names the exact new floor to write. **Raise the floor in the
+same PR that closes a family**, or the gate itself stays red. Never lower it to turn a red build
+green — preventing precisely that is what a ratchet is for. The `engine` leg stays a true parity
+gate (`failed == 0`), because it *is* at parity.
 
 **Regen seam for CI (issue #386, implemented):** the harness does not regenerate
 `CompiledEngine.cs` itself — same division of responsibility as `Ball.Engine.Tests`. A CI job
@@ -1695,7 +1697,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   `csharp/**` change) or `infra`; also fires whenever `needs.changes.outputs.self_host` is true
   (a `dart/engine/lib/**` edit cross-compiles into `CompiledEngine.cs`, same reasoning as the
   `cpp`/`rust` jobs — see the `changes` job's `self_host` computation in `ci.yml`). Mirrors the
-  `rust` job's shape: `actions/setup-dotnet@v5` (`dotnet-version: "10.0.x"`, matching
+  `rust` job's shape: `actions/setup-dotnet@v6.0.0` (`dotnet-version: "10.0.x"`, matching
   `csharp/global.json`'s `rollForward: latestFeature` floor of `10.0.100`) → `dotnet build
   Ball.slnx` → `dotnet test Ball.slnx` → `dotnet format Ball.slnx --verify-no-changes` → the
   self-host conformance sweep: `dart-lang/setup-dart` + `dart pub get` +
@@ -1733,13 +1735,14 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
 - Out of scope for #386 (left for a future pass): regenerating `CompiledCli.cs` /
   `-p:CliCore=true` in CI. The harness's `compiler` and `roundtrip` legs ARE both wired into
   `conformance-matrix.yml` now — `csharp-compiler` (#452 item 1, PR #459) as a RATCHET against
-  `CSHARP_COMPILER_FLOOR` (a drop fails; parity is not claimed), and `csharp-roundtrip` (#452
-  item 1's other half) as a MEASUREMENT row with no floor, since 0/320 is the expected baseline;
-  it gates only on the harness reporting a trustworthy count (`Results:` line present, counts are
-  bare integers, `total >= 1`). Both DO gate a PR since #619: `conformance-matrix.yml` has a
-  path-filtered `pull_request:` trigger sharing its `push` filter, so they run on any PR touching
-  `csharp/**` without a dispatch — `csharp-compiler` on its ratchet, `csharp-roundtrip` on harness
-  health alone.
+  `CSHARP_COMPILER_FLOOR`, enforced in BOTH directions by `tools/ci/compiler_floor.sh` since #792
+  (a drop fails, and so does a rise that has not raised the floor yet; parity is not claimed), and
+  `csharp-roundtrip` (#452 item 1's other half) as its own floored-and-ratcheted row against
+  `CSHARP_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh` (0/320 was the original baseline; the
+  floor only rises — see `csharp/AGENTS.md`'s "Conformance harness" section for the live number).
+  Both DO gate a PR since #619: `conformance-matrix.yml` has a path-filtered `pull_request:`
+  trigger sharing its `push` filter, so they run on any PR touching `csharp/**` without a
+  dispatch.
 
 ## Generated Files — NEVER Edit
 

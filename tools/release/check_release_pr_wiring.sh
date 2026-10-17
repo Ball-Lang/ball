@@ -281,9 +281,74 @@ check_merge_queue_servicer() {
   done
 }
 
+# Every step that drives semantic-release — even as a dry run — needs a GitHub
+# token in its environment: @semantic-release/github's verifyConditions refuses
+# to run without one ("SemanticReleaseError: No GitHub token specified.",
+# release.yml's dry-run rehearsal, run 39064722119, the first rehearsal after
+# #881). python3 + PyYAML because the token can sit in the step's OR the job's
+# `env:` mapping, which only a real parse can tell apart from a comment.
+SEMREL_STEP_PATTERN='compute_next_release\.mjs|open_release_pr\.sh|open_go_release_pr\.sh|npx semantic-release'
+
+check_semantic_release_steps_have_token() {
+  local workflows_dir="$1" out rc
+  out="$(python3 - "$workflows_dir" "$SEMREL_STEP_PATTERN" <<'PY'
+import glob
+import os
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - the runner image ships PyYAML
+    print("ERROR PyYAML is required (pip install pyyaml)")
+    sys.exit(2)
+
+workflows_dir, pattern = sys.argv[1], re.compile(sys.argv[2])
+TOKENS = ("GH_TOKEN", "GITHUB_TOKEN")
+seen = 0
+for path in sorted(glob.glob(os.path.join(workflows_dir, "*.yml"))):
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    for job_id, job in (doc.get("jobs") or {}).items():
+        job_env = (job or {}).get("env") or {}
+        for step in (job or {}).get("steps") or []:
+            run = step.get("run") or ""
+            if not pattern.search(run):
+                continue
+            seen += 1
+            env = dict(job_env)
+            env.update(step.get("env") or {})
+            name = step.get("name") or run.strip().splitlines()[0]
+            if any(t in env for t in TOKENS):
+                print(f"OK {os.path.basename(path)}:{job_id}: '{name}' has a GitHub token in env")
+            else:
+                print(f"MISSING {os.path.basename(path)}:{job_id}: '{name}' runs semantic-release with no GH_TOKEN/GITHUB_TOKEN in its step or job env")
+print(f"SEEN {seen}")
+PY
+)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    no "semantic-release token check ran (python3 exit $rc: $out)"
+    return
+  fi
+  local line seen=0 missing=0
+  while IFS= read -r line; do
+    case "$line" in
+      MISSING*) no "${line#MISSING }"; missing=1 ;;
+      SEEN*) seen="${line#SEEN }" ;;
+    esac
+  done <<< "$out"
+  if [ "$seen" -eq 0 ]; then
+    no "found at least one semantic-release step under $workflows_dir to check (found none - the pattern went stale)"
+  elif [ "$missing" -eq 0 ]; then
+    ok "every one of the $seen semantic-release step(s) under $workflows_dir has GH_TOKEN/GITHUB_TOKEN in its env"
+  fi
+}
+
 run_checks() {
   local workflows_dir="$1"
   check_no_direct_push_to_main "$workflows_dir"
+  check_semantic_release_steps_have_token "$workflows_dir"
   check_no_quoted_boolean_dry_run_comparison "$workflows_dir"
   check_release_yml_wiring "$workflows_dir/release.yml"
   check_coverage_study_wiring "$workflows_dir/coverage-study.yml"
@@ -530,7 +595,54 @@ EOF
     echo "FAIL  self-test: negative control — an unscheduled servicer workflow is caught (got fail=$unschedsvc_fail, want 1)"
   fi
 
+  # Negative control: a semantic-release step with no token anywhere (the exact
+  # shape of release.yml's rehearsal step before this guard) must be caught; a
+  # step-level and a job-level token must each satisfy it.
+  mkdir -p "$tmp/semrel-bad" "$tmp/semrel-good"
+  cat > "$tmp/semrel-bad/release.yml" <<'EOF'
+name: bad
+jobs:
+  release:
+    steps:
+      - name: Rehearsal
+        run: node tools/release/compute_next_release.mjs
+EOF
+  cat > "$tmp/semrel-good/release.yml" <<'EOF'
+name: good
+jobs:
+  release:
+    steps:
+      - name: Rehearsal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/release/compute_next_release.mjs
+  go:
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - run: bash tools/release/open_go_release_pr.sh
+EOF
+  pass=0
+  fail=0
+  check_semantic_release_steps_have_token "$tmp/semrel-bad"
+  local semrelbad_fail=$fail semrelbad_pass=$pass
+  if [ "$semrelbad_fail" -eq 1 ] && [ "$semrelbad_pass" -eq 0 ]; then
+    echo "PASS  self-test: negative control — a semantic-release step with no GitHub token is caught"
+  else
+    echo "FAIL  self-test: negative control — a semantic-release step with no GitHub token is caught (got pass=$semrelbad_pass fail=$semrelbad_fail, want pass=0 fail=1)"
+  fi
+  pass=0
+  fail=0
+  check_semantic_release_steps_have_token "$tmp/semrel-good"
+  local semrelgood_fail=$fail semrelgood_pass=$pass
+  if [ "$semrelgood_fail" -eq 0 ] && [ "$semrelgood_pass" -eq 1 ]; then
+    echo "PASS  self-test: negative control — step-level and job-level tokens both satisfy the check"
+  else
+    echo "FAIL  self-test: negative control — step-level and job-level tokens both satisfy the check (got pass=$semrelgood_pass fail=$semrelgood_fail, want pass=1 fail=0)"
+  fi
+
   [ "$real_fail" -eq 0 ] && [ "$neg_fail" -eq 2 ] && [ "$neg_pass" -eq 0 ] && [ "$cleanonly_fail" -eq 0 ] &&
+    [ "$semrelbad_fail" -eq 1 ] && [ "$semrelbad_pass" -eq 0 ] && [ "$semrelgood_fail" -eq 0 ] && [ "$semrelgood_pass" -eq 1 ] &&
     [ "$dryrun_fail" -eq 2 ] && [ "$dryrun_pass" -eq 0 ] && [ "$dryrunclean_fail" -eq 0 ] && [ "$dryrunclean_pass" -eq 1 ] &&
     [ "$badfresh_fail" -eq 2 ] && [ "$badfresh_pass" -eq 0 ] && [ "$goodfresh_fail" -eq 0 ] && [ "$goodfresh_pass" -eq 2 ] &&
     [ "$goodsvc_fail" -eq 0 ] && [ "$goodsvc_pass" -eq 4 ] && [ "$driftsvc_fail" -eq 1 ] && [ "$unschedsvc_fail" -eq 1 ]

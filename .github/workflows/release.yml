@@ -203,6 +203,11 @@ jobs:
 
       - name: Rehearsal — show what Phase 1 would compute (dry run only)
         if: steps.cfg.outputs.dry_run != 'false'
+        env:
+          # @semantic-release/github's verifyConditions needs a token even in a
+          # dry run ("SemanticReleaseError: No GitHub token specified.", run
+          # 39064722119); Phase 1 below already passes the same one.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tools/release/compute_next_release.mjs
 
       # Compute the next version (semantic-release dry run) and open/refresh

@@ -40,6 +40,12 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+  # Merge-queue readiness (#756) — see ci.yml's identical block for the full
+  # rationale. This workflow owns four required contexts (Detect changed
+  # stacks, TS Regression Gate, Dart Regression Gate, C++ Self-Host Tally),
+  # each of which must also report on the merge group's speculative commit.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 # Least-privilege: read-only token (these gates only run tests).

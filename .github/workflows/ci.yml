@@ -15,6 +15,26 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+  # Merge-queue readiness (#756, owner decision 2026-10-17: a merge queue on
+  # `main` instead of `strict_required_status_checks_policy`). Every required
+  # status check this workflow produces — Detect changed stacks, Proto Checks,
+  # CLI Verb Parity, Dart, Dart Coverage Ratchet, Ball Artifact Freshness,
+  # Protobuf Codegen, the three C++ legs, Upstream Conformance, TypeScript,
+  # Rust, C#, Go, Python — must also run on the merge group's speculative
+  # commit, or the queue blocks forever waiting on a context this workflow
+  # never reports for that ref. `types: [checks_requested]` is the only
+  # supported activity type today; naming it keeps this specific if GitHub
+  # adds more (https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#merge_group).
+  # `merge_group:` supports no `paths`/`paths-ignore` filter (unlike
+  # `pull_request`/`push` above), so this workflow starts for EVERY queued
+  # entry; `paths-ignore` still applies to push/pull_request as before. The
+  # `changes` job below (and regression-gates.yml's) reads
+  # `github.event.merge_group.{base_sha,head_sha}` to diff exactly this merge
+  # group's own changes — see `.github/actions/detect-changed-stacks`.
+  # `tools/ci/check_merge_group_wiring.sh` (always-on `proto` job) keeps every
+  # required-context workflow and this classifier wired to it.
+  merge_group:
+    types: [checks_requested]
   # Toolchain-drift canary. Every job below installs a FLOATING toolchain
   # (`dart-lang/setup-dart` with `sdk: stable`, `actions/setup-node`, …), so a
   # release of any of them can turn `main` red with zero commits — and, with
@@ -112,8 +132,13 @@ jobs:
       - name: Format check
         run: buf format proto/ --diff --exit-code
 
+      # Also on merge_group (#756): a merge group can combine two PRs whose
+      # proto changes are each compatible alone but breaking together — the
+      # exact "green apart, red on the union" shape #749/#756 exist to catch.
+      # A `pull_request` run already proved this PR's OWN diff non-breaking;
+      # this re-proves it for the UNION the queue is about to land.
       - name: Breaking change check
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: buf breaking proto/ --against ".git#subdir=proto"
 
       # ── CI-plumbing unit tests. They live in this always-run job (no
@@ -694,6 +719,18 @@ jobs:
         run: |
           bash tools/ci/check_claude_action_inputs.sh --self-test
           bash tools/ci/check_claude_action_inputs.sh
+
+      # Merge-queue wiring guard (#756): every workflow that owns one of the
+      # 19 required contexts must run on `merge_group` too (ruleset
+      # 17056238's checks would otherwise never report for a queued merge,
+      # and the queue would block that entry forever), and the shared
+      # detect-changed-stacks classifier must resolve its diff base for real
+      # on that event rather than silently falling through to fail-open.
+      # `--self-test` first: a guard that stopped asserting must not pass.
+      - name: "Merge-queue wiring guard (#756)"
+        run: |
+          bash tools/ci/check_merge_group_wiring.sh --self-test
+          bash tools/ci/check_merge_group_wiring.sh
 
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON

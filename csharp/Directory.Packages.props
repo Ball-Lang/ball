@@ -13,50 +13,75 @@
   <ItemGroup>
     <!-- Protobuf runtime consumed by csharp/shared/gen/Ball.cs (buf plugin
          buf.build/protocolbuffers/csharp:v35.1 — pin the matching Google.Protobuf
-         runtime line so generated code and runtime stay in sync). -->
+         runtime line so generated code and runtime stay in sync).
+         Dependabot's `nuget-minor-patch` group bump (PR #869) also proposed
+         3.35.1 -> 3.36.2, but that is DELIBERATELY NOT applied here: the buf
+         gencode plugin stays pinned at `buf.build/protocolbuffers/csharp:v35.1`
+         (see "Google.Protobuf version pairing" in csharp/AGENTS.md), and this
+         repo's rule is to bump the runtime and the gencode line TOGETHER, in the
+         same commit, followed by `buf generate proto` so `csharp/shared/gen/Ball.cs`
+         is regenerated against the matching plugin — never one side alone. Bump
+         this only alongside a `buf.gen.yaml` plugin bump + regen, as its own PR. -->
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
 
     <!-- Roslyn C# syntax API, shared by csharp/encoder (issue #382 — official
          AST parser, CSharpSyntaxTree.ParseText, syntax-only, mirroring the
          Dart encoder's `parseString` approach) AND the compiler-lane test
          suite (issue #381 — compiles the emitted C# in-memory to assert on
-         real stdout). Verified latest stable on nuget.org 2026-07-11: the
+         real stdout). Verified latest stable on nuget.org 2026-10-17: the
          `api.nuget.org/v3-flatcontainer/microsoft.codeanalysis.csharp/index.json`
-         version list's last entry is "5.6.0" (no `-preview`/`-beta` suffix).
+         version list's last entry is "5.9.0" (no `-preview`/`-beta` suffix).
          Exactly ONE PackageVersion for this id may exist — the Wave-C lanes
          each added their own pin and the git auto-merge kept both, leaving
          resolution to NuGet's silent duplicate handling. -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
 
     <!-- Hermetic net10.0 REFERENCE assemblies for csharp/encoder's project-wide
          semantic-model seam (issue #492, W12-C slice 1 — `CSharpEncoder.EncodeProject`
          builds a real CSharpCompilation, which needs a corlib to bind against).
          MIT, netstandard2.0, reference assemblies carried as embedded resources —
-         no native or platform-specific payload. Verified on nuget.org 2026-09-13:
+         no native or platform-specific payload. Verified on nuget.org 2026-10-17:
          the `api.nuget.org/v3-flatcontainer/basic.reference.assemblies.net100/index.json`
-         version list's last entry is "1.8.11" (11 versions, 1.8.1 .. 1.8.11).
+         version list's last entry is "1.8.12" (12 versions, 1.8.1 .. 1.8.12).
          Deliberately NOT the SDK ref pack under
          $DOTNET_ROOT/packs/Microsoft.NETCore.App.Ref/<ver>/ref/net10.0: CI pins
          `dotnet-version: "10.0.x"`, so <ver> floats with the runner's patch and the
          encoder's binding answers would drift with it — the "CI Dart `stable` drift"
          failure class. A CPM pin restores from the cache that is already keyed on
          this file and changes only when someone bumps it deliberately. -->
-    <PackageVersion Include="Basic.Reference.Assemblies.Net100" Version="1.8.11" />
+    <PackageVersion Include="Basic.Reference.Assemblies.Net100" Version="1.8.12" />
 
     <!-- csharp/cli's arg parser (issue #385). System.CommandLine went GA (stable
-         2.0.0) on 2025-11-11 after years of beta/RC; verified latest stable on
-         nuget.org 2026-07-11 via the v3-flatcontainer index (51 versions listed,
-         highest non-preview = 2.0.9; the newest entry overall,
-         3.0.0-preview.5.26302.115, is a preview and deliberately not used here). -->
-    <PackageVersion Include="System.CommandLine" Version="2.0.9" />
+         2.0.0) on 2025-11-11 after years of beta/RC; verified on nuget.org
+         2026-10-17 via the v3-flatcontainer index (58 versions listed, highest
+         non-preview = 2.0.13; the newest entries overall are 3.0.0 preview/rc
+         builds, deliberately not used here). Pinned at 2.0.12 — the exact
+         version the dependabot-opened bump (PR #869) applied and CI verified;
+         bump to 2.0.13 separately if it is ever needed. -->
+    <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
          self-executing test apps bridged to `dotnet test` via the VSTest
-         adapter (xunit.runner.visualstudio). -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+         adapter (xunit.runner.visualstudio).
+         `xunit.v3` is DELIBERATELY held at 3.2.2 — dependabot PR #748 (bump to
+         4.0.1) breaks `dotnet test` on this repo's .NET 10 SDK: xUnit v4 pulls
+         in Microsoft.Testing.Platform(.MSBuild) v2.x, and MTP v2 REMOVES the
+         legacy VSTest-mode bridge `dotnet test` uses under .NET 10+
+         (confirmed via https://aka.ms/dotnet-test-mtp-error — "Testing with
+         VSTest target is no longer supported by Microsoft.Testing.Platform on
+         .NET 10 SDK and later"). The real fix is migrating the whole repo's
+         `dotnet test` invocation to MTP mode (a `test.runner` entry in a
+         `csharp/global.json`, plus every documented filtered `dotnet test`
+         invocation in csharp/AGENTS.md, .claude/rules/csharp.md and
+         CLAUDE.md changing CLI shape) — out of scope for a dependency bump.
+         `xunit.runner.visualstudio` bumps to 4.0.0 on its own (dependabot PR
+         #486) without pulling MTP v2 and is verified compatible with
+         xunit.v3 3.2.2 (`dotnet test` still passes under VSTest mode). Revisit
+         the xunit.v3 pin only alongside that MTP-mode migration. -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
-    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
   </ItemGroup>
 
 </Project>

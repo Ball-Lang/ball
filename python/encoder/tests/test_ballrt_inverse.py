@@ -140,7 +140,7 @@ ROUND_TRIP_FIXTURES = [
     # the switch-case break trap's inverse, including the labeled-break
     # retarget this fix adds -- cross-checked against the real Dart
     # reference engine, not only the stored golden (issue #824 follow-up).
-    "480_continue_inside_switch_in_loop",
+    "481_continue_inside_switch_in_loop",
 ]
 
 
@@ -382,7 +382,7 @@ TRY_SHAPE_FIXTURES = [
     ("147_complex_switch", "a statement switch's per-case except ballrt.BallBreak "
                            "trap (issue #824) -- no paired BallContinue handler "
                            "and no trailing native break, unlike a loop's trap"),
-    ("480_continue_inside_switch_in_loop", "a bare continue inside a switch "
+    ("481_continue_inside_switch_in_loop", "a bare continue inside a switch "
                            "case, nested in a loop, targets the LOOP (legal "
                            "Dart) -- the encoder's inverse must not swallow it "
                            "the way std.do_while{condition:false} would"),

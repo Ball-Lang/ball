@@ -185,7 +185,7 @@ PROVEN = [
     # that the compiler keeps getting it right. The ENCODER's inverse of this
     # same trap is the half that regressed (python/encoder's
     # `_encode_switch_case_body`, pinned in `python/encoder/tests`).
-    "480_continue_inside_switch_in_loop",
+    "481_continue_inside_switch_in_loop",
 ]
 
 

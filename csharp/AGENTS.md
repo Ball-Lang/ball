@@ -1439,7 +1439,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1510,6 +1510,21 @@ each side, so a divergence anywhere later rendered as a self-contradictory diff 
 `expected (3): 1` / `actual (3): 1`, which looks like a match and hides where the two parted.
 `engine/test/MismatchDescriptionTests.cs` pins the invariant (the harness is a console app, so it
 exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly this).
+
+**Every TIMEOUT prints, even past the 50-line cap on ordinary failures (#737).**
+`Summary.Print`'s failure listing used to cap the WHOLE non-pass list at 50 lines in fixture-name
+order, so on a leg with more than 50 non-pass results (the `roundtrip` leg runs 76 passed / 282
+failed at head, well past 50) a `FixtureStatus.Timeout` ranked 51st or later never reached the
+log at all — and `tools/ci/roundtrip_floor.sh`'s "no fixture may hang" gate (#693) greps exactly
+this text for a `TIMEOUT` line, so a hang ranked past the cap was invisible to the one gate that
+exists specifically to catch it. The cap now applies ONLY to ordinary `Fail`/`Error` entries;
+every `Timeout` prints unconditionally, in its original sorted-fixture-name position, and the
+`... and N more` count reflects only the suppressed ordinary entries. `Summary.Print` takes an
+optional `TextWriter? writer = null` (defaulting to `Console.Out`, unchanged for every production
+call site) so a test can assert on the exact text without `Console.SetOut` — which this same file
+warns is unsafe under xUnit's default parallelization ("Captured stdout is per-execution-context,
+never a global redirect", issue #611, earlier in this file). Guard:
+`engine/test/TimeoutReportingTests.cs`.
 
 **CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452, both directions since
 #792).** The `csharp-compiler` row in `conformance-matrix.yml` runs the `compiler` leg on every PR
@@ -1693,7 +1708,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)`.
+  `Results: 366 passed, 0 failed, 366 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1763,7 +1778,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 365 passed, 0 failed, 365 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 366 passed, 0 failed, 366 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1914,7 +1929,7 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   `catch (e, stackTrace)`, in-place `Map.addAll` merge — see "Self-hosted engine" above and #383).
   **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
   into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
-  line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing <!-- corpus-count: historical -->
+  line — `engine` leg fresh-verified at `366 passed, 0 failed, 366 total` (Dart parity, closing <!-- corpus-count: historical -->
   #383's acceptance bar), plus a `compiler` leg (`246 passed, 74 failed, 320 total` — the Phase-4
   compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
   an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize
@@ -1934,8 +1949,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 365 passed, 0 failed,
-  365 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 366 passed, 0 failed,
+  366 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

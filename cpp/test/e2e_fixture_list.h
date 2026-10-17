@@ -343,7 +343,8 @@ inline const std::vector<std::string>& program_names() {
         "477_std_concurrency_handles",
         "478_setter_backing_store_disambiguation",
         "479_user_member_named_like_collection_accessor",
-        "480_continue_inside_switch_in_loop",
+        "480_extension_override_selection",
+        "481_continue_inside_switch_in_loop",
     };
     return names;
 }

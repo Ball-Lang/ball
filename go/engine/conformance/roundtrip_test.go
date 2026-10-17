@@ -33,11 +33,24 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip sweep failed: %v", err)
 	}
 
+	var passing []string
 	for _, r := range summary.Results {
 		if r.Status != "pass" {
 			fmt.Printf("FAILING [%s] %s %s\n", r.Name, r.Status, r.Detail)
+		} else {
+			passing = append(passing, r.Name)
 		}
 	}
+
+	// The row naming its own PASS SET too (issue #896, generalizing #836):
+	// printed BEFORE the Results line, with a blank line after it, so
+	// tools/ci/roundtrip_passset.sh's parser (which stops at the first blank
+	// line or the Results line, whichever comes first) never swallows
+	// anything else as a fixture name. summary.Results is already sorted by
+	// fixture name (RunRoundTrip iterates the sorted *.ball.json glob), so
+	// `passing` comes out sorted too.
+	fmt.Print(FormatPassingBlock(passing))
+	fmt.Println()
 
 	fmt.Printf("Results: %d passed, %d failed, %d total (%d skipped carve-outs)\n",
 		summary.Passed, summary.Failed, summary.Total, summary.Skipped)

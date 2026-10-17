@@ -137,6 +137,12 @@ private:
     // shadows the builtin, matching Dart (issue #193 / #167).
     std::unordered_set<std::string> current_class_fields_;
 
+    // Emitted names of extension members lowered to free functions by
+    // lower_extension_members() (issue #670). Their declared parameter 0 is
+    // the receiver, `self`, so a call's `argN` fields name slots 1..N — see
+    // compile_call_arguments.
+    std::unordered_set<std::string> extension_free_functions_;
+
     // OOP class support — populated in build_lookup_tables():
     // Maps a method basename (e.g. "describe") to the set of class names
     // that define it (e.g. {"main:Point"}). Used by compile_method_call
@@ -594,6 +600,7 @@ private:
     void emit_namespace_close();
 
     void build_lookup_tables();
+    void lower_extension_members();
     std::vector<std::string> extract_params(const nlohmann::json& metadata);
     std::map<std::string, std::string> read_meta(const ball::ir::FunctionDefinition& func);
     std::vector<std::string> read_meta_list(const nlohmann::json& meta,

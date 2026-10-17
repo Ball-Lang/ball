@@ -42,6 +42,17 @@ func (c *Compiler) compileCall(call *ballv1.FunctionCall) string {
 		input = c.compileExpr(call.GetInput())
 	}
 
+	// Extension override (issue #670). A call NAMING an extension's member
+	// selected that extension explicitly, and no name-based route below may see
+	// it: the by-short-name dispatcher switches on the RECEIVER's message type,
+	// and an extension receiver is an ordinary list/string/map, so it cannot
+	// pick between two extensions declaring the same member on the same type.
+	// The impl takes the call's own input message (`self` plus the arguments),
+	// which is exactly the shape already compiled above.
+	if impl, ok := c.extensionMemberImpl[fn]; ok && callInputHasExplicitSelf(call) {
+		return fmt.Sprintf("%s(%s)", impl, input)
+	}
+
 	// A call through a first-class function value held in a local (shadows a
 	// top-level namesake).
 	if c.isLocal(fn) {

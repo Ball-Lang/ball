@@ -68,6 +68,22 @@
 //! published leaders rot; the histogram is re-derived every run, and the sweep
 //! asserts it totals to `failed` so it can never be a number no run produced.
 //!
+//! ## The row names its own PASS SET too (issue #836)
+//!
+//! A pass-COUNT floor (`tools/ci/roundtrip_floor.sh`'s ratchet) cannot tell
+//! "nothing changed" from "one fixture newly passes and a different one newly
+//! regresses" — the printed `Results:` count is identical either way, so a
+//! real regression could land invisibly as long as some unrelated fixture
+//! happened to start passing in the same PR. The sweep prints a second block,
+//! `Passing fixtures (<N>, sorted):` ([`format_passing_block`]), naming every
+//! fixture that round-tripped, and `tools/ci/roundtrip_passset.sh` diffs it
+//! against a committed baseline (`tools/ci/baselines/rust_roundtrip_passing.txt`)
+//! as a SET, not a count — a baseline-named fixture missing from the current
+//! block is a hard CI error even when `passed` held steady or rose. Issue #896
+//! generalized the same mechanism to the C#/Go/Python round-trip legs, each
+//! printing its own byte-identical `Passing fixtures (<N>, sorted):` block and
+//! diffing it against its own committed baseline.
+//!
 //! ## The harness must not be able to hang
 //!
 //! A re-encoded program that never terminates is the #55 class: it type-checks,
@@ -89,8 +105,9 @@
 //! that SET `BALL_TIMEOUT_MS` could only be justified by "nothing else runs in
 //! this process". This file once carried exactly that justification, and it was
 //! **already false** when it was written; every test added here falsifies it
-//! again (there are six non-`#[ignore]`d tests now, beside the `#[ignore]`d
-//! sweep). Prose saying "do not re-add it" rots the same way that SAFETY note
+//! again (there are ten non-`#[ignore]`d tests now, beside the `#[ignore]`d
+//! sweep — count with `grep -c '^#\[test\]'` minus the one `#[ignore]`, never
+//! from this prose). Prose saying "do not re-add it" rots the same way that SAFETY note
 //! did, so the ban is the compiler's: the budget reaches [`run_dart`] as an
 //! ARGUMENT and the spelling is read through the injected lookup
 //! [`budget_from`] takes, and any future test reaching for `set_var` fails to
@@ -601,6 +618,104 @@ fn failure_histogram(failures: &[(String, String)]) -> Vec<(String, usize)> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// The row naming the per-fixture PASS SET, not just its count (issue #836)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Render the exact `Passing fixtures (<N>, sorted):` block the sweep prints —
+/// pure and therefore testable without capturing stdout, mirroring
+/// [`failure_histogram`]. `tools/ci/roundtrip_passset.sh` parses exactly this
+/// text: the header line (the count, then the literal `, sorted):` suffix)
+/// followed by one TWO-SPACE-indented fixture name per line, up to the next
+/// blank line. `passing` must already be sorted (`roundtrip_conformance`'s
+/// loop appends in the SAME order it iterates the already-sorted `paths`, so
+/// this function never re-sorts) — not because the shell side depends on
+/// it (`roundtrip_passset.sh` sorts its own parsed set before comparing, so
+/// sort order cannot hide a set-difference regression either way), but
+/// because the header's own text claims `, sorted):` and an unsorted body
+/// under that claim would be a lie to anyone reading the raw CI log. Checked
+/// with a `debug_assert!` rather than trusted; see
+/// [`format_passing_block_panics_in_debug_builds_on_an_unsorted_list`].
+fn format_passing_block(passing: &[String]) -> String {
+    debug_assert!(
+        passing.is_sorted(),
+        "format_passing_block's caller must hand it an already-sorted list — \
+         the printed header claims `, sorted):` and an unsorted body would misstate it \
+         (tools/ci/roundtrip_passset.sh sorts its own parsed copy before comparing, so this \
+         assertion is about output honesty, not the gate's correctness)"
+    );
+    let mut out = format!("Passing fixtures ({}, sorted):\n", passing.len());
+    for name in passing {
+        out.push_str("  ");
+        out.push_str(name);
+        out.push('\n');
+    }
+    out
+}
+
+fn print_passing_fixtures(passing: &[String]) {
+    print!("{}", format_passing_block(passing));
+}
+
+/// A pass-count FLOOR cannot see a net-zero fixture swap — the issue #836
+/// scenario: fixture A starts passing while fixture B (previously passing)
+/// regresses, and the total stays at 138 either way. The printed block is what
+/// lets a set-difference check (`tools/ci/roundtrip_passset.sh`) see B's
+/// disappearance even though the count alone reads as unchanged.
+#[test]
+fn a_net_zero_fixture_swap_changes_the_printed_set_even_though_the_count_is_unchanged() {
+    let before = vec![
+        "100_a".to_string(),
+        "101_b".to_string(),
+        "102_c".to_string(),
+    ];
+    // Same CARDINALITY (3), different membership: "101_b" regressed, "103_d"
+    // newly passes. A bare count could never distinguish these two blocks.
+    let after = vec![
+        "100_a".to_string(),
+        "102_c".to_string(),
+        "103_d".to_string(),
+    ];
+
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "the scenario is a net-zero swap by construction"
+    );
+    assert_ne!(
+        format_passing_block(&before),
+        format_passing_block(&after),
+        "two passing sets of equal size but different membership must print different blocks"
+    );
+}
+
+#[test]
+fn the_passing_block_header_names_the_count_and_lists_every_fixture_two_space_indented() {
+    let passing = vec!["100_a".to_string(), "101_b".to_string()];
+    let block = format_passing_block(&passing);
+
+    assert_eq!(block, "Passing fixtures (2, sorted):\n  100_a\n  101_b\n");
+}
+
+#[test]
+fn an_empty_passing_set_still_prints_a_well_formed_header() {
+    assert_eq!(format_passing_block(&[]), "Passing fixtures (0, sorted):\n");
+}
+
+/// The printed header's own text claims `, sorted):` — `roundtrip_passset.sh`
+/// actually re-sorts its own parsed copy before comparing (sort order cannot
+/// hide a set-difference regression either way, since the gate compares
+/// SETS), so this is not about that script's correctness. It is about the
+/// printed claim staying true for a human reading the raw CI log, should
+/// `roundtrip_conformance` ever stop appending `passing` in sorted order.
+/// `debug_assert!` makes that break loud at the one place it could happen
+/// silently, in every debug build (which is what `cargo test` runs).
+#[test]
+#[should_panic(expected = "already-sorted list")]
+fn format_passing_block_panics_in_debug_builds_on_an_unsorted_list() {
+    let _ = format_passing_block(&["101_b".to_string(), "100_a".to_string()]);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // The harness's own correctness: the launcher path, and the per-fixture budget
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1074,6 +1189,15 @@ fn roundtrip_conformance() {
 
     let (mut passed, mut failed, mut skipped) = (0usize, 0usize, 0usize);
     let mut failures: Vec<(String, String)> = Vec::new();
+    // The per-fixture PASS set (#836): a pass-count floor cannot tell "nothing
+    // changed" from "one fixture newly passes and a different one newly
+    // regresses" — the count is identical either way, so a real regression can
+    // land invisibly as long as some unrelated fixture happens to start passing
+    // in the same PR. `paths` is sorted (above), so appending in iteration
+    // order keeps this sorted too — never re-sorted here, which is exactly
+    // what `format_passing_block`'s own `debug_assert!` would catch if this
+    // invariant ever broke.
+    let mut passing: Vec<String> = Vec::new();
     for path in &paths {
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
         let name = file_name.trim_end_matches(".ball.json").to_string();
@@ -1089,6 +1213,7 @@ fn roundtrip_conformance() {
         let outcome = round_trip_one(&name, path, &golden, &dart, &root, &workdir);
         if outcome.status == "pass" {
             passed += 1;
+            passing.push(name);
         } else {
             failed += 1;
             failures.push((outcome.status.to_string(), outcome.detail.clone()));
@@ -1110,6 +1235,8 @@ fn roundtrip_conformance() {
     for (bucket, count) in &histogram {
         println!("  {count:>4}  {bucket}");
     }
+    println!();
+    print_passing_fixtures(&passing);
     println!();
     println!(
         "Results: {passed} passed, {failed} failed, {total} total ({skipped} skipped carve-outs)"

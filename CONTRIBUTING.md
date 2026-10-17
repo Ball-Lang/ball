@@ -35,6 +35,44 @@ gh api repos/Ball-Lang/ball -q .permissions   # {"push":true,...} = maintainer; 
 - Guard rails: `.claude/hookify.*.local.md` rules (require the [hookify](https://github.com/anthropics/claude-code) plugin) block generated-file edits and remind PR discipline — they activate automatically for any contributor with hookify installed and are inert otherwise.
 - Cloud surfaces (Claude Code web, Claude Cowork) run in Linux sandboxes: the WSL notes in `CLAUDE.md` are for local Windows development only; on Linux just build natively. Sandboxes without `gh` follow the "No gh" tier above.
 
+## Landing via the merge queue
+
+`main`'s `Protect main` ruleset (17056238) is moving from a plain "19 required
+checks must be green" gate to GitHub's **merge queue**
+([#756, owner decision 2026-10-17](https://github.com/Ball-Lang/ball/issues/756#issuecomment-6229422998))
+— the fix for #749, where two PRs were each green alone and broke `main` on
+their union, discovered only after both had merged. As of this writing the
+`merge_queue` rule is **not yet enabled** on that ruleset — #756 tracks that
+follow-up step separately from the PR that wires the workflows up for it (see
+`docs/TESTING_STRATEGY.md` → "Merge-queue readiness (#756)"); until it lands,
+landing a PR still works the old way (19 green required checks, no queue).
+Once it's enabled, landing a PR works like this:
+
+1. Get the PR's own `pull_request` checks green, same as always — queueing
+   does **not** skip that.
+2. Queue it (the PR page's merge button, or `gh pr merge <n>` — once a
+   branch requires a merge queue, `gh pr merge` needs no merge-strategy flag:
+   per [the `gh pr merge` manual](https://cli.github.com/manual/gh_pr_merge),
+   it adds the PR to the queue once its required checks have passed, or
+   enables auto-merge (equivalent to `--auto`) if they haven't yet — there is
+   no `--queue` flag. `--admin` bypasses the queue entirely for an
+   administrator; don't use it to dodge a legitimately red merge group.
+3. GitHub builds a **merge group**: a speculative commit of `main` plus this
+   PR and anything else already ahead of it in the queue, and re-runs every
+   one of the 19 required checks AGAINST THAT COMMIT via each workflow's
+   `merge_group:` trigger (`ci.yml`, `regression-gates.yml` today).
+4. If the merge group is green, GitHub fast-forwards `main` to it. If it is
+   red, your PR is dequeued (the others in the queue are retried without it)
+   and you fix it and re-queue — exactly the #749 shape, caught one step
+   earlier than before.
+
+The merge-group run is a separate check-run set from the PR's own
+`pull_request` run, on a different ref (`gh-readonly-queue/...`) and commit;
+whether `gh pr checks <n> --watch` follows it once queued is unverified —
+confirm on the PR page once the `merge_queue` rule is actually enabled (#756
+tracks that follow-up), or watch the Actions run for the `gh-readonly-queue/`
+branch directly in the meantime.
+
 ## Build, test, verify
 
 Everything is in `CLAUDE.md` → Build & Test (Dart workspace at repo root, `cd <pkg> && dart test`; TS per-package `npm test`; C++ CMake — protobuf-free, configure ≈1 min; Rust `cargo test --workspace`). The conformance corpus (`tests/conformance/`) is the cross-language bar: a change to any target must keep every leg green, and CI runs changed fixtures per-PR on every stack.

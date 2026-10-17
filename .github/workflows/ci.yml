@@ -674,6 +674,25 @@ jobs:
           bash tools/test/test_check_required_contexts.sh
           bash tools/ci/check_required_contexts.sh
 
+      # claude-iterate.yml's weekly `schedule` run was red from 2026-09-08
+      # onward (run 38421075334) because it passed `track_progress: true` to
+      # anthropics/claude-code-action on a schedule/workflow_dispatch trigger
+      # — an input the action hardcodes valid only for pull_request/issues/
+      # issue_comment/pull_request_review_comment/pull_request_review events
+      # (src/modes/detector.ts). Every run threw before Claude was even
+      # invoked, on all three failover accounts, every time (#870). Nothing
+      # in actionlint or any build gate models a THIRD-PARTY ACTION's own
+      # input semantics, so this parses every workflow, finds every
+      # anthropics/claude-code-action step, and fails when an input it sets
+      # is invalid for that workflow's own `on:` trigger(s) — so this class
+      # of config/trigger mismatch cannot silently reappear on a different
+      # workflow or a different input. `--self-test` first: a guard that
+      # stopped checking must not pass.
+      - name: "claude-code-action input/trigger-event guard (#870)"
+        run: |
+          bash tools/ci/check_claude_action_inputs.sh --self-test
+          bash tools/ci/check_claude_action_inputs.sh
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

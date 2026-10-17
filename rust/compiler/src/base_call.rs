@@ -170,6 +170,19 @@ impl Compiler<'_> {
             Some(input) => self.compile_expression(input),
             None => "BallValue::Null".to_string(),
         };
+        // Extension override (issue #670). A call NAMING an extension's member
+        // selected that extension explicitly, and no name-based route below may
+        // see it: the short-named dispatcher matches on the RECEIVER's message
+        // type, and an extension receiver is an ordinary list/string/map, so it
+        // cannot pick between two extensions declaring the same member on the
+        // same type. The associated fn takes the call's own input message
+        // (`self` plus the arguments), which is exactly the shape compiled
+        // above.
+        if Self::call_input_has_explicit_self(call) {
+            if let Some(ext_fn) = self.extension_member_fns.get(&call.function) {
+                return format!("{ext_fn}({input})");
+            }
+        }
         // A callee that is a **local binding** (a `let`/parameter holding a
         // `BallValue::Function` — a stored `lambda`, a `scope.lookup(name)`
         // result, a callback parameter `op`/`predicate`/`callback`, the

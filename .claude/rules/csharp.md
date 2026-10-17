@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 364 passed, 0 failed, 364 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 365 passed, 0 failed, 365 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -224,6 +224,37 @@ compile items so the sibling projects never double-compile each other's files.
   ordinary `BallRuntime.FieldGet` all along. Guard:
   `csharp/compiler/test/FinalFieldSetterTests.cs`, over fixture
   `472_initializer_list_field_with_setter`.
+
+- **An EXTENSION-OVERRIDE call reaches the member's impl method, never
+  <c>BallRuntime.CallMethod</c> (#670).** <c>Ext(receiver).member</c> is encoded
+  as a call NAMING the extension's own member
+  (<c>&lt;module&gt;:&lt;Ext&gt;.&lt;member&gt;</c>) with the receiver in
+  <c>self</c>, because the selection is the whole meaning of the node — two
+  extensions can declare the SAME member on the SAME type, and
+  <c>CallMethod</c> asks the RECEIVER, an ordinary list/string/map that knows
+  neither. The qualified name matched no callable, so the call fell to that
+  dispatcher. <c>_extensionMemberImpl</c> (filled by
+  <c>IndexExtensionMembers</c>, a SEPARATE pass over the whole program, because
+  an extension declared in a later module is not yet in
+  <c>_typeDefsByShortName</c> inside the collection loop) maps it to
+  <c>&lt;Module&gt;.Ext__member</c>, and <c>CompileCall</c> invokes that with
+  the call's own input message. Guards:
+  `tests/conformance/480_extension_override_selection` (cross-target) and
+  `csharp/compiler/test/ExtensionOverrideTests.cs`, which compiles the fixture
+  and RUNS it against the golden.
+  **A getter always wins the `_extensionMemberImpl` slot over a same-named
+  setter (PR #829 review).** A property's getter and setter share one
+  qualified Ball function name, differing only in
+  `metadata.is_setter`/`is_getter`; `IndexExtensionMembers` holds a setter's
+  impl back in a side list and applies it to the main dictionary only once
+  the whole program is scanned, and only for a name no getter already
+  claimed. Before this fix the loop stored whichever accessor it visited
+  LAST — always the setter, since `get` syntactically precedes `set` — so
+  every READ of such a property (`CompileCall`'s extension-override branch
+  only ever sees a read; the WRITE compiler half is #865's own open item)
+  silently called the setter and printed/stored `null`. `ExtensionOverrideTests.cs`'s
+  `ExtensionOverrideRead_WithBothGetterAndSetter_DispatchesTheGetter` is
+  hand-built IR, not a fixture — 480 deliberately carries no setter arm.
 
 ### Encoder
 
@@ -566,8 +597,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 364 passed, 0 failed,
-  364 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 365 passed, 0 failed,
+  365 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without

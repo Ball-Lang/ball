@@ -867,6 +867,95 @@ extension BallEngineControlFlow on BallEngine {
     return 'std.assign$opLabel: $detail';
   }
 
+  /// Resolve the accessor a `call` assignment target names, if that call is an
+  /// extension member's getter or setter (#670).
+  ///
+  /// An extension override in a WRITE position — `Ext(receiver).member = v` —
+  /// encodes exactly like the READ does: a `FunctionCall` whose `function` is
+  /// the extension's own member name `<module>:<Ext>.<member>` with the
+  /// receiver in `self`, wrapped by `std.assign`. The NAME carries the
+  /// selection (invariant 2), so the engine resolves the write the same way it
+  /// resolves the read — through the accessor tables `_buildLookupTables` fills
+  /// from each function's `is_getter`/`is_setter` metadata — and never by
+  /// asking the receiver, which is an ordinary list/string/map and cannot pick
+  /// between two extensions declaring the same member.
+  ///
+  /// A getter and a setter of the same member share ONE function name, so the
+  /// two tables are what tell them apart; reading `_functions` here would hand
+  /// a write the getter.
+  ({String module, FunctionDefinition func})? _resolveAccessorCall(
+    FunctionCall target,
+    bool wantSetter,
+  ) {
+    // The SAME module resolution `_evalCall` uses for the read, so the write
+    // cannot resolve to a different declaration than the read of the same
+    // member would: the call's own `module`, or the executing one when it is
+    // empty. (An override always carries the DECLARING module — the encoder
+    // resolves it from the extension's own element — so a cross-module
+    // override needs no second candidate.)
+    final module = target.module.isEmpty ? _currentModule : target.module;
+    final key = '$module.${target.function}';
+    final func = wantSetter
+        ? (_setters[key] ?? _setters['$key='])
+        : _getters[key];
+    if (func == null) return null;
+    return (module: module, func: func);
+  }
+
+  /// Perform `Ext(receiver).member = value` (and its compound forms) by
+  /// dispatching the extension's SETTER (#670).
+  ///
+  /// Returns [_sentinel] when [targetCall] names no setter at all, so the
+  /// caller can carry on to its own loud refusal (#742) — this arm never
+  /// swallows an unsupported target.
+  Future<Object?> _assignThroughAccessorCall(
+    FunctionCall targetCall,
+    String? op,
+    Object? val,
+    _Scope scope,
+  ) async {
+    final setter = _resolveAccessorCall(targetCall, true);
+    if (setter == null) return _sentinel;
+
+    final selfExpr = _lazyFields(targetCall)['self'];
+    if (selfExpr == null) {
+      throw BallRuntimeError(
+        _assignErrorMessage(
+          op,
+          "accessor target '${targetCall.function}' is missing its 'self' "
+          'receiver',
+        ),
+      );
+    }
+    // The receiver is evaluated ONCE and shared by the read and the write, so a
+    // compound assignment cannot run a side-effecting receiver twice.
+    final receiver = await _evalExpression(selfExpr, scope);
+
+    var computed = val;
+    if (op != null && op.isNotEmpty && op != '=') {
+      final getter = _resolveAccessorCall(targetCall, false);
+      if (getter == null) {
+        throw BallRuntimeError(
+          _assignErrorMessage(
+            op,
+            "accessor '${targetCall.function}' declares a setter but no "
+            'getter, so a compound assignment has nothing to read',
+          ),
+        );
+      }
+      final current = await _callFunction(getter.module, getter.func, {
+        'self': receiver,
+      });
+      computed = _applyCompoundOp(op, current, val);
+    }
+
+    await _callFunction(setter.module, setter.func, {
+      'self': receiver,
+      'value': computed,
+    });
+    return computed;
+  }
+
   Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
@@ -1065,6 +1154,18 @@ extension BallEngineControlFlow on BallEngine {
       );
     }
 
+    // Extension-override write: `Ext(receiver).member = val` encodes as a call
+    // naming the extension's member with the receiver in `self` (#670).
+    if (target.whichExpr() == Expression_Expr.call) {
+      final written = await _assignThroughAccessorCall(
+        target.call,
+        op,
+        val,
+        scope,
+      );
+      if (written != _sentinel) return written;
+    }
+
     // Every target shape the engine can actually write through has returned by
     // now. Anything left is unsupported, and returning `val` here would make a
     // dropped write look like a successful one (#742).
@@ -1073,7 +1174,7 @@ extension BallEngineControlFlow on BallEngine {
         op,
         'unsupported assignment target shape '
         '${_assignTargetShapeName(target)}: expected a reference, a field '
-        'access, or a std.index call',
+        'access, a std.index call, or an accessor call',
       ),
     );
   }
@@ -1171,6 +1272,46 @@ extension BallEngineControlFlow on BallEngine {
       );
     }
 
+    // Extension-override write: `Ext(receiver).member ??= val` (#670). The
+    // getter runs FIRST and the RHS is evaluated only when it answers null, so
+    // `??=` keeps its short-circuit here too.
+    if (target.whichExpr() == Expression_Expr.call) {
+      final setter = _resolveAccessorCall(target.call, true);
+      if (setter != null) {
+        final getter = _resolveAccessorCall(target.call, false);
+        if (getter == null) {
+          throw BallRuntimeError(
+            _assignErrorMessage(
+              '??=',
+              "accessor '${target.call.function}' declares a setter but no "
+                  'getter, so `??=` has nothing to read',
+            ),
+          );
+        }
+        final selfExpr = _lazyFields(target.call)['self'];
+        if (selfExpr == null) {
+          throw BallRuntimeError(
+            _assignErrorMessage(
+              '??=',
+              "accessor target '${target.call.function}' is missing its "
+                  "'self' receiver",
+            ),
+          );
+        }
+        final receiver = await _evalExpression(selfExpr, scope);
+        final current = await _callFunction(getter.module, getter.func, {
+          'self': receiver,
+        });
+        if (current != null) return current;
+        final val = await _evalExpression(value, scope);
+        await _callFunction(setter.module, setter.func, {
+          'self': receiver,
+          'value': val,
+        });
+        return val;
+      }
+    }
+
     // Every target shape `??=` can write through has returned by now.
     // Evaluating the RHS and handing it back (the pre-#742 fallback) made a
     // dropped write look like a successful one (#742).
@@ -1179,7 +1320,7 @@ extension BallEngineControlFlow on BallEngine {
         '??=',
         'unsupported assignment target shape '
             '${_assignTargetShapeName(target)}: expected a reference, a field '
-            'access, or a std.index call',
+            'access, a std.index call, or an accessor call',
       ),
     );
   }
@@ -1256,6 +1397,43 @@ extension BallEngineControlFlow on BallEngine {
         final current = _toNum(map[fieldName]);
         final updated = isInc ? current + 1 : current - 1;
         map[fieldName] = updated;
+        return isPre ? updated : current;
+      }
+    }
+
+    // Extension-override increment: `Ext(receiver).member++` reads through the
+    // extension's GETTER and writes back through its SETTER (#670). Without
+    // this arm the fallback below computed the new value and dropped the
+    // write — the silent degradation `_evalAssign` was fixed for in #742.
+    if (valueExpr.whichExpr() == Expression_Expr.call) {
+      final setter = _resolveAccessorCall(valueExpr.call, true);
+      if (setter != null) {
+        final getter = _resolveAccessorCall(valueExpr.call, false);
+        final isInc = call.function.contains('increment');
+        final isPre = call.function.startsWith('pre');
+        if (getter == null) {
+          throw BallRuntimeError(
+            'std.${call.function}: accessor '
+            "'${valueExpr.call.function}' declares a setter but no getter, so "
+            'there is nothing to read',
+          );
+        }
+        final selfExpr = _lazyFields(valueExpr.call)['self'];
+        if (selfExpr == null) {
+          throw BallRuntimeError(
+            'std.${call.function}: accessor target '
+            "'${valueExpr.call.function}' is missing its 'self' receiver",
+          );
+        }
+        final receiver = await _evalExpression(selfExpr, scope);
+        final current = _toNum(
+          await _callFunction(getter.module, getter.func, {'self': receiver}),
+        );
+        final updated = isInc ? current + 1 : current - 1;
+        await _callFunction(setter.module, setter.func, {
+          'self': receiver,
+          'value': updated,
+        });
         return isPre ? updated : current;
       }
     }

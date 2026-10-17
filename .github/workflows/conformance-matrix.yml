@@ -101,7 +101,7 @@ jobs:
   #
   # "Every file that can start this workflow maps onto a signal some row reads"
   # is therefore a CORRECTNESS invariant of this matrix, not a convention, and
-  # it is GUARDED BOTH WAYS:
+  # it is GUARDED THREE WAYS:
   #   * statically, by tools/ci/check_matrix_paths.sh, which for each entry in
   #     the filter synthesizes a path that entry matches, runs the REAL
   #     detect-changed-stacks classifier over it, and fails unless a signal some
@@ -109,9 +109,14 @@ jobs:
   #     unmapped-path negative control.
   #   * at run time, by the positive floor in `Parity Matrix` below, which fails
   #     a pull_request run that executed ZERO engine rows.
-  # Without both, an unmapped path is silently green: the workflow starts, every
-  # row skips, and a summary that (correctly) treats `skipped` as benign prints
-  # a full table of SKIPs and exits 0.
+  #   * at run time, by the SIBLING-ROW floor in `Parity Matrix` below, which
+  #     fails a run in which a language's rows executed only partially — the one
+  #     shape neither guard above can see, because one engine row running is
+  #     enough for the zero-row floor while the skipped sibling's ratcheted
+  #     floor goes unevaluated.
+  # Without all three, an unmapped path — or a drifted row condition — is
+  # silently green: the workflow starts, rows skip, and a summary that
+  # (correctly) treats `skipped` as benign prints a table of SKIPs and exits 0.
   #
   # PR-ONLY. Every condition below is `github.event_name != 'pull_request' || …`,
   # so the push-to-main, weekly and dispatch runs still execute the FULL matrix
@@ -141,7 +146,7 @@ jobs:
     steps:
       # fetch-depth: 0 (full history, so the merge-base of the diff is
       # reachable) is the composite action's documented precondition.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -158,9 +163,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -228,9 +233,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 22
           cache: npm
@@ -306,9 +311,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 22
           cache: npm
@@ -320,7 +325,7 @@ jobs:
       # reported green ("# pass 0, # skipped 1"), until the `passed < 1` floor
       # (#439/#444) caught it. Mirrors the ts-regression job in
       # regression-gates.yml, which generates it for the same reason.
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -380,9 +385,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 22
           cache: npm
@@ -460,14 +465,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # #18 Stage 5: the C++ build is libprotobuf-free — no protobuf to install
       # or FetchContent. The only external dep is nlohmann/json, which CMake
       # FetchContents when it isn't found on the system (same as ci.yml's build).
 
       - name: ccache
-        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: cpp-compiled-matrix
           max-size: 1G
@@ -555,7 +560,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # rustup ships preinstalled; `rustup show` installs the pinned toolchain
       # from rust/rust-toolchain.toml.
@@ -564,13 +569,13 @@ jobs:
         run: rustup show
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
 
       # The self-hosted engine is a Ball program compiled through ball-lang-compiler,
       # so regenerate engine.ball.json (Dart) then compiled_engine.rs first.
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -647,9 +652,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
 
@@ -658,7 +663,7 @@ jobs:
       # CompiledEngine.cs (Ball.Engine.Regen) first — same two-step regen chain
       # as ci.yml's csharp job (see csharp/AGENTS.md "Self-hosted engine" +
       # "Conformance harness" -> "Regen seam for CI").
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -741,9 +746,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.25.x"
           cache-dependency-path: |
@@ -827,9 +832,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
@@ -842,7 +847,7 @@ jobs:
       # so regenerate engine.ball.json (Dart) then compiled_engine.py
       # (ball_engine.regen) first — same regen chain as ci.yml's python job (see
       # python/engine/AGENTS.md).
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -916,7 +921,7 @@ jobs:
   #   name: <Lang> Engine
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
   #
   #     - name: Setup <Lang>
   #       uses: <official-setup-action>
@@ -1018,9 +1023,9 @@ jobs:
       # 34739969708, and 270 again on the run before it), never predicted.
       CSHARP_COMPILER_FLOOR: "281"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
 
@@ -1141,9 +1146,9 @@ jobs:
       # sees an improvement; raise it in the SAME PR as the fix that earned it.
       CSHARP_ROUNDTRIP_FLOOR: "125"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
 
@@ -1153,7 +1158,7 @@ jobs:
       # paying a `dart run` of the script every time — measured at 12.6 s warm on
       # this runner, which is most of a 30 s per-fixture cap that exists to catch
       # a re-encoded program that never terminates (#693), not launch latency.
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -1254,9 +1259,9 @@ jobs:
       # PR as the fix that earned it (the job prints the exact new value).
       PYTHON_ROUNDTRIP_FLOOR: "157"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
@@ -1264,7 +1269,7 @@ jobs:
       # `dart run dart/cli/bin/ball.dart run <reencoded.ball.json>` per fixture
       # that survives re-encoding, so the Dart workspace has to be resolved even
       # though today every fixture fails earlier.
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -1327,13 +1332,13 @@ jobs:
       # the fix that earned it (the job prints the exact new value).
       GO_ROUNDTRIP_FLOOR: "79"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.25.x"
 
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -1422,7 +1427,7 @@ jobs:
       # have fabricated a number neither run printed.
       RUST_ROUNDTRIP_FLOOR: "138"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # rustup ships preinstalled; `rustup show` installs the pinned toolchain
       # from rust/rust-toolchain.toml.
@@ -1430,11 +1435,11 @@ jobs:
         run: rustup show
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
 
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: stable
 
@@ -1562,7 +1567,7 @@ jobs:
       # it), never predicted.
       RUST_COMPILER_FLOOR: "282"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # rustup ships preinstalled; `rustup show` installs the pinned toolchain
       # from rust/rust-toolchain.toml.
@@ -1570,7 +1575,7 @@ jobs:
         run: rustup show
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
 
@@ -1671,9 +1676,9 @@ jobs:
       # 351 — measured by this row at 290 on run 34768892821, never predicted.
       GO_COMPILER_FLOOR: "298"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.25.x"
 
@@ -1768,9 +1773,9 @@ jobs:
       # and on CI, never predicted.
       PYTHON_COMPILER_FLOOR: "265"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
@@ -2038,6 +2043,86 @@ jobs:
             echo "::error::this pull_request run executed ZERO engine rows — every row's condition evaluated false, so the table above proves nothing. The workflow started, so some path in the &matrix_paths filter matched this diff; that path must map onto a signal the row conditions read. Run 'bash tools/ci/check_matrix_paths.sh' to find the unmapped entry."
             summary_failed=1
           fi
+
+          # ── SIBLING-ROW FLOOR: a language group runs WHOLE, or not at all ──
+          # The floor above counts ENGINE rows only, so it cannot see a group
+          # that ran PARTIALLY: rust-engine executed, rust-roundtrip did not.
+          # `engine_rows_run` is then 1, `skipped` is (correctly) benign, and the
+          # run is green — while the ratcheted `RUST_ROUNDTRIP_FLOOR` that the
+          # #687 fix raised to 100 was never evaluated at all. An absent check
+          # reads as green, and this is the one shape the two existing guards
+          # miss: tools/ci/check_matrix_paths.sh proves every FILTER PATH maps
+          # onto a signal some row reads, and the zero-row floor proves SOME row
+          # ran — neither proves that the rows a signal turns on ran TOGETHER.
+          #
+          # The invariant is structural, not incidental: every row of a language
+          # carries the identical condition (corpus || dart_core || <lang> ||
+          # matrix_self), so one running and its sibling skipping is impossible
+          # unless a condition drifted. This does not restate those conditions —
+          # restating them is how the copy goes stale — it asserts the OUTCOME
+          # they must produce, whatever the cause: a hand-edited `if:`, a renamed
+          # classifier output that silently evaluates to the empty string, a row
+          # added to `needs:` but not to a group.
+          #
+          # NOT pull_request-only, unlike the floor above: on push/schedule/
+          # dispatch every condition is unconditionally true, so a full group is
+          # the only reachable state and this can never fire spuriously there.
+          # If the classifier job itself fails, EVERY row skips — no group is
+          # partial, nothing fires here, and the `changes` assertion above owns
+          # that case.
+          #
+          # tools/test/test_parity_matrix_floor.py executes this block: it
+          # drives a partial group (FAIL), the same scenario with this block
+          # stripped (GREEN — the negative control), and asserts the table below
+          # covers every matrix row job in this workflow, reading the job list
+          # from the workflow itself rather than a second hand-kept copy.
+          group_check() {
+            local label="$1"
+            shift
+            local ran=0 skipped=0 ran_names="" skipped_names=""
+            local pair name res
+            for pair in "$@"; do
+              name="${pair%%=*}"
+              res="${pair#*=}"
+              if [ "$res" = "skipped" ]; then
+                skipped=$((skipped + 1))
+                skipped_names="$skipped_names $name"
+              else
+                ran=$((ran + 1))
+                ran_names="$ran_names $name"
+              fi
+            done
+            if [ "$ran" -gt 0 ] && [ "$skipped" -gt 0 ]; then
+              echo ""
+              echo "::error::the $label rows ran PARTIALLY —${ran_names} executed but${skipped_names} was skipped. Every row of a language carries the same condition, so this means one of them drifted, and the skipped row's gate (its ratcheted floor) was never evaluated on this diff. Align the row conditions in .github/workflows/conformance-matrix.yml, or move the row to its own group here if the narrowing is deliberate."
+              summary_failed=1
+            fi
+          }
+
+          group_check "Dart" \
+            "dart-engine=${{ needs.dart-engine.result }}"
+          group_check "TypeScript" \
+            "ts-engine=${{ needs.ts-engine.result }}" \
+            "ts-compiled-engine=${{ needs.ts-compiled-engine.result }}" \
+            "ts-compiled-direct=${{ needs.ts-compiled-direct.result }}"
+          group_check "C++" \
+            "cpp-compiled=${{ needs.cpp-compiled.result }}"
+          group_check "Rust" \
+            "rust-engine=${{ needs.rust-engine.result }}" \
+            "rust-compiler=${{ needs.rust-compiler.result }}" \
+            "rust-roundtrip=${{ needs.rust-roundtrip.result }}"
+          group_check "C#" \
+            "csharp-engine=${{ needs.csharp-engine.result }}" \
+            "csharp-compiler=${{ needs.csharp-compiler.result }}" \
+            "csharp-roundtrip=${{ needs.csharp-roundtrip.result }}"
+          group_check "Go" \
+            "go-engine=${{ needs.go-engine.result }}" \
+            "go-compiler=${{ needs.go-compiler.result }}" \
+            "go-roundtrip=${{ needs.go-roundtrip.result }}"
+          group_check "Python" \
+            "python-engine=${{ needs.python-engine.result }}" \
+            "python-compiler=${{ needs.python-compiler.result }}" \
+            "python-roundtrip=${{ needs.python-roundtrip.result }}"
 
           # Fail the summary if any engine job did not succeed (primary gate).
           # `skipped` is explicitly permitted — see print_row above; a row that

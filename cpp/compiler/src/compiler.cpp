@@ -2251,6 +2251,26 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
                class_field_shadows_getter(vprop_cls, vprop_field) ||
                class_chain_has_field(vprop_cls, vprop_field);
     };
+    // The NARROWER half of the same question: does the receiver's provable
+    // class declare the name as a plain DATA member — no getter, no
+    // shadow-backed accessor? That is exactly the condition under which the
+    // `value`/`fields`/`kind`/`values` skip list below lets a name take the
+    // struct-member path (#513), so `.values`'s own guard (#787) asks it with
+    // this lambda rather than a second, independently-drifting copy: a guard
+    // that skipped the shortcut on a shape the skip list then refuses would
+    // fall through to bracket access and silently answer null.
+    //
+    // Takes the SANITIZED name (unlike `declared_by_receiver`, which sanitizes
+    // its argument), because the skip list below already has `sf` in hand.
+    const auto declared_as_plain_field_by_receiver = [&](const std::string& sname) {
+        const std::string rc = receiver_class_of(*access.object);
+        if (rc.empty()) return false;
+        if (class_has_getter(rc, sname) || class_field_shadows_getter(rc, sname))
+            return false;
+        auto cit = class_field_decl_types_by_sname_.find(rc);
+        return cit != class_field_decl_types_by_sname_.end() &&
+               cit->second.count(sname) > 0;
+    };
     if ((field == "length" || field == "isEmpty" || field == "isNotEmpty") &&
         !declared_by_receiver(field)) {
         if (field == "length") return "ball_length(" + obj + ")";
@@ -2289,13 +2309,29 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
         std::string elem = (field == "first") ? ".front()" : ".back()";
         return "ball_map_values(BallDyn(" + inner + "))" + elem;
     }
-    if (field == "first") return obj + ".front()";
-    if (field == "last") return obj + ".back()";
-    if (field == "runtimeType") return "ball_runtime_type_name(BallDyn(" + obj + "))";
+    // #787: the five shortcuts below take the SAME `declared_by_receiver` guard
+    // the collection (#664) and numeric (#697) families already carry. Each one
+    // used to fire unconditionally, so a class declaring `first` / `last` /
+    // `runtimeType` / `entries` / `keys` as a plain field or a getter read back
+    // the iterable/map emulation instead of the member — `.first` even compiled
+    // to `obj.front()`, a member no emitted struct declares, so the whole
+    // program failed to BUILD. This target is the only one that got it wrong:
+    // none of these five is in the Dart encoder's accessor-routing tables
+    // (`_directGetterRoutes` / `builtinAccessorGetters`), so they encode as
+    // plain `fieldAccess` nodes that every ENGINE resolves own-key-first.
+    // `476_user_member_named_like_builtin_accessor` is the #697 fixture;
+    // `479_user_member_named_like_collection_accessor` is this one's.
+    //
+    // `.values` is deliberately NOT here — see its own comment below.
+    if (field == "first" && !declared_by_receiver(field)) return obj + ".front()";
+    if (field == "last" && !declared_by_receiver(field)) return obj + ".back()";
+    if (field == "runtimeType" && !declared_by_receiver(field)) {
+        return "ball_runtime_type_name(BallDyn(" + obj + "))";
+    }
     // Dart Map.entries → iterable of {key, value} maps (same as map_entries).
     // Delegates to the ball_map_entries runtime helper, which safely unwraps
     // a BallDyn (map or BallObject) without relying on a `.value()` accessor.
-    if (field == "entries") {
+    if (field == "entries" && !declared_by_receiver(field)) {
         return "ball_map_entries(BallDyn(" + obj + "))";
     }
     // Dart Map.keys → the map's key collection. Unlike `.values` (which is
@@ -2303,7 +2339,7 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // the engine, so a blanket dispatch to ball_map_keys is safe. The bare
     // getter would otherwise compile to `obj["keys"]` (a key lookup that
     // returns null), breaking the engine's own std map_keys implementation.
-    if (field == "keys") {
+    if (field == "keys" && !declared_by_receiver(field)) {
         return "ball_map_keys(BallDyn(" + obj + "))";
     }
     // `.values` is overloaded (BallGenerator.values, enum .values, protobuf
@@ -2312,7 +2348,19 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // "values" key return that entry (ListValue), lists return self, and the
     // fallback is operator["values"]. The `.values.first`/`.values.last`
     // chained case is handled above with ball_map_values for map receivers.
-    if (field == "values") return obj + ".values()";
+    //
+    // #787: this one takes the NARROW guard, not `declared_by_receiver`. The
+    // emitted form is a CALL, so a user GETTER named `values` is already served
+    // correctly — `obj.values()` names the accessor `emit_struct` generates for
+    // it — and only a plain DATA member is mis-served (a struct has no
+    // `values()` member function to call, and for an erased BallDyn receiver
+    // `BallDyn::values()` answers the map's value collection instead of the
+    // field). The skip list below lets exactly that shape take the struct path,
+    // so the two ask the identical question through one lambda.
+    if (field == "values" &&
+        !declared_as_plain_field_by_receiver(sanitize_name(field))) {
+        return obj + ".values()";
+    }
     // Dart positional record field access: `.$1`, `.$2`, ... Lower to
     // `std::get<0>(...)` / `std::get<1>(...)` since records emit as
     // std::tuple<...> (see compile_message_creation below).
@@ -2372,15 +2420,9 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
                 // nothing instead of the countdown). The receiver-scoped proof
                 // is what tells the two apart; every unprovable receiver keeps
                 // the pre-existing bracket path.
-                const std::string rc = receiver_class_of(*access.object);
-                bool rc_declares_field = false;
-                if (!rc.empty() && !class_has_getter(rc, sf) &&
-                    !class_field_shadows_getter(rc, sf)) {
-                    auto cit = class_field_decl_types_by_sname_.find(rc);
-                    rc_declares_field = cit != class_field_decl_types_by_sname_.end() &&
-                                        cit->second.count(sf) > 0;
-                }
-                if (!rc_declares_field) skip_struct = true;
+                // `.values`'s own shortcut above (#787) asks this same question
+                // through the same lambda, so the two can never drift apart.
+                if (!declared_as_plain_field_by_receiver(sf)) skip_struct = true;
             }
         }
         if (!skip_struct) {

@@ -1798,7 +1798,16 @@ jobs:
       # loud with "IMPROVED to N, raise to N" if the merge's true count is
       # higher, which is the correct and intended outcome. Raise it from that
       # run's printed `Results:` line in the SAME PR, never predicted here.
-      PYTHON_COMPILER_FLOOR: "269"
+      #
+      # That next run (job 117481788390, run 39061933579) printed exactly
+      # that: `Results: 278 passed, 88 failed, 366 total (floor: 269)`, with
+      # the SILENTLY-WRONG line unchanged (`203_closure_in_loop,
+      # 229_closure_loop_var_semantics`), confirming no new silently-wrong
+      # fixture. 278 is that measured number, not a derived one — the exact
+      # per-fixture attribution of 269 -> 278 across this merge is not
+      # re-derived here; measure again rather than trust this arithmetic if
+      # it is ever in question.
+      PYTHON_COMPILER_FLOOR: "278"
       # The CLOSED SET of fixtures the compiler currently compiles to a
       # program that exits 0 and prints the WRONG answer (status `fail`,
       # never `compile-error`/`error`) — issue #823/#824's priority, the

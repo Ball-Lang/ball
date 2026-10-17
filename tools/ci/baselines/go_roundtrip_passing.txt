@@ -65,6 +65,7 @@
 44_for_loop_basic
 46_while_loop
 47_do_while
+481_list_take_drop
 49_nested_loops
 55_scope_variable
 61_bitwise_ops

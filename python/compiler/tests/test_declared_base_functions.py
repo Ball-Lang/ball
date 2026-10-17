@@ -671,22 +671,95 @@ def test_control_renamed_dispatch_key_inside_a_mapped_dispatcher_is_caught():
     assert any("std.totally_phantom_fn" in e for e in errors)
 
 
+
+# A `base_expr` shape that, unlike `_FAKE_SOURCE`, actually contains the
+# `mod == "..."` delegation comparisons the real compiler's `base_expr` uses to
+# peel modules off before serving everything else itself. Needed so the dict-
+# based-dispatch control below has a REAL non-empty baseline to regress from —
+# see that test's docstring.
+_FAKE_SOURCE_WITH_MOD_DELEGATION = '''\
+class Compiler:
+    def base_expr(self, call):
+        mod, fn = call.get("module", ""), call.get("function", "")
+        if mod == "std_collections":
+            return self.collections_expr(fn, call)
+        if mod == "std_convert":
+            return self.convert_expr(fn, call)
+        if fn == "add":
+            return "a + b"
+        return self.fail("unsupported")
+'''
+
+
 def test_control_dict_based_mod_dispatch_shape_derives_a_different_set():
     """If `base_expr`'s `mod == "..."` comparisons were rewritten as a dict
     lookup, `delegated_modules()` finds NOTHING - exactly the silent
     re-derivation `test_fallthrough_modules_are_derived`'s exact-set pin
-    (rather than a bare `>= 2` floor) is there to catch."""
-    src = (_FAKE_SOURCE % "").replace(
-        '        if fn in ("is", "is_not"):',
-        '        table_mod = {"std_collections": "list_push"}\n'
+    (rather than a bare `>= 2` floor) is there to catch.
+
+    `_FAKE_SOURCE` (every OTHER control in this file) has no `mod == "..."`
+    comparison at all, so `delegated_modules()` already answers `set()` for it
+    before any mutation - rewriting it to a dict lookup would not change
+    anything observable, and this control would pass just as well with its own
+    assertions deleted. `_FAKE_SOURCE_WITH_MOD_DELEGATION` gives it a REAL
+    baseline (two real `mod == "..."` delegations) to regress from, so the
+    "derives a DIFFERENT set" in this test's name is actually demonstrated:
+    non-empty before the mutation, empty after.
+    """
+    baseline = delegated_modules(_FAKE_SOURCE_WITH_MOD_DELEGATION, "base_expr")
+    assert baseline == {"std_collections", "std_convert"}, (
+        "the fixture's own `mod == ...` delegation is not read as expected "
+        "(the baseline this control regresses from must be real, not "
+        "vacuous): %s" % sorted(baseline)
+    )
+    src = _FAKE_SOURCE_WITH_MOD_DELEGATION.replace(
+        '        if mod == "std_collections":\n'
+        "            return self.collections_expr(fn, call)\n"
+        '        if mod == "std_convert":\n'
+        "            return self.convert_expr(fn, call)\n",
+        '        table_mod = {"std_collections": self.collections_expr, "std_convert": self.convert_expr}\n'
         "        if mod in table_mod:\n"
-        "            return table_mod[mod]\n"
-        '        if fn in ("is", "is_not"):',
+        "            return table_mod[mod](fn, call)\n",
     )
     delegated = delegated_modules(src, "base_expr")
-    assert delegated != EXPECTED_DELEGATED_MODULES
+    assert delegated != baseline
     assert delegated == set(), (
         "a dict-based `mod` dispatch is not read as a delegation at all by "
         "the `mod == ...` extraction, which is exactly the silent-drift shape "
         "the exact-set pin (not a `>= 2` floor) exists to catch: %s" % sorted(delegated)
+    )
+
+
+def test_control_partial_delegation_loss_passes_the_old_floor_but_fails_the_exact_pin():
+    """The shape the bare `>= 2` floor this file's exact-set pin REPLACED would
+    have missed: losing exactly ONE of the real compiler's three delegations
+    (`ball_proto`/`std_collections`/`std_convert`) still leaves 2, which is
+    `>= 2` - so a floor would have passed this silently. Only comparing against
+    the exact `EXPECTED_DELEGATED_MODULES` set catches it. This is the control
+    the PR review asked for: the dict-based-dispatch control above proves the
+    extraction cannot see a different SHAPE of dispatch at all (collapsing to
+    EMPTY, which a `>= 2` floor would have caught too); this one proves the
+    exact-set pin catches a loss the old floor would have missed outright.
+    """
+    source = COMPILER_SRC.read_text(encoding="utf-8")
+    mutated = source.replace(
+        "        if mod == \"ball_proto\":\n"
+        "            return f\"ballrt.proto.{fn}({self.value_field(f, 'obj', 'value')})\"\n",
+        "",
+        1,
+    )
+    assert mutated != source, (
+        "the real compiler's `ball_proto` delegation arm was not found to "
+        "remove - this control has rotted and no longer models the mutation "
+        "it claims to."
+    )
+    delegated = delegated_modules(mutated, "base_expr")
+    assert len(delegated) >= 2, (
+        "removing exactly one of the three real delegations should still "
+        "leave 2, the exact shape that passes a bare `>= 2` floor silently: "
+        "%s" % sorted(delegated)
+    )
+    assert delegated != EXPECTED_DELEGATED_MODULES, (
+        "losing a real delegation must change the set the exact-pin compares "
+        "against, or this control proves nothing: %s" % sorted(delegated)
     )

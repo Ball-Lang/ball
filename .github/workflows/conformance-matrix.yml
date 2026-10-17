@@ -1145,7 +1145,7 @@ jobs:
       # NEVER lower this to turn a red build green — preventing exactly that is
       # the whole point of a ratchet. The job prints the exact new value when it
       # sees an improvement; raise it in the SAME PR as the fix that earned it.
-      CSHARP_ROUNDTRIP_FLOOR: "125"
+      CSHARP_ROUNDTRIP_FLOOR: "126"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1267,7 +1267,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
       # engine. NEVER lower this to turn a red build green; raise it in the SAME
       # PR as the fix that earned it (the job prints the exact new value).
-      PYTHON_ROUNDTRIP_FLOOR: "157"
+      PYTHON_ROUNDTRIP_FLOOR: "158"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1349,7 +1349,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      GO_ROUNDTRIP_FLOOR: "80"
+      GO_ROUNDTRIP_FLOOR: "81"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

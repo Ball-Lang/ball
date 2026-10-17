@@ -5,12 +5,20 @@
 /// Shape is not meaning: `list_take` lowering to `.skip(n)` would pass every
 /// assertion there and compute the wrong answer.
 ///
-/// These names are unreachable from the Dart ENCODER, so the ordinary proof —
-/// a `tests/conformance/src/NN_*.dart` fixture whose golden is real `dart run`
-/// output — cannot exist for them: `generate_conformance.dart` encodes Dart
-/// source, and no Dart source encodes to `std_collections.list_zip`. That is
-/// precisely why they went unimplemented for so long. The equivalent proof for
-/// a hand-authored Ball program is to run it BOTH ways and compare:
+/// Most of these names are unreachable from the Dart ENCODER, so the ordinary
+/// proof — a `tests/conformance/src/NN_*.dart` fixture whose golden is real
+/// `dart run` output — cannot exist for them: `generate_conformance.dart`
+/// encodes Dart source, and no Dart source encodes to
+/// `std_collections.list_zip`. That is precisely why they went unimplemented
+/// for so long. `list_take`/`list_drop` are the one pair that stopped being an
+/// exception: #833 gave them an encoder route (`collectionRoutes`'s
+/// `'take'`/`'skip'` entries), so `tests/conformance/481_list_take_drop` is now
+/// their ordinary proof too. They stay in the list below anyway — the
+/// hand-authored check here is strictly stronger (engine output compared
+/// directly against the COMPILED Dart's output, not either one against a
+/// separately-generated `dart run` golden) — so dropping them would only lose
+/// coverage. The equivalent proof for a hand-authored Ball program is to run it
+/// BOTH ways and compare:
 ///
 ///     Ball program P
 ///        → BallEngine(P)                → interpreted stdout

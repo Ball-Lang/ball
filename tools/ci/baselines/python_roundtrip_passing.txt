@@ -120,6 +120,7 @@
 465_state_error_message
 46_while_loop
 47_do_while
+481_list_take_drop
 48_break_continue
 49_nested_loops
 50_if_else_chain

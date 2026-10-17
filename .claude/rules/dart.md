@@ -181,9 +181,14 @@ for the authoritative member set).
   `'std'` for every std call, while the declared spelling reached the default
   arm. `ball_proto` is the one base module out of the population — it has no
   switch (`_compileBallProtoCall` lowers every name to `<receiver>.<name>()`).
-  Shape is not meaning, and these names are unreachable from the ENCODER, so
-  they can have no `tests/conformance/src/*.dart` fixture — nothing encodes to
-  `std_collections.list_zip`, which is why they stayed unimplemented.
+  Shape is not meaning, and most of these names are unreachable from the
+  ENCODER, so they can have no `tests/conformance/src/*.dart` fixture —
+  nothing encodes to `std_collections.list_zip`, which is why they stayed
+  unimplemented. `list_take`/`list_drop` are the pair that stopped being an
+  exception: #833 gave them an encoder route (`collectionRoutes`'s
+  `'take'`/`'skip'` entries) and fixture `tests/conformance/481_list_take_drop`
+  is their ordinary proof now, but they stay in the hand-authored list too —
+  see the next bullet.
   `dart/compiler/test/declared_base_call_equivalence_test.dart` is the
   behavioural half: ONE hand-authored Ball program, run on the reference engine
   AND through `dart run` over its compiled Dart, both pinned to the same

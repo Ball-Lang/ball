@@ -212,9 +212,23 @@ all six modules produce no such file at all.
   `__ret = <body>; return` function shape reduces to `<body>` as the block's tail
   result — encoding it literally would make every compiled function answer null,
   since `__ret` is not a Ball variable. `go/encoder/ballrt_table_test.go` is the
-  drift guard: it PARSES `go/compiler/base_call.go`'s `compileCollectionsCall` and
-  compares every emission against the table, with negative controls proving it
-  catches each way the two files can part.
+  drift guard, and it pins BOTH tables (#793): one `inverseSpec` per
+  (dispatcher, table) pair, so `compileCollectionsCall`/`collectionsHelpers` and
+  `compileBaseCall`'s `std` switch/`stdHelpers` drive the same parse and the same
+  comparison, each with negative controls proving it catches every way the two
+  files can part. Until #793 only the collections half was derived; `stdHelpers`
+  (~80 entries) was checked only for non-overlap, so a `std`-switch case with no
+  inverse drifted silently — and the guard's first run found NINE
+  (`sink_create`/`sink_write`/`sink_to_string`, `string_from_char_code`, the four
+  `*_to_double`, and `throw`). An emission whose arguments the parser cannot read
+  positionally (a non-`%s` verb, a `c.typeName(f)`/`strconv.Quote(…)` operand, a
+  `ballrt.Value(nil)` placeholder for an omitted optional argument, or a bare
+  `"ballrt.Rethrow()"` literal) is RECORDED as opaque and must be a documented
+  exclusion — never silently skipped, which would let the table assert a shape no
+  test checks. The std switch is reached for every module except `ball_proto` and
+  `std_collections`, so it also lowers std_convert's `json_*`/`utf8_*`/`base64_*`;
+  those invert to `std_convert.<fn>`, which `ballrt.go` has no table for, and are
+  excluded with that reason rather than mis-filed under `std`.
 - The round-trip test (`go/encoder/roundtrip_test.go`) is the proof: Go →
   Ball → (compile with `go/compiler` + `go run`) is asserted equal to running the
   original Go natively, for the `testdata/*.go` sources.

@@ -527,25 +527,52 @@ fn compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro() {
 /// narrowed away (issue **#761**): "the compiler's REAL emitted dispatcher,
 /// taken as emitted, re-encodes" — not two separate, weaker facts combined
 /// (the compiled text merely CONTAINS the right substring; a hand-written
-/// STAND-IN function, with a different parameter name and type, happens to
-/// encode correctly). Neither of those alone proves the compiler's actual
-/// output round-trips; `compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro`
-/// keeps both — this test adds the composite one, never replacing them.
+/// STAND-IN function, with a different parameter name and type AND a
+/// different syntactic POSITION — a function-body statement, not a match-arm
+/// expression, with `other` bound as a PARAMETER rather than a match-arm
+/// BINDING — happens to encode correctly). An earlier version of this very
+/// test made exactly that mistake: it wrapped the extracted `panic!` in
+/// `fn fallback(other: String) -> String { panic!(..); }`, which exercises
+/// `block.rs`'s statement-position macro handling and a parameter binding,
+/// never the match-arm expression position and pattern binding the real
+/// dispatcher actually uses (caught in review of this PR, since the two
+/// shapes are not equivalent to this encoder — see
+/// `control_flow.rs::encode_switch_arm`'s separate `syn::Pat::Ident`
+/// catch-all-binding arm vs. `block.rs`'s plain statement handling).
+/// `compiled_method_dispatcher_fallback_arm_is_the_mapped_panic_macro` keeps
+/// its own two weaker facts — this test adds the composite one, never
+/// replacing them.
 ///
-/// The WHOLE dispatcher function still cannot be the thing re-encoded here:
-/// its scrutinee, `match ball_message_type_name(&__self).as_str() { .. }`,
-/// has no universal-`std` inverse — #718's OWN, separately tracked, still-open
-/// gap
+/// The WHOLE dispatcher function, taken completely unmodified, still cannot
+/// be the thing re-encoded: its scrutinee, `match
+/// ball_message_type_name(&__self).as_str() { .. }`, has no universal-`std`
+/// inverse — #718's OWN, separately tracked, still-open gap
 /// (`documented_gaps.rs::compiled_method_dispatcher_scrutinee_is_a_documented_gap`).
 /// Folding that gap into this assertion would make this test fail for #718's
-/// reason while claiming to gate #632's — exactly the conflation #718 exists
-/// to keep apart. So this test first RE-CONFIRMS that the whole dispatcher is
-/// still blocked there (if #718 ever closes, the `catch_unwind` below stops
-/// erroring and this assertion fails loud, naming the issue to re-measure
-/// rather than silently passing on a property it no longer checks), and only
-/// then extracts the REAL fallback arm — `other => panic!("no method 'sum'
-/// for {}", other),`, a byte-for-byte substring of the compiler's own output,
-/// never retyped by hand — and re-encodes exactly that.
+/// reason while claiming to gate #632's/#761's — exactly the conflation #718
+/// exists to keep apart. So this test first RE-CONFIRMS, **by the panic's own
+/// message**, that the whole dispatcher is still blocked specifically there
+/// (if #718 ever closes, or if some unrelated refusal starts firing first,
+/// this assertion fails loud, naming what to re-measure, rather than silently
+/// passing on a property it no longer checks) — and only then substitutes
+/// **that one construct alone**, leaving every other byte of the compiler's
+/// own output untouched: the `match` keyword, the owner arm
+/// (`"main:Point" => Point::sum(input)`) and the real fallback arm — `other
+/// => panic!("no method 'sum' for {}", other),` — in their real match-arm
+/// POSITIONS, with `other` bound exactly as the dispatcher binds it: a
+/// match-arm catch-all pattern, never a hand-written function parameter
+/// standing in for it. The substituted value need not be a real type tag —
+/// this test never RUNS the result (stage 3 is an ENCODE gate; see this
+/// file's module doc comment), and the encoder never evaluates a `match`
+/// subject's value, only its shape. The owner arm resolves too: every
+/// compiled method is one-input (invariant #1), so `impl Point { pub fn
+/// sum(input: BallValue) -> BallValue { .. } }` — right beside the
+/// dispatcher, untouched — has no `self` receiver and is therefore
+/// syntactically indistinguishable from a receiver-less associated function;
+/// `types.rs::collect_impl_method_params` registers it exactly the way #491
+/// slice 3 registers `Point::new(..)`, so `Point::sum(input)` resolves
+/// through the ordinary local-associated-call path rather than tripping the
+/// "UFCS call to an instance method" documented gap.
 #[test]
 fn compiled_method_dispatcher_real_fallback_arm_re_encodes() {
     let program = ball_lang_encoder::encode_library(CLASS_WITH_METHOD_SOURCE);
@@ -555,37 +582,57 @@ fn compiled_method_dispatcher_real_fallback_arm_re_encodes() {
     assert!(
         compiled.contains(real_arm),
         "the compiler must still emit the fallback arm exactly as `{real_arm}` — if this \
-         spelling changed, update the extraction below:\n{compiled}"
+         spelling changed, update the substitution below:\n{compiled}"
     );
 
-    // The WHOLE dispatcher (scrutinee included) is still blocked by #718,
-    // separately — re-confirmed here so this test cannot silently start
-    // asserting nothing once that interaction shifts.
+    // The WHOLE dispatcher, completely unmodified, is still blocked by #718
+    // — re-confirmed here, by the panic's own MESSAGE (not merely "it
+    // panicked"), so this test cannot silently start asserting nothing once
+    // #718 closes or some unrelated refusal starts firing first.
     let whole_dispatcher_result =
         std::panic::catch_unwind(|| ball_lang_encoder::encode_library(&compiled));
+    let whole_dispatcher_err = whole_dispatcher_result.err().unwrap_or_else(|| {
+        panic!(
+            "the WHOLE compiled dispatcher now re-encodes cleanly — #718 has been closed. \
+             Update this test (and documented_gaps.rs's \
+             compiled_method_dispatcher_scrutinee_is_a_documented_gap) to assert the composite \
+             success directly over the UNMODIFIED `compiled` text, instead of substituting the \
+             scrutinee below."
+        )
+    });
+    let whole_dispatcher_message = whole_dispatcher_err
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| whole_dispatcher_err.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
     assert!(
-        whole_dispatcher_result.is_err(),
-        "the WHOLE compiled dispatcher now re-encodes cleanly — #718 has been closed. Update \
-         this test (and documented_gaps.rs's compiled_method_dispatcher_scrutinee_is_a_documented_gap) \
-         to assert the composite success directly instead of extracting the fallback arm alone."
+        whole_dispatcher_message.contains("ball_message_type_name"),
+        "the whole dispatcher must fail on #718's own scrutinee specifically, never on some \
+         unrelated refusal that would make this re-confirmation meaningless: \
+         {whole_dispatcher_message}"
     );
 
-    // Extract the REAL arm's `panic!` invocation — not retyped — and wrap it
-    // in a minimal function so the encoder can read it in isolation, the way
-    // #718's own refusal keeps this test from reading it as part of the whole
-    // dispatcher.
-    let panic_stmt = real_arm
-        .strip_prefix("other => ")
-        .and_then(|s| s.strip_suffix(','))
-        .expect("the known arm text must have exactly this shape");
-    let wrapper = format!("fn fallback(other: String) -> String {{ {panic_stmt} }}");
+    // Substitute ONLY that one construct — the single thing this test is not
+    // about — and leave every other byte of the compiler's own output
+    // untouched, including both match arms verbatim.
+    let scrutinee = "ball_message_type_name(&__self).as_str()";
+    assert_eq!(
+        compiled.matches(scrutinee).count(),
+        1,
+        "expected exactly one compiled dispatcher scrutinee to substitute — if this source now \
+         emits more than one (e.g. a second dispatcher), this test's single substitution is no \
+         longer sound:\n{compiled}"
+    );
+    let scrutinee_fixed =
+        compiled.replacen(scrutinee, "\"__ball_dispatcher_tag_placeholder\"", 1);
 
-    let reencoded = ball_lang_encoder::encode_library(&wrapper);
+    let reencoded = ball_lang_encoder::encode_library(&scrutinee_fixed);
     let calls = std_calls(&reencoded);
     assert!(
         calls.iter().any(|name| name == "throw"),
-        "the REAL fallback arm, extracted from the compiler's own output, must survive \
-         re-encoding as a `std.throw`. std calls found: {calls:?}"
+        "the REAL fallback arm, read back from its real match-arm position with its real \
+         catch-all binding, must survive re-encoding as a `std.throw`. std calls found: \
+         {calls:?}"
     );
     let rendered = format!("{reencoded:?}");
     assert!(

@@ -20,7 +20,7 @@ syn = { workspace = true }
 # `rust/AGENTS.md` § "macro_rules! expansion" for the dependabot note.
 ra_ap_mbe = "=0.0.351"
 ra_ap_tt = "=0.0.351"
-ra_ap_span = "=0.0.351"
+ra_ap_span = "=0.0.352"
 ra_ap_intern = "=0.0.351"
 
 # `DeclarativeMacro::expand` takes a `&dyn salsa::Database`. `ra_ap_mbe` 0.0.351

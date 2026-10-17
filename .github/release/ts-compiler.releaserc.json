@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "@ball-lang/compiler-v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/compiler"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["ts/compiler"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/changelog", { "changelogFile": "ts/compiler/CHANGELOG.md" }],
     ["@semantic-release/npm", { "pkgRoot": "ts/compiler", "npmPublish": false }],
     ["@semantic-release/exec", {

@@ -1,8 +1,8 @@
 {
   "branches": ["main"],
   "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits", "presetConfig": {} }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits", "presetConfig": {} }],
     ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
     ["@semantic-release/npm", { "pkgRoot": "ts/engine", "npmPublish": false }],
     ["@semantic-release/npm", { "pkgRoot": "ts/cli", "npmPublish": false }],

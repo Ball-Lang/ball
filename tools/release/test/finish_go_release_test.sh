@@ -42,13 +42,23 @@ git -C "$WORK" commit -q -m "chore: initial commit"
 git -C "$WORK" push -q origin HEAD:refs/heads/main
 
 # ── stub `gh` and `python3` on PATH: log argv, do nothing else ────────────
+# The gh stub also copies the file a `--notes-file` argument names into
+# NOTES_SEEN (finish_go_release.sh deletes its own temp copy on exit), so a
+# test can assert WHAT the GitHub Release carried, not just that it was
+# created — issue #923, where it went silently blank.
 STUBDIR="$WORKDIR/stubbin"
 mkdir -p "$STUBDIR"
 GH_LOG="$WORKDIR/gh_invocations.log"
 PY_LOG="$WORKDIR/python3_invocations.log"
+NOTES_SEEN="$WORKDIR/notes_seen.md"
 cat > "$STUBDIR/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$GH_LOG"
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "--notes-file" ]; then cp "\$arg" "$NOTES_SEEN"; fi
+  prev="\$arg"
+done
 exit 0
 EOF
 chmod +x "$STUBDIR/gh"
@@ -67,6 +77,36 @@ output_value() {
   local line
   line="$(grep "^$1=" "$WORKDIR/gh_output" 2>/dev/null | tail -1)" || line=""
   printf '%s\n' "${line#*=}"
+}
+
+# ── the Go release commit, shaped the way GitHub actually lands it ────────
+# See tools/release/test/finish_release_test.sh's identical helpers: an EMPTY
+# body (`squash_merge_commit_message: BLANK`, issue #881) and a tree carrying
+# the go/CHANGELOG.md entry open_go_release_pr.sh's apply_changelog_bump.mjs
+# prepended, written through the REAL prependChangelogEntry.
+CHANGELOG_LIB="$HERE/../lib/changelog_entry.mjs"
+prepend_changelog_entry() {
+  node --input-type=module -e '
+    import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+    import { dirname } from "node:path";
+    import { pathToFileURL } from "node:url";
+    const [lib, file, notes] = process.argv.slice(1);
+    const { prependChangelogEntry } = await import(pathToFileURL(lib).href);
+    const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, prependChangelogEntry(current, notes));
+  ' "$CHANGELOG_LIB" "$1" "$2"
+}
+
+# land_go_release_commit <subject> <go/CHANGELOG.md entry>
+land_go_release_commit() {
+  prepend_changelog_entry "$WORK/go/CHANGELOG.md" "$2"
+  git -C "$WORK" add go/CHANGELOG.md
+  git -C "$WORK" commit -q -m "$1"
+}
+
+notes_seen() {
+  if [ -f "$NOTES_SEEN" ]; then cat "$NOTES_SEEN"; fi
 }
 
 # ── Test 1: a normal (non-release) commit is a true no-op ─────────────────
@@ -96,13 +136,26 @@ else
 fi
 
 # ── Test 2: a Go release-PR-merge commit tags + dispatches the tagger ─────
-printf 'chore(release): go v0.3.0\n\n## go v0.3.0\n\n* new thing\n' \
-  | git -C "$WORK" commit -q --allow-empty -F -
+# Real-shaped (issue #923): EMPTY body, go/CHANGELOG.md entry in its tree. The
+# pre-#923 script read `git log --format=%b` — "" — as the Release's notes.
+ENTRY_030=$'# [0.3.0](url) (2026-10-17)\n\n### Features\n\n* **go:** new thing'
+land_go_release_commit "chore(release): go v0.3.0" "$ENTRY_030"
 
 : > "$GH_LOG"
 : > "$PY_LOG"
 : > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
 if run_finish_go_release > "$WORKDIR/log2.txt" 2>&1; then
+  if [ -z "$(git -C "$WORK" log -1 --format=%b HEAD)" ]; then
+    ok "fixture -> the Go release commit's body is EMPTY, as squash_merge_commit_message: BLANK writes it"
+  else
+    no "fixture -> the Go release commit's body is EMPTY (got: $(git -C "$WORK" log -1 --format=%b HEAD))"
+  fi
+  if [ "$(notes_seen)" = "$ENTRY_030" ]; then
+    ok "empty-body Go release commit -> GitHub Release notes are the go/CHANGELOG.md entry it added (non-empty)"
+  else
+    no "empty-body Go release commit -> GitHub Release notes are the go/CHANGELOG.md entry it added (got: '$(notes_seen)', log: $(cat "$WORKDIR/log2.txt"))"
+  fi
   IS_RELEASE="$(output_value is_release)"
   VERSION="$(output_value version)"
   if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "0.3.0" ]; then
@@ -179,15 +232,21 @@ fi
 # ── Test 4: a commit lands in the gap between the release-PR merge and the
 # next poll (PR #881 review, round 2, finding 1's shape — the same gap
 # tools/release/finish_release_test.sh pins for the root line). ───────────
-printf 'chore(release): go v0.4.0\n\n## go v0.4.0\n\n* second thing\n' \
-  | git -C "$WORK" commit -q --allow-empty -F -
+ENTRY_040=$'# [0.4.0](url) (2026-10-17)\n\n### Features\n\n* **go:** second thing'
+land_go_release_commit "chore(release): go v0.4.0" "$ENTRY_040"
 RELEASE_COMMIT_SHA="$(git -C "$WORK" rev-parse HEAD)"
 git -C "$WORK" commit -q --allow-empty -m "fix: unrelated PR merged before the next poll tick"
 
 : > "$GH_LOG"
 : > "$PY_LOG"
 : > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
 if run_finish_go_release > "$WORKDIR/log4.txt" 2>&1; then
+  if [ "$(notes_seen)" = "$ENTRY_040" ]; then
+    ok "release commit followed by another commit -> notes are the RELEASE commit's go/CHANGELOG.md entry"
+  else
+    no "release commit followed by another commit -> notes are the RELEASE commit's go/CHANGELOG.md entry (got: '$(notes_seen)')"
+  fi
   IS_RELEASE="$(output_value is_release)"
   VERSION="$(output_value version)"
   if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "0.4.0" ]; then
@@ -254,18 +313,24 @@ else
 fi
 
 # ── Test 6: the Go release commit as the MERGE QUEUE actually writes it ────
-# See tools/release/test/finish_release_test.sh's Test 6: a queue squash of a
-# single-commit PR is "<that commit's subject> (#<PR number>)" whatever
-# subject `gh pr merge --auto --subject` asked for (PR #881 review round 3,
-# finding 1 — the `$`-anchored pattern never tagged it).
-printf 'chore(release): go v0.5.0 (#913)\n\n## go v0.5.0\n\n* queued thing\n' \
-  | git -C "$WORK" commit -q --allow-empty -F -
+# See tools/release/test/finish_release_test.sh's Test 6: a queue squash is
+# "<the PR's title> (#<PR number>)" with an EMPTY body, whatever subject/body
+# `gh pr merge --auto --subject` asked for (PR #881 review round 3, finding 1
+# — the `$`-anchored pattern never tagged it; issue #923 — the body is gone).
+ENTRY_050=$'# [0.5.0](url) (2026-10-17)\n\n### Features\n\n* **go:** queued thing'
+land_go_release_commit "chore(release): go v0.5.0 (#913)" "$ENTRY_050"
 QUEUE_RELEASE_SHA="$(git -C "$WORK" rev-parse HEAD)"
 
 : > "$GH_LOG"
 : > "$PY_LOG"
 : > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
 if run_finish_go_release > "$WORKDIR/log6.txt" 2>&1; then
+  if [ "$(notes_seen)" = "$ENTRY_050" ]; then
+    ok "merge-queue squash (empty body) -> notes are the 0.5.0 go/CHANGELOG.md entry alone"
+  else
+    no "merge-queue squash (empty body) -> notes are the 0.5.0 go/CHANGELOG.md entry alone (got: '$(notes_seen)')"
+  fi
   IS_RELEASE="$(output_value is_release)"
   VERSION="$(output_value version)"
   if [ "$IS_RELEASE" = "true" ] && [ "$VERSION" = "0.5.0" ]; then
@@ -337,6 +402,44 @@ if run_finish_go_release > "$WORKDIR/log8.txt" 2>&1; then
   fi
 else
   no "root release commit on main -> script must exit 0 ($(cat "$WORKDIR/log8.txt"))"
+fi
+
+# ── Test 9: a Go release commit with no go/CHANGELOG.md entry FAILS LOUD ──
+# Empty body (as always now) and a tree that adds an entry to the ROOT
+# CHANGELOG.md only — so this also pins that the Go lane reads ITS OWN
+# changelog, never whichever one happens to have grown. The pre-#923 script
+# tagged it, created a notes-less GitHub Release and dispatched the tagger,
+# green. It must instead fail before tagging or dispatching anything. LAST on
+# purpose: this untagged release commit stays the oldest candidate for every
+# later run against this fixture.
+prepend_changelog_entry "$WORK/CHANGELOG.md" $'# [1.74.0](url) (2026-10-17)\n\n* root-lane entry, not a Go one'
+git -C "$WORK" add CHANGELOG.md
+git -C "$WORK" commit -q -m "chore(release): go v0.6.0 (#916)"
+
+: > "$GH_LOG"
+: > "$PY_LOG"
+: > "$WORKDIR/gh_output"
+rm -f "$NOTES_SEEN"
+if run_finish_go_release > "$WORKDIR/log9.txt" 2>&1; then
+  no "Go release commit with no go/CHANGELOG.md entry -> script must exit NON-zero (it exited 0: $(cat "$WORKDIR/log9.txt"))"
+else
+  ok "Go release commit with no go/CHANGELOG.md entry -> script exits non-zero (fails loud)"
+fi
+if grep -q "go/CHANGELOG.md" "$WORKDIR/log9.txt"; then
+  ok "Go release commit with no go/CHANGELOG.md entry -> the error names go/CHANGELOG.md"
+else
+  no "Go release commit with no go/CHANGELOG.md entry -> the error names go/CHANGELOG.md (log: $(cat "$WORKDIR/log9.txt"))"
+fi
+if git -C "$BARE" rev-parse --verify --quiet refs/tags/go-modules/v0.6.0 >/dev/null ||
+   git -C "$WORK" rev-parse --verify --quiet refs/tags/go-modules/v0.6.0 >/dev/null; then
+  no "Go release commit with no go/CHANGELOG.md entry -> tag go-modules/v0.6.0 must NOT be created or pushed (it was)"
+else
+  ok "Go release commit with no go/CHANGELOG.md entry -> tag go-modules/v0.6.0 is neither created nor pushed"
+fi
+if [ ! -s "$GH_LOG" ] && [ ! -s "$PY_LOG" ]; then
+  ok "Go release commit with no go/CHANGELOG.md entry -> no GitHub Release, no tagger dispatch"
+else
+  no "Go release commit with no go/CHANGELOG.md entry -> no GitHub Release, no tagger dispatch (gh: $(cat "$GH_LOG"); python3: $(cat "$PY_LOG"))"
 fi
 
 echo

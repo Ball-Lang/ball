@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "@ball-lang/cli-v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/cli"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["ts/cli"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/changelog", { "changelogFile": "ts/cli/CHANGELOG.md" }],
     ["@semantic-release/npm", { "pkgRoot": "ts/cli", "npmPublish": false }],
     ["@semantic-release/exec", {

@@ -120,7 +120,12 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   — so `tag_go_modules.sh` stays the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
   `chore(go):` PR, so every release re-dispatched the tagger and it passed reporting "all six tags
   already exist, nothing to do" while the published line stayed put — the #551 failure one level
-  down. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`) pins the lane's shape;
+  down. The bump is read from the squash-merged PR TITLE (the body never reaches `main`, #881), under
+  the `conventionalcommits` preset (#923): `feat(go):` minor, `fix(go):` patch, and `!` before the
+  colon (`feat(go)!:`) a MAJOR — 0.x → 1.0.0 the first time, and a refused 2.0.0 (the v2 cliff) the
+  second, so never put `!` on a `go/`-touching PR title unless the `/v2` path rename ships with it.
+  A GitHub Release's notes are the `go/CHANGELOG.md` entry the release commit adds, never its body.
+  `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`) pins the lane's shape;
   `check_release_dispatch_wiring.sh` still pins the tag-pinned channels and that no workflow
   dispatches the tagger. Rehearse a change with
   `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.

@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "ball_rpc-v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["dart/ball_rpc"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["dart/ball_rpc"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/changelog", { "changelogFile": "dart/ball_rpc/CHANGELOG.md" }],
     ["@semantic-release/exec", {
       "verifyReleaseCmd": "node tools/release/lockstep_plan.mjs --record --package=ball_rpc --version=${nextRelease.version} --type=${nextRelease.type}",

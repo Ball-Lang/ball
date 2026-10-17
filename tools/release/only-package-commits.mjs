@@ -40,12 +40,23 @@
 // ------
 //   ["./tools/release/only-package-commits.mjs", {
 //     "paths": ["dart/engine"],            // repo-relative roots for this package
-//     "commitAnalyzer": { ... },           // optional: forwarded to commit-analyzer
-//     "releaseNotesGenerator": { ... }     // optional: forwarded to release-notes-generator
+//     "commitAnalyzer": { ... },           // forwarded to commit-analyzer
+//     "releaseNotesGenerator": { ... }     // forwarded to release-notes-generator
 //   }]
 // `paths` may also be supplied via the SR_PKG_PATHS env var (comma-separated);
 // an explicit `paths` in the config wins. A commit is kept when ANY of its
 // changed files sits at or under ANY configured root.
+//
+// THE PRESET GOES IN THOSE TWO NESTED BLOCKS (issue #923). Every config in
+// this repo sets `{ "preset": "conventionalcommits", "presetConfig": {} }` in
+// both, so a squash-merged PR TITLE of the form `type(scope)!: subject` cuts a
+// major release (the default angular preset cannot even parse that header, and
+// `main`'s squash commits carry no body for a `BREAKING CHANGE:` footer). Only
+// these blocks reach the delegates: semantic-release hands this plugin its
+// global options too, but a top-level `preset` stops HERE and is never
+// forwarded, so it would silently leave the delegates on angular.
+// tools/release/test/conventional_commits_preset_test.mjs pins both blocks on
+// every config and runs the real analyzer through this wrapper.
 //
 // LOCKSTEP OVERRIDE (SR_FORCE_RELEASE, issue #566)
 // -----------------------------------------------

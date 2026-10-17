@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "@ball-lang/engine-v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/engine"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["ts/engine"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/changelog", { "changelogFile": "ts/engine/CHANGELOG.md" }],
     ["@semantic-release/npm", { "pkgRoot": "ts/engine", "npmPublish": false }],
     ["@semantic-release/exec", {

@@ -26,7 +26,12 @@
 # trigger, and the scan (not a HEAD-only check) survives a commit landing in
 # the gap between a release-PR merge and the next poll tick. All three apply
 # here identically — this lane shares the exact same `open_bot_pr.sh`
-# auto-merge mechanism.
+# auto-merge mechanism. So does its notes source (issue #923): the GitHub
+# Release's notes are the go/CHANGELOG.md entry the release commit itself
+# adds, read by tools/release/release_notes_from_changelog.mjs, never the
+# commit body that `squash_merge_commit_message: BLANK` now leaves empty — and
+# a release commit with no such entry fails before anything is tagged or
+# dispatched (finish_release.sh's header has the full rationale).
 #
 # Outputs (GITHUB_OUTPUT): is_release (true|false), newly_tagged (true|false),
 # version (when is_release is true, WITHOUT the leading "v" — the bare form
@@ -45,6 +50,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # a throwaway fixture repo instead of this checkout.
 ROOT="${BALL_REPO_ROOT:-$(cd "$HERE/../.." && pwd)}"
 cd "$ROOT"
+
+# The changelog the Go release PR prepends its notes to — the file
+# open_go_release_pr.sh's apply_changelog_bump.mjs writes and `git add`s.
+CHANGELOG_FILE="go/CHANGELOG.md"
 
 # Both shapes the Go release-PR merge can land on `main` in — the bare
 # subject open_go_release_pr.sh pins, and the " (#<PR number>)"-suffixed one
@@ -107,7 +116,13 @@ if [ -n "$CANDIDATE" ]; then
     exit 0
   fi
 
-  NOTES="$(git log -1 --format=%b "$COMMIT_SHA")"
+  # The notes, read BEFORE anything is tagged or dispatched — see
+  # finish_release.sh's identical step (issue #923).
+  if ! NOTES="$(node "$HERE/release_notes_from_changelog.mjs" "$COMMIT_SHA" "$CHANGELOG_FILE")" ||
+     [ -z "${NOTES//[[:space:]]/}" ]; then
+    echo "::error::finish_go_release: no release notes for $TAG: release commit $COMMIT_SHA must add this release's entry to $CHANGELOG_FILE (see the reason above). Refusing to tag $TAG, create an empty GitHub Release, or dispatch tag-go-modules.yml (issue #923)." >&2
+    exit 1
+  fi
   WORKDIR="$(mktemp -d)"
   trap 'rm -rf "$WORKDIR"' EXIT
   printf '%s\n' "$NOTES" > "$WORKDIR/notes.md"

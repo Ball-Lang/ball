@@ -113,7 +113,11 @@ tag and dispatches `tag-go-modules.yml` at it **and waits for that run to finish
 non-`success` conclusion — #627; and since #656 only a run *newer* than the
 newest one on that ref before the dispatch counts as that run) — so a `feat(go):`/`fix(go):` merge is all it
 takes to move the published line, and a tag cut that fails reddens the release
-that caused it. `tag_go_modules.sh` remains the SINGLE tagging path;
+that caused it. The bump comes from the squash-merged PR TITLE, under the
+`conventionalcommits` preset (#923): a `!` before the colon (`feat(go)!:`) is a
+MAJOR — 0.x → 1.0.0 the first time, a refused 2.0.0 (Go's v2 module-path rule)
+the second — so a `go/`-touching PR title carries `!` only together with the
+`/v2` rename. A `BREAKING CHANGE:` footer never reaches `main` at all. `tag_go_modules.sh` remains the SINGLE tagging path;
 `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks` job) pins all
 of that. Rehearse a change to the lane with
 `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.

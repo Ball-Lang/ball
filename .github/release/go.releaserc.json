@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "go-modules/v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["go"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["go"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/exec", {
       "verifyReleaseCmd": "bash tools/go-module-proxy/bump_go_modules.sh --check-next v${nextRelease.version} --type ${nextRelease.type}"
     }]

@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["cpp"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["cpp"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
     ["@semantic-release/exec", {
       "publishCmd": "gh workflow run release-cpp.yml --ref v${nextRelease.version}"

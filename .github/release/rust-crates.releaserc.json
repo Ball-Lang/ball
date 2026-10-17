@@ -2,7 +2,11 @@
   "branches": ["main"],
   "tagFormat": "rust-crates/v${version}",
   "plugins": [
-    ["./tools/release/only-package-commits.mjs", { "paths": ["rust"] }],
+    ["./tools/release/only-package-commits.mjs", {
+      "paths": ["rust"],
+      "commitAnalyzer": { "preset": "conventionalcommits", "presetConfig": {} },
+      "releaseNotesGenerator": { "preset": "conventionalcommits", "presetConfig": {} }
+    }],
     ["@semantic-release/changelog", { "changelogFile": "rust/CHANGELOG.md" }],
     ["@semantic-release/exec", {
       "prepareCmd": "node tools/release/set_manifest_version.mjs --format=cargo-workspace --file=rust/Cargo.toml --version=${nextRelease.version}",

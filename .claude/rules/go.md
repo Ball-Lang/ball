@@ -480,6 +480,33 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   stand-in `dart` (a COPY of the test binary, so nothing the framework cleans up
   is locked while it runs) that hands its stdout to a grandchild and blocks.
   Measured: 5.6 s with the bound, 30.1 s without.
+- **The kill reaches the WHOLE process tree, not just the immediate `dart`
+  (#862 — the Go leg's own half of #791, which was scoped to Rust/Python
+  only).** Bounding the WAIT above is a different guarantee from killing the
+  TREE: before #862, `roundTripOne`'s timeout path called only
+  `cmd.Process.Kill()`, which reaches the `dart` launcher alone and leaves the
+  Dart VM it forks running, orphaned, in the CI runner — invisible to the
+  WaitDelay control above, because a harness that returns promptly and a
+  grandchild that is still running are the same observation.
+  `go/engine/conformance/roundtrip_unix.go` / `roundtrip_windows.go` carry the
+  fix as **filename** build constraints (not `-tags`; note `_unix` is NOT a
+  GOOS the filename convention recognizes on its own — unlike `_windows` —
+  so `roundtrip_unix.go` also needs an explicit `//go:build unix` comment):
+  the child is spawned as its own process-group leader
+  (`cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`) and the timeout
+  path kills the GROUP (`syscall.Kill(-pid, syscall.SIGKILL)`, with
+  `cmd.Process.Kill()` as an unconditional backstop); Windows has no
+  process-group equivalent, so `taskkill /T /F /PID` walks the OS-recorded
+  parent-pid chain instead — the same spelling the Rust/Python legs' #791 fix
+  uses on that platform, and the guarantee
+  `csharp/engine/conformance/RoundTripLeg.cs` always had via
+  `Kill(entireProcessTree: true)`. `TestRoundTripKillEndsTheWholeProcessTree`
+  is the negative control: the WaitDelay test's stand-in `dart` grows a
+  heartbeat file in its grandchild (appended every 50 ms, mirroring the
+  Rust/Python #791 controls), and the test asserts it stops growing after the
+  timeout fires — with a positive floor on that file (it must be non-empty
+  before the stillness check) so a control that never forked a live
+  grandchild cannot pass while proving nothing.
 - **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
   compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
   construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture

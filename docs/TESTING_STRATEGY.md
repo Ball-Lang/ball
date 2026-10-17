@@ -593,35 +593,51 @@ drop is red.
    entirely on the exec API, so the four legs do not share one story. Stated per
    leg, because stating it once for all four is what let #791 sit unnoticed:
 
-   - **Go — the WAIT hangs (#691).** `roundtrip.go` sets `cmd.Stdout` to an
-     in-memory writer, so `os/exec` pipes the child and copies in a goroutine,
-     and `cmd.Wait` does not return until that copy ends — which needs EVERY
-     holder of the pipe's write end closed, the killed process's descendants
-     included. The leg killed its `dart` and then blocked forever, so the sweep
-     printed no `Results:` line at all and the row would have died on the job's
-     `timeout-minutes` — reporting nothing, rather than reporting a timeout. The
-     bound is `cmd.WaitDelay`, and `roundtrip_timeout_test.go` is its negative
-     control: a stand-in `dart` that hands its stdout to a grandchild and
-     blocks, measured at 5.6 s with the bound and 30.1 s without. It stayed
-     latent because only 31 fixtures ever reached the engine; it surfaced the
-     moment #691 raised that to 80. **This is a Go-only mechanism** — the other
-     three legs use exec APIs that cannot block that way (`RoundTripLeg.cs`
-     returns without awaiting its read tasks; Rust's `run_dart` calls
-     `child.wait()`, not `wait_with_output()`; CPython's `subprocess` does not
-     re-read the pipes on the POSIX timeout path). Bounding the WAIT is not
-     killing the TREE, so this leg still leaves the orphan the next bullet
-     describes — **#862** is that, and its control is the elapsed-time
-     assertion's blind spot: a harness that returns promptly and a grandchild
-     that is still running are the same observation.
-   - **Rust and Python — the process TREE survives (#791).** Neither hangs; both
-     used to kill only the immediate `dart`, leaving one orphaned Dart VM per
-     timed-out fixture burning a CI runner for the rest of the job. Invisible to
-     every test they had, because those assert only that the HARNESS came back
-     with a `timeout` status — which it always did. Both now spawn the child as
-     its own process-group leader (`CommandExt::process_group(0)` /
-     `start_new_session=True`) and kill the GROUP on timeout
-     (`libc::kill(-pid, SIGKILL)` / `os.killpg`; `taskkill /T /F /PID` on
-     Windows). The negative control per leg is
+   - **Go — the WAIT used to hang too (#691), and the TREE survived until
+     #862.** `roundtrip.go` sets `cmd.Stdout` to an in-memory writer, so
+     `os/exec` pipes the child and copies in a goroutine, and `cmd.Wait` does
+     not return until that copy ends — which needs EVERY holder of the pipe's
+     write end closed, the killed process's descendants included. The leg
+     killed its `dart` and then blocked forever, so the sweep printed no
+     `Results:` line at all and the row would have died on the job's
+     `timeout-minutes` — reporting nothing, rather than reporting a timeout.
+     The bound is `cmd.WaitDelay`, and
+     `TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe`
+     (`roundtrip_timeout_test.go`) is its negative control: a stand-in `dart`
+     that hands its stdout to a grandchild and blocks, measured at 5.6 s with
+     the bound and 30.1 s without. It stayed latent because only 31 fixtures
+     ever reached the engine; it surfaced the moment #691 raised that to 80.
+     **This WAS a Go-only mechanism** — the other three legs use exec APIs
+     that cannot block that way (`RoundTripLeg.cs` returns without awaiting its
+     read tasks; Rust's `run_dart` calls `child.wait()`, not
+     `wait_with_output()`; CPython's `subprocess` does not re-read the pipes on
+     the POSIX timeout path). But bounding the WAIT was never the same as
+     killing the TREE: until #862, `roundTripOne`'s timeout path called only
+     `cmd.Process.Kill()`, which reaches the immediate `dart` launcher and
+     nothing else — the elapsed-time assertion above is blind to it by
+     construction, because a harness that returns promptly and a grandchild
+     that is still running are the same observation. It now spawns the child
+     as its own process-group leader
+     (`cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`,
+     `roundtrip_unix.go`) and kills the GROUP on timeout
+     (`syscall.Kill(-pid, SIGKILL)`; `taskkill /T /F /PID` on Windows,
+     `roundtrip_windows.go` — filename build constraints, since "unix" is not
+     a GOOS the filename convention recognizes on its own, so `roundtrip_unix.go`
+     also carries an explicit `//go:build unix`). The negative control is
+     `TestRoundTripKillEndsTheWholeProcessTree`: the SAME stand-in `dart`'s
+     grandchild now appends a heartbeat file every 50 ms, and the test asserts
+     it stops growing after the timeout fires, with a positive floor on that
+     file so a control that failed to fork anything cannot pass while proving
+     nothing — the Go sibling of the Rust/Python controls below.
+   - **Rust and Python — the process TREE survived until #791.** Neither
+     hangs; both used to kill only the immediate `dart`, leaving one orphaned
+     Dart VM per timed-out fixture burning a CI runner for the rest of the
+     job. Invisible to every test they had, because those assert only that
+     the HARNESS came back with a `timeout` status — which it always did.
+     Both now spawn the child as its own process-group leader
+     (`CommandExt::process_group(0)` / `start_new_session=True`) and kill the
+     GROUP on timeout (`libc::kill(-pid, SIGKILL)` / `os.killpg`;
+     `taskkill /T /F /PID` on Windows). The negative control per leg is
      `a_timed_out_fixture_leaves_no_orphaned_descendant_process` (Rust) and
      `python/engine/tests/test_roundtrip_process_tree.py`: a fabricated stand-in
      `dart` that forks a grandchild inheriting its stdout and blocks, asserting
@@ -630,7 +646,7 @@ drop is red.
      fork anything cannot pass while proving nothing.
    - **C# — already correct.** `RoundTripLeg.cs` has always called
      `process.Kill(entireProcessTree: true)`, which is the guarantee the other
-     two just acquired.
+     three just acquired.
 
 Python's floor is **63** since PR #733 (run 34800144249, the PR's own row), which
 mapped every `ballrt.*` helper with an exact universal-`std` inverse — the

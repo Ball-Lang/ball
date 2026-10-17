@@ -178,6 +178,12 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 	// docs/TESTING_STRATEGY.md §2c item 6 calls a defect in the harness itself.
 	// WaitDelay is exactly the bound os/exec provides for it.
 	cmd.WaitDelay = 5 * time.Second
+	// Make the child the leader of its own process group (unix) so a timeout can
+	// reach the WHOLE tree, not just the immediate `dart` — see killProcessTree
+	// below and issue #862. This has to happen at spawn time: a group cannot be
+	// imposed on a process that is already running. A no-op on Windows, where
+	// killProcessTree walks the OS-recorded parent-pid chain instead.
+	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return Result{name, "error", "dart exec: " + errorDetail(err.Error())}
 	}
@@ -199,7 +205,13 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 		}
 		return Result{name, "fail", diffDetail(expected, actual)}
 	case <-time.After(timeout):
-		_ = cmd.Process.Kill()
+		// Kill the WHOLE process tree, not just the `dart` we spawned (#862, the
+		// Go-leg half of #791). `dart run` is a launcher: it forks the Dart VM,
+		// and the VM is what actually executes the re-encoded program and holds
+		// the inherited stdout pipe. Killing only the launcher leaves that VM
+		// orphaned, still running in the CI runner, for the rest of the job —
+		// invisible to a caller that only sees a `timeout` status come back.
+		killProcessTree(cmd)
 		<-done
 		return Result{name, "timeout", fmt.Sprintf("killed after %s", timeout)}
 	}

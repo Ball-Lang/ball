@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,7 +53,20 @@ func TestMain(m *testing.M) {
 		time.Sleep(helperHoldsPipeFor)
 		os.Exit(0)
 	case "holder":
-		time.Sleep(helperHoldsPipeFor)
+		// The grandchild. Its liveness is observable from the outside through a
+		// heartbeat file it appends to every 50ms, beside the binary both it and
+		// the "hang" role above run from (os.Args[0] is that same path in both
+		// processes — see heartbeatPath). A file that stops growing is a process
+		// that is gone: portable, and unlike a pid probe it cannot be confused by
+		// pid reuse (os.FindProcess always succeeds on unix, and signal 0 on
+		// Windows TERMINATES rather than probes). See
+		// TestRoundTripKillEndsTheWholeProcessTree.
+		heartbeat := heartbeatPath(os.Args[0])
+		deadline := time.Now().Add(helperHoldsPipeFor)
+		for time.Now().Before(deadline) {
+			appendHeartbeat(heartbeat)
+			time.Sleep(50 * time.Millisecond)
+		}
 		os.Exit(0)
 	default:
 		os.Exit(m.Run())
@@ -102,6 +116,121 @@ func TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe(t *testing.T) {
 		t.Fatalf("the leg took %v to report the timeout — Wait blocked on the "+
 			"grandchild's copy of the stdout pipe instead of being bounded by "+
 			"cmd.WaitDelay", elapsed)
+	}
+}
+
+// heartbeatPath is where the "holder" role (TestMain) appends its liveness
+// heartbeat: beside the binary it runs from, mirroring
+// rust/engine/tests/roundtrip_conformance.rs's `heartbeat_path` (there,
+// `with_extension`; here, replacing whatever extension the binary itself
+// carries — none on unix, ".exe" on Windows).
+func heartbeatPath(dartBinary string) string {
+	return strings.TrimSuffix(dartBinary, filepath.Ext(dartBinary)) + ".heartbeat"
+}
+
+// appendHeartbeat appends one byte to path, creating it on the first call.
+// Errors are swallowed: the caller (TestMain's "holder" role) runs inside a
+// FORKED helper process, where there is no test framework left to report to,
+// and a positive-floor assertion on the reading side is what catches a
+// heartbeat that never got written at all.
+func appendHeartbeat(path string) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(".")
+	_ = f.Close()
+}
+
+// heartbeatLen is the heartbeat file's size, or 0 while it does not exist yet.
+func heartbeatLen(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// TestRoundTripKillEndsTheWholeProcessTree is the Go leg's negative control
+// for issue #862 — the last of the four `*-roundtrip` legs with #791's gap.
+//
+// `dart run` is a LAUNCHER: it forks the Dart VM, and the VM is what actually
+// executes the re-encoded program and holds the inherited stdout pipe.
+// Before this fix, roundTripOne's timeout path called only
+// `cmd.Process.Kill()`, which reaches the immediate `dart` process and
+// nothing else — leaving that VM running, orphaned, in the CI runner for the
+// rest of the job. `csharp/engine/conformance/RoundTripLeg.cs` has always
+// called `Kill(entireProcessTree: true)`, and the Rust/Python legs acquired
+// the same guarantee in #791 (process-group kill); this is the Go leg's.
+//
+// The assertion is about the GRANDCHILD surviving, not about the harness
+// returning: TestRoundTripKillReturnsEvenWhenAGrandchildHoldsThePipe already
+// proves the harness comes back promptly, and it did even before this fix —
+// a harness that returns promptly and a grandchild that is still running are
+// exactly the same observation, which is why that elapsed-time assertion
+// could never have caught this gap on its own. Liveness is observed through
+// the "holder" role's heartbeat file rather than a pid probe, which has no
+// portable "is it still running" spelling (os.FindProcess always succeeds on
+// unix even for a reaped pid, and Windows' signal 0 equivalent TERMINATES
+// rather than probes).
+func TestRoundTripKillEndsTheWholeProcessTree(t *testing.T) {
+	t.Setenv("BALL_TIMEOUT_MS", "500")
+	// The leg starts its `dart` with this process's environment, so setting the
+	// role here is what makes the stand-in behave as the runaway.
+	t.Setenv(roundTripHelperEnv, "hang")
+
+	dir, err := conformanceDir()
+	if err != nil {
+		t.Fatalf("locate the conformance corpus: %v", err)
+	}
+	fixture := filepath.Join(dir, "265_enc_hello.ball.json")
+	if _, err := os.Stat(fixture); err != nil {
+		t.Fatalf("the fixture this control compiles is missing: %v", err)
+	}
+
+	workdir, err := os.MkdirTemp("", "ball_roundtrip_tree_control_")
+	if err != nil {
+		t.Fatalf("workdir: %v", err)
+	}
+	defer os.RemoveAll(workdir)
+
+	// Same reasoning as helperBinary's own call site: the helper processes may
+	// still be shutting down when this test returns, so run a COPY out of a
+	// directory the test framework never tries to clean up.
+	dartBinary := helperBinary(t)
+	heartbeat := heartbeatPath(dartBinary)
+	_ = os.Remove(heartbeat) // a leftover from a previous run must not be read as "still alive"
+
+	res := roundTripOne("tree_control", fixture, "irrelevant golden",
+		dartBinary, "unused.dart", os.TempDir(), workdir)
+
+	if res.Status != "timeout" {
+		t.Fatalf("a non-terminating fixture reported status %q (detail %q), want \"timeout\"",
+			res.Status, res.Detail)
+	}
+
+	// Let any write already in flight when the kill landed settle.
+	time.Sleep(750 * time.Millisecond)
+	first := heartbeatLen(heartbeat)
+	// POSITIVE FLOOR. Without it a control that never managed to fork a
+	// grandchild — a sandbox that forbids the spawn, a build quirk — would
+	// report a frozen, zero-length heartbeat and pass while proving nothing at
+	// all about the kill.
+	if first == 0 {
+		t.Fatalf("the stand-in never wrote a heartbeat (%s), so this run fabricated no live "+
+			"grandchild and proves nothing about the kill", heartbeat)
+	}
+
+	// A live grandchild appends every 50ms (see TestMain's "holder" role), so
+	// ~30 more bytes land in this window. A heartbeat that has not moved is a
+	// process that is gone.
+	time.Sleep(1500 * time.Millisecond)
+	second := heartbeatLen(heartbeat)
+	if first != second {
+		t.Fatalf("the timed-out fixture's GRANDCHILD is still running: its heartbeat grew from "+
+			"%d to %d bytes 1.5s after the harness reported the timeout. The kill reached only "+
+			"the immediate `dart` process, so a real sweep leaks one orphaned Dart VM per "+
+			"timed-out fixture (issue #862)", first, second)
 	}
 }
 

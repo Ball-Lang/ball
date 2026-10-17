@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # claude-code-action input/trigger-event static gate (issue #870).
 #
-# WHY THIS EXISTS: claude-iterate.yml's weekly `schedule` run was red from
-# 2026-09-08 onward (run 38421075334, job 115378233630) because every one of
-# its three `anthropics/claude-code-action@...` steps passed
+# WHY THIS EXISTS: claude-iterate.yml's weekly `schedule` run has been red
+# since the workflow was added on 2026-07-10 (#359) -- every scheduled run
+# from 2026-07-14 onward failed identically (most recently run 38421075334,
+# job 115378233630; also confirmed on job 91963210761, 2026-08-04) because
+# every one of its three `anthropics/claude-code-action@...` steps passed
 # `track_progress: true`, and that input is HARDCODED valid only for
 # `pull_request`/`issues`/`issue_comment`/`pull_request_review_comment`/
 # `pull_request_review` events (anthropics/claude-code-action's
@@ -28,7 +30,7 @@
 # because it can't prove the expression is always false), the workflow's own
 # `on:` trigger set must be a SUBSET of the action's documented
 # track_progress-valid events. If the workflow also triggers on
-# `pull_request`, that trigger's `types:` (or the five GitHub-documented
+# `pull_request`, that trigger's `types:` (or the three GitHub-documented
 # defaults when `types:` is omitted) must themselves be a subset of the
 # action's track_progress-valid pull_request actions
 # (opened/synchronize/ready_for_review/reopened) — the second validation

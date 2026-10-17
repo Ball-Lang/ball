@@ -674,8 +674,10 @@ jobs:
           bash tools/test/test_check_required_contexts.sh
           bash tools/ci/check_required_contexts.sh
 
-      # claude-iterate.yml's weekly `schedule` run was red from 2026-09-08
-      # onward (run 38421075334) because it passed `track_progress: true` to
+      # claude-iterate.yml's weekly `schedule` run has been red since the
+      # workflow was added on 2026-07-10 (#359) -- every scheduled run from
+      # 2026-07-14 onward failed identically (most recently run 38421075334)
+      # because it passed `track_progress: true` to
       # anthropics/claude-code-action on a schedule/workflow_dispatch trigger
       # — an input the action hardcodes valid only for pull_request/issues/
       # issue_comment/pull_request_review_comment/pull_request_review events

@@ -163,10 +163,10 @@ version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
- "ra_ap_intern",
+ "ra_ap_intern 0.0.351",
  "ra_ap_mbe",
- "ra_ap_span",
- "ra_ap_tt",
+ "ra_ap_span 0.0.351",
+ "ra_ap_tt 0.0.358",
  "salsa",
  "serde_json",
  "syn 2.0.118",
@@ -685,10 +685,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7b7def8f7824aca5c7de77f53c384fe81d3f6ec46ebf4aa571b9f150404fa14"
 
 [[package]]
+name = "ra_ap_edition"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e95437d4702879e3851c80580524f36025589b3eeaec3f7798cdf88671c130b"
+
+[[package]]
 name = "ra_ap_intern"
 version = "0.0.351"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d15d774f1e5d25c257732a61a5a7e066a1c565419a3780f0ac1ae8966a4c7b9"
+dependencies = [
+ "arrayvec",
+ "dashmap",
+ "hashbrown 0.14.5",
+ "rayon",
+ "rustc-hash 2.1.3",
+ "triomphe",
+]
+
+[[package]]
+name = "ra_ap_intern"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51fddd20c482af576865ab697077cbf1b61b7d30214ab250ce3aa83f0af41eb2"
 dependencies = [
  "arrayvec",
  "dashmap",
@@ -708,12 +728,12 @@ dependencies = [
  "bitflags",
  "cov-mark",
  "ra-ap-rustc_lexer",
- "ra_ap_intern",
- "ra_ap_parser",
- "ra_ap_span",
- "ra_ap_stdx",
+ "ra_ap_intern 0.0.351",
+ "ra_ap_parser 0.0.351",
+ "ra_ap_span 0.0.351",
+ "ra_ap_stdx 0.0.351",
  "ra_ap_syntax-bridge",
- "ra_ap_tt",
+ "ra_ap_tt 0.0.351",
  "rustc-hash 2.1.3",
  "salsa",
  "smallvec",
@@ -727,7 +747,21 @@ checksum = "b47d3d6aeeccacda850ed07374b170a309d7960547b652befdb0b67934d7e963"
 dependencies = [
  "drop_bomb",
  "ra-ap-rustc_lexer",
- "ra_ap_edition",
+ "ra_ap_edition 0.0.351",
+ "rustc-literal-escaper",
+ "tracing",
+ "winnow",
+]
+
+[[package]]
+name = "ra_ap_parser"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64b1543d3639a969f5cb4d55a94154ef672f5e1c873b6161407f5705e3164bbc"
+dependencies = [
+ "drop_bomb",
+ "ra-ap-rustc_lexer",
+ "ra_ap_edition 0.0.358",
  "rustc-literal-escaper",
  "tracing",
  "winnow",
@@ -743,6 +777,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra_ap_paths"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "781f81610b0333e60fabdcf4f9ea8a76a7eeff2cda2be6d8f8ad7b9b53985488"
+dependencies = [
+ "camino",
+]
+
+[[package]]
 name = "ra_ap_span"
 version = "0.0.351"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -750,11 +793,26 @@ checksum = "32ab6941b00fd04b84bba7c76adf19d6429a0aea8162bc422063f48ed77b2a88"
 dependencies = [
  "hashbrown 0.17.1",
  "la-arena",
- "ra_ap_stdx",
- "ra_ap_syntax",
- "ra_ap_vfs",
+ "ra_ap_stdx 0.0.351",
+ "ra_ap_syntax 0.0.351",
+ "ra_ap_vfs 0.0.351",
  "rustc-hash 2.1.3",
  "salsa",
+ "text-size",
+]
+
+[[package]]
+name = "ra_ap_span"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98543730b25d99687b95ca1bd4a0f326366eb7a55caf6e847b70ee3c2ac89206"
+dependencies = [
+ "hashbrown 0.17.1",
+ "la-arena",
+ "ra_ap_stdx 0.0.358",
+ "ra_ap_syntax 0.0.358",
+ "ra_ap_vfs 0.0.358",
+ "rustc-hash 2.1.3",
  "text-size",
 ]
 
@@ -775,6 +833,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra_ap_stdx"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60c564fa8518154e983d5c49be54bfc970cd91ba5b7fd9be07289e1965aa42cc"
+dependencies = [
+ "crossbeam-channel",
+ "crossbeam-utils",
+ "itertools 0.15.0",
+ "jod-thread",
+ "libc",
+ "miow",
+ "tracing",
+ "windows-sys",
+]
+
+[[package]]
 name = "ra_ap_syntax"
 version = "0.0.351"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -783,8 +857,28 @@ dependencies = [
  "either",
  "itertools 0.15.0",
  "ra-ap-rustc_lexer",
- "ra_ap_parser",
- "ra_ap_stdx",
+ "ra_ap_parser 0.0.351",
+ "ra_ap_stdx 0.0.351",
+ "rowan",
+ "rustc-hash 2.1.3",
+ "rustc-literal-escaper",
+ "smallvec",
+ "smol_str",
+ "tracing",
+ "triomphe",
+]
+
+[[package]]
+name = "ra_ap_syntax"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3b6f7b5310d58d302b6e654b7b7013676a94c462e9e21ae2152d49e5d067ae1"
+dependencies = [
+ "either",
+ "itertools 0.15.0",
+ "ra-ap-rustc_lexer",
+ "ra_ap_parser 0.0.358",
+ "ra_ap_stdx 0.0.358",
  "rowan",
  "rustc-hash 2.1.3",
  "rustc-literal-escaper",
@@ -800,12 +894,12 @@ version = "0.0.351"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df59f87f85b199d3eec60f9c942313d6ce389a6dbf119605620c4c406ec4020c"
 dependencies = [
- "ra_ap_intern",
- "ra_ap_parser",
- "ra_ap_span",
- "ra_ap_stdx",
- "ra_ap_syntax",
- "ra_ap_tt",
+ "ra_ap_intern 0.0.351",
+ "ra_ap_parser 0.0.351",
+ "ra_ap_span 0.0.351",
+ "ra_ap_stdx 0.0.351",
+ "ra_ap_syntax 0.0.351",
+ "ra_ap_tt 0.0.351",
  "rustc-hash 2.1.3",
 ]
 
@@ -817,9 +911,24 @@ checksum = "1290179ce15eb7efe804597024fff6db59504fe1ec572c14d03cb601b0982d49"
 dependencies = [
  "arrayvec",
  "ra-ap-rustc_lexer",
- "ra_ap_intern",
- "ra_ap_span",
- "ra_ap_stdx",
+ "ra_ap_intern 0.0.351",
+ "ra_ap_span 0.0.351",
+ "ra_ap_stdx 0.0.351",
+ "rustc-hash 2.1.3",
+ "text-size",
+]
+
+[[package]]
+name = "ra_ap_tt"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6767bfe5e71541eef3b764098e0a9ec77864978f610900f8bedfa85151dd58b1"
+dependencies = [
+ "arrayvec",
+ "ra-ap-rustc_lexer",
+ "ra_ap_intern 0.0.358",
+ "ra_ap_span 0.0.358",
+ "ra_ap_stdx 0.0.358",
  "rustc-hash 2.1.3",
  "text-size",
 ]
@@ -834,8 +943,24 @@ dependencies = [
  "fst",
  "indexmap",
  "nohash-hasher",
- "ra_ap_paths",
- "ra_ap_stdx",
+ "ra_ap_paths 0.0.351",
+ "ra_ap_stdx 0.0.351",
+ "rustc-hash 2.1.3",
+ "tracing",
+]
+
+[[package]]
+name = "ra_ap_vfs"
+version = "0.0.358"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "613e9b9ce9dfb085c980497b712624eca7ec7312c41bc2855ef8cdc245c33dab"
+dependencies = [
+ "crossbeam-channel",
+ "fst",
+ "indexmap",
+ "nohash-hasher",
+ "ra_ap_paths 0.0.358",
+ "ra_ap_stdx 0.0.358",
  "rustc-hash 2.1.3",
  "tracing",
 ]

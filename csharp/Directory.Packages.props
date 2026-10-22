@@ -79,7 +79,7 @@
          xunit.v3 3.2.2 (`dotnet test` still passes under VSTest mode). Revisit
          the xunit.v3 pin only alongside that MTP-mode migration. -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
-    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
   </ItemGroup>

@@ -1781,9 +1781,13 @@ dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 365 passed, 0 failed, 365 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
+  -c Release --no-build -- --leg=compiler                    # prints Results: N passed, M failed, T total;
+  # not yet 100%, so no count is pinned here — see the csharp-compiler row in
+  # conformance-matrix.yml for the live, measured count (#831)
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
+  -c Release --no-build -- --leg=roundtrip [--dart=dart]      # prints Results: N passed, M failed, T total;
+  # not yet 100%, so no count is pinned here — see the csharp-roundtrip row in
+  # conformance-matrix.yml for the live, measured count (#831)
 # --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture
 # with full actual-vs-expected detail.
 

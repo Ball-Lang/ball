@@ -155,6 +155,93 @@ else
   printf '%s\n' "$LAST_OUT" | sed 's/^/  /'
 fi
 
+# ── 12. A nonzero-failure Results line reintroduced as a cheat-sheet trailing
+# comment INSIDE A FENCED CODE BLOCK is forbidden, even though it disagrees
+# with nothing numeric (#831). ─────────────────────────────────────────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+printf '```bash\ndotnet run -- --leg=roundtrip   # Results: 0 passed, 3 failed, 3 total\n```\n' >"$root/A.md"
+expect "a nonzero cheat-sheet comment is forbidden -> exit 1" 1 "$root" \
+  "A.md:2:" "nonzero cheat-sheet comments (#831): 1 forbidden"
+
+# ── 13. ...unless the line is historical-marked. ──────────────────────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+printf '```bash\ndotnet run -- --leg=x   # Results: 0 passed, 3 failed, 3 total <!-- corpus-count: historical -->\n```\n' >"$root/A.md"
+expect "a historical-marked nonzero cheat-sheet comment is allowed -> exit 0" 0 "$root" \
+  "nonzero cheat-sheet comments (#831): 0 forbidden, 1 historical-skipped"
+
+# ── 14. A narrative mention with no trailing '#' comment, or one outside a
+# fenced code block entirely (a YAML workflow's own phase-log comments, a
+# markdown table/paragraph), is NOT a cheat sheet, so it is left to the
+# (separate, deliberate) nonzero-failure carve-out above — this check must
+# not over-match ordinary narrative that happens to start lines with '#'.
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+printf 'the sweep read "Results: 9 passed, 2 failed, 11 total" instead.\n' >"$root/A.md"
+printf '# #829: `Results: 9 passed, 2 failed, 11 total`, never predicted.\n' >"$root/C.yml"
+expect "nonzero prose outside a fenced code block is not a cheat-sheet comment -> exit 0" 0 "$root" \
+  "nonzero cheat-sheet comments (#831): 0 forbidden"
+
+# ── 15. A bare "<N>-fixture" prose count in coverage.yml (#714's named file)
+# is forbidden. ─────────────────────────────────────────────────────────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+mkdir -p "$root/.github/workflows"
+printf 'the whole 317-fixture sweep runs here\n' >"$root/.github/workflows/coverage.yml"
+expect "a bare fixture-count prose claim in coverage.yml is forbidden -> exit 1" 1 "$root" \
+  ".github/workflows/coverage.yml:1: 317-fixture" "bare '<N>-fixture' prose counts (#714): 1 forbidden"
+
+# ── 16. ...unless hedged with a leading '~' (a deliberate approximation). ──
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+mkdir -p "$root/.github/workflows"
+printf 'the whole ~317-fixture sweep runs here\n' >"$root/.github/workflows/coverage.yml"
+expect "an approximate '~N-fixture' hedge is allowed -> exit 0" 0 "$root" \
+  "bare '<N>-fixture' prose counts (#714): 0 forbidden"
+
+# ── 17. ...or historical-marked. ───────────────────────────────────────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+mkdir -p "$root/.github/workflows"
+printf 'the whole 317-fixture sweep ran here <!-- corpus-count: historical -->\n' >"$root/.github/workflows/coverage.yml"
+expect "a historical-marked fixture-count claim is allowed -> exit 0" 0 "$root" \
+  "bare '<N>-fixture' prose counts (#714): 0 forbidden, 1 historical-skipped"
+
+# ── 17b. The SAME shape OUTSIDE coverage.yml is out of scope by design (#714
+# is scoped to the one named file; see the script's own scope comment). ──
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+printf 'the whole 317-fixture sweep runs here too\n' >"$root/A.md"
+expect "a fixture-count claim outside coverage.yml is not scanned -> exit 0" 0 "$root" \
+  "bare '<N>-fixture' prose counts (#714): 0 forbidden"
+
+# ── 18. docs/TESTING_STRATEGY.md's bold "**N** of M" denominator must equal
+# the derived total (#716). ────────────────────────────────────────────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+mkdir -p "$root/docs"
+printf 'Python **41**, Go **31** of 9.\n' >"$root/docs/TESTING_STRATEGY.md"
+expect "a stale 'of N' denominator disagrees with the derived total -> exit 1" 1 "$root" \
+  "docs/TESTING_STRATEGY.md:1: **31** of 9" "disagrees with the derived total 3"
+
+# ── 19. ...agreeing with the derived total passes. ─────────────────────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+mkdir -p "$root/docs"
+printf 'Python **41**, Go **31** of 3.\n' >"$root/docs/TESTING_STRATEGY.md"
+expect "an agreeing 'of N' denominator passes -> exit 0" 0 "$root" \
+  "'of <N>' denominators (#716): 1 checked, 0 historical-skipped"
+
+# ── 20. ...or, mismatching but historical-marked (a past PR's own
+# measurement), passes too — the same opt-out every check shares. ─────────
+root="$(make_tree 3 1)"
+printf 'fine: 3 passed, 0 failed, 3 total\n' >"$root/B.md"
+mkdir -p "$root/docs"
+printf 'Python **41**, Go **31** of 9. <!-- corpus-count: historical -->\n' >"$root/docs/TESTING_STRATEGY.md"
+expect "a historical-marked mismatching 'of N' denominator is allowed -> exit 0" 0 "$root" \
+  "'of <N>' denominators (#716): 0 checked, 1 historical-skipped"
+
 total=$((pass + fail))
 if [ "$total" -lt 1 ]; then
   echo "::error::conformance-count guard test ran zero cases"

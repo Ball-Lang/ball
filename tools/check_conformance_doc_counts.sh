@@ -25,12 +25,15 @@
 # the derived value and the `Results:` line printed by all four of the Rust, Go,
 # C# and Python jobs in run 33706063554 agreed exactly.
 #
-# SCOPE — deliberately only the PARITY line, `<A> passed, 0 failed, <B> total`,
-# which is a claim about the CURRENT corpus. Deliberately NOT matched:
-#   * lines with a nonzero failure count (`246 passed, 74 failed, 320 total`) —
-#     those are per-leg measurements (the C# compiler leg, the round-trip legs,
-#     the honest zero baselines). Their totals are stale too, but "fixing" them
-#     by editing the number would fabricate a measurement nobody re-ran.
+# SCOPE — the PARITY line, `<A> passed, 0 failed, <B> total`, which is a claim
+# about the CURRENT corpus, PLUS three sibling shapes (#831/#714/#716) that rot
+# the exact same way for a leg/doc that is not at 100%. Deliberately NOT
+# matched by the PARITY check:
+#   * lines with a nonzero failure count (`246 passed, 74 failed, 320 total`)
+#     as narrative prose (e.g. "slice 3's baseline was …") — those are
+#     per-moment measurements cited with their own run id, not a claim about
+#     HEAD, so "fixing" the number in place would fabricate a measurement
+#     nobody re-ran.
 #   * CHANGELOG.md — an append-only release log; rewriting it falsifies history.
 #   * the degenerate `0 passed, 0 failed, 0 total` sentinel, quoted verbatim in
 #     publish-crates/nuget/pypi.yml's comments as the "a sweep that executed
@@ -38,18 +41,48 @@
 #     reject (#439/#444). It is a quoted counter-example, never a corpus claim —
 #     and the corpus is never empty, which this guard itself asserts below.
 #   * any occurrence whose line carries the marker `corpus-count: historical`,
-#     for phase-log narrative that correctly describes a past moment.
+#     for phase-log narrative that correctly describes a past moment — the SAME
+#     opt-out every check below honors, so one mechanism covers all four shapes.
 # Every carve-out is reported in the summary, so silently growing the ignore
 # list is visible in the CI log.
+#
+# The three sibling checks, each closing a reported drift (frozen counts with
+# no path back to honesty — the opposite problem from the PARITY line's
+# "nothing fixes them" carve-out above):
+#   * NONZERO CHEAT-SHEET COMMENT (#831): a `<command> ... # Results: N passed,
+#     M failed, T total` trailing comment (M != 0) inside a markdown FENCED
+#     CODE BLOCK (a Build & Test cheat sheet). Unlike the narrative prose
+#     above, this reads as "run this, get this" — a reader who runs the
+#     command gets a DIFFERENT M every time the leg's own pass count moves,
+#     which is often. No number is ever right here, so (unless
+#     historical-marked) it is simply forbidden; point at the live row in
+#     conformance-matrix.yml instead. Scoped to inside a fence so a YAML
+#     workflow's own phase-log comments (which also start every line with
+#     `#`, by YAML comment syntax) and a markdown table/paragraph quoting the
+#     same numbers are left alone — neither is a "do this, get this"
+#     instruction.
+#   * BARE FIXTURE-COUNT PROSE (#714): a free-floating `<N>-fixture` claim in
+#     `.github/workflows/coverage.yml` specifically, outside the parsed
+#     `Results:` line shape (its "355-fixture conformance run" comment). Not
+#     generalized repo-wide: "N-fixture" alone also reads as a DELTA ("a
+#     3-fixture gain") or a named small subset ("the same 5-fixture set"),
+#     neither of which is the whole-corpus claim this check targets. An
+#     approximate count (`~350-fixture`) is a deliberate hedge, not a claim of
+#     precision, and is left alone; an exact one is forbidden (unless
+#     historical-marked) for the same reason as above.
+#   * BOLD-NUMBER "OF N" DENOMINATOR (#716): `**<passed>** of <N>` (the
+#     round-trip-floor-listing shape in docs/TESTING_STRATEGY.md) must equal
+#     the derived total, unless historical-marked. Scoped to that one doc —
+#     "of N" alone is too generic a shape to safely gate repo-wide.
 #
 # Usage:
 #   bash tools/check_conformance_doc_counts.sh            # gate the repo
 #   bash tools/check_conformance_doc_counts.sh --root DIR # a synthetic tree
 #   bash tools/check_conformance_doc_counts.sh --expect N # override the
 #                                                         # derivation
-# Exits 0 when every current-status occurrence equals N; 1 otherwise, printing
-# every offending file:line. Dependency-free (bash + awk + git/find), so it runs
-# in ci.yml's always-on `proto` job with no toolchain.
+# Exits 0 when every current-status occurrence of all four shapes is clean;
+# 1 otherwise, printing every offending file:line. Dependency-free (bash + awk
+# + git/find), so it runs in ci.yml's always-on `proto` job with no toolchain.
 
 set -uo pipefail
 
@@ -178,10 +211,100 @@ scan_file() {
   ' "$1"
 }
 
+# ── Sibling scan 1: a nonzero-failure Results line reintroduced as a trailing
+# shell comment inside a Build & Test FENCED CODE BLOCK (#831) — "run this
+# command, get this count" cheat-sheet prose. Scoped to markdown files, lines
+# inside a ``` fence, carrying a literal `#` before the match. That scope is
+# deliberately narrow: a YAML workflow comment (e.g. conformance-matrix.yml's
+# own phase-log narrative, which ALSO starts every line with `#` — it is a
+# comment file by syntax) and a markdown table row or paragraph quoting the
+# same numbers in backticks are ordinary narrative, not a "do this, get this"
+# instruction, and are intentionally left to the main nonzero-failure
+# carve-out above (the SAME disambiguation PR #809's review drew for the
+# C# roundtrip line vs. the Phase-4/5/7 narrative around it).
+scan_nonzero_comment_file() {
+  case "$1" in
+  *.md) ;;
+  *) return 0 ;;
+  esac
+  awk -v marker="$HISTORICAL_MARKER" '
+    BEGIN { infence = 0 }
+    {
+      line = $0
+      trimmed = line
+      sub(/^[ \t]*/, "", trimmed)
+      if (trimmed ~ /^```/) {
+        infence = !infence
+        next
+      }
+      if (!infence) next
+      hashpos = index(line, "#")
+      if (hashpos == 0) next
+      re = "[0-9]+[ \t]+passed,[ \t]+[0-9]+[ \t]+failed,[ \t]+[0-9]+[ \t]+total"
+      rest = line
+      off = 0
+      while (match(rest, re)) {
+        start = off + RSTART
+        hit = substr(rest, RSTART, RLENGTH)
+        if (hashpos < start) {
+          split(hit, parts, " ")
+          failedval = parts[3]
+          if (failedval != "0") {
+            kind = (index(line, marker) > 0) ? "historical" : "offender"
+            print kind "\t" NR "\t" hit
+          }
+        }
+        off = off + RSTART + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }
+  ' "$1"
+}
+
+# ── Sibling scan 2: a bare "<N>-fixture" prose count (#714) — the same rot,
+# a different shape (free-floating prose, not the parsed `Results:` line).
+# Scoped to EXACTLY the file issue #714 names: `.github/workflows/coverage.yml`
+# — "N-fixture" alone is too generic a shape to gate repo-wide (it also reads
+# as a DELTA, "a 3-fixture gain", or a named small subset, "the same 5-fixture
+# set", neither of which is the whole-corpus claim this check targets). A
+# `~`-prefixed count is a deliberate hedge ("approximately"), not a claim of
+# precision, and is left alone.
+scan_fixture_count_file() {
+  case "$1" in
+  */.github/workflows/coverage.yml) ;;
+  *) return 0 ;;
+  esac
+  awk -v marker="$HISTORICAL_MARKER" '
+    {
+      line = $0
+      re = "[0-9]+-fixture"
+      rest = line
+      off = 0
+      while (match(rest, re)) {
+        start = off + RSTART
+        approx = (start > 1 && substr(line, start - 1, 1) == "~")
+        if (!approx) {
+          hit = substr(rest, RSTART, RLENGTH)
+          kind = (index(line, marker) > 0) ? "historical" : "offender"
+          print kind "\t" NR "\t" hit
+        }
+        off = off + RSTART + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }
+  ' "$1"
+}
+
 checked=0
 historical=0
 sentinel=0
 offenders=""
+nz_offenders=0
+nz_historical=0
+nz_list=""
+fx_offenders=0
+fx_historical=0
+fx_list=""
 
 while IFS= read -r -d '' rel; do
   is_excluded "$rel" && continue
@@ -204,12 +327,72 @@ while IFS= read -r -d '' rel; do
       offenders="${offenders}${rel}:${lineno}: ${hit}"$'\n'
     fi
   done < <(scan_file "$abs")
+  while IFS=$'\t' read -r kind lineno hit; do
+    [ -n "${kind:-}" ] || continue
+    if [ "$kind" = "historical" ]; then
+      nz_historical=$((nz_historical + 1))
+      continue
+    fi
+    nz_offenders=$((nz_offenders + 1))
+    nz_list="${nz_list}${rel}:${lineno}: ${hit}"$'\n'
+  done < <(scan_nonzero_comment_file "$abs")
+  while IFS=$'\t' read -r kind lineno hit; do
+    [ -n "${kind:-}" ] || continue
+    if [ "$kind" = "historical" ]; then
+      fx_historical=$((fx_historical + 1))
+      continue
+    fi
+    fx_offenders=$((fx_offenders + 1))
+    fx_list="${fx_list}${rel}:${lineno}: ${hit}"$'\n'
+  done < <(scan_fixture_count_file "$abs")
 done < <(list_files)
+
+# ── Sibling scan 3: the bold-number "**<N>** of <M>" denominator (#716) —
+# the round-trip-floor-listing shape in docs/TESTING_STRATEGY.md. Scoped to
+# that one file: "of <M>" alone is far too generic a shape to gate repo-wide
+# (e.g. "fixed 4 of 10 packages" has nothing to do with the fixture corpus),
+# but immediately after a bold-markdown number it is, in this repo today, used
+# for exactly one thing.
+bo_checked=0
+bo_historical=0
+bo_list=""
+TESTING_STRATEGY="$ROOT/docs/TESTING_STRATEGY.md"
+if [ -f "$TESTING_STRATEGY" ]; then
+  while IFS=$'\t' read -r kind lineno hit; do
+    [ -n "${kind:-}" ] || continue
+    if [ "$kind" = "historical" ]; then
+      bo_historical=$((bo_historical + 1))
+      continue
+    fi
+    bo_checked=$((bo_checked + 1))
+    got_total="${hit##* }"
+    if [ "$got_total" != "$expected" ]; then
+      bo_list="${bo_list}docs/TESTING_STRATEGY.md:${lineno}: ${hit}"$'\n'
+    fi
+  done < <(awk -v marker="$HISTORICAL_MARKER" '
+    {
+      line = $0
+      re = "\\*\\*[0-9]+\\*\\*[ \t]+of[ \t]+[0-9]+"
+      rest = line
+      off = 0
+      while (match(rest, re)) {
+        hit = substr(rest, RSTART, RLENGTH)
+        kind = (index(line, marker) > 0) ? "historical" : "check"
+        print kind "\t" NR "\t" hit
+        off = off + RSTART + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }
+  ' "$TESTING_STRATEGY")
+fi
 
 echo "conformance-count drift guard: expected total $expected ($derivation)"
 echo "  occurrences checked: $checked"
 echo "  historical occurrences skipped ('$HISTORICAL_MARKER'): $historical"
 echo "  '0 passed, 0 failed, 0 total' sentinel quotes skipped: $sentinel"
+echo "  nonzero cheat-sheet comments (#831): $nz_offenders forbidden, $nz_historical historical-skipped"
+echo "  bare '<N>-fixture' prose counts (#714): $fx_offenders forbidden, $fx_historical historical-skipped"
+echo "  docs/TESTING_STRATEGY.md 'of <N>' denominators (#716): $bo_checked checked, $bo_historical historical-skipped"
 
 # Positive floor: an exit code plus an empty offender list cannot tell "every
 # doc agrees" from "the pattern stopped matching and nothing was scanned".
@@ -218,10 +401,37 @@ if [ "$checked" -lt 1 ]; then
   exit 1
 fi
 
+failed=0
+
 if [ -n "$offenders" ]; then
   echo "::error::conformance-corpus total drift: these occurrences disagree with the derived total $expected"
   printf '%s' "$offenders" | sed 's/^/  /'
   echo "  fix: update each line to the derived total, or (for phase-log narrative describing a past moment) mark the line '$HISTORICAL_MARKER'"
+  failed=1
+fi
+
+if [ -n "$nz_list" ]; then
+  echo "::error::a nonzero-failure Results line was reintroduced as a cheat-sheet comment (#831):"
+  printf '%s' "$nz_list" | sed 's/^/  /'
+  echo "  fix: replace the frozen count with a pointer at the live row in conformance-matrix.yml, or (for phase-log narrative describing a past moment) mark the line '$HISTORICAL_MARKER'"
+  failed=1
+fi
+
+if [ -n "$fx_list" ]; then
+  echo "::error::a bare '<N>-fixture' prose count was found outside the parsed Results: line (#714):"
+  printf '%s' "$fx_list" | sed 's/^/  /'
+  echo "  fix: describe the mechanism instead of a count that will go stale, hedge it with a leading '~' if it is deliberately approximate, or (for phase-log narrative describing a past moment) mark the line '$HISTORICAL_MARKER'"
+  failed=1
+fi
+
+if [ -n "$bo_list" ]; then
+  echo "::error::docs/TESTING_STRATEGY.md's 'of <N>' denominator disagrees with the derived total $expected (#716):"
+  printf '%s' "$bo_list" | sed 's/^/  /'
+  echo "  fix: update the denominator to the derived total, or (for phase-log narrative describing a past moment) mark the line '$HISTORICAL_MARKER'"
+  failed=1
+fi
+
+if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 

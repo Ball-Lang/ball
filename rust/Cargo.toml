@@ -97,6 +97,6 @@ indexmap = "2"
 # node kind was forgotten or `syn` grew one; the read-only visitor covers every
 # kind by construction and needs overriding only at the frames that own their
 # own `return`.
-syn = { version = "2", features = ["full", "extra-traits", "visit", "visit-mut"] }
+syn = { version = "3", features = ["full", "extra-traits", "visit", "visit-mut"] }
 proc-macro2 = "1"
 quote = "1"

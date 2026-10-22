@@ -138,7 +138,7 @@ jobs:
         with:
           fetch-depth: 0 # needed for buf breaking against git history
 
-      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         with:
           setup_only: true
 
@@ -883,7 +883,7 @@ jobs:
             go/engine/go.sum
             go/shared/go.sum
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
@@ -959,7 +959,7 @@ jobs:
       # Node is needed by the Dart-side TsCompiler wrapper, which
       # shells out to @ball-lang/compiler (ts/compiler/). Without the
       # dist build the wrapper throws.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -1111,7 +1111,7 @@ jobs:
       # TsCompiler wrapper), so Node + the built TS compiler are required or
       # that package's suite fails and its coverage is UNDER-counted — which
       # would redden this gate for the wrong reason.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -1275,7 +1275,7 @@ jobs:
       # engine ran fine. Regenerate-and-diff, same contract as the artifacts
       # above; ts/engine/test/compiled_engine_parity.test.ts is its behavioural
       # half.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -1493,7 +1493,7 @@ jobs:
           steps.assert-ts-engine.outcome == 'failure' ||
           steps.assert-ts-cli.outcome == 'failure' ||
           steps.assert-go.outcome == 'failure' )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: regenerated-artifacts
           # The staging directory's contents are uploaded at their repo-relative
@@ -1816,7 +1816,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.BALL_CPP_ACTIVE == 'true'
 
-      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: env.BALL_CPP_ACTIVE == 'true'
         with:
           setup_only: true
@@ -1969,7 +1969,7 @@ jobs:
       # `regenerated-artifacts` and two uploads may not share one name.
       - name: Upload the regenerated ball_protobuf C++ runtime
         if: failure() && steps.assert-cpp-protobuf-rt.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: regenerated-cpp-protobuf-rt
           path: cpp/shared/ball_protobuf_rt.h
@@ -2643,7 +2643,7 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
           restore-keys: pub-${{ runner.os }}-
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -3583,7 +3583,7 @@ jobs:
   #         <lang>-version: <stable>
   #
   #     # Proto generation (if bindings are built at compile time)
-  #     - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+  #     - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
   #       with:
   #         setup_only: true
   #

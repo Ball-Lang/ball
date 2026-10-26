@@ -42,7 +42,7 @@
       "clean": 0,
       "encoded": 141,
       "compiledBack": 140,
-      "reencoded": 58,
+      "reencoded": 66,
       "declarationsKept": 0,
       "excluded": 0
     },
@@ -91,7 +91,7 @@
       "kind": "tier-b",
       "artifact": "coverage-study-tier-b-dart/tier_b.json",
       "scored": 106,
-      "clean": 103
+      "clean": 106
     },
     {
       "language": "Dart",
@@ -99,7 +99,7 @@
       "kind": "tier-b",
       "artifact": "coverage-study-tier-b-dart/tier_b_all.json",
       "scored": 5,
-      "clean": 3
+      "clean": 5
     }
   ]
 }

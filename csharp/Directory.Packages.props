@@ -58,7 +58,7 @@
          builds, deliberately not used here). Pinned at 2.0.12 — the exact
          version the dependabot-opened bump (PR #869) applied and CI verified;
          bump to 2.0.13 separately if it is ever needed. -->
-    <PackageVersion Include="System.CommandLine" Version="2.0.12" />
+    <PackageVersion Include="System.CommandLine" Version="3.0.0" />
 
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
          self-executing test apps bridged to `dotnet test` via the VSTest

@@ -225,12 +225,12 @@ encoder and compiler (issue #493).
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | **Dart** — Tier A | 106 | 65 (61%) | 106 | 106 | 106 | 106 | 0 |
 | **TypeScript** — Tier A | 48 | 4 (8%) | 29 | 28 | 21 | 16 | 6 |
-| **C#** — Tier A | 472 | 0 (0%) | 141 | 140 | 58 | 0 | 0 |
-| **Python** — Tier A | 73 | 0 (0%) | 5 | 5 | 0 | 0 | 0 |
-| **Rust** — Tier A | 77 | 0 (0%) | 7 | 7 | 1 | 0 | 34 |
+| **C#** — Tier A | 472 | 0 (0%) | 141 | 140 | 66 | 0 | 0 |
+| **Python** — Tier A | 70 | 0 (0%) | 2 | 2 | 2 | 2 | 0 |
+| **Rust** — Tier A | 77 | 0 (0%) | 9 | 9 | 1 | 0 | 34 |
 | **Go** — Tier A | 21 | 0 (0%) | 0 | 0 | 0 | 0 | 13 |
-| **Dart** — Tier B (per-file) | 106 | 103 (97%) | — | — | — | — | — |
-| **Dart** — Tier B (whole-package) | 5 | 3 (60%) | — | — | — | — | — |
+| **Dart** — Tier B (per-file) | 106 | 106 (100%) | — | — | — | — | — |
+| **Dart** — Tier B (whole-package) | 5 | 5 (100%) | — | — | — | — | — |
 
 Measured over pinned **third-party** packages — code this project did not write — by `.github/workflows/coverage-study.yml` (weekly, plus `workflow_dispatch`). Tier A is structural (encode → compile back → re-encode → declaration inventory → fixpoint); Tier B substitutes the compiled-back file into the package's own test suite, which is the tier that sees a construct that round-trips cleanly but changes what the program computes.
 

@@ -45,14 +45,14 @@ jobs:
           rustup component add rustfmt clippy
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: rust
 
       # Dart regenerates dart/self_host/{engine,cli}.ball.json — the self-host
       # sources the gitignored compiled_engine.rs / compiled_cli.rs are compiled
       # from. Same reason ci.yml's rust job bootstraps Dart.
-      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
         with:
           sdk: stable
 
@@ -138,7 +138,7 @@ jobs:
       # exactly the class of lying gate this repo refuses. If OIDC fails, fail here.
       - name: crates.io trusted publishing token (OIDC)
         id: auth
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
 
       # Publish all publishable crates in ONE command. cargo computes the
       # dependency-DAG publish order itself — ball-lang-shared /
